@@ -529,6 +529,65 @@ async fn full_identity_update_sink_batch(
     Ok((discovery, sink_batch))
 }
 
+async fn default_identity_key_change_sink_batch(
+) -> anyhow::Result<(DeliveryDiscovery, SinkBatch)> {
+    let mut discovery = changelog_discovery();
+    let old_key = SchemaColumn::new("_system_old_key_0".into(), DataType::Int64, true)
+        .with_old_key_of("id".into());
+    discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .push(old_key);
+    let fields = discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .iter()
+        .map(|column| {
+            Field::new(&column.name, column.data_type.clone(), column.nullable)
+                .with_metadata(column.arrow_metadata())
+        })
+        .collect::<Vec<_>>();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        vec![
+            Arc::new(Int64Array::from(vec![2, 3])),
+            Arc::new(Int64Array::from(vec![20, 30])),
+            Arc::new(StringArray::from(vec!["u", "u"])),
+            Arc::new(Int64Array::from(vec![42, 42])),
+            Arc::new(BinaryArray::from_iter_values([
+                &[0b11_u8][..],
+                &[0b11_u8][..],
+            ])),
+            Arc::new(Int64Array::from(vec![Some(1), Some(2)])),
+        ],
+    )?;
+    let sink_batch = SinkBatch {
+        table: Arc::from("events"),
+        is_dlq: false,
+        byte_size: batch.get_array_memory_size(),
+        batch,
+        memory: PipelineMemory::new(1_000_000).reserve(1).await,
+        system_columns: SystemColumns::new(vec![
+            SystemColumn {
+                kind: SystemColumnKind::ChangeOperation,
+                name: Arc::from(SystemColumnKind::ChangeOperation.default_name()),
+                index: 2,
+            },
+            SystemColumn {
+                kind: SystemColumnKind::Offset,
+                name: Arc::from(SystemColumnKind::Offset.default_name()),
+                index: 3,
+            },
+            SystemColumn {
+                kind: SystemColumnKind::ChangedColumns,
+                name: Arc::from(SystemColumnKind::ChangedColumns.default_name()),
+                index: 4,
+            },
+        ]),
+    };
+    Ok((discovery, sink_batch))
+}
+
 fn changelog_delivery(id: u64, batch: SinkBatch) -> Delivery {
     Delivery {
         id: DeliveryId::new(id),
@@ -656,6 +715,61 @@ async fn replica_identity_full_primary_key_change_writes_old_tombstone_and_new_r
             .unwrap()
             .value(0),
         20
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn default_identity_same_lsn_key_changes_write_old_tombstones_and_last_new_row(
+) -> anyhow::Result<()> {
+    let (discovery, input) = default_identity_key_change_sink_batch().await?;
+    let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(&discovery, &input)? else {
+        panic!("CDC operation metadata must produce a changelog batch")
+    };
+    let (transport, _) = FakeTransport::new(false, []);
+    let batches = clickhouse_changelog_batches(
+        &changelog,
+        transport.as_ref(),
+        &config(),
+        "events",
+    )
+    .await?;
+
+    assert_eq!(batches.len(), 2);
+    assert_eq!(
+        batches[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .values(),
+        &[1, 2]
+    );
+    assert!(batches[0]
+        .column(2)
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .unwrap()
+        .values()
+        .iter()
+        .all(|value| *value == 43));
+    assert_eq!(
+        batches[1]
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        3
+    );
+    assert_eq!(
+        batches[1]
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        30
     );
     Ok(())
 }

@@ -5,7 +5,8 @@ use schemars::JsonSchema;
 use serde::Serialize;
 
 use crate::data::schema::{
-    DatasetSchema, META_LOW_CARDINALITY, META_MAX_LENGTH, META_OLD_VALUE_OF, META_PRIMARY_KEY,
+    DatasetSchema, META_LOW_CARDINALITY, META_MAX_LENGTH, META_OLD_KEY_OF, META_OLD_VALUE_OF,
+    META_PRIMARY_KEY,
 };
 use crate::data::system_columns::SystemColumnKind;
 use crate::sink::SinkBatch;
@@ -346,7 +347,8 @@ pub fn validate_batch_against_discovery<'a>(
                         .map(usize::to_string)
                         .as_deref()
                 && metadata.get(META_OLD_VALUE_OF)
-                    == expected_column.old_value_of.as_ref(),
+                    == expected_column.old_value_of.as_ref()
+                && metadata.get(META_OLD_KEY_OF) == expected_column.old_key_of.as_ref(),
             "runtime dataset '{}' column '{}' metadata does not match discovery",
             batch.table,
             actual.name(),
@@ -439,7 +441,7 @@ pub fn validate_stored_projection(
             system.kind.data_type(),
         );
     }
-    validate_old_value_columns(dataset, changelog_input, &system_names)?;
+    validate_cdc_control_columns(dataset, changelog_input, &system_names)?;
     let expected = dataset
         .incoming_schema
         .columns
@@ -450,6 +452,7 @@ pub fn validate_stored_projection(
                 .iter()
                 .find(|system| system.name.as_ref() == column.name);
             column.old_value_of.is_none()
+                && column.old_key_of.is_none()
                 && !matches!(
                 system,
                 Some(system)
@@ -478,6 +481,7 @@ pub fn validate_stored_projection(
                         && stored.low_cardinality == incoming.low_cardinality
                         && stored.max_length == incoming.max_length
                         && stored.old_value_of.is_none()
+                        && stored.old_key_of.is_none()
                 }),
         "stored schema for {:?} dataset '{}' is not the exact incoming schema after system-column projection",
         dataset.role,
@@ -486,7 +490,7 @@ pub fn validate_stored_projection(
     Ok(())
 }
 
-fn validate_old_value_columns(
+fn validate_cdc_control_columns(
     dataset: &DiscoveredDataset,
     changelog_input: bool,
     system_names: &HashSet<&str>,
@@ -495,7 +499,11 @@ fn validate_old_value_columns(
         .incoming_schema
         .columns
         .iter()
-        .filter(|column| column.old_value_of.is_none() && !system_names.contains(column.name.as_str()))
+        .filter(|column| {
+            column.old_value_of.is_none()
+                && column.old_key_of.is_none()
+                && !system_names.contains(column.name.as_str())
+        })
         .map(|column| (column.name.as_str(), column))
         .collect::<std::collections::HashMap<_, _>>();
     let old = dataset
@@ -504,55 +512,116 @@ fn validate_old_value_columns(
         .iter()
         .filter_map(|column| column.old_value_of.as_deref().map(|name| (name, column)))
         .collect::<Vec<_>>();
-    if old.is_empty() {
-        return Ok(());
-    }
-    anyhow::ensure!(
-        changelog_input,
-        "discovered {:?} dataset '{}' declares old-value columns without changelog operations",
-        dataset.role,
-        dataset.name,
-    );
-    anyhow::ensure!(
-        old.len() == current.len(),
-        "discovered {:?} dataset '{}' must declare exactly one old-value column for every current-value column",
-        dataset.role,
-        dataset.name,
-    );
-    let mut paired = HashSet::with_capacity(old.len());
-    for (current_name, old_column) in old {
-        let current_column = current.get(current_name).ok_or_else(|| {
-            anyhow::anyhow!(
-                "discovered {:?} dataset '{}' old-value column '{}' references unknown current-value column '{current_name}'",
+    let has_old_values = !old.is_empty();
+    if has_old_values {
+        anyhow::ensure!(
+            changelog_input,
+            "discovered {:?} dataset '{}' declares old-value columns without changelog operations",
+            dataset.role,
+            dataset.name,
+        );
+        anyhow::ensure!(
+            old.len() == current.len(),
+            "discovered {:?} dataset '{}' must declare exactly one old-value column for every current-value column",
+            dataset.role,
+            dataset.name,
+        );
+        let mut paired = HashSet::with_capacity(old.len());
+        for (current_name, old_column) in old {
+            let current_column = current.get(current_name).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "discovered {:?} dataset '{}' old-value column '{}' references unknown current-value column '{current_name}'",
+                    dataset.role,
+                    dataset.name,
+                    old_column.name,
+                )
+            })?;
+            anyhow::ensure!(
+                paired.insert(current_name),
+                "discovered {:?} dataset '{}' repeats old-value mapping for '{current_name}'",
                 dataset.role,
                 dataset.name,
-                old_column.name,
-            )
-        })?;
+            );
+            validate_cdc_control_column(dataset, old_column, current_name, current_column)?;
+        }
         anyhow::ensure!(
-            paired.insert(current_name),
-            "discovered {:?} dataset '{}' repeats old-value mapping for '{current_name}'",
+            paired.len() == current.len(),
+            "discovered {:?} dataset '{}' does not pair every current-value column with one old-value column",
             dataset.role,
             dataset.name,
-        );
-        anyhow::ensure!(
-            old_column.name != current_name
-                && old_column.data_type == current_column.data_type
-                && old_column.nullable
-                && !old_column.primary_key
-                && !old_column.low_cardinality
-                && old_column.max_length.is_none(),
-            "discovered {:?} dataset '{}' old-value column '{}' must be nullable, unconstrained, and have the exact Arrow type of '{current_name}'",
-            dataset.role,
-            dataset.name,
-            old_column.name,
         );
     }
+
+    let old_keys = dataset
+        .incoming_schema
+        .columns
+        .iter()
+        .filter_map(|column| column.old_key_of.as_deref().map(|name| (name, column)))
+        .collect::<Vec<_>>();
+    if !old_keys.is_empty() {
+        anyhow::ensure!(
+            changelog_input && !has_old_values,
+            "discovered {:?} dataset '{}' old-key columns require changelog operations and cannot be mixed with full old-value columns",
+            dataset.role,
+            dataset.name,
+        );
+        let primary_keys = current
+            .values()
+            .filter(|column| column.primary_key)
+            .map(|column| column.name.as_str())
+            .collect::<HashSet<_>>();
+        anyhow::ensure!(
+            old_keys.len() == primary_keys.len(),
+            "discovered {:?} dataset '{}' must declare exactly one old-key column for every primary-key column",
+            dataset.role,
+            dataset.name,
+        );
+        let mut paired = HashSet::with_capacity(old_keys.len());
+        for (current_name, old_column) in old_keys {
+            let current_column = current.get(current_name).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "discovered {:?} dataset '{}' old-key column '{}' references unknown current-value column '{current_name}'",
+                    dataset.role,
+                    dataset.name,
+                    old_column.name,
+                )
+            })?;
+            anyhow::ensure!(
+                current_column.primary_key && paired.insert(current_name),
+                "discovered {:?} dataset '{}' old-key mapping for '{current_name}' must be unique and reference a primary-key column",
+                dataset.role,
+                dataset.name,
+            );
+            validate_cdc_control_column(dataset, old_column, current_name, current_column)?;
+        }
+        anyhow::ensure!(
+            paired == primary_keys,
+            "discovered {:?} dataset '{}' does not pair every primary-key column with one old-key column",
+            dataset.role,
+            dataset.name,
+        );
+    }
+    Ok(())
+}
+
+fn validate_cdc_control_column(
+    dataset: &DiscoveredDataset,
+    control: &crate::SchemaColumn,
+    current_name: &str,
+    current: &crate::SchemaColumn,
+) -> anyhow::Result<()> {
     anyhow::ensure!(
-        paired.len() == current.len(),
-        "discovered {:?} dataset '{}' does not pair every current-value column with one old-value column",
+        control.old_value_of.is_some() != control.old_key_of.is_some()
+            && control.name != current_name
+            && control.data_type == current.data_type
+            && control.nullable
+            && !control.primary_key
+            && !control.low_cardinality
+            && control.max_length.is_none(),
+        "discovered {:?} dataset '{}' CDC control column '{}' must have exactly one mapping, be nullable and unconstrained, and have the exact Arrow type of '{current_name}'",
         dataset.role,
         dataset.name,
+        control.name,
     );
     Ok(())
 }

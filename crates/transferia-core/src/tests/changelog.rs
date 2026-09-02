@@ -231,6 +231,44 @@ async fn full_old_value_batch(
     (discovery, batch)
 }
 
+async fn old_key_batch(
+    current_ids: Vec<i64>,
+    old_ids: Vec<Option<i64>>,
+    operations: Vec<Option<&str>>,
+) -> (DeliveryDiscovery, SinkBatch) {
+    let masks = vec![Some(&[0b11][..]); current_ids.len()];
+    let (mut discovery, mut batch) = batch_with_changed_masks(
+        operations,
+        current_ids.iter().copied().map(Some).collect(),
+        current_ids.iter().map(|id| id * 10).collect(),
+        masks,
+    )
+    .await;
+    discovery.keep_system_columns = false;
+    let old_key = SchemaColumn::new("_system_old_key_0".into(), DataType::Int64, true)
+        .with_old_key_of("id".into());
+    discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .push(old_key.clone());
+    let mut fields = batch
+        .batch
+        .schema()
+        .fields()
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    fields.push(Arc::new(
+        Field::new(&old_key.name, old_key.data_type.clone(), true)
+            .with_metadata(old_key.arrow_metadata()),
+    ));
+    let mut arrays = batch.batch.columns().to_vec();
+    arrays.push(Arc::new(Int64Array::from(old_ids)));
+    arrays[3] = Arc::new(Int64Array::from_iter_values(vec![42; current_ids.len()]));
+    batch.batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays).unwrap();
+    (discovery, batch)
+}
+
 #[tokio::test]
 async fn preserves_unchanged_columns_while_collapsing_same_key_events() {
     let (discovery, batch) = batch_with_changed_masks(
@@ -302,6 +340,78 @@ async fn replica_identity_full_collapses_primary_key_changes_without_leaving_old
             .value(0),
         3
     );
+}
+
+#[tokio::test]
+async fn old_key_metadata_collapses_same_lsn_primary_key_changes_in_event_order() {
+    let (discovery, batch) = old_key_batch(
+        vec![2, 3],
+        vec![Some(1), Some(2)],
+        vec![Some("u"), Some("u")],
+    )
+    .await;
+    validate_stored_projection(&discovery, &discovery.datasets[0]).unwrap();
+    let ProjectedSinkBatch::Changelog(changelog) =
+        project_sink_batch(&discovery, &batch).unwrap()
+    else {
+        panic!("operation column must produce a changelog batch")
+    };
+
+    let runs = changelog.collapsed_runs().unwrap();
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[0].action, ChangelogAction::Delete);
+    assert_eq!(runs[0].source_versions, [42, 42]);
+    assert_eq!(
+        runs[0]
+            .batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .values(),
+        &[1, 2]
+    );
+    assert_eq!(runs[1].action, ChangelogAction::Upsert);
+    assert_eq!(runs[1].source_versions, [42]);
+    assert_eq!(
+        runs[1]
+            .batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        3
+    );
+}
+
+#[tokio::test]
+async fn old_key_contract_rejects_missing_duplicate_and_null_primary_keys() {
+    let (discovery, batch) = old_key_batch(vec![2], vec![Some(1)], vec![Some("u")]).await;
+
+    let mut unknown = discovery.clone();
+    unknown.datasets[0]
+        .incoming_schema
+        .columns
+        .last_mut()
+        .unwrap()
+        .old_key_of = Some("value".into());
+    assert!(validate_stored_projection(&unknown, &unknown.datasets[0]).is_err());
+
+    let mut mixed = discovery.clone();
+    mixed.datasets[0]
+        .incoming_schema
+        .columns
+        .last_mut()
+        .unwrap()
+        .old_value_of = Some("id".into());
+    assert!(validate_stored_projection(&mixed, &mixed.datasets[0]).is_err());
+
+    let mut null_old_key = batch;
+    let mut arrays = null_old_key.batch.columns().to_vec();
+    *arrays.last_mut().unwrap() = Arc::new(Int64Array::from(vec![None]));
+    null_old_key.batch = RecordBatch::try_new(null_old_key.batch.schema(), arrays).unwrap();
+    assert!(project_sink_batch(&discovery, &null_old_key).is_err());
 }
 
 #[tokio::test]

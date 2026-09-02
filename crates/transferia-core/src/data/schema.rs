@@ -8,6 +8,8 @@ pub const META_ARROW_EXTENSION_NAME: &str = "ARROW:extension:name";
 pub const META_CHANGE_OPERATION: &str = "transferia.change_operation";
 /// Names the current-value column paired with an old-value column.
 pub const META_OLD_VALUE_OF: &str = "transferia.old_value_of";
+/// Names the primary-key column paired with an old-key CDC control column.
+pub const META_OLD_KEY_OF: &str = "transferia.old_key_of";
 pub const ARROW_JSON_EXTENSION_NAME: &str = "arrow.json";
 
 /// Sink-neutral runtime schema exchanged between source and sink connectors.
@@ -39,6 +41,11 @@ pub struct SchemaColumn {
     /// incoming Arrow schema but are never part of the destination's stored
     /// projection.
     pub old_value_of: Option<String>,
+    /// Primary-key column paired with this CDC old-key control column.
+    ///
+    /// Old-key columns preserve the identity before an UPDATE changes its
+    /// primary key. They are incoming transport metadata and are never stored.
+    pub old_key_of: Option<String>,
 }
 
 impl SchemaColumn {
@@ -53,6 +60,7 @@ impl SchemaColumn {
             max_length: None,
             arrow_extension_name: None,
             old_value_of: None,
+            old_key_of: None,
         }
     }
 
@@ -65,6 +73,12 @@ impl SchemaColumn {
     #[must_use]
     pub fn with_old_value_of(mut self, current_column: String) -> Self {
         self.old_value_of = Some(current_column);
+        self
+    }
+
+    #[must_use]
+    pub fn with_old_key_of(mut self, current_column: String) -> Self {
+        self.old_key_of = Some(current_column);
         self
     }
 
@@ -98,6 +112,9 @@ impl SchemaColumn {
         }
         if let Some(current_column) = &self.old_value_of {
             metadata.insert(META_OLD_VALUE_OF.into(), current_column.clone());
+        }
+        if let Some(current_column) = &self.old_key_of {
+            metadata.insert(META_OLD_KEY_OF.into(), current_column.clone());
         }
         metadata
     }

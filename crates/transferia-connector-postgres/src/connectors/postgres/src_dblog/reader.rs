@@ -17,10 +17,12 @@ use super::event::{ChangeEvent, LogicalValue, OldValuesKind};
 use super::pgoutput::{PgOutputDecoder, PgOutputEvent};
 use super::slot_recovery::{advance_slot, ReplicationSlotTracker};
 use super::wal2json;
-use crate::connectors::postgres::src_batch::{old_value_column_name, DiscoveredTable};
+use crate::connectors::postgres::src_batch::{
+    old_key_column_name, old_value_column_name, DiscoveredTable,
+};
 use crate::metrics::SourceCounters;
 use transferia_core::data::message::SourceBatch;
-use transferia_core::data::schema::{META_CHANGE_OPERATION, META_OLD_VALUE_OF};
+use transferia_core::data::schema::{META_CHANGE_OPERATION, META_OLD_KEY_OF, META_OLD_VALUE_OF};
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::TableData;
 use transferia_core::failure::DataPlaneFailure;
@@ -445,7 +447,16 @@ pub(super) fn events_to_table_data(
     events: &[ChangeEvent],
 ) -> anyhow::Result<TableData> {
     validate_old_values(table, events)?;
-    let old_columns = usize::from(table.replica_identity_full) * table.schema.columns.len();
+    let old_columns = if table.replica_identity_full {
+        table.schema.columns.len()
+    } else {
+        table
+            .schema
+            .columns
+            .iter()
+            .filter(|column| column.primary_key)
+            .count()
+    };
     let mut fields = Vec::with_capacity(table.schema.columns.len() + old_columns + 6);
     let mut arrays = Vec::with_capacity(table.schema.columns.len() + old_columns + 6);
     for (index, column) in table.schema.columns.iter().enumerate() {
@@ -476,6 +487,28 @@ pub(super) fn events_to_table_data(
                 index,
                 &column.data_type,
                 LogicalProjection::Old,
+            )?);
+        }
+    } else {
+        for (index, column) in table
+            .schema
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(_, column)| column.primary_key)
+        {
+            fields.push(
+                Field::new(old_key_column_name(index), column.data_type.clone(), true)
+                    .with_metadata(HashMap::from([(
+                        META_OLD_KEY_OF.to_owned(),
+                        column.name.clone(),
+                    )])),
+            );
+            arrays.push(logical_array(
+                events,
+                index,
+                &column.data_type,
+                LogicalProjection::OldKey,
             )?);
         }
     }
@@ -654,6 +687,7 @@ fn logical_array(
 enum LogicalProjection {
     Current { old_fallback: bool },
     Old,
+    OldKey,
 }
 
 static NULL_LOGICAL_VALUE: LogicalValue = LogicalValue::Null;
@@ -668,6 +702,17 @@ fn event_value(
             .old_values
             .as_ref()
             .map_or(&NULL_LOGICAL_VALUE, |values| &values[index]),
+        LogicalProjection::OldKey => match event.operation {
+            ChangeOperation::Create | ChangeOperation::SnapshotRead => &NULL_LOGICAL_VALUE,
+            ChangeOperation::Update => event
+                .old_values
+                .as_ref()
+                .map_or(&event.values[index], |values| &values[index]),
+            ChangeOperation::Delete => event
+                .old_values
+                .as_ref()
+                .map_or(&NULL_LOGICAL_VALUE, |values| &values[index]),
+        },
         LogicalProjection::Current { old_fallback } => {
             if event.operation == ChangeOperation::Delete {
                 if let Some(old_values) = &event.old_values {
@@ -705,6 +750,27 @@ fn validate_old_values(table: &DiscoveredTable, events: &[ChangeEvent]) -> anyho
                             })),
                 "PostgreSQL REPLICA IDENTITY FULL row {row} has no complete old tuple",
             );
+        } else if requires_old {
+            for (index, column) in table.schema.columns.iter().enumerate() {
+                if !column.primary_key {
+                    continue;
+                }
+                let old_key = event.old_values.as_ref().map(|values| &values[index]);
+                match event.operation {
+                    ChangeOperation::Update => anyhow::ensure!(
+                        old_key.is_some_and(|value| !matches!(value, LogicalValue::Null))
+                            || !matches!(event.values[index], LogicalValue::Null),
+                        "PostgreSQL UPDATE row {row} has no old or current primary-key value for '{}'",
+                        column.name,
+                    ),
+                    ChangeOperation::Delete => anyhow::ensure!(
+                        old_key.is_some_and(|value| !matches!(value, LogicalValue::Null)),
+                        "PostgreSQL DELETE row {row} has no old primary-key value for '{}'",
+                        column.name,
+                    ),
+                    ChangeOperation::Create | ChangeOperation::SnapshotRead => unreachable!(),
+                }
+            }
         }
     }
     Ok(())

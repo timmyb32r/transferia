@@ -493,7 +493,9 @@ pub fn project_sink_batch(
         .columns
         .iter()
         .filter(|column| {
-            column.old_value_of.is_none() && !system_names.contains(column.name.as_str())
+            column.old_value_of.is_none()
+                && column.old_key_of.is_none()
+                && !system_names.contains(column.name.as_str())
         })
         .map(|column| column.name.as_str())
         .collect::<Vec<_>>();
@@ -609,15 +611,31 @@ fn old_primary_key_batch(
     batch: &SinkBatch,
     primary_keys: &[SchemaColumn],
 ) -> anyhow::Result<Option<RecordBatch>> {
-    let old_columns = dataset
+    let old_value_columns = dataset
         .incoming_schema
         .columns
         .iter()
         .filter_map(|column| column.old_value_of.as_deref().map(|current| (current, column)))
         .collect::<HashMap<_, _>>();
-    if old_columns.is_empty() {
+    let old_key_columns = dataset
+        .incoming_schema
+        .columns
+        .iter()
+        .filter_map(|column| column.old_key_of.as_deref().map(|current| (current, column)))
+        .collect::<HashMap<_, _>>();
+    if old_value_columns.is_empty() && old_key_columns.is_empty() {
         return Ok(None);
     }
+    anyhow::ensure!(
+        old_value_columns.is_empty() || old_key_columns.is_empty(),
+        "changelog dataset '{}' mixes old-value and old-key control columns",
+        dataset.name,
+    );
+    let old_columns = if old_value_columns.is_empty() {
+        &old_key_columns
+    } else {
+        &old_value_columns
+    };
     let schema = batch.batch.schema();
     let indexes = primary_keys
         .iter()

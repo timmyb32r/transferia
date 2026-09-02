@@ -125,17 +125,36 @@ impl SourceConnector for PostgresSourceConnector {
                     for column in &mut incoming.columns {
                         column.nullable = true;
                     }
-                    if self.config.replication.is_some() && table.replica_identity_full {
-                        incoming.columns.extend(table.schema.columns.iter().enumerate().map(
-                            |(index, column)| {
-                                SchemaColumn::new(
-                                    old_value_column_name(index),
-                                    column.data_type.clone(),
-                                    true,
-                                )
-                                .with_old_value_of(column.name.clone())
-                            },
-                        ));
+                    if self.config.replication.is_some() {
+                        if table.replica_identity_full {
+                            incoming.columns.extend(table.schema.columns.iter().enumerate().map(
+                                |(index, column)| {
+                                    SchemaColumn::new(
+                                        old_value_column_name(index),
+                                        column.data_type.clone(),
+                                        true,
+                                    )
+                                    .with_old_value_of(column.name.clone())
+                                },
+                            ));
+                        } else {
+                            incoming.columns.extend(
+                                table
+                                    .schema
+                                    .columns
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(_, column)| column.primary_key)
+                                    .map(|(index, column)| {
+                                        SchemaColumn::new(
+                                            old_key_column_name(index),
+                                            column.data_type.clone(),
+                                            true,
+                                        )
+                                        .with_old_key_of(column.name.clone())
+                                    }),
+                            );
+                        }
                     }
                     incoming.columns.extend(system_columns.iter().map(|kind| {
                         SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
@@ -340,14 +359,15 @@ async fn discover_table(
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     for index in 0..columns.len() {
-        let old_name = old_value_column_name(index);
-        anyhow::ensure!(
-            columns.iter().all(|column| column.name != old_name),
-            "PostgreSQL table '{}.{}' column '{}' conflicts with reserved CDC old-value column name",
-            table.schema,
-            table.name,
-            old_name,
-        );
+        for reserved in [old_value_column_name(index), old_key_column_name(index)] {
+            anyhow::ensure!(
+                columns.iter().all(|column| column.name != reserved),
+                "PostgreSQL table '{}.{}' column '{}' conflicts with a reserved CDC control column name",
+                table.schema,
+                table.name,
+                reserved,
+            );
+        }
     }
     Ok(DiscoveredTable {
         config: table,
@@ -359,4 +379,8 @@ async fn discover_table(
 
 pub(crate) fn old_value_column_name(index: usize) -> String {
     format!("_system_old_value_{index}")
+}
+
+pub(crate) fn old_key_column_name(index: usize) -> String {
+    format!("_system_old_key_{index}")
 }

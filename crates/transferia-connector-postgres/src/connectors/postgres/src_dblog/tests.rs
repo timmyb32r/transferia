@@ -12,7 +12,7 @@ use super::event::LogicalValue;
 use super::wal2json;
 use crate::connectors::postgres::src_batch::{DiscoveredTable, TableConfig};
 use transferia_core::data::schema::{
-    DatasetSchema, SchemaColumn, META_CHANGE_OPERATION, META_OLD_VALUE_OF,
+    DatasetSchema, SchemaColumn, META_CHANGE_OPERATION, META_OLD_KEY_OF, META_OLD_VALUE_OF,
 };
 use transferia_core::data::system_columns::SystemColumnKind;
 
@@ -154,6 +154,12 @@ fn normalized_cdc_batch_marks_and_indexes_the_operation_column() {
     assert_eq!(ids.iter().collect::<Vec<_>>(), [Some(1), Some(1), Some(1)]);
     assert_eq!(names.iter().collect::<Vec<_>>(), [Some("alice"), Some("alice-2"), None]);
     assert_eq!(balances.iter().collect::<Vec<_>>(), [Some(10), Some(11), None]);
+    let old_key = data.batch.column(3).as_any().downcast_ref::<Int32Array>().unwrap();
+    assert_eq!(old_key.iter().collect::<Vec<_>>(), [None, Some(1), Some(1)]);
+    assert_eq!(
+        data.batch.schema().field(3).metadata().get(META_OLD_KEY_OF),
+        Some(&"id".to_owned())
+    );
     let changed = data
         .system_columns
         .get(SystemColumnKind::ChangedColumns)
@@ -176,6 +182,31 @@ fn normalized_cdc_batch_marks_and_indexes_the_operation_column() {
         .downcast_ref::<UInt64Array>()
         .unwrap();
     assert_eq!(message_index.values(), &[0, 1, 2]);
+}
+
+#[test]
+fn default_replica_identity_preserves_the_old_key_when_an_update_renames_it() {
+    let table = discovered_table();
+    let mut decoder = PgOutputDecoder::default();
+    for message in [
+        relation_message(),
+        begin_message(),
+        primary_key_update_message(),
+    ] {
+        assert!(decoder.decode(&message).unwrap().is_empty());
+    }
+    let events = decoder
+        .decode(&commit_message())
+        .unwrap()
+        .into_iter()
+        .map(|event| normalize_pgoutput_event(&table, event).unwrap())
+        .collect::<Vec<_>>();
+    let data = events_to_table_data(&table, &events).unwrap();
+
+    let current = data.batch.column(0).as_any().downcast_ref::<Int32Array>().unwrap();
+    let old = data.batch.column(3).as_any().downcast_ref::<Int32Array>().unwrap();
+    assert_eq!(current.value(0), 2);
+    assert_eq!(old.value(0), 1);
 }
 
 #[test]
@@ -425,6 +456,14 @@ fn toasted_update_message() -> Vec<u8> {
         b'U',
         Some((b'K', [WireValue::Text("1"), WireValue::Null, WireValue::Null])),
         [WireValue::Text("1"), WireValue::Unchanged, WireValue::Text("11")],
+    )
+}
+
+fn primary_key_update_message() -> Vec<u8> {
+    row_message(
+        b'U',
+        Some((b'K', [WireValue::Text("1"), WireValue::Null, WireValue::Null])),
+        [WireValue::Text("2"), WireValue::Text("alice"), WireValue::Text("10")],
     )
 }
 
