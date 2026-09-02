@@ -20,6 +20,7 @@ interface CapabilityGroup {
   key: string;
   label: string;
   members: Map<CapabilityKind, Set<string>>;
+  nonMembers: Map<CapabilityKind, Set<string>>;
 }
 
 const PROPERTY_LABELS: Record<string, string> = {
@@ -55,6 +56,7 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
       key: property,
       label: PROPERTY_LABELS[property] ?? property.replaceAll("_", " "),
       members: new Map(),
+      nonMembers: new Map(),
     };
     const members = group.members.get(kind) ?? new Set<string>();
     members.add(title);
@@ -80,7 +82,34 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
     }
   }
   collectSchemaCapabilities(catalog.common_schema, add);
+  const universes = new Map<CapabilityKind, Set<string>>();
+  for (const group of groups.values()) {
+    if (!group.key.startsWith("component.")) continue;
+    for (const [kind, members] of group.members) {
+      universes.set(kind, new Set(members));
+    }
+  }
+  for (const group of groups.values()) {
+    for (const kind of applicableKinds(group.key)) {
+      const members = group.members.get(kind) ?? new Set<string>();
+      const nonMembers = new Set(
+        [...(universes.get(kind) ?? [])].filter((title) => !members.has(title)),
+      );
+      if (nonMembers.size > 0) group.nonMembers.set(kind, nonMembers);
+    }
+  }
   return [...groups.values()].sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function applicableKinds(property: string): CapabilityKind[] {
+  if (property.startsWith("component.")) {
+    return [property.slice("component.".length) as CapabilityKind];
+  }
+  if (property.startsWith("record_semantics.")) {
+    return ["source", "destination", "parser", "serializer"];
+  }
+  if (property === "playground") return ["transformer"];
+  return ["source", "destination"];
 }
 
 function collectSchemaCapabilities(
@@ -351,13 +380,15 @@ export function CompatibilityMatrixDialog({
           {selectedCapabilityGroup && (
             <section class="capability-group">
               <h3>{selectedCapabilityGroup.label}</h3>
-              <div>
-                {([...selectedCapabilityGroup.members.entries()] as Array<[CapabilityKind, Set<string>]>).map(([kind, members]) => (
-                  <section key={kind}>
-                    <h4>{KIND_LABELS[kind]}</h4>
-                    <ul>{[...members].sort().map((member) => <li key={member}>{member}</li>)}</ul>
-                  </section>
-                ))}
+              <div class="capability-membership-columns">
+                <CapabilityMembership
+                  title="Has property"
+                  groups={selectedCapabilityGroup.members}
+                />
+                <CapabilityMembership
+                  title="Does not have property"
+                  groups={selectedCapabilityGroup.nonMembers}
+                />
               </div>
             </section>
           )}
@@ -371,6 +402,29 @@ export function CompatibilityMatrixDialog({
       </section>
     </div>,
     document.body,
+  );
+}
+
+function CapabilityMembership({
+  title,
+  groups,
+}: {
+  title: string;
+  groups: Map<CapabilityKind, Set<string>>;
+}) {
+  const populated = [...groups.entries()].filter(([, members]) => members.size > 0);
+  return (
+    <section class="capability-membership">
+      <h4>{title}</h4>
+      {populated.length === 0 ? (
+        <p>None</p>
+      ) : populated.map(([kind, members]) => (
+        <section key={kind}>
+          <h5>{KIND_LABELS[kind]}</h5>
+          <ul>{[...members].sort().map((member) => <li key={member}>{member}</li>)}</ul>
+        </section>
+      ))}
+    </section>
   );
 }
 

@@ -215,6 +215,8 @@ describe("appearance preferences", () => {
     expect([...changelog.members.get("source")!]).toEqual(["PostgreSQL"]);
     expect([...changelog.members.get("destination")!]).toEqual(["PostgreSQL"]);
     expect([...changelog.members.get("parser")!]).toEqual(["Debezium parser"]);
+    expect([...changelog.nonMembers.get("source")!]).toEqual(["Kafka"]);
+    expect([...changelog.nonMembers.get("destination")!]).toEqual(["S3"]);
   });
 
   it("opens a stable accessible compatibility dialog and restores focus", () => {
@@ -246,6 +248,8 @@ describe("appearance preferences", () => {
       view.getByRole("button", { name: "Only append-only records" }),
     );
     expect(view.getAllByText("Only append-only records")).toHaveLength(2);
+    expect(view.getByText("Has property")).toBeTruthy();
+    expect(view.getByText("Does not have property")).toBeTruthy();
     fireEvent.click(view.getByRole("tab", { name: "Matrix" }));
     expect(document.activeElement).toBe(
       view.getByRole("button", { name: "Close compatibility matrix" }),
