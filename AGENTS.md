@@ -188,6 +188,14 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 
 ## Performance and design
 
+- Use non-cryptographic hashes for non-cryptographic work such as hash-table
+  keys, partition assignment, sampling, and fingerprints that are always
+  verified against their source value. Prefer MurmurHash3 x64 128-bit
+  (Murmur3 128) unless measurements justify another non-cryptographic
+  algorithm. Do not spend SHA-family or other cryptographic hashing cost where
+  collision resistance is not a security or persistent-identity requirement.
+  A hash must never silently replace user data or become the sole proof of
+  equality where a collision could lose or corrupt data.
 - Every operational or safety limit must come from an explicit user-visible
   configuration value and be validated before execution. A hardcoded constant
   must never reject, truncate, or otherwise break a delivery that satisfies its
