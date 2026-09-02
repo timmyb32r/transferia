@@ -1495,106 +1495,34 @@
                   }
                 },
                 {
-                  "title": "Debezium JSON",
+                  "title": "Debezium",
                   "type": "object",
                   "properties": {
                     "logical_name": {
                       "title": "Logical source name",
-                      "type": "string"
-                    },
-                    "type": {
-                      "type": "string",
-                      "const": "debezium_json"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "logical_name"
-                  ],
-                  "x-ui": {
-                    "capabilities": {
-                      "component": "serializer",
-                      "key": "debezium_json",
-                      "record_semantics": [
-                        "changelog"
-                      ]
-                    }
-                  }
-                },
-                {
-                  "title": "Debezium Schema Registry",
-                  "type": "object",
-                  "properties": {
-                    "logical_name": {
-                      "title": "Logical source name",
-                      "type": "string"
-                    },
-                    "connection": {
-                      "title": "Connection",
-                      "$ref": "#/$defs/SchemaRegistryConnection"
-                    },
-                    "key_subject": {
-                      "title": "Key subject",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "value_subject": {
-                      "title": "Value subject",
                       "type": "string"
                     },
                     "format": {
                       "title": "Format",
-                      "$ref": "#/$defs/SchemaFormat"
-                    },
-                    "key_protobuf_message_indexes": {
-                      "title": "Key Protobuf message indexes",
-                      "type": "array",
-                      "items": {
-                        "type": "integer",
-                        "format": "int32"
-                      },
-                      "default": [
-                        0
-                      ],
-                      "x-ui": {
-                        "section": "advanced"
-                      }
-                    },
-                    "value_protobuf_message_indexes": {
-                      "title": "Value Protobuf message indexes",
-                      "type": "array",
-                      "items": {
-                        "type": "integer",
-                        "format": "int32"
-                      },
-                      "default": [
-                        0
-                      ],
-                      "x-ui": {
-                        "section": "advanced"
-                      }
+                      "$ref": "#/$defs/DebeziumFormat"
                     },
                     "type": {
                       "type": "string",
-                      "const": "debezium_schema_registry"
+                      "const": "debezium"
                     }
                   },
                   "additionalProperties": false,
                   "required": [
                     "type",
                     "logical_name",
-                    "connection",
-                    "value_subject",
                     "format"
                   ],
                   "x-ui": {
                     "capabilities": {
                       "component": "serializer",
-                      "key": "debezium_schema_registry",
+                      "key": "debezium",
                       "record_semantics": [
+                        "append_only",
                         "changelog"
                       ]
                     }
@@ -1651,6 +1579,145 @@
                       ]
                     }
                   }
+                }
+              ]
+            },
+            "DebeziumFormat": {
+              "oneOf": [
+                {
+                  "title": "JSON (without Schema Registry)",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "json"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "JSON (with Schema Registry)",
+                  "type": "object",
+                  "properties": {
+                    "connection": {
+                      "title": "Connection",
+                      "$ref": "#/$defs/SchemaRegistryConnection"
+                    },
+                    "key_subject": {
+                      "title": "Key subject",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "value_subject": {
+                      "title": "Value subject",
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "json_schema"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "connection",
+                    "value_subject"
+                  ]
+                },
+                {
+                  "title": "Avro",
+                  "type": "object",
+                  "properties": {
+                    "connection": {
+                      "title": "Connection",
+                      "$ref": "#/$defs/SchemaRegistryConnection"
+                    },
+                    "key_subject": {
+                      "title": "Key subject",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "value_subject": {
+                      "title": "Value subject",
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "avro"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "connection",
+                    "value_subject"
+                  ]
+                },
+                {
+                  "title": "Protobuf",
+                  "type": "object",
+                  "properties": {
+                    "connection": {
+                      "title": "Connection",
+                      "$ref": "#/$defs/SchemaRegistryConnection"
+                    },
+                    "key_subject": {
+                      "title": "Key subject",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "value_subject": {
+                      "title": "Value subject",
+                      "type": "string"
+                    },
+                    "key_message_indexes": {
+                      "title": "Key message indexes",
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "format": "int32"
+                      },
+                      "default": [
+                        0
+                      ],
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "value_message_indexes": {
+                      "title": "Value message indexes",
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "format": "int32"
+                      },
+                      "default": [
+                        0
+                      ],
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "protobuf"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "connection",
+                    "value_subject"
+                  ]
                 }
               ]
             },
@@ -3328,106 +3395,34 @@
                   }
                 },
                 {
-                  "title": "Debezium JSON",
+                  "title": "Debezium",
                   "type": "object",
                   "properties": {
                     "logical_name": {
                       "title": "Logical source name",
-                      "type": "string"
-                    },
-                    "type": {
-                      "type": "string",
-                      "const": "debezium_json"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "logical_name"
-                  ],
-                  "x-ui": {
-                    "capabilities": {
-                      "component": "serializer",
-                      "key": "debezium_json",
-                      "record_semantics": [
-                        "changelog"
-                      ]
-                    }
-                  }
-                },
-                {
-                  "title": "Debezium Schema Registry",
-                  "type": "object",
-                  "properties": {
-                    "logical_name": {
-                      "title": "Logical source name",
-                      "type": "string"
-                    },
-                    "connection": {
-                      "title": "Connection",
-                      "$ref": "#/$defs/SchemaRegistryConnection"
-                    },
-                    "key_subject": {
-                      "title": "Key subject",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "value_subject": {
-                      "title": "Value subject",
                       "type": "string"
                     },
                     "format": {
                       "title": "Format",
-                      "$ref": "#/$defs/SchemaFormat"
-                    },
-                    "key_protobuf_message_indexes": {
-                      "title": "Key Protobuf message indexes",
-                      "type": "array",
-                      "items": {
-                        "type": "integer",
-                        "format": "int32"
-                      },
-                      "default": [
-                        0
-                      ],
-                      "x-ui": {
-                        "section": "advanced"
-                      }
-                    },
-                    "value_protobuf_message_indexes": {
-                      "title": "Value Protobuf message indexes",
-                      "type": "array",
-                      "items": {
-                        "type": "integer",
-                        "format": "int32"
-                      },
-                      "default": [
-                        0
-                      ],
-                      "x-ui": {
-                        "section": "advanced"
-                      }
+                      "$ref": "#/$defs/DebeziumFormat"
                     },
                     "type": {
                       "type": "string",
-                      "const": "debezium_schema_registry"
+                      "const": "debezium"
                     }
                   },
                   "additionalProperties": false,
                   "required": [
                     "type",
                     "logical_name",
-                    "connection",
-                    "value_subject",
                     "format"
                   ],
                   "x-ui": {
                     "capabilities": {
                       "component": "serializer",
-                      "key": "debezium_schema_registry",
+                      "key": "debezium",
                       "record_semantics": [
+                        "append_only",
                         "changelog"
                       ]
                     }
@@ -3484,6 +3479,145 @@
                       ]
                     }
                   }
+                }
+              ]
+            },
+            "DebeziumFormat": {
+              "oneOf": [
+                {
+                  "title": "JSON (without Schema Registry)",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "json"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "JSON (with Schema Registry)",
+                  "type": "object",
+                  "properties": {
+                    "connection": {
+                      "title": "Connection",
+                      "$ref": "#/$defs/SchemaRegistryConnection"
+                    },
+                    "key_subject": {
+                      "title": "Key subject",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "value_subject": {
+                      "title": "Value subject",
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "json_schema"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "connection",
+                    "value_subject"
+                  ]
+                },
+                {
+                  "title": "Avro",
+                  "type": "object",
+                  "properties": {
+                    "connection": {
+                      "title": "Connection",
+                      "$ref": "#/$defs/SchemaRegistryConnection"
+                    },
+                    "key_subject": {
+                      "title": "Key subject",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "value_subject": {
+                      "title": "Value subject",
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "avro"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "connection",
+                    "value_subject"
+                  ]
+                },
+                {
+                  "title": "Protobuf",
+                  "type": "object",
+                  "properties": {
+                    "connection": {
+                      "title": "Connection",
+                      "$ref": "#/$defs/SchemaRegistryConnection"
+                    },
+                    "key_subject": {
+                      "title": "Key subject",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "value_subject": {
+                      "title": "Value subject",
+                      "type": "string"
+                    },
+                    "key_message_indexes": {
+                      "title": "Key message indexes",
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "format": "int32"
+                      },
+                      "default": [
+                        0
+                      ],
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "value_message_indexes": {
+                      "title": "Value message indexes",
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "format": "int32"
+                      },
+                      "default": [
+                        0
+                      ],
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "protobuf"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "connection",
+                    "value_subject"
+                  ]
                 }
               ]
             },

@@ -17,6 +17,42 @@ fn schema_registry_serializer_exposes_connection_subject_and_format() {
 }
 
 #[test]
+fn debezium_is_one_serializer_with_four_conditionally_typed_formats() {
+    let schema = serde_json::to_string(&schemars::schema_for!(SerializerConfig))
+        .expect("schema serializes");
+    assert!(schema.contains("\"title\":\"Debezium\""));
+    for title in [
+        "JSON (without Schema Registry)",
+        "JSON (with Schema Registry)",
+        "Avro",
+        "Protobuf",
+    ] {
+        assert!(schema.contains(&format!("\"title\":\"{title}\"")), "{title}");
+    }
+    assert!(!schema.contains("debezium_json"));
+    assert!(!schema.contains("debezium_schema_registry"));
+
+    for format in ["json", "json_schema", "avro", "protobuf"] {
+        let registry = if format == "json" {
+            String::new()
+        } else {
+            "\n  connection:\n    url: http://registry\n    request_timeout_ms: 1000\n    auth:\n      type: none\n  key_subject: inventory.accounts-key\n  value_subject: inventory.accounts-value".to_owned()
+        };
+        let indexes = if format == "protobuf" {
+            "\n  key_message_indexes: [0]\n  value_message_indexes: [0]"
+        } else {
+            ""
+        };
+        let yaml = format!(
+            "type: debezium\nlogical_name: inventory\nformat:\n  type: {format}{registry}{indexes}\n"
+        );
+        let config: SerializerConfig = serde_yaml::from_str(&yaml).unwrap();
+        config.validate().unwrap();
+    }
+
+}
+
+#[test]
 fn protobuf_serializer_rejects_empty_message_path() {
     let config = SerializerConfig::SchemaRegistry {
         connection: crate::schema_registry::SchemaRegistryConnection {
@@ -35,14 +71,16 @@ fn protobuf_serializer_rejects_empty_message_path() {
 #[test]
 fn debezium_json_requires_an_explicit_stable_logical_source_name() {
     for logical_name in ["", " inventory", "inventory "] {
-        assert!(SerializerConfig::DebeziumJson {
+        assert!(SerializerConfig::Debezium {
             logical_name: logical_name.to_owned(),
+            format: DebeziumFormat::Json,
         }
         .validate()
         .is_err());
     }
-    assert!(SerializerConfig::DebeziumJson {
+    assert!(SerializerConfig::Debezium {
         logical_name: "inventory".to_owned(),
+        format: DebeziumFormat::Json,
     }
     .validate()
     .is_ok());
@@ -67,20 +105,20 @@ fn serializers_publish_their_record_semantics() {
             &[RecordSemantics::AppendOnly][..],
         ),
         (
-            SerializerConfig::DebeziumJson {
+            SerializerConfig::Debezium {
                 logical_name: "inventory".to_owned(),
+                format: DebeziumFormat::Json,
             },
             &[RecordSemantics::AppendOnly, RecordSemantics::Changelog][..],
         ),
         (
-            SerializerConfig::DebeziumSchemaRegistry {
+            SerializerConfig::Debezium {
                 logical_name: "inventory".to_owned(),
-                connection: registry_connection(),
-                key_subject: Some("inventory.events-key".to_owned()),
-                value_subject: "inventory.events-value".to_owned(),
-                format: crate::schema_registry::SchemaFormat::JsonSchema,
-                key_protobuf_message_indexes: vec![0],
-                value_protobuf_message_indexes: vec![0],
+                format: DebeziumFormat::JsonSchema {
+                    connection: registry_connection(),
+                    key_subject: Some("inventory.events-key".to_owned()),
+                    value_subject: "inventory.events-value".to_owned(),
+                },
             },
             &[RecordSemantics::AppendOnly, RecordSemantics::Changelog][..],
         ),
@@ -101,14 +139,13 @@ fn serializers_publish_their_record_semantics() {
 
 #[test]
 fn keyed_debezium_schema_registry_requires_both_subjects() {
-    let config = SerializerConfig::DebeziumSchemaRegistry {
+    let config = SerializerConfig::Debezium {
         logical_name: "inventory".to_owned(),
-        connection: registry_connection(),
-        key_subject: None,
-        value_subject: "inventory.accounts-value".to_owned(),
-        format: crate::schema_registry::SchemaFormat::JsonSchema,
-        key_protobuf_message_indexes: vec![0],
-        value_protobuf_message_indexes: vec![0],
+        format: DebeziumFormat::JsonSchema {
+            connection: registry_connection(),
+            key_subject: None,
+            value_subject: "inventory.accounts-value".to_owned(),
+        },
     };
 
     assert!(config.validate().is_ok());
@@ -122,27 +159,32 @@ fn keyed_debezium_schema_registry_requires_both_subjects() {
 
 #[test]
 fn debezium_schema_registry_rejects_invalid_subjects_and_protobuf_paths() {
-    let mut config = SerializerConfig::DebeziumSchemaRegistry {
+    let mut config = SerializerConfig::Debezium {
         logical_name: "inventory".to_owned(),
-        connection: registry_connection(),
-        key_subject: Some("inventory.accounts-key".to_owned()),
-        value_subject: " inventory.accounts-value".to_owned(),
-        format: crate::schema_registry::SchemaFormat::Protobuf,
-        key_protobuf_message_indexes: vec![0],
-        value_protobuf_message_indexes: vec![0],
+        format: DebeziumFormat::Protobuf {
+            connection: registry_connection(),
+            key_subject: Some("inventory.accounts-key".to_owned()),
+            value_subject: " inventory.accounts-value".to_owned(),
+            key_message_indexes: vec![0],
+            value_message_indexes: vec![0],
+        },
     };
     assert!(config.validate().is_err());
 
-    let SerializerConfig::DebeziumSchemaRegistry {
-        value_subject,
-        value_protobuf_message_indexes,
+    let SerializerConfig::Debezium {
+        format:
+            DebeziumFormat::Protobuf {
+                value_subject,
+                value_message_indexes,
+                ..
+            },
         ..
     } = &mut config
     else {
         panic!("test fixture changed serializer variant")
     };
     *value_subject = "inventory.accounts-value".to_owned();
-    value_protobuf_message_indexes.clear();
+    value_message_indexes.clear();
     assert!(config.validate().is_err());
 }
 
@@ -161,8 +203,9 @@ fn debezium_discovery_fails_closed_without_every_cdc_control() {
     };
     use transferia_core::SystemColumnKind;
 
-    let config = SerializerConfig::DebeziumJson {
+    let config = SerializerConfig::Debezium {
         logical_name: "inventory".to_owned(),
+        format: DebeziumFormat::Json,
     };
     let id = SchemaColumn::new("id".to_owned(), DataType::Int64, true)
         .with_constraints(true, false, None);
@@ -285,8 +328,9 @@ fn debezium_discovery_accepts_snapshot_metadata_without_cdc_old_values() {
         }],
         performance_advice: Vec::new(),
     };
-    let config = SerializerConfig::DebeziumJson {
+    let config = SerializerConfig::Debezium {
         logical_name: "inventory".to_owned(),
+        format: DebeziumFormat::Json,
     };
 
     config.validate_discovery(&discovery).unwrap();
