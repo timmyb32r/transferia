@@ -14,6 +14,110 @@ const DELIVERY_MODE_LABEL: Record<DeliveryMode, string> = {
   stream: "Stream",
 };
 
+type CapabilityKind = "source" | "destination" | "parser" | "serializer" | "transformer";
+
+interface CapabilityGroup {
+  key: string;
+  label: string;
+  members: Map<CapabilityKind, Set<string>>;
+}
+
+const PROPERTY_LABELS: Record<string, string> = {
+  "delivery_mode.batch": "Batch delivery",
+  "delivery_mode.stream": "Stream delivery",
+  "record_semantics.append_only": "Append-only records",
+  "record_semantics.changelog": "Changelog records",
+  "record_semantics.only_append_only": "Only append-only records",
+  "record_semantics.only_changelog": "Only changelog records",
+  "component.source": "All sources",
+  "component.destination": "All destinations",
+  "component.parser": "All parsers",
+  "component.serializer": "All serializers",
+  "component.transformer": "All transformers",
+  partitioned: "Partitioned execution",
+  connection_check: "Connection check",
+  message_preview: "Message preview",
+  playground: "Interactive playground",
+};
+
+const KIND_LABELS: Record<CapabilityKind, string> = {
+  source: "Sources",
+  destination: "Destinations",
+  parser: "Parsers",
+  serializer: "Serializers",
+  transformer: "Transformers",
+};
+
+export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
+  const groups = new Map<string, CapabilityGroup>();
+  const add = (property: string, kind: CapabilityKind, title: string) => {
+    const group = groups.get(property) ?? {
+      key: property,
+      label: PROPERTY_LABELS[property] ?? property.replaceAll("_", " "),
+      members: new Map(),
+    };
+    const members = group.members.get(kind) ?? new Set<string>();
+    members.add(title);
+    group.members.set(kind, members);
+    groups.set(property, group);
+  };
+  for (const connector of catalog.connectors) {
+    for (const [kind, endpoint] of [
+      ["source", connector.source],
+      ["destination", connector.sink],
+    ] as const) {
+      if (!endpoint) continue;
+      add(`component.${kind}`, kind, connector.title);
+      endpoint.delivery_modes.forEach((mode) => add(`delivery_mode.${mode}`, kind, connector.title));
+      endpoint.record_semantics.forEach((semantics) => add(`record_semantics.${semantics}`, kind, connector.title));
+      if (endpoint.record_semantics.length === 1) {
+        add(`record_semantics.only_${endpoint.record_semantics[0]}`, kind, connector.title);
+      }
+      if (endpoint.partitioned) add("partitioned", kind, connector.title);
+      if (endpoint.connection_check) add("connection_check", kind, connector.title);
+      if (endpoint.message_preview) add("message_preview", kind, connector.title);
+      collectSchemaCapabilities(endpoint.schema, add);
+    }
+  }
+  collectSchemaCapabilities(catalog.common_schema, add);
+  return [...groups.values()].sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function collectSchemaCapabilities(
+  value: unknown,
+  add: (property: string, kind: CapabilityKind, title: string) => void,
+): void {
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectSchemaCapabilities(item, add));
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  const object = value as Record<string, unknown>;
+  const capabilities = object["x-capabilities"];
+  if (capabilities && typeof capabilities === "object") {
+    const descriptor = capabilities as Record<string, unknown>;
+    const kind = descriptor.component;
+    const title = typeof object.title === "string" ? object.title : descriptor.key;
+    if (
+      typeof title === "string" &&
+      (kind === "parser" || kind === "serializer" || kind === "transformer")
+    ) {
+      const properties = Array.isArray(descriptor.properties) ? descriptor.properties : [];
+      const declaredSemantics = Array.isArray(descriptor.record_semantics)
+        ? descriptor.record_semantics
+        : [];
+      const semantics = declaredSemantics.map((item) => `record_semantics.${item}`);
+      const exclusive = declaredSemantics.length === 1
+        ? [`record_semantics.only_${declaredSemantics[0]}`]
+        : [];
+      [`component.${kind}`, ...properties, ...semantics, ...exclusive].forEach((property) => {
+        if (typeof property === "string") add(property, kind, title);
+      });
+    }
+  }
+  Object.values(object).forEach((child) => collectSchemaCapabilities(child, add));
+}
+
 export interface CompatibilityRoute {
   source: ConnectorDefinition;
   sink: ConnectorDefinition;
@@ -89,6 +193,8 @@ export function CompatibilityMatrixDialog({
     source: string;
     sink: string;
   } | null>(null);
+  const [activeTab, setActiveTab] = useState<"matrix" | "properties">("matrix");
+  const [activeProperty, setActiveProperty] = useState<string | null>(null);
   const sources = useMemo(
     () => catalog.connectors.filter((connector) => connector.source),
     [catalog],
@@ -98,6 +204,10 @@ export function CompatibilityMatrixDialog({
     [catalog],
   );
   const routes = useMemo(() => compatibilityRoutes(catalog), [catalog]);
+  const capabilityGroups = useMemo(() => catalogCapabilityGroups(catalog), [catalog]);
+  const selectedCapabilityGroup =
+    capabilityGroups.find((group) => group.key === activeProperty) ??
+    capabilityGroups[0];
   const route = (source: string, sink: string) =>
     routes.find(
       (candidate) =>
@@ -153,7 +263,12 @@ export function CompatibilityMatrixDialog({
           </Button>
         </header>
 
-        <div class="compatibility-legend" aria-label="Legend">
+        <div class="compatibility-tabs" role="tablist" aria-label="Catalog view">
+          <Button role="tab" aria-selected={activeTab === "matrix"} onClick={() => setActiveTab("matrix")}>Matrix</Button>
+          <Button role="tab" aria-selected={activeTab === "properties"} onClick={() => setActiveTab("properties")}>Properties</Button>
+        </div>
+
+        {activeTab === "matrix" ? <div class="compatibility-legend" aria-label="Legend">
           <span class="compatibility-badge batch">Batch</span>
           <span>Batch flow is supported</span>
           <span class="compatibility-badge stream">Stream</span>
@@ -162,9 +277,9 @@ export function CompatibilityMatrixDialog({
             —
           </span>
           <span>No compatible data semantics</span>
-        </div>
+        </div> : <div class="capability-summary">Components grouped by capabilities declared in the live catalog.</div>}
 
-        <div class="compatibility-table-scroll">
+        {activeTab === "matrix" ? <div class="compatibility-table-scroll">
           <table
             class="compatibility-table"
             onMouseLeave={() => setActiveCell(null)}
@@ -217,7 +332,32 @@ export function CompatibilityMatrixDialog({
               ))}
             </tbody>
           </table>
-        </div>
+        </div> : <div class="capability-groups">
+          <nav aria-label="Properties">
+            {capabilityGroups.map((group) => (
+              <Button
+                key={group.key}
+                aria-pressed={selectedCapabilityGroup?.key === group.key}
+                onClick={() => setActiveProperty(group.key)}
+              >
+                {group.label}
+              </Button>
+            ))}
+          </nav>
+          {selectedCapabilityGroup && (
+            <section class="capability-group">
+              <h3>{selectedCapabilityGroup.label}</h3>
+              <div>
+                {([...selectedCapabilityGroup.members.entries()] as Array<[CapabilityKind, Set<string>]>).map(([kind, members]) => (
+                  <section key={kind}>
+                    <h4>{KIND_LABELS[kind]}</h4>
+                    <ul>{[...members].sort().map((member) => <li key={member}>{member}</li>)}</ul>
+                  </section>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>}
 
         <footer>
           Some connectors require a matching mode, such as PostgreSQL

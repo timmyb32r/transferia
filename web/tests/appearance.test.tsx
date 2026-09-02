@@ -4,7 +4,10 @@ import { cleanup, fireEvent, render } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppearanceSettings } from "../src/ui/AppearanceSettings";
-import { compatibilityRoutes } from "../src/ui/CompatibilityMatrixDialog";
+import {
+  catalogCapabilityGroups,
+  compatibilityRoutes,
+} from "../src/ui/CompatibilityMatrixDialog";
 import {
   APPEARANCE_STORAGE_KEY,
   applyAppearance,
@@ -192,6 +195,26 @@ describe("appearance preferences", () => {
     });
   });
 
+  it("groups catalog components by their declared properties", () => {
+    const catalog = structuredClone(CATALOG);
+    catalog.connectors[1]!.source!.schema = {
+      title: "Debezium parser",
+      "x-capabilities": {
+        component: "parser",
+        key: "debezium",
+        record_semantics: ["changelog"],
+      },
+    };
+    const groups = catalogCapabilityGroups(catalog);
+    const changelog = groups.find(
+      (group) => group.key === "record_semantics.changelog",
+    )!;
+
+    expect([...changelog.members.get("source")!]).toEqual(["PostgreSQL"]);
+    expect([...changelog.members.get("destination")!]).toEqual(["PostgreSQL"]);
+    expect([...changelog.members.get("parser")!]).toEqual(["Debezium parser"]);
+  });
+
   it("opens a stable accessible compatibility dialog and restores focus", () => {
     const view = render(
       <AppearanceSettings
@@ -216,6 +239,12 @@ describe("appearance preferences", () => {
     });
     expect(dialog).toBeTruthy();
     expect(dialog.parentElement?.parentElement).toBe(document.body);
+    fireEvent.click(view.getByRole("tab", { name: "Properties" }));
+    fireEvent.click(
+      view.getByRole("button", { name: "Only append-only records" }),
+    );
+    expect(view.getAllByText("Only append-only records")).toHaveLength(2);
+    fireEvent.click(view.getByRole("tab", { name: "Matrix" }));
     expect(document.activeElement).toBe(
       view.getByRole("button", { name: "Close compatibility matrix" }),
     );

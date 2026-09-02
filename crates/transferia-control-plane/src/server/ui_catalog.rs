@@ -57,6 +57,12 @@ fn middleware_schema(definitions: &[MiddlewareDefinition]) -> Value {
         "oneOf": definitions
             .iter()
             .map(|definition| serde_json::json!({
+                "title": definition.title,
+                "x-capabilities": {
+                    "component": "transformer",
+                    "key": definition.key,
+                    "properties": if definition.playground { vec!["playground"] } else { Vec::<&str>::new() }
+                },
                 "type": "object",
                 "properties": { definition.key: definition.schema },
                 "required": [definition.key],

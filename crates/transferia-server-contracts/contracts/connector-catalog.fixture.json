@@ -14,6 +14,12 @@
         "items": {
           "oneOf": [
             {
+              "title": "Filter",
+              "x-capabilities": {
+                "component": "transformer",
+                "key": "filter",
+                "properties": []
+              },
               "type": "object",
               "properties": {
                 "filter": {
@@ -41,6 +47,14 @@
               "additionalProperties": false
             },
             {
+              "title": "DataFusion SQL",
+              "x-capabilities": {
+                "component": "transformer",
+                "key": "datafusion",
+                "properties": [
+                  "playground"
+                ]
+              },
               "type": "object",
               "properties": {
                 "datafusion": {
@@ -357,25 +371,60 @@
               "anyOf": [
                 {
                   "title": "JSON parser",
-                  "$ref": "#/$defs/JsonParserSchema"
+                  "$ref": "#/$defs/JsonParserSchema",
+                  "x-capabilities": {
+                    "component": "parser",
+                    "key": "json_parser",
+                    "record_semantics": [
+                      "append_only"
+                    ]
+                  }
                 },
                 {
                   "title": "Confluent Schema Registry parser",
-                  "$ref": "#/$defs/SchemaRegistryParserSchema"
+                  "$ref": "#/$defs/SchemaRegistryParserSchema",
+                  "x-capabilities": {
+                    "component": "parser",
+                    "key": "schema_registry",
+                    "record_semantics": [
+                      "append_only"
+                    ]
+                  }
                 },
                 {
                   "title": "Debezium parser",
-                  "$ref": "#/$defs/DebeziumParserSchema"
+                  "$ref": "#/$defs/DebeziumParserSchema",
+                  "x-capabilities": {
+                    "component": "parser",
+                    "key": "debezium",
+                    "record_semantics": [
+                      "changelog"
+                    ]
+                  }
                 },
                 {
                   "title": "Raw to table parser",
-                  "$ref": "#/$defs/RawToTableParserSchema"
+                  "$ref": "#/$defs/RawToTableParserSchema",
+                  "x-capabilities": {
+                    "component": "parser",
+                    "key": "raw_to_table",
+                    "record_semantics": [
+                      "append_only"
+                    ]
+                  }
                 },
                 {
                   "title": "Discard messages (for benchmarks)",
                   "$ref": "#/$defs/BenchmarkDiscardParserSchema",
                   "x-ui": {
                     "order": 1000000
+                  },
+                  "x-capabilities": {
+                    "component": "parser",
+                    "key": "benchmark_discard",
+                    "record_semantics": [
+                      "append_only"
+                    ]
                   }
                 }
               ]
@@ -1422,7 +1471,14 @@
                   "required": [
                     "type"
                   ],
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "x-capabilities": {
+                    "component": "serializer",
+                    "key": "json",
+                    "record_semantics": [
+                      "append_only"
+                    ]
+                  }
                 },
                 {
                   "title": "Debezium JSON",
@@ -1441,7 +1497,14 @@
                   "required": [
                     "type",
                     "logical_name"
-                  ]
+                  ],
+                  "x-capabilities": {
+                    "component": "serializer",
+                    "key": "debezium_json",
+                    "record_semantics": [
+                      "changelog"
+                    ]
+                  }
                 },
                 {
                   "title": "Debezium Schema Registry",
@@ -1510,7 +1573,14 @@
                     "connection",
                     "value_subject",
                     "format"
-                  ]
+                  ],
+                  "x-capabilities": {
+                    "component": "serializer",
+                    "key": "debezium_schema_registry",
+                    "record_semantics": [
+                      "changelog"
+                    ]
+                  }
                 },
                 {
                   "title": "Schema Registry",
@@ -1553,7 +1623,14 @@
                     "connection",
                     "subject",
                     "format"
-                  ]
+                  ],
+                  "x-capabilities": {
+                    "component": "serializer",
+                    "key": "schema_registry",
+                    "record_semantics": [
+                      "append_only"
+                    ]
+                  }
                 }
               ]
             },
@@ -1998,25 +2075,60 @@
               "anyOf": [
                 {
                   "title": "JSON parser",
-                  "$ref": "#/$defs/JsonParserSchema"
+                  "$ref": "#/$defs/JsonParserSchema",
+                  "x-capabilities": {
+                    "component": "parser",
+                    "key": "json_parser",
+                    "record_semantics": [
+                      "append_only"
+                    ]
+                  }
                 },
                 {
                   "title": "Confluent Schema Registry parser",
-                  "$ref": "#/$defs/SchemaRegistryParserSchema"
+                  "$ref": "#/$defs/SchemaRegistryParserSchema",
+                  "x-capabilities": {
+                    "component": "parser",
+                    "key": "schema_registry",
+                    "record_semantics": [
+                      "append_only"
+                    ]
+                  }
                 },
                 {
                   "title": "Debezium parser",
-                  "$ref": "#/$defs/DebeziumParserSchema"
+                  "$ref": "#/$defs/DebeziumParserSchema",
+                  "x-capabilities": {
+                    "component": "parser",
+                    "key": "debezium",
+                    "record_semantics": [
+                      "changelog"
+                    ]
+                  }
                 },
                 {
                   "title": "Raw to table parser",
-                  "$ref": "#/$defs/RawToTableParserSchema"
+                  "$ref": "#/$defs/RawToTableParserSchema",
+                  "x-capabilities": {
+                    "component": "parser",
+                    "key": "raw_to_table",
+                    "record_semantics": [
+                      "append_only"
+                    ]
+                  }
                 },
                 {
                   "title": "Discard messages (for benchmarks)",
                   "$ref": "#/$defs/BenchmarkDiscardParserSchema",
                   "x-ui": {
                     "order": 1000000
+                  },
+                  "x-capabilities": {
+                    "component": "parser",
+                    "key": "benchmark_discard",
+                    "record_semantics": [
+                      "append_only"
+                    ]
                   }
                 }
               ]
@@ -3176,7 +3288,14 @@
                   "required": [
                     "type"
                   ],
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "x-capabilities": {
+                    "component": "serializer",
+                    "key": "json",
+                    "record_semantics": [
+                      "append_only"
+                    ]
+                  }
                 },
                 {
                   "title": "Debezium JSON",
@@ -3195,7 +3314,14 @@
                   "required": [
                     "type",
                     "logical_name"
-                  ]
+                  ],
+                  "x-capabilities": {
+                    "component": "serializer",
+                    "key": "debezium_json",
+                    "record_semantics": [
+                      "changelog"
+                    ]
+                  }
                 },
                 {
                   "title": "Debezium Schema Registry",
@@ -3264,7 +3390,14 @@
                     "connection",
                     "value_subject",
                     "format"
-                  ]
+                  ],
+                  "x-capabilities": {
+                    "component": "serializer",
+                    "key": "debezium_schema_registry",
+                    "record_semantics": [
+                      "changelog"
+                    ]
+                  }
                 },
                 {
                   "title": "Schema Registry",
@@ -3307,7 +3440,14 @@
                     "connection",
                     "subject",
                     "format"
-                  ]
+                  ],
+                  "x-capabilities": {
+                    "component": "serializer",
+                    "key": "schema_registry",
+                    "record_semantics": [
+                      "append_only"
+                    ]
+                  }
                 }
               ]
             },
