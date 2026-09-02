@@ -203,6 +203,14 @@ pub struct YTsaurusSourceConfig {
 
     #[serde(default)]
     #[schemars(
+        title = "RPC proxy role",
+        description = "Optional dedicated RPC proxy role. Check connection loads the roles available on the selected cluster.",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub proxy_role: String,
+
+    #[serde(default)]
+    #[schemars(
         title = "Read mode",
         description = "Ordered reads resume at the last row after a transient failure. Unordered reads maximize single-stream throughput but fail on interruption. PartitionTables performs concurrent distributed reads and is also non-resumable.",
         extend("x-ui" = { "section": "advanced" })
@@ -579,6 +587,7 @@ impl SourceTableConfig {
 impl YTsaurusSourceConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
+        validate_proxy_role(&self.proxy_role)?;
         let uses_native_rpc = self
             .benchmark_discard
             .as_ref()
@@ -1051,6 +1060,14 @@ pub enum YTsaurusTableMode {
         )]
         path: String,
 
+        #[serde(default)]
+        #[schemars(
+            title = "RPC proxy role",
+            description = "Optional dedicated RPC proxy role. Static-table HTTP writes do not use it, but keeping the selection here preserves it when switching table modes.",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        proxy_role: String,
+
         replace_tables: bool,
 
         #[serde(default)]
@@ -1111,6 +1128,14 @@ pub enum YTsaurusTableMode {
             description = "Directory where dataset tables are stored"
         )]
         path: String,
+
+        #[serde(default)]
+        #[schemars(
+            title = "RPC proxy role",
+            description = "Optional dedicated RPC proxy role used for dynamic-table writes. Check connection loads the roles available on the selected cluster.",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        proxy_role: String,
 
         replace_tables: bool,
 
@@ -1199,6 +1224,9 @@ pub enum YTsaurusTableMode {
 impl YTsaurusSinkConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
+        if let Some(proxy_role) = self.proxy_role() {
+            validate_proxy_role(proxy_role)?;
+        }
         validate_path(self.path())?;
         anyhow::ensure!(
             !self.primary_medium().trim().is_empty(),
@@ -1265,6 +1293,15 @@ impl YTsaurusSinkConfig {
             YTsaurusTableMode::StaticTables { path, .. }
             | YTsaurusTableMode::DynamicTables { path, .. } => path,
         }
+    }
+
+    #[must_use]
+    pub fn proxy_role(&self) -> Option<&str> {
+        let role = match &self.tables {
+            YTsaurusTableMode::StaticTables { proxy_role, .. }
+            | YTsaurusTableMode::DynamicTables { proxy_role, .. } => proxy_role,
+        };
+        (!role.is_empty()).then_some(role.as_str())
     }
 
     #[must_use]
@@ -1627,6 +1664,18 @@ impl TextYsonParser<'_> {
     fn peek(&self) -> Option<u8> {
         self.input.get(self.offset).copied()
     }
+}
+
+fn validate_proxy_role(proxy_role: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        proxy_role.trim() == proxy_role,
+        "YTsaurus proxy_role must not contain leading or trailing whitespace"
+    );
+    anyhow::ensure!(
+        !proxy_role.contains('\0'),
+        "YTsaurus proxy_role must not contain NUL"
+    );
+    Ok(())
 }
 
 pub fn validate_path(path: &str) -> anyhow::Result<()> {

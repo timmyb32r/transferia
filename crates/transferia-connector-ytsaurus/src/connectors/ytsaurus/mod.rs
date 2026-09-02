@@ -24,6 +24,13 @@ pub async fn list_table_path_suggestions(
     client.list_table_paths(query).await
 }
 
+pub async fn list_rpc_proxy_roles(
+    config: &YTsaurusConnectionConfig,
+) -> anyhow::Result<Vec<String>> {
+    let client = client::YTsaurusClient::new(config)?;
+    client.list_rpc_proxy_roles().await
+}
+
 pub async fn check_connection(config: &YTsaurusConnectionConfig) -> anyhow::Result<()> {
     checked_client(config).await?;
     Ok(())

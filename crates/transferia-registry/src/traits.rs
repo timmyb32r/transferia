@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::delivery::{
-    DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimits,
+    DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, PerformanceAdvice, SinkLimits,
 };
 use transferia_core::memory::PipelineMemory;
 use transferia_core::sink::Sink;
@@ -147,6 +147,10 @@ pub trait SinkConnector: Send + Sync {
 
     fn validate_pipeline_memory_limit(&self, _limit_bytes: usize) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    fn performance_advice(&self) -> Vec<PerformanceAdvice> {
+        Vec::new()
     }
 
     fn build_sink(&self, context: SinkBuildContext)

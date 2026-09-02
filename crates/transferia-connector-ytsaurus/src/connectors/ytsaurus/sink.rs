@@ -26,7 +26,8 @@ use super::yt_wire::encode_wire_batch;
 use crate::metrics::SinkCounters;
 use transferia_core::delivery::{
     validate_batch_against_discovery, validate_stored_projection, ArrowTypeFamily,
-    DeliveryDiscovery, NameSyntax, SinkLimits, SinkLimitsDescription, SourceTopology, TextLimit,
+    DeliveryDiscovery, NameSyntax, PerformanceAdvice, PerformanceAdviceSeverity, SinkLimits,
+    SinkLimitsDescription, SourceTopology, TextLimit,
 };
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
@@ -47,7 +48,7 @@ pub struct YTsaurusSinkConnector {
 impl YTsaurusSinkConnector {
     pub fn from_config(config: YTsaurusSinkConfig) -> anyhow::Result<Self> {
         config.validate()?;
-        let client = YTsaurusClient::new(&config.connection)?;
+        let client = YTsaurusClient::new_with_proxy_role(&config.connection, config.proxy_role())?;
         let table_attributes = Arc::new(config.parsed_table_attributes()?);
         let writer_spec = Arc::new(config.parsed_writer_spec()?);
         Ok(Self {
@@ -220,6 +221,20 @@ impl SinkConnector for YTsaurusSinkConnector {
         } else {
             YTsaurusSinkMode::Dynamic
         })
+    }
+
+    fn performance_advice(&self) -> Vec<PerformanceAdvice> {
+        if self.config.dynamic_write().is_none() || self.config.proxy_role().is_some() {
+            return Vec::new();
+        }
+        vec![PerformanceAdvice {
+            code: "YT_SHARED_RPC_PROXIES".to_owned(),
+            severity: PerformanceAdviceSeverity::Info,
+            summary: "No dedicated YTsaurus RPC proxy role is selected".to_owned(),
+            explanation: "Dynamic-table writes use the cluster's default RPC proxy pool, which may be shared and contended.".to_owned(),
+            remediation: "Provision a dedicated RPC proxy role and select it in the YTsaurus destination advanced settings when sustained write throughput matters.".to_owned(),
+            config_paths: vec!["sink.ytsaurus.tables.proxy_role".to_owned()],
+        }]
     }
 
     fn limits(&self) -> &dyn SinkLimits {

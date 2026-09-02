@@ -19,7 +19,8 @@ use tokio::task::JoinSet;
 
 use super::client::{
     dynamic_conversion_attributes, dynamic_table_attributes, json_header_value,
-    resolved_link_suggestion, rich_read_path, sort_operation_parameters, static_table_attributes,
+    normalize_rpc_proxy_roles, resolved_link_suggestion, rich_read_path,
+    rpc_proxy_discovery_url, sort_operation_parameters, static_table_attributes,
     suggestion_directory, table_path_suggestions, table_writer_spec, uniform_reshard_parameters,
     yson_header_value, ListedNode,
 };
@@ -60,6 +61,7 @@ use transferia_core::delivery::{
 };
 use transferia_core::memory::PipelineMemory;
 use transferia_core::sink::SinkBatch;
+use transferia_registry::SinkConnector as _;
 
 #[tokio::test]
 async fn dynamic_partial_update_preserves_toast_by_using_modify_with_only_changed_columns(
@@ -325,7 +327,7 @@ fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
             .then_some(name.as_str())
         })
         .collect::<Vec<_>>();
-    assert_eq!(advanced, ["read_ordering"]);
+    assert_eq!(advanced, ["proxy_role", "read_ordering"]);
     for name in ["trusted_native_rpc_plaintext", "table_reader"] {
         assert_eq!(
             properties[name]
@@ -356,6 +358,99 @@ fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
     }
     assert!(!partition.contains_key("direct_data_node_access"));
     assert!(!partition.contains_key("direct_blocks_per_request"));
+}
+
+#[test]
+fn rpc_proxy_role_is_forwarded_to_discovery_without_changing_it() -> anyhow::Result<()> {
+    let endpoint = reqwest::Url::parse("https://hume.example.net:443/root?old=value")?;
+    let url = rpc_proxy_discovery_url(&endpoint, Some("dedicated-transferia"));
+    assert_eq!(url.path(), "/api/v4/discover_proxies");
+    assert_eq!(url.query(), Some("type=rpc&role=dedicated-transferia"));
+
+    let without_role = rpc_proxy_discovery_url(&endpoint, None);
+    assert_eq!(without_role.query(), Some("type=rpc"));
+    Ok(())
+}
+
+#[test]
+fn rpc_proxy_role_options_are_sorted_deduplicated_and_never_empty() {
+    assert_eq!(
+        normalize_rpc_proxy_roles(vec![
+            "shared".to_owned(),
+            "".to_owned(),
+            "dedicated".to_owned(),
+            "shared".to_owned(),
+        ]),
+        ["dedicated", "shared"]
+    );
+}
+
+#[test]
+fn proxy_role_is_advanced_in_source_and_both_sink_modes() -> anyhow::Result<()> {
+    let source = serde_json::to_value(schema_for!(YTsaurusSourceConfig))?;
+    assert_eq!(
+        source["properties"]["proxy_role"]["x-ui"]["section"],
+        "advanced"
+    );
+
+    let sink = serde_json::to_value(schema_for!(YTsaurusSinkConfig))?;
+    let branches = sink["$defs"]["YTsaurusTableMode"]["oneOf"]
+        .as_array()
+        .expect("table modes");
+    assert_eq!(branches.len(), 2);
+    for branch in branches {
+        assert_eq!(
+            branch["properties"]["proxy_role"]["x-ui"]["section"],
+            "advanced"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn proxy_role_rejects_surrounding_whitespace_in_source_and_sink() -> anyhow::Result<()> {
+    let source = serde_yaml::from_str::<YTsaurusSourceConfig>(
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntrusted_native_rpc_plaintext: true\ntables: [{ path: //tmp/input }]\nproxy_role: ' dedicated '\n",
+    )?;
+    assert!(source.validate().is_err());
+
+    let sink = serde_yaml::from_str::<YTsaurusSinkConfig>(
+        "tables: { type: static_tables, replace_tables: false, path: //tmp/output, proxy_role: ' dedicated ' }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n",
+    )?;
+    assert!(sink.validate().is_err());
+    Ok(())
+}
+
+#[test]
+fn only_dynamic_sink_without_a_proxy_role_recommends_dedicated_proxies() -> anyhow::Result<()> {
+    let dynamic = serde_yaml::from_str::<YTsaurusSinkConfig>(
+        "tables: { type: dynamic_tables, replace_tables: true, path: //tmp/output }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntrusted_native_rpc_plaintext: true\n",
+    )?;
+    let connector = YTsaurusSinkConnector::from_config(dynamic)?;
+    assert_eq!(connector.performance_advice().len(), 1);
+    assert_eq!(
+        connector.performance_advice()[0].code,
+        "YT_SHARED_RPC_PROXIES"
+    );
+
+    let dedicated = serde_yaml::from_str::<YTsaurusSinkConfig>(
+        "tables: { type: dynamic_tables, replace_tables: true, path: //tmp/output, proxy_role: dedicated }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntrusted_native_rpc_plaintext: true\n",
+    )?;
+    assert!(
+        YTsaurusSinkConnector::from_config(dedicated)?
+            .performance_advice()
+            .is_empty()
+    );
+
+    let static_tables = serde_yaml::from_str::<YTsaurusSinkConfig>(
+        "tables: { type: static_tables, replace_tables: true, path: //tmp/output }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n",
+    )?;
+    assert!(
+        YTsaurusSinkConnector::from_config(static_tables)?
+            .performance_advice()
+            .is_empty()
+    );
+    Ok(())
 }
 
 #[test]
@@ -1634,35 +1729,58 @@ fn physical_layout_advice_is_structured_and_actionable() {
         optimize_for_scan,
         physical_layout,
     };
-    let lookup = performance_advice(&[table(
-        false,
-        PhysicalChunkLayout {
-            total: 2,
-            columnar: 2,
-            non_columnar: 0,
-        },
-    )]);
+    let lookup = performance_advice(
+        &[table(
+            false,
+            PhysicalChunkLayout {
+                total: 2,
+                columnar: 2,
+                non_columnar: 0,
+            },
+        )],
+        Some("dedicated"),
+    );
     assert_eq!(lookup[0].code, "YT_OPTIMIZE_FOR_LOOKUP");
 
-    let mixed_scan = performance_advice(&[table(
-        true,
-        PhysicalChunkLayout {
-            total: 2,
-            columnar: 1,
-            non_columnar: 1,
-        },
-    )]);
+    let mixed_scan = performance_advice(
+        &[table(
+            true,
+            PhysicalChunkLayout {
+                total: 2,
+                columnar: 1,
+                non_columnar: 1,
+            },
+        )],
+        Some("dedicated"),
+    );
     assert_eq!(mixed_scan[0].code, "YT_SCAN_HAS_NON_COLUMNAR_CHUNKS");
 
-    assert!(performance_advice(&[table(
-        true,
-        PhysicalChunkLayout {
-            total: 2,
-            columnar: 2,
-            non_columnar: 0,
-        },
-    )])
+    assert!(performance_advice(
+        &[table(
+            true,
+            PhysicalChunkLayout {
+                total: 2,
+                columnar: 2,
+                non_columnar: 0,
+            },
+        )],
+        Some("dedicated"),
+    )
     .is_empty());
+
+    let shared_proxies = performance_advice(
+        &[table(
+            true,
+            PhysicalChunkLayout {
+                total: 2,
+                columnar: 2,
+                non_columnar: 0,
+            },
+        )],
+        None,
+    );
+    assert_eq!(shared_proxies.len(), 1);
+    assert_eq!(shared_proxies[0].code, "YT_SHARED_RPC_PROXIES");
 }
 
 #[derive(Clone, PartialEq, prost::Message)]

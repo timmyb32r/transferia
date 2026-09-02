@@ -246,7 +246,10 @@ async fn build_pipeline_plan(
         .iter()
         .map(|middleware| catalog.build_middleware(middleware.kind()?, middleware.raw()?.clone()))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let discovery = validate_middlewares(&middlewares, discovery).await?;
+    let mut discovery = validate_middlewares(&middlewares, discovery).await?;
+    discovery
+        .performance_advice
+        .extend(sink_connector.performance_advice());
     let semantics = validate_discovered_pipeline(
         &source_descriptor,
         &sink_connector.compatibility(),

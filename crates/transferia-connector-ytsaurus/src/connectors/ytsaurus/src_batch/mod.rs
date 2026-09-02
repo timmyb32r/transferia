@@ -187,8 +187,11 @@ impl PhysicalChunkLayout {
     }
 }
 
-pub(super) fn performance_advice(tables: &[DiscoveredTable]) -> Vec<PerformanceAdvice> {
-    tables
+pub(super) fn performance_advice(
+    tables: &[DiscoveredTable],
+    proxy_role: Option<&str>,
+) -> Vec<PerformanceAdvice> {
+    let mut advice = tables
         .iter()
         .filter_map(|table| {
             if !table.optimize_for_scan {
@@ -224,7 +227,18 @@ pub(super) fn performance_advice(tables: &[DiscoveredTable]) -> Vec<PerformanceA
                 config_paths: vec!["source.ytsaurus.tables".to_owned()],
             })
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if proxy_role.is_none() {
+        advice.push(PerformanceAdvice {
+            code: "YT_SHARED_RPC_PROXIES".to_owned(),
+            severity: PerformanceAdviceSeverity::Info,
+            summary: "No dedicated YTsaurus RPC proxy role is selected".to_owned(),
+            explanation: "Snapshot reads use the cluster's default RPC proxy pool, which may be shared and contended.".to_owned(),
+            remediation: "Provision a dedicated RPC proxy role and select it in the YTsaurus source advanced settings when sustained read throughput matters.".to_owned(),
+            config_paths: vec!["source.ytsaurus.proxy_role".to_owned()],
+        });
+    }
+    advice
 }
 
 pub struct YTsaurusSourceConnector {
@@ -242,7 +256,10 @@ impl YTsaurusSourceConnector {
         metrics: Arc<MetricsRegistry>,
     ) -> anyhow::Result<Self> {
         config.validate()?;
-        let client = YTsaurusClient::new(&config.connection)?;
+        let client = YTsaurusClient::new_with_proxy_role(
+            &config.connection,
+            (!config.proxy_role.is_empty()).then_some(config.proxy_role.as_str()),
+        )?;
         Ok(Self {
             config,
             client,
@@ -405,7 +422,11 @@ impl SourceConnector for YTsaurusSourceConnector {
             };
             let system_columns = SYSTEM_COLUMN_KINDS;
             if self.config.benchmark_discard.is_some() {
-                let performance_advice = performance_advice(&tables);
+                let performance_advice = performance_advice(
+                    &tables,
+                    (!self.config.proxy_role.is_empty())
+                        .then_some(self.config.proxy_role.as_str()),
+                );
                 let datasets = tables
                     .iter()
                     .map(|table| DiscoveredDataset {
@@ -429,7 +450,10 @@ impl SourceConnector for YTsaurusSourceConnector {
                     performance_advice,
                 });
             }
-            let performance_advice = performance_advice(&tables);
+            let performance_advice = performance_advice(
+                &tables,
+                (!self.config.proxy_role.is_empty()).then_some(self.config.proxy_role.as_str()),
+            );
             let discovered_system_columns = system_columns
                 .iter()
                 .copied()

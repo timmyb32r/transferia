@@ -83,28 +83,44 @@ async fn check_source_connection(
     config: ytsaurus::YTsaurusSourceConfig,
 ) -> anyhow::Result<ConnectionCheckResult> {
     let paths = configured_source_paths(&config);
-    let Some(paths) = paths else {
+    let result = if let Some(paths) = paths {
+        ytsaurus::check_source_tables(&config.connection, &paths).await?;
+        ConnectionCheckResult::default()
+    } else {
         ytsaurus::check_connection(&config.connection).await?;
-        return Ok(incomplete_entities_result(
+        incomplete_entities_result(
             "YTsaurus connection and authentication are verified, but source table access was not checked because at least one table path is empty.",
-        ));
+        )
     };
-    ytsaurus::check_source_tables(&config.connection, &paths).await?;
-    Ok(ConnectionCheckResult::default())
+    with_rpc_proxy_roles(&config.connection, result, "#/proxy_role").await
 }
 
 async fn check_sink_connection(
     config: ytsaurus::YTsaurusSinkConfig,
 ) -> anyhow::Result<ConnectionCheckResult> {
     let path = config.path().trim();
-    if path.is_empty() {
+    let result = if path.is_empty() {
         ytsaurus::check_connection(&config.connection).await?;
-        return Ok(incomplete_entities_result(
+        incomplete_entities_result(
             "YTsaurus connection and authentication are verified, but destination entity access was not checked because Path is empty.",
-        ));
-    }
-    ytsaurus::check_sink_directory(&config.connection, path).await?;
-    Ok(ConnectionCheckResult::default())
+        )
+    } else {
+        ytsaurus::check_sink_directory(&config.connection, path).await?;
+        ConnectionCheckResult::default()
+    };
+    with_rpc_proxy_roles(&config.connection, result, "#/tables/proxy_role").await
+}
+
+async fn with_rpc_proxy_roles(
+    connection: &ytsaurus::YTsaurusConnectionConfig,
+    mut result: ConnectionCheckResult,
+    config_path: &str,
+) -> anyhow::Result<ConnectionCheckResult> {
+    result.options.insert(
+        config_path.to_owned(),
+        ytsaurus::list_rpc_proxy_roles(connection).await?,
+    );
+    Ok(result)
 }
 
 fn configured_source_paths(config: &ytsaurus::YTsaurusSourceConfig) -> Option<Vec<String>> {

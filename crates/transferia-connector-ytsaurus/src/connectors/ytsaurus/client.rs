@@ -38,6 +38,7 @@ impl std::error::Error for YTsaurusHttpError {}
 pub struct YTsaurusClient {
     endpoint: reqwest::Url,
     token: String,
+    rpc_proxy_role: Option<String>,
     client: OutboundHttpClient,
     heavy_endpoints: Arc<OnceCell<Vec<reqwest::Url>>>,
     next_heavy_endpoint: Arc<AtomicUsize>,
@@ -132,10 +133,24 @@ impl DiscoverProxiesResponse {
 
 impl YTsaurusClient {
     pub fn new(config: &YTsaurusConnectionConfig) -> anyhow::Result<Self> {
+        Self::new_with_proxy_role(config, None)
+    }
+
+    pub fn new_with_proxy_role(
+        config: &YTsaurusConnectionConfig,
+        proxy_role: Option<&str>,
+    ) -> anyhow::Result<Self> {
         config.validate()?;
+        if let Some(proxy_role) = proxy_role {
+            anyhow::ensure!(
+                !proxy_role.is_empty() && proxy_role.trim() == proxy_role,
+                "YTsaurus RPC proxy role must be non-empty and contain no surrounding whitespace"
+            );
+        }
         Ok(Self {
             endpoint: config.endpoint().parse()?,
             token: config.auth.load_token()?,
+            rpc_proxy_role: proxy_role.map(str::to_owned),
             client: OutboundHttpClient::new(
                 config.timeout(),
                 [],
@@ -405,9 +420,7 @@ impl YTsaurusClient {
     }
 
     pub async fn discover_rpc_endpoints(&self) -> anyhow::Result<Vec<String>> {
-        let mut url = self.endpoint.clone();
-        url.set_path("/api/v4/discover_proxies");
-        url.query_pairs_mut().clear().append_pair("type", "rpc");
+        let url = rpc_proxy_discovery_url(&self.endpoint, self.rpc_proxy_role.as_deref());
         let response = self
             .client
             .request(reqwest::Method::GET, url)
@@ -429,6 +442,21 @@ impl YTsaurusClient {
             "YTsaurus RPC proxy discovery returned no proxies"
         );
         Ok(endpoints)
+    }
+
+    pub async fn list_rpc_proxy_roles(&self) -> anyhow::Result<Vec<String>> {
+        let parameters = serde_json::json!({ "path": "//sys/rpc_proxy_roles" });
+        let response = self
+            .request(reqwest::Method::GET, "list")?
+            .configure(|request| {
+                request
+                    .header("X-YT-Parameters", parameters.to_string())
+                    .header(reqwest::header::ACCEPT, "application/json")
+            })
+            .send()
+            .await?;
+        let roles = Self::checked(response).await?.json::<Vec<String>>().await?;
+        Ok(normalize_rpc_proxy_roles(roles))
     }
 
     pub(crate) fn token(&self) -> &str {
@@ -856,6 +884,28 @@ impl YTsaurusClient {
         Self::checked(response).await?;
         Ok(())
     }
+}
+
+pub(super) fn rpc_proxy_discovery_url(
+    endpoint: &reqwest::Url,
+    proxy_role: Option<&str>,
+) -> reqwest::Url {
+    let mut url = endpoint.clone();
+    url.set_path("/api/v4/discover_proxies");
+    let mut query = url.query_pairs_mut();
+    query.clear().append_pair("type", "rpc");
+    if let Some(proxy_role) = proxy_role {
+        query.append_pair("role", proxy_role);
+    }
+    drop(query);
+    url
+}
+
+pub(super) fn normalize_rpc_proxy_roles(mut roles: Vec<String>) -> Vec<String> {
+    roles.retain(|role| !role.is_empty());
+    roles.sort_unstable();
+    roles.dedup();
+    roles
 }
 
 pub(super) fn dynamic_table_attributes(

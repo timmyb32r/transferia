@@ -7690,6 +7690,15 @@
                 "$ref": "#/$defs/SourceTableConfig"
               }
             },
+            "proxy_role": {
+              "title": "RPC proxy role",
+              "description": "Optional dedicated RPC proxy role. Check connection loads the roles available on the selected cluster.",
+              "type": "string",
+              "default": "",
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
             "read_ordering": {
               "title": "Read mode",
               "description": "Ordered reads resume at the last row after a transient failure. Unordered reads maximize single-stream throughput but fail on interruption. PartitionTables performs concurrent distributed reads and is also non-resumable.",
@@ -8315,6 +8324,15 @@
                       "description": "Directory where dataset tables are stored",
                       "type": "string"
                     },
+                    "proxy_role": {
+                      "title": "RPC proxy role",
+                      "description": "Optional dedicated RPC proxy role. Static-table HTTP writes do not use it, but keeping the selection here preserves it when switching table modes.",
+                      "type": "string",
+                      "default": "",
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
                     "replace_tables": {
                       "type": "boolean"
                     },
@@ -8399,6 +8417,15 @@
                       "title": "Path",
                       "description": "Directory where dataset tables are stored",
                       "type": "string"
+                    },
+                    "proxy_role": {
+                      "title": "RPC proxy role",
+                      "description": "Optional dedicated RPC proxy role used for dynamic-table writes. Check connection loads the roles available on the selected cluster.",
+                      "type": "string",
+                      "default": "",
+                      "x-ui": {
+                        "section": "advanced"
+                      }
                     },
                     "replace_tables": {
                       "type": "boolean"
