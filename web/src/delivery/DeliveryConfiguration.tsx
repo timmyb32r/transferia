@@ -12,14 +12,26 @@ import {
   SerializerDetailsForm,
 } from "../features/variantDetails/VariantDetailsForms";
 import { useWidgetRegistry } from "../schema/widgetRegistry";
+import type { WidgetContracts } from "../schema/widgetDefinitions";
 import type { EditorState } from "../state";
-import type { JsonObject, UiCatalog } from "../types";
+import type {
+  ConnectorDefinition,
+  DeliveryMode,
+  JsonObject,
+  UiCatalog,
+} from "../types";
 import { AutofillResistantInput } from "../ui/AutofillResistantField";
 import { TopField } from "../ui/FormField";
 import { SelectControl } from "../ui/SelectControl";
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import { SourceSampleProvider } from "../features/middleware/SourceSampleContext";
-import { sourceRecordSemantics } from "./recordSemantics";
+import {
+  DELIVERY_TYPES,
+  routeSupportsDeliveryType,
+  sourceRecordSemantics,
+  sourceSupportsDeliveryType,
+  type DeliveryType,
+} from "../recordSemantics";
 
 type EndpointSelection = ReturnType<typeof selectedEndpoints>;
 
@@ -51,8 +63,32 @@ export function DeliveryConfiguration({
     deliveryTypeSelected &&
     (selection?.sourceKey ?? "") !== "" &&
     (selection?.sinkKey ?? "") !== "";
-  const sourceConnectors = orderedEndpointConnectors(catalog, "source");
-  const sinkConnectors = orderedEndpointConnectors(catalog, "sink");
+  const allSourceConnectors = orderedEndpointConnectors(catalog, "source");
+  const allSinkConnectors = orderedEndpointConnectors(catalog, "sink");
+  const currentDeliveryType = deliveryType(editor.config);
+  const sourceConnectors = allSourceConnectors.filter((connector) =>
+    connectorAllowed(
+      connector,
+      "source",
+      currentDeliveryType,
+      selection,
+      editor.config,
+      widgets,
+    ),
+  );
+  const sinkConnectors = allSinkConnectors.filter((connector) =>
+    connectorAllowed(
+      connector,
+      "sink",
+      currentDeliveryType,
+      selection,
+      editor.config,
+      widgets,
+    ),
+  );
+  const deliveryTypeOptions = DELIVERY_TYPES.filter((candidate) =>
+    deliveryTypeAllowed(candidate, selection, editor.config, widgets),
+  );
   const requiredSinkRecordSemantics =
     selection?.error === undefined &&
     selection?.source !== undefined &&
@@ -130,11 +166,10 @@ export function DeliveryConfiguration({
               value={stringValue(editor.config.delivery_type)}
               disabled={readOnly}
               placeholder="Not selected"
-              options={[
-                { value: "batch", label: "Batch" },
-                { value: "stream", label: "Stream" },
-                { value: "batch_and_stream", label: "Batch + stream" },
-              ]}
+              options={deliveryTypeOptions.map((value) => ({
+                value,
+                label: deliveryTypeLabel(value),
+              }))}
               onChange={(value) =>
                 onConfig({ ...editor.config, delivery_type: value })
               }
@@ -142,86 +177,79 @@ export function DeliveryConfiguration({
           </TopField>
         </section>
 
-        {deliveryTypeSelected && (
-          <section class="route-composition">
-            <EndpointCard
-              title="Source"
-              role="source"
-              selectedKey={selection?.sourceKey ?? ""}
-              connectors={sourceConnectors}
-              {...(selection?.source === undefined ||
-              selection.error !== undefined
-                ? {}
-                : { endpoint: selection.source })}
-              config={editor.config}
-              readOnly={readOnly}
-              showSettings={routeSelectionComplete}
-              showRequiredErrors={requiredErrorScope !== "none"}
-              onChoose={onChooseEndpoint}
-              onConfig={onConfig}
-            />
-            <div class="route-arrow">→</div>
-            <EndpointCard
-              title="Destination"
-              role="sink"
-              selectedKey={selection?.sinkKey ?? ""}
-              connectors={sinkConnectors}
-              {...(selection?.sink === undefined ||
-              selection.error !== undefined
-                ? {}
-                : { endpoint: selection.sink })}
-              config={editor.config}
-              readOnly={readOnly}
-              showSettings={routeSelectionComplete}
-              showRequiredErrors={requiredErrorScope === "all"}
-              {...(requiredSinkRecordSemantics === undefined
-                ? {}
-                : { requiredRecordSemantics: requiredSinkRecordSemantics })}
-              onChoose={onChooseEndpoint}
-              onConfig={onConfig}
-            />
-            {routeSelectionComplete &&
-              selection?.error === undefined &&
-              selection?.source && (
-                <ParserDetailsForm
-                  node={compiledSchema(selection.source.schema, widgets)}
-                  value={endpointValue(
-                    editor.config,
-                    "source",
-                    selection.sourceKey,
-                  )}
-                  disabled={readOnly}
-                  showRequiredErrors={requiredErrorScope !== "none"}
-                  onChange={(next) =>
-                    onConfig({
-                      ...editor.config,
-                      source: { [selection.sourceKey]: next },
-                    })
-                  }
-                />
-              )}
-            {routeSelectionComplete &&
-              selection?.error === undefined &&
-              selection?.sink && (
-                <SerializerDetailsForm
-                  node={compiledSchema(selection.sink.schema, widgets)}
-                  value={endpointValue(
-                    editor.config,
-                    "sink",
-                    selection.sinkKey,
-                  )}
-                  disabled={readOnly}
-                  showRequiredErrors={requiredErrorScope === "all"}
-                  onChange={(next) =>
-                    onConfig({
-                      ...editor.config,
-                      sink: { [selection.sinkKey]: next },
-                    })
-                  }
-                />
-              )}
-          </section>
-        )}
+        <section class="route-composition">
+          <EndpointCard
+            title="Source"
+            role="source"
+            selectedKey={selection?.sourceKey ?? ""}
+            connectors={sourceConnectors}
+            {...(selection?.source === undefined ||
+            selection.error !== undefined
+              ? {}
+              : { endpoint: selection.source })}
+            config={editor.config}
+            readOnly={readOnly}
+            showSettings={routeSelectionComplete}
+            showRequiredErrors={requiredErrorScope !== "none"}
+            onChoose={onChooseEndpoint}
+            onConfig={onConfig}
+          />
+          <div class="route-arrow">→</div>
+          <EndpointCard
+            title="Destination"
+            role="sink"
+            selectedKey={selection?.sinkKey ?? ""}
+            connectors={sinkConnectors}
+            {...(selection?.sink === undefined || selection.error !== undefined
+              ? {}
+              : { endpoint: selection.sink })}
+            config={editor.config}
+            readOnly={readOnly}
+            showSettings={routeSelectionComplete}
+            showRequiredErrors={requiredErrorScope === "all"}
+            {...(requiredSinkRecordSemantics === undefined
+              ? {}
+              : { requiredRecordSemantics: requiredSinkRecordSemantics })}
+            onChoose={onChooseEndpoint}
+            onConfig={onConfig}
+          />
+          {routeSelectionComplete &&
+            selection?.error === undefined &&
+            selection?.source && (
+              <ParserDetailsForm
+                node={compiledSchema(selection.source.schema, widgets)}
+                value={endpointValue(
+                  editor.config,
+                  "source",
+                  selection.sourceKey,
+                )}
+                disabled={readOnly}
+                showRequiredErrors={requiredErrorScope !== "none"}
+                onChange={(next) =>
+                  onConfig({
+                    ...editor.config,
+                    source: { [selection.sourceKey]: next },
+                  })
+                }
+              />
+            )}
+          {routeSelectionComplete &&
+            selection?.error === undefined &&
+            selection?.sink && (
+              <SerializerDetailsForm
+                node={compiledSchema(selection.sink.schema, widgets)}
+                value={endpointValue(editor.config, "sink", selection.sinkKey)}
+                disabled={readOnly}
+                showRequiredErrors={requiredErrorScope === "all"}
+                onChange={(next) =>
+                  onConfig({
+                    ...editor.config,
+                    sink: { [selection.sinkKey]: next },
+                  })
+                }
+              />
+            )}
+        </section>
         {routeSelectionComplete && selection?.error && (
           <div class="compatibility-error">
             <strong>Incompatible route</strong>
@@ -245,4 +273,96 @@ export function DeliveryConfiguration({
       </div>
     </SourceSampleProvider>
   );
+}
+
+function deliveryType(config: JsonObject): DeliveryType | undefined {
+  const value = stringValue(config.delivery_type);
+  return DELIVERY_TYPES.includes(value as DeliveryType)
+    ? (value as DeliveryType)
+    : undefined;
+}
+
+function deliveryTypeLabel(value: DeliveryType): string {
+  if (value === "batch") return "Batch";
+  if (value === "stream") return "Stream";
+  return "Batch + stream";
+}
+
+function connectorAllowed(
+  candidate: ConnectorDefinition,
+  role: "source" | "sink",
+  selectedDeliveryType: DeliveryType | undefined,
+  selection: EndpointSelection | undefined,
+  config: JsonObject,
+  widgets: WidgetContracts,
+): boolean {
+  const currentKey =
+    role === "source" ? selection?.sourceKey : selection?.sinkKey;
+  if (candidate.key === currentKey) return true;
+  if (role === "source") {
+    const source = candidate.source;
+    if (source === undefined) return false;
+    if (selection?.sink === undefined)
+      return (
+        selectedDeliveryType === undefined ||
+        sourceSupportsDeliveryType(source, selectedDeliveryType)
+      );
+    return candidateDeliveryTypes(selectedDeliveryType).some((mode) =>
+      routeSupportsDeliveryType(source, selection.sink!, mode, (phase) =>
+        sourceRecordSemantics(
+          source,
+          compiledSchema(source.schema, widgets),
+          source.initial,
+          phase,
+        ),
+      ),
+    );
+  }
+
+  const sink = candidate.sink;
+  if (sink === undefined) return false;
+  if (selection?.source === undefined) return true;
+  const sourceValue = endpointValue(config, "source", selection.sourceKey);
+  const sourceSchema = compiledSchema(selection.source.schema, widgets);
+  return candidateDeliveryTypes(selectedDeliveryType).some((mode) =>
+    routeSupportsDeliveryType(selection.source!, sink, mode, (phase) =>
+      sourceRecordSemantics(
+        selection.source!,
+        sourceSchema,
+        sourceValue,
+        phase,
+      ),
+    ),
+  );
+}
+
+function deliveryTypeAllowed(
+  candidate: DeliveryType,
+  selection: EndpointSelection | undefined,
+  config: JsonObject,
+  widgets: WidgetContracts,
+): boolean {
+  if (selection?.source === undefined) return true;
+  if (selection.sink === undefined)
+    return sourceSupportsDeliveryType(selection.source, candidate);
+  const sourceValue = endpointValue(config, "source", selection.sourceKey);
+  const sourceSchema = compiledSchema(selection.source.schema, widgets);
+  return routeSupportsDeliveryType(
+    selection.source,
+    selection.sink,
+    candidate,
+    (phase: DeliveryMode) =>
+      sourceRecordSemantics(
+        selection.source!,
+        sourceSchema,
+        sourceValue,
+        phase,
+      ),
+  );
+}
+
+function candidateDeliveryTypes(
+  selected: DeliveryType | undefined,
+): readonly DeliveryType[] {
+  return selected === undefined ? DELIVERY_TYPES : [selected];
 }

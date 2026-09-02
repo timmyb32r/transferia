@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 import { compileSchema } from "../src/schema/compiler";
 import { productionWidgetRegistry } from "../src/features/formWidgetRegistry";
 import {
+  routeSupportsDeliveryType,
   sourceRecordSemantics,
-} from "../src/delivery/recordSemantics";
+} from "../src/recordSemantics";
 import type { EndpointDefinition } from "../src/types";
 
 const queueSource: EndpointDefinition = {
@@ -48,8 +49,9 @@ describe("record semantic selection", () => {
         "stream",
       ),
     ).toEqual(["changelog"]);
-    expect(sourceRecordSemantics(queueSource, schema, { parser: {} }, "stream"))
-      .toEqual(["append_only", "changelog"]);
+    expect(
+      sourceRecordSemantics(queueSource, schema, { parser: {} }, "stream"),
+    ).toEqual(["append_only", "changelog"]);
   });
 
   it("models batch, stream, and combined database deliveries", () => {
@@ -59,12 +61,49 @@ describe("record semantic selection", () => {
       delivery_modes: ["batch", "stream"],
     };
     const schema = compileSchema(databaseSource.schema);
-    expect(sourceRecordSemantics(databaseSource, schema, {}, "batch"))
-      .toEqual(["append_only"]);
-    expect(sourceRecordSemantics(databaseSource, schema, {}, "stream"))
-      .toEqual(["changelog"]);
-    expect(sourceRecordSemantics(databaseSource, schema, {}, "batch_and_stream"))
-      .toEqual(["append_only", "changelog"]);
+    expect(sourceRecordSemantics(databaseSource, schema, {}, "batch")).toEqual([
+      "append_only",
+    ]);
+    expect(sourceRecordSemantics(databaseSource, schema, {}, "stream")).toEqual(
+      ["changelog"],
+    );
+    expect(
+      sourceRecordSemantics(databaseSource, schema, {}, "batch_and_stream"),
+    ).toEqual(["append_only", "changelog"]);
+  });
+
+  it("requires a compatible sink semantic for every delivery phase", () => {
+    const source: EndpointDefinition = {
+      ...queueSource,
+      schema: { type: "object", properties: {} },
+      delivery_modes: ["batch", "stream"],
+    };
+    const appendSink: EndpointDefinition = {
+      ...source,
+      delivery_modes: [],
+      record_semantics: ["append_only"],
+    };
+    const changelogSink: EndpointDefinition = {
+      ...source,
+      delivery_modes: [],
+      record_semantics: ["changelog"],
+    };
+    const bothSink: EndpointDefinition = {
+      ...source,
+      delivery_modes: [],
+      record_semantics: ["append_only", "changelog"],
+    };
+
+    expect(routeSupportsDeliveryType(source, appendSink, "batch")).toBe(true);
+    expect(routeSupportsDeliveryType(source, changelogSink, "batch")).toBe(
+      false,
+    );
+    expect(
+      routeSupportsDeliveryType(source, appendSink, "batch_and_stream"),
+    ).toBe(false);
+    expect(
+      routeSupportsDeliveryType(source, bothSink, "batch_and_stream"),
+    ).toBe(true);
   });
 });
 

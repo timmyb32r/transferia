@@ -97,6 +97,59 @@ describe("App request orchestration", () => {
     ).toEqual(["Not selected", "Batch", "Stream", "Batch + stream"]);
   });
 
+  it("mutually narrows delivery types, sources, and destinations", async () => {
+    installApiMocks([]);
+    vi.mocked(api.catalog).mockResolvedValue({
+      ...CATALOG,
+      connectors: [
+        connector("batch-source", "Batch source", {
+          source: endpoint(["batch"], ["append_only"]),
+        }),
+        connector("stream-source", "Stream source", {
+          source: endpoint(["stream"], ["changelog"]),
+        }),
+        connector("hybrid-source", "Hybrid source", {
+          source: endpoint(["batch", "stream"], ["append_only", "changelog"]),
+        }),
+        connector("append-sink", "Append sink", {
+          sink: endpoint([], ["append_only"]),
+        }),
+        connector("change-sink", "Change sink", {
+          sink: endpoint([], ["changelog"]),
+        }),
+        connector("both-sink", "Both sink", {
+          sink: endpoint([], ["append_only", "changelog"]),
+        }),
+      ],
+    });
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByRole("heading", { name: "Untitled delivery" });
+
+    expect(app.getByRole("heading", { name: "Source" })).toBeTruthy();
+    expect(app.getByRole("heading", { name: "Destination" })).toBeTruthy();
+
+    chooseFromSelect(app, "Delivery type", "Stream");
+    expect(selectOptions(app, "Source")).toEqual([
+      "Not selected",
+      "Hybrid source",
+      "Stream source",
+    ]);
+
+    chooseFromSelect(app, "Source", "Stream source");
+    expect(selectOptions(app, "Destination")).toEqual([
+      "Not selected",
+      "Both sink",
+      "Change sink",
+    ]);
+
+    chooseFromSelect(app, "Destination", "Change sink");
+    expect(selectOptions(app, "Delivery type")).toEqual([
+      "Not selected",
+      "Stream",
+    ]);
+  });
+
   it("guides the user through one missing required field at a time", async () => {
     installApiMocks([]);
     const view = render(<App />);
@@ -164,8 +217,8 @@ describe("App request orchestration", () => {
         .closest("label")
         ?.classList.contains("required-missing"),
     ).toBe(true);
-    expect(app.queryByRole("heading", { name: "Source" })).toBeNull();
-    expect(app.queryByRole("heading", { name: "Destination" })).toBeNull();
+    expect(app.getByRole("heading", { name: "Source" })).toBeTruthy();
+    expect(app.getByRole("heading", { name: "Destination" })).toBeTruthy();
     expect(api.activate).not.toHaveBeenCalled();
   });
 
@@ -544,9 +597,9 @@ describe("App request orchestration", () => {
     fireEvent.click(app.getByRole("button", { name: "Clone" }));
 
     expect(app.getByRole("heading", { name: "orders10" })).toBeTruthy();
-    expect((app.getByLabelText("Delivery name") as HTMLInputElement).value).toBe(
-      "orders10",
-    );
+    expect(
+      (app.getByLabelText("Delivery name") as HTMLInputElement).value,
+    ).toBe("orders10");
     expect(
       (app.getByLabelText("Description", { exact: false }) as HTMLInputElement)
         .value,
@@ -967,6 +1020,42 @@ function chooseFromSelect(
   fireEvent.pointerDown(app.getByRole("option", { name: option }), {
     button: 0,
   });
+}
+
+function selectOptions(
+  app: ReturnType<typeof within>,
+  label: string,
+): string[] {
+  const field = within(app.getByText(label).closest("label, article")!);
+  fireEvent.pointerDown(field.getAllByRole("button")[0]!, { button: 0 });
+  const options = app
+    .getAllByRole("option")
+    .map((option: HTMLElement) => option.textContent ?? "");
+  fireEvent.pointerDown(field.getAllByRole("button")[0]!, { button: 0 });
+  return options;
+}
+
+function endpoint(
+  deliveryModes: ("batch" | "stream")[],
+  recordSemantics: ("append_only" | "changelog")[],
+) {
+  return {
+    schema: { type: "object" as const, properties: {} },
+    initial: {},
+    delivery_modes: deliveryModes,
+    record_semantics: recordSemantics,
+    partitioned: false,
+    connection_check: false,
+    message_preview: false,
+  };
+}
+
+function connector(
+  key: string,
+  title: string,
+  endpointDefinition: Pick<UiCatalog["connectors"][number], "source" | "sink">,
+): UiCatalog["connectors"][number] {
+  return { key, title, ...endpointDefinition };
 }
 
 function installApiMocks(deliveries: DeliverySummary[]) {

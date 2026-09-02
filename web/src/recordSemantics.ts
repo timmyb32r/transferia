@@ -1,10 +1,19 @@
-import type { DeliveryMode, EndpointDefinition, RecordSemantics } from "../types";
-import type { CompiledNode } from "../schema/compiler";
-import { branchMatches } from "../schema/compiler";
-import type { JsonValue } from "../types";
-import { isObject } from "../schema/value";
+import { branchMatches, type CompiledNode } from "./schema/compiler";
+import { isObject } from "./schema/value";
+import type {
+  DeliveryMode,
+  EndpointDefinition,
+  JsonValue,
+  RecordSemantics,
+} from "./types";
 
 export type DeliveryType = DeliveryMode | "batch_and_stream";
+
+export const DELIVERY_TYPES: readonly DeliveryType[] = [
+  "batch",
+  "stream",
+  "batch_and_stream",
+];
 
 export function sourceRecordSemantics(
   endpoint: EndpointDefinition,
@@ -23,6 +32,46 @@ export function sourceRecordSemantics(
     componentSemantics ?? streamEndpointSemantics(endpoint);
   if (deliveryType === "stream") return streamSemantics;
   return uniqueSemantics(["append_only", ...streamSemantics]);
+}
+
+export function deliveryTypeModes(
+  deliveryType: DeliveryType,
+): readonly DeliveryMode[] {
+  return deliveryType === "batch_and_stream"
+    ? ["batch", "stream"]
+    : [deliveryType];
+}
+
+export function sourceSupportsDeliveryType(
+  endpoint: EndpointDefinition,
+  deliveryType: DeliveryType,
+): boolean {
+  return deliveryTypeModes(deliveryType).every((mode) =>
+    endpoint.delivery_modes.includes(mode),
+  );
+}
+
+export function declaredSourceRecordSemantics(
+  endpoint: EndpointDefinition,
+  mode: DeliveryMode,
+): RecordSemantics[] {
+  if (mode === "batch") return ["append_only"];
+  return streamEndpointSemantics(endpoint);
+}
+
+export function routeSupportsDeliveryType(
+  source: EndpointDefinition,
+  sink: EndpointDefinition,
+  deliveryType: DeliveryType,
+  semanticsForMode: (mode: DeliveryMode) => readonly RecordSemantics[] = (
+    mode,
+  ) => declaredSourceRecordSemantics(source, mode),
+): boolean {
+  if (!sourceSupportsDeliveryType(source, deliveryType)) return false;
+  const accepted = new Set(sink.record_semantics);
+  return deliveryTypeModes(deliveryType).every((mode) =>
+    semanticsForMode(mode).some((semantics) => accepted.has(semantics)),
+  );
 }
 
 export function selectedComponentRecordSemantics(

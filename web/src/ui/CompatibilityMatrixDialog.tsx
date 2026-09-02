@@ -4,17 +4,25 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type {
   ConnectorDefinition,
   DeliveryMode,
-  RecordSemantics,
   UiCatalog,
 } from "../generated/apiContract";
 import { Button } from "./Button";
+import {
+  declaredSourceRecordSemantics,
+  routeSupportsDeliveryType,
+} from "../recordSemantics";
 
 const DELIVERY_MODE_LABEL: Record<DeliveryMode, string> = {
   batch: "Batch",
   stream: "Stream",
 };
 
-type CapabilityKind = "source" | "destination" | "parser" | "serializer" | "transformer";
+type CapabilityKind =
+  | "source"
+  | "destination"
+  | "parser"
+  | "serializer"
+  | "transformer";
 
 interface CapabilityGroup {
   key: string;
@@ -55,7 +63,8 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
       property === "record_semantics.changelog" ||
       property === "record_semantics.only_changelog" ||
       (property === "delivery_mode.batch" && kind === "destination")
-    ) return;
+    )
+      return;
     const group = groups.get(property) ?? {
       key: property,
       label: PROPERTY_LABELS[property] ?? property.replaceAll("_", " "),
@@ -74,14 +83,24 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
     ] as const) {
       if (!endpoint) continue;
       add(`component.${kind}`, kind, connector.title);
-      endpoint.delivery_modes.forEach((mode) => add(`delivery_mode.${mode}`, kind, connector.title));
-      endpoint.record_semantics.forEach((semantics) => add(`record_semantics.${semantics}`, kind, connector.title));
+      endpoint.delivery_modes.forEach((mode) =>
+        add(`delivery_mode.${mode}`, kind, connector.title),
+      );
+      endpoint.record_semantics.forEach((semantics) =>
+        add(`record_semantics.${semantics}`, kind, connector.title),
+      );
       if (endpoint.record_semantics.length === 1) {
-        add(`record_semantics.only_${endpoint.record_semantics[0]}`, kind, connector.title);
+        add(
+          `record_semantics.only_${endpoint.record_semantics[0]}`,
+          kind,
+          connector.title,
+        );
       }
       if (endpoint.partitioned) add("partitioned", kind, connector.title);
-      if (endpoint.connection_check) add("connection_check", kind, connector.title);
-      if (endpoint.message_preview) add("message_preview", kind, connector.title);
+      if (endpoint.connection_check)
+        add("connection_check", kind, connector.title);
+      if (endpoint.message_preview)
+        add("message_preview", kind, connector.title);
       collectSchemaCapabilities(
         endpoint.schema,
         add,
@@ -108,7 +127,9 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
       if (nonMembers.size > 0) group.nonMembers.set(kind, nonMembers);
     }
   }
-  return [...groups.values()].sort((left, right) => left.label.localeCompare(right.label));
+  return [...groups.values()].sort((left, right) =>
+    left.label.localeCompare(right.label),
+  );
 }
 
 function applicableKinds(property: string): CapabilityKind[] {
@@ -148,19 +169,25 @@ function collectSchemaCapabilities(
   if (capabilities && typeof capabilities === "object") {
     const descriptor = capabilities as Record<string, unknown>;
     const kind = descriptor.component;
-    const title = typeof object.title === "string" ? object.title : descriptor.key;
+    const title =
+      typeof object.title === "string" ? object.title : descriptor.key;
     if (
       typeof title === "string" &&
       (kind === "parser" || kind === "serializer" || kind === "transformer")
     ) {
-      const properties = Array.isArray(descriptor.properties) ? descriptor.properties : [];
+      const properties = Array.isArray(descriptor.properties)
+        ? descriptor.properties
+        : [];
       const declaredSemantics = Array.isArray(descriptor.record_semantics)
         ? descriptor.record_semantics
         : [];
-      const semantics = declaredSemantics.map((item) => `record_semantics.${item}`);
-      const exclusive = declaredSemantics.length === 1
-        ? [`record_semantics.only_${declaredSemantics[0]}`]
-        : [];
+      const semantics = declaredSemantics.map(
+        (item) => `record_semantics.${item}`,
+      );
+      const exclusive =
+        declaredSemantics.length === 1
+          ? [`record_semantics.only_${declaredSemantics[0]}`]
+          : [];
       [
         kind === "parser"
           ? parserGroup && `component.parser.${parserGroup}`
@@ -186,7 +213,11 @@ export interface CompatibilityRoute {
   partial: DeliveryMode[];
 }
 
-export function CompatibilityMatrixLauncher({ catalog }: { catalog: UiCatalog }) {
+export function CompatibilityMatrixLauncher({
+  catalog,
+}: {
+  catalog: UiCatalog;
+}) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -207,20 +238,6 @@ export function CompatibilityMatrixLauncher({ catalog }: { catalog: UiCatalog })
   );
 }
 
-function semanticsForMode(
-  modes: DeliveryMode[],
-  semantics: RecordSemantics[],
-  mode: DeliveryMode,
-): RecordSemantics[] {
-  if (mode === "batch") return ["append_only"];
-  if (!modes.includes("batch")) return semantics;
-
-  const streamSemantics = semantics.filter(
-    (candidate) => candidate !== "append_only",
-  );
-  return streamSemantics.length > 0 ? streamSemantics : ["append_only"];
-}
-
 export function compatibilityRoutes(catalog: UiCatalog): CompatibilityRoute[] {
   const sources = catalog.connectors.filter(
     (connector) => connector.source !== undefined,
@@ -236,15 +253,12 @@ export function compatibilityRoutes(catalog: UiCatalog): CompatibilityRoute[] {
       const unsupported: DeliveryMode[] = [];
       const partial: DeliveryMode[] = [];
       for (const mode of modes) {
-        const produced = semanticsForMode(
-          modes,
-          source.source!.record_semantics,
-          mode,
-        );
+        const produced = declaredSourceRecordSemantics(source.source!, mode);
         const acceptedCount = produced.filter((semantics) =>
           accepted.has(semantics),
         ).length;
-        if (acceptedCount === 0) unsupported.push(mode);
+        if (!routeSupportsDeliveryType(source.source!, sink.sink!, mode))
+          unsupported.push(mode);
         else {
           supported.push(mode);
           if (acceptedCount < produced.length) partial.push(mode);
@@ -285,7 +299,10 @@ export function CompatibilityMatrixDialog({
     [catalog],
   );
   const routes = useMemo(() => compatibilityRoutes(catalog), [catalog]);
-  const capabilityGroups = useMemo(() => catalogCapabilityGroups(catalog), [catalog]);
+  const capabilityGroups = useMemo(
+    () => catalogCapabilityGroups(catalog),
+    [catalog],
+  );
   const selectedCapabilityGroup =
     capabilityGroups.find((group) => group.key === activeProperty) ??
     capabilityGroups[0];
@@ -344,107 +361,137 @@ export function CompatibilityMatrixDialog({
           </Button>
         </header>
 
-        <div class="compatibility-tabs" role="tablist" aria-label="Catalog view">
-          <Button role="tab" aria-selected={activeTab === "matrix"} onClick={() => setActiveTab("matrix")}>Matrix</Button>
-          <Button role="tab" aria-selected={activeTab === "properties"} onClick={() => setActiveTab("properties")}>Properties</Button>
+        <div
+          class="compatibility-tabs"
+          role="tablist"
+          aria-label="Catalog view"
+        >
+          <Button
+            role="tab"
+            aria-selected={activeTab === "matrix"}
+            onClick={() => setActiveTab("matrix")}
+          >
+            Matrix
+          </Button>
+          <Button
+            role="tab"
+            aria-selected={activeTab === "properties"}
+            onClick={() => setActiveTab("properties")}
+          >
+            Properties
+          </Button>
         </div>
 
-        {activeTab === "matrix" ? <div class="compatibility-legend" aria-label="Legend">
-          <span class="compatibility-badge batch">Batch</span>
-          <span>Batch flow is supported</span>
-          <span class="compatibility-badge stream">Stream</span>
-          <span>Stream flow is supported</span>
-          <span class="compatibility-unavailable" aria-hidden="true">
-            —
-          </span>
-          <span>No compatible data semantics</span>
-        </div> : <div class="capability-summary">Components grouped by capabilities declared in the live catalog.</div>}
+        {activeTab === "matrix" ? (
+          <div class="compatibility-legend" aria-label="Legend">
+            <span class="compatibility-badge batch">Batch</span>
+            <span>Batch flow is supported</span>
+            <span class="compatibility-badge stream">Stream</span>
+            <span>Stream flow is supported</span>
+            <span class="compatibility-unavailable" aria-hidden="true">
+              —
+            </span>
+            <span>No compatible data semantics</span>
+          </div>
+        ) : (
+          <div class="capability-summary">
+            Components grouped by capabilities declared in the live catalog.
+          </div>
+        )}
 
-        {activeTab === "matrix" ? <div class="compatibility-table-scroll">
-          <table
-            class="compatibility-table"
-            onMouseLeave={() => setActiveCell(null)}
-          >
-            <caption>Sources by destinations</caption>
-            <thead>
-              <tr>
-                <th scope="col">Source ↓ / Destination →</th>
-                {sinks.map((sink) => (
-                  <th
-                    scope="col"
-                    key={sink.key}
-                    title={sink.title}
-                    class={
-                      activeCell?.sink === sink.key ? "active-column" : undefined
-                    }
-                  >
-                    {sink.title}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sources.map((source) => (
-                <tr
-                  key={source.key}
-                  class={
-                    activeCell?.source === source.key ? "active-row" : undefined
-                  }
-                >
-                  <th scope="row">
-                    <strong>{source.title}</strong>
-                    <small>{source.source!.delivery_modes.join(" · ")}</small>
-                  </th>
+        {activeTab === "matrix" ? (
+          <div class="compatibility-table-scroll">
+            <table
+              class="compatibility-table"
+              onMouseLeave={() => setActiveCell(null)}
+            >
+              <caption>Sources by destinations</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Source ↓ / Destination →</th>
                   {sinks.map((sink) => (
-                    <CompatibilityCell
+                    <th
+                      scope="col"
                       key={sink.key}
-                      route={route(source.key, sink.key)}
-                      activeColumn={activeCell?.sink === sink.key}
-                      activeIntersection={
-                        activeCell?.source === source.key &&
-                        activeCell.sink === sink.key
+                      title={sink.title}
+                      class={
+                        activeCell?.sink === sink.key
+                          ? "active-column"
+                          : undefined
                       }
-                      onActivate={() =>
-                        setActiveCell({ source: source.key, sink: sink.key })
-                      }
-                    />
+                    >
+                      {sink.title}
+                    </th>
                   ))}
                 </tr>
+              </thead>
+              <tbody>
+                {sources.map((source) => (
+                  <tr
+                    key={source.key}
+                    class={
+                      activeCell?.source === source.key
+                        ? "active-row"
+                        : undefined
+                    }
+                  >
+                    <th scope="row">
+                      <strong>{source.title}</strong>
+                      <small>{source.source!.delivery_modes.join(" · ")}</small>
+                    </th>
+                    {sinks.map((sink) => (
+                      <CompatibilityCell
+                        key={sink.key}
+                        route={route(source.key, sink.key)}
+                        activeColumn={activeCell?.sink === sink.key}
+                        activeIntersection={
+                          activeCell?.source === source.key &&
+                          activeCell.sink === sink.key
+                        }
+                        onActivate={() =>
+                          setActiveCell({ source: source.key, sink: sink.key })
+                        }
+                      />
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div class="capability-groups">
+            <nav aria-label="Properties">
+              {capabilityGroups.map((group) => (
+                <Button
+                  key={group.key}
+                  aria-pressed={selectedCapabilityGroup?.key === group.key}
+                  onClick={() => setActiveProperty(group.key)}
+                >
+                  {group.label}
+                </Button>
               ))}
-            </tbody>
-          </table>
-        </div> : <div class="capability-groups">
-          <nav aria-label="Properties">
-            {capabilityGroups.map((group) => (
-              <Button
-                key={group.key}
-                aria-pressed={selectedCapabilityGroup?.key === group.key}
-                onClick={() => setActiveProperty(group.key)}
-              >
-                {group.label}
-              </Button>
-            ))}
-          </nav>
-          {selectedCapabilityGroup && (
-            <section class="capability-group">
-              <h3>{selectedCapabilityGroup.label}</h3>
-              <div class="capability-membership-columns">
-                <CapabilityMembership
-                  title="Has property"
-                  property={selectedCapabilityGroup.key}
-                  groups={selectedCapabilityGroup.members}
-                />
-                {!selectedCapabilityGroup.key.startsWith("component.") && (
+            </nav>
+            {selectedCapabilityGroup && (
+              <section class="capability-group">
+                <h3>{selectedCapabilityGroup.label}</h3>
+                <div class="capability-membership-columns">
                   <CapabilityMembership
-                    title="Does not have property"
+                    title="Has property"
                     property={selectedCapabilityGroup.key}
-                    groups={selectedCapabilityGroup.nonMembers}
+                    groups={selectedCapabilityGroup.members}
                   />
-                )}
-              </div>
-            </section>
-          )}
-        </div>}
+                  {!selectedCapabilityGroup.key.startsWith("component.") && (
+                    <CapabilityMembership
+                      title="Does not have property"
+                      property={selectedCapabilityGroup.key}
+                      groups={selectedCapabilityGroup.nonMembers}
+                    />
+                  )}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
 
         <footer>
           Some connectors require a matching mode, such as PostgreSQL
@@ -466,18 +513,26 @@ function CapabilityMembership({
   property: string;
   groups: Map<CapabilityKind, Set<string>>;
 }) {
-  const populated = [...groups.entries()].filter(([, members]) => members.size > 0);
+  const populated = [...groups.entries()].filter(
+    ([, members]) => members.size > 0,
+  );
   return (
     <section class="capability-membership">
       <h4>{title}</h4>
       {populated.length === 0 ? (
         <p>None</p>
-      ) : populated.map(([kind, members]) => (
-        <section key={kind}>
-          <h5>{capabilityKindLabel(property, kind)}</h5>
-          <ul>{[...members].sort().map((member) => <li key={member}>{member}</li>)}</ul>
-        </section>
-      ))}
+      ) : (
+        populated.map(([kind, members]) => (
+          <section key={kind}>
+            <h5>{capabilityKindLabel(property, kind)}</h5>
+            <ul>
+              {[...members].sort().map((member) => (
+                <li key={member}>{member}</li>
+              ))}
+            </ul>
+          </section>
+        ))
+      )}
     </section>
   );
 }
@@ -541,10 +596,7 @@ function CompatibilityCell({
       ) : (
         <span class="compatibility-badges" aria-hidden="true">
           {route.supported.map((mode) => (
-            <span
-              key={mode}
-              class={`compatibility-badge ${mode}`}
-            >
+            <span key={mode} class={`compatibility-badge ${mode}`}>
               {DELIVERY_MODE_LABEL[mode]}
             </span>
           ))}
