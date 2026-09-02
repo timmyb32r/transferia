@@ -27,16 +27,16 @@ use super::{
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SerializerConfig {
-    #[schemars(title = "JSON", extend("x-capabilities" = { "component": "serializer", "key": "json", "record_semantics": ["append_only"] }))]
+    #[schemars(title = "JSON", extend("x-ui" = { "capabilities": { "component": "serializer", "key": "json", "record_semantics": ["append_only"] } }))]
     Json,
 
-    #[schemars(title = "Debezium JSON", extend("x-capabilities" = { "component": "serializer", "key": "debezium_json", "record_semantics": ["changelog"] }))]
+    #[schemars(title = "Debezium JSON", extend("x-ui" = { "capabilities": { "component": "serializer", "key": "debezium_json", "record_semantics": ["changelog"] } }))]
     DebeziumJson {
         #[schemars(title = "Logical source name")]
         logical_name: String,
     },
 
-    #[schemars(title = "Debezium Schema Registry", extend("x-capabilities" = { "component": "serializer", "key": "debezium_schema_registry", "record_semantics": ["changelog"] }))]
+    #[schemars(title = "Debezium Schema Registry", extend("x-ui" = { "capabilities": { "component": "serializer", "key": "debezium_schema_registry", "record_semantics": ["changelog"] } }))]
     DebeziumSchemaRegistry {
         #[schemars(title = "Logical source name")]
         logical_name: String,
@@ -68,7 +68,7 @@ pub enum SerializerConfig {
         value_protobuf_message_indexes: Vec<i32>,
     },
 
-    #[schemars(title = "Schema Registry", extend("x-capabilities" = { "component": "serializer", "key": "schema_registry", "record_semantics": ["append_only"] }))]
+    #[schemars(title = "Schema Registry", extend("x-ui" = { "capabilities": { "component": "serializer", "key": "schema_registry", "record_semantics": ["append_only"] } }))]
     SchemaRegistry {
         #[schemars(title = "Connection")]
         connection: SchemaRegistryConnection,

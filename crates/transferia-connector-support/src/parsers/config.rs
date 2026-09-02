@@ -14,18 +14,17 @@ use transferia_core::data::system_columns::SystemColumnKind;
 #[derive(JsonSchema)]
 #[serde(untagged)]
 pub enum ParserSchema {
-    #[schemars(title = "JSON parser", extend("x-capabilities" = { "component": "parser", "key": "json_parser", "record_semantics": ["append_only"] }))]
+    #[schemars(title = "JSON parser", extend("x-ui" = { "capabilities": { "component": "parser", "key": "json_parser", "record_semantics": ["append_only"] } }))]
     Json(JsonParserSchema),
-    #[schemars(title = "Confluent Schema Registry parser", extend("x-capabilities" = { "component": "parser", "key": "schema_registry", "record_semantics": ["append_only"] }))]
+    #[schemars(title = "Confluent Schema Registry parser", extend("x-ui" = { "capabilities": { "component": "parser", "key": "schema_registry", "record_semantics": ["append_only"] } }))]
     SchemaRegistry(SchemaRegistryParserSchema),
-    #[schemars(title = "Debezium parser", extend("x-capabilities" = { "component": "parser", "key": "debezium", "record_semantics": ["changelog"] }))]
+    #[schemars(title = "Debezium parser", extend("x-ui" = { "capabilities": { "component": "parser", "key": "debezium", "record_semantics": ["changelog"] } }))]
     Debezium(DebeziumParserSchema),
-    #[schemars(title = "Raw to table parser", extend("x-capabilities" = { "component": "parser", "key": "raw_to_table", "record_semantics": ["append_only"] }))]
+    #[schemars(title = "Raw to table parser", extend("x-ui" = { "capabilities": { "component": "parser", "key": "raw_to_table", "record_semantics": ["append_only"] } }))]
     RawToTable(RawToTableParserSchema),
     #[schemars(
         title = "Discard messages (for benchmarks)",
-        extend("x-ui" = { "order": 1_000_000 }),
-        extend("x-capabilities" = { "component": "parser", "key": "benchmark_discard", "record_semantics": ["append_only"] })
+        extend("x-ui" = { "order": 1_000_000, "capabilities": { "component": "parser", "key": "benchmark_discard", "record_semantics": ["append_only"] } })
     )]
     BenchmarkDiscard(BenchmarkDiscardParserSchema),
 }

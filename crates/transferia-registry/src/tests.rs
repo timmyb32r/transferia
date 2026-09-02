@@ -167,6 +167,31 @@ fn registry_rejects_unknown_ui_dialect_hints() -> anyhow::Result<()> {
 }
 
 #[test]
+fn registry_rejects_unknown_schema_extension_in_nested_union_branch() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register(source_registration("source")?)?;
+    let mut registry = builder.build();
+    let mut definitions = registry.definitions().to_vec();
+    definitions[0].source.as_mut().unwrap().schema = serde_json::json!({
+        "type": "array",
+        "items": {
+            "oneOf": [{
+                "type": "object",
+                "x-capabilities": { "component": "transformer" }
+            }]
+        }
+    });
+
+    let error = registry
+        .replace_definitions(definitions)
+        .expect_err("unknown extension in a nested branch must fail composition");
+    assert!(error
+        .to_string()
+        .contains("#/items/oneOf/0: unsupported JSON Schema extension keyword: x-capabilities"));
+    Ok(())
+}
+
+#[test]
 fn registry_accepts_conditional_layout_ui_hints() -> anyhow::Result<()> {
     let mut builder = RegistryBuilder::new();
     builder.register(source_registration("source")?)?;
@@ -177,6 +202,28 @@ fn registry_accepts_conditional_layout_ui_hints() -> anyhow::Result<()> {
         "x-ui": {
             "indent_variant_details": false,
             "delivery_types": ["batch", "stream", "batch_and_stream"]
+        }
+    });
+
+    registry.replace_definitions(definitions)?;
+    Ok(())
+}
+
+#[test]
+fn registry_accepts_component_capability_ui_hints() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register(source_registration("source")?)?;
+    let mut registry = builder.build();
+    let mut definitions = registry.definitions().to_vec();
+    definitions[0].source.as_mut().unwrap().schema = serde_json::json!({
+        "type": "object",
+        "x-ui": {
+            "capabilities": {
+                "component": "parser",
+                "key": "debezium",
+                "record_semantics": ["changelog"],
+                "properties": ["playground"]
+            }
         }
     });
 

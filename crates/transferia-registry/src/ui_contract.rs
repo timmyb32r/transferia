@@ -27,6 +27,31 @@ struct UiHints {
     defer_variant_details: Option<bool>,
     indent_variant_details: Option<bool>,
     delivery_types: Option<Vec<UiDeliveryType>>,
+    capabilities: Option<UiCapabilities>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UiCapabilities {
+    component: UiCapabilityComponent,
+    key: String,
+    record_semantics: Option<Vec<UiRecordSemantics>>,
+    properties: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum UiCapabilityComponent {
+    Parser,
+    Serializer,
+    Transformer,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum UiRecordSemantics {
+    AppendOnly,
+    Changelog,
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,6 +104,12 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
             }
         }
         Value::Object(object) => {
+            for key in object.keys() {
+                anyhow::ensure!(
+                    !key.starts_with("x-") || key == "x-ui",
+                    "{path}: unsupported JSON Schema extension keyword: {key}"
+                );
+            }
             validate_hidden_required_scalars(root, object, path)?;
             if let Some(hints) = object.get("x-ui") {
                 let hints: UiHints = serde_json::from_value(hints.clone())
@@ -90,6 +121,20 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
                             .all(|pointer| pointer.starts_with('/')),
                         "{path}: dynamic option dependencies must be absolute JSON pointers"
                     );
+                }
+                if let Some(capabilities) = &hints.capabilities {
+                    anyhow::ensure!(
+                        !capabilities.key.is_empty(),
+                        "{path}: capability key must not be empty"
+                    );
+                    anyhow::ensure!(
+                        capabilities
+                            .properties
+                            .as_ref()
+                            .is_none_or(|values| values.iter().all(|value| !value.is_empty())),
+                        "{path}: capability properties must not contain empty values"
+                    );
+                    let _ = (&capabilities.component, &capabilities.record_semantics);
                 }
                 if let Some(dependencies) = &hints.external_link_dependencies {
                     anyhow::ensure!(

@@ -199,10 +199,12 @@ describe("appearance preferences", () => {
     const catalog = structuredClone(CATALOG);
     catalog.connectors[1]!.source!.schema = {
       title: "Debezium parser",
-      "x-capabilities": {
-        component: "parser",
-        key: "debezium",
-        record_semantics: ["changelog"],
+      "x-ui": {
+        capabilities: {
+          component: "parser",
+          key: "debezium",
+          record_semantics: ["changelog"],
+        },
       },
     };
     const groups = catalogCapabilityGroups(catalog);

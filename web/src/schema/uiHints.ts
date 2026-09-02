@@ -7,6 +7,13 @@ export type UiSection =
   | "system_columns"
   | "shard_group";
 
+export interface UiCapabilityHints {
+  component: "parser" | "serializer" | "transformer";
+  key: string;
+  record_semantics?: readonly ("append_only" | "changelog")[];
+  properties?: readonly string[];
+}
+
 export interface UiHints {
   widget?: string;
   section?: UiSection;
@@ -27,6 +34,7 @@ export interface UiHints {
   defer_variant_details?: boolean;
   indent_variant_details?: boolean;
   delivery_types?: readonly string[];
+  capabilities?: UiCapabilityHints;
 }
 
 const SUPPORTED_HINTS = new Set<keyof UiHints>([
@@ -49,6 +57,7 @@ const SUPPORTED_HINTS = new Set<keyof UiHints>([
   "defer_variant_details",
   "indent_variant_details",
   "delivery_types",
+  "capabilities",
 ]);
 
 export function decodeUiHints(
@@ -211,6 +220,7 @@ export function decodeUiHints(
       ))
   )
     fail(`${path}: x-ui delivery_types must contain supported delivery types`);
+  const capabilities = decodeCapabilities(value.capabilities, path, fail);
 
   return {
     ...(typeof widget === "string" ? { widget } : {}),
@@ -254,6 +264,57 @@ export function decodeUiHints(
     ...(deliveryTypes === undefined
       ? {}
       : { delivery_types: deliveryTypes as readonly string[] }),
+    ...(capabilities === undefined ? {} : { capabilities }),
+  };
+}
+
+function decodeCapabilities(
+  value: JsonValue | undefined,
+  path: string,
+  fail: (message: string) => never,
+): UiCapabilityHints | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    fail(`${path}: x-ui capabilities must be an object`);
+  const object = value as Record<string, JsonValue>;
+  const unknown = Object.keys(object).filter(
+    (key) => !["component", "key", "record_semantics", "properties"].includes(key),
+  );
+  if (unknown.length > 0)
+    fail(`${path}: unsupported x-ui capabilities: ${unknown.join(", ")}`);
+  const component = object.component;
+  const key = object.key;
+  const recordSemantics = object.record_semantics;
+  const properties = object.properties;
+  if (
+    component !== "parser" &&
+    component !== "serializer" &&
+    component !== "transformer"
+  )
+    fail(`${path}: x-ui capabilities component is unsupported`);
+  if (typeof key !== "string" || key.length === 0)
+    fail(`${path}: x-ui capabilities key must be a non-empty string`);
+  if (
+    recordSemantics !== undefined &&
+    (!Array.isArray(recordSemantics) ||
+      !recordSemantics.every(
+        (semantics) => semantics === "append_only" || semantics === "changelog",
+      ))
+  )
+    fail(`${path}: x-ui capabilities record_semantics is unsupported`);
+  if (
+    properties !== undefined &&
+    (!Array.isArray(properties) ||
+      !properties.every((property) => typeof property === "string" && property.length > 0))
+  )
+    fail(`${path}: x-ui capabilities properties must contain non-empty strings`);
+  return {
+    component,
+    key,
+    ...(recordSemantics === undefined
+      ? {}
+      : { record_semantics: recordSemantics as ("append_only" | "changelog")[] }),
+    ...(properties === undefined ? {} : { properties: properties as string[] }),
   };
 }
 

@@ -198,10 +198,12 @@ fn parser_variant_schema<C: JsonSchema>(spec: &ParserPluginSpec) -> anyhow::Resu
         ]);
     Ok(serde_json::json!({
         "title": spec.title,
-        "x-capabilities": {
-            "component": "parser",
-            "key": spec.kind,
-            "record_semantics": ["append_only"]
+        "x-ui": {
+            "capabilities": {
+                "component": "parser",
+                "key": spec.kind,
+                "record_semantics": ["append_only"]
+            }
         },
         "type": "object",
         "properties": {

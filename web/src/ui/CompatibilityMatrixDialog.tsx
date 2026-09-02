@@ -93,7 +93,11 @@ function collectSchemaCapabilities(
   }
   if (value === null || typeof value !== "object") return;
   const object = value as Record<string, unknown>;
-  const capabilities = object["x-capabilities"];
+  const ui = object["x-ui"];
+  const capabilities =
+    ui && typeof ui === "object"
+      ? (ui as Record<string, unknown>).capabilities
+      : undefined;
   if (capabilities && typeof capabilities === "object") {
     const descriptor = capabilities as Record<string, unknown>;
     const kind = descriptor.component;
