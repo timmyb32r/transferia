@@ -150,6 +150,62 @@ describe("App request orchestration", () => {
     ]);
   });
 
+  it("narrows delivery types to the active source capability branch", async () => {
+    installApiMocks([]);
+    vi.mocked(api.catalog).mockResolvedValue({
+      ...CATALOG,
+      connectors: [
+        connector("mysql", "MySQL", {
+          source: conditionalReplicationSource(),
+        }),
+      ],
+    });
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByRole("heading", { name: "Untitled delivery" });
+
+    chooseFromSelect(app, "Source", "MySQL");
+
+    expect(selectOptions(app, "Delivery type")).toEqual([
+      "Not selected",
+      "Batch",
+    ]);
+  });
+
+  it("exposes only replication delivery types for an active replication configuration", async () => {
+    const existing = {
+      ...delivery("replication", "MySQL replication"),
+      config: {
+        delivery_id: "replication",
+        delivery_type: "stream",
+        source: { mysql: { replication: { server_id: 42 } } },
+        sink: {},
+      },
+    } satisfies DeliveryRecord;
+    installApiMocks([existing]);
+    vi.mocked(api.catalog).mockResolvedValue({
+      ...CATALOG,
+      connectors: [
+        connector("mysql", "MySQL", {
+          source: conditionalReplicationSource(),
+        }),
+      ],
+    });
+    vi.mocked(api.delivery).mockResolvedValue(existing);
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("MySQL replication");
+    fireEvent.click(app.getByText("MySQL replication").closest("button")!);
+    await app.findByRole("heading", { name: "MySQL replication" });
+    fireEvent.click(app.getByRole("button", { name: "Edit" }));
+
+    expect(selectOptions(app, "Delivery type")).toEqual([
+      "Not selected",
+      "Stream",
+      "Batch + stream",
+    ]);
+  });
+
   it("guides the user through one missing required field at a time", async () => {
     installApiMocks([]);
     const view = render(<App />);
@@ -1328,6 +1384,52 @@ function connector(
   endpointDefinition: Pick<UiCatalog["connectors"][number], "source" | "sink">,
 ): UiCatalog["connectors"][number] {
   return { key, title, ...endpointDefinition };
+}
+
+function conditionalReplicationSource(): NonNullable<
+  UiCatalog["connectors"][number]["source"]
+> {
+  return {
+    schema: {
+      type: "object",
+      properties: {
+        replication: {
+          anyOf: [
+            {
+              type: "object",
+              properties: {
+                server_id: { type: "integer", minimum: 1 },
+              },
+              required: ["server_id"],
+              "x-ui": {
+                capabilities: {
+                  component: "source",
+                  key: "replication",
+                  delivery_modes: ["stream", "batch_and_stream"],
+                  record_semantics: ["changelog"],
+                },
+              },
+            },
+            { type: "null" },
+          ],
+        },
+      },
+      "x-ui": {
+        capabilities: {
+          component: "source",
+          key: "snapshot",
+          delivery_modes: ["batch"],
+          record_semantics: ["append_only"],
+        },
+      },
+    },
+    initial: { replication: null },
+    delivery_modes: ["batch", "stream", "batch_and_stream"],
+    record_semantics: ["append_only", "changelog"],
+    partitioned: false,
+    connection_check: false,
+    message_preview: false,
+  };
 }
 
 function installApiMocks(deliveries: DeliverySummary[]) {

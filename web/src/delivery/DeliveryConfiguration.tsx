@@ -12,6 +12,7 @@ import {
   SerializerDetailsForm,
 } from "../features/variantDetails/VariantDetailsForms";
 import { useWidgetRegistry } from "../schema/widgetRegistry";
+import type { WidgetContracts } from "../schema/widgetDefinitions";
 import type { EditorState } from "../state";
 import type {
   ConnectorDefinition,
@@ -24,6 +25,8 @@ import { SelectControl } from "../ui/SelectControl";
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import { SourceSampleProvider } from "../features/middleware/SourceSampleContext";
 import {
+  configuredEndpointCapabilities,
+  configuredSourceSupportsDeliveryType,
   DELIVERY_TYPES,
   routeSupportsDeliveryType,
   sourceRecordSemantics,
@@ -70,6 +73,8 @@ export function DeliveryConfiguration({
       "source",
       currentDeliveryType,
       selection,
+      editor.config,
+      widgets,
     ),
   );
   const sinkConnectors = allSinkConnectors.filter((connector) =>
@@ -78,10 +83,12 @@ export function DeliveryConfiguration({
       "sink",
       currentDeliveryType,
       selection,
+      editor.config,
+      widgets,
     ),
   );
   const deliveryTypeOptions = DELIVERY_TYPES.filter((candidate) =>
-    deliveryTypeAllowed(candidate, selection),
+    deliveryTypeAllowed(candidate, selection, editor.config, widgets),
   );
   const requiredSinkRecordSemantics =
     selection?.error === undefined &&
@@ -292,6 +299,8 @@ function connectorAllowed(
   role: "source" | "sink",
   selectedDeliveryType: DeliveryType | undefined,
   selection: EndpointSelection | undefined,
+  config: JsonObject,
+  widgets: WidgetContracts,
 ): boolean {
   const currentKey =
     role === "source" ? selection?.sourceKey : selection?.sinkKey;
@@ -304,27 +313,78 @@ function connectorAllowed(
         selectedDeliveryType === undefined ||
         sourceSupportsDeliveryType(source, selectedDeliveryType)
       );
+    const sink = configuredEndpointCapabilities(
+      selection.sink,
+      compiledSchema(selection.sink.schema, widgets),
+      endpointValue(config, "sink", selection.sinkKey),
+      "destination",
+    );
     return candidateDeliveryTypes(selectedDeliveryType).some((mode) =>
-      routeSupportsDeliveryType(source, selection.sink!, mode),
+      routeSupportsDeliveryType(source, sink, mode),
     );
   }
 
   const sink = candidate.sink;
   if (sink === undefined) return false;
   if (selection?.source === undefined) return true;
+  const sourceSchema = compiledSchema(selection.source.schema, widgets);
+  const sourceValue = endpointValue(config, "source", selection.sourceKey);
+  const source = configuredEndpointCapabilities(
+    selection.source,
+    sourceSchema,
+    sourceValue,
+    "source",
+  );
   return candidateDeliveryTypes(selectedDeliveryType).some((mode) =>
-    routeSupportsDeliveryType(selection.source!, sink, mode),
+    routeSupportsDeliveryType(source, sink, mode, (phase) =>
+      sourceRecordSemantics(
+        selection.source!,
+        sourceSchema,
+        sourceValue,
+        phase,
+      ),
+    ),
   );
 }
 
 function deliveryTypeAllowed(
   candidate: DeliveryType,
   selection: EndpointSelection | undefined,
+  config: JsonObject,
+  widgets: WidgetContracts,
 ): boolean {
   if (selection?.source === undefined) return true;
+  const sourceSchema = compiledSchema(selection.source.schema, widgets);
+  const sourceValue = endpointValue(config, "source", selection.sourceKey);
   if (selection.sink === undefined)
-    return sourceSupportsDeliveryType(selection.source, candidate);
-  return routeSupportsDeliveryType(selection.source, selection.sink, candidate);
+    return configuredSourceSupportsDeliveryType(
+      selection.source,
+      sourceSchema,
+      sourceValue,
+      candidate,
+    );
+  return routeSupportsDeliveryType(
+    configuredEndpointCapabilities(
+      selection.source,
+      sourceSchema,
+      sourceValue,
+      "source",
+    ),
+    configuredEndpointCapabilities(
+      selection.sink,
+      compiledSchema(selection.sink.schema, widgets),
+      endpointValue(config, "sink", selection.sinkKey),
+      "destination",
+    ),
+    candidate,
+    (phase) =>
+      sourceRecordSemantics(
+        selection.source!,
+        sourceSchema,
+        sourceValue,
+        phase,
+      ),
+  );
 }
 
 function candidateDeliveryTypes(

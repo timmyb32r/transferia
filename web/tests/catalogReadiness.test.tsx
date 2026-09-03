@@ -23,6 +23,7 @@ import {
   type CompiledNode,
 } from "../src/schema/compiler";
 import { SchemaForm } from "../src/schema/SchemaForm";
+import { configuredEndpointCapabilities } from "../src/recordSemantics";
 import type { JsonObject, JsonValue, UiCatalog } from "../src/types";
 import {
   nextRequiredTarget,
@@ -216,6 +217,72 @@ describe("connector catalog readiness", () => {
         productionWidgetRegistry,
       ).error,
     ).toBeUndefined();
+  });
+
+  it("derives MySQL delivery modes and semantics from replication configuration", () => {
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
+    const mysql = catalog.connectors.find(
+      (connector) => connector.key === "mysql",
+    )!.source!;
+    const schema = compileSchema(mysql.schema, productionWidgetRegistry);
+    const replication = {
+      ...mysql.initial,
+      replication: { server_id: 42 },
+    };
+
+    expect(mysql.delivery_modes).toEqual([
+      "batch",
+      "stream",
+      "batch_and_stream",
+    ]);
+    expect(mysql.record_semantics).toEqual(["append_only", "changelog"]);
+    expect(
+      configuredEndpointCapabilities(
+        mysql,
+        schema,
+        mysql.initial,
+        "source",
+      ),
+    ).toEqual({
+      delivery_modes: ["batch"],
+      record_semantics: ["append_only"],
+    });
+    expect(
+      configuredEndpointCapabilities(mysql, schema, replication, "source"),
+    ).toEqual({
+      delivery_modes: ["stream", "batch_and_stream"],
+      record_semantics: ["changelog"],
+    });
+    expect(
+      selectedEndpoints(
+        catalog,
+        {
+          delivery_type: "stream",
+          source: { mysql: mysql.initial },
+        },
+        productionWidgetRegistry,
+      ).error,
+    ).toBe("MySQL does not support stream delivery.");
+    expect(
+      selectedEndpoints(
+        catalog,
+        {
+          delivery_type: "stream",
+          source: { mysql: replication },
+        },
+        productionWidgetRegistry,
+      ).error,
+    ).toBeUndefined();
+    expect(
+      selectedEndpoints(
+        catalog,
+        {
+          delivery_type: "batch",
+          source: { mysql: replication },
+        },
+        productionWidgetRegistry,
+      ).error,
+    ).toBe("MySQL does not support batch delivery.");
   });
 
   it("allows parser-defined schema preview before source connectivity is configured", () => {

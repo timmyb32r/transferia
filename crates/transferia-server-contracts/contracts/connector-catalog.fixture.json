@@ -3853,6 +3853,30 @@
                 "widget": "hidden"
               }
             },
+            "batch_target_bytes": {
+              "title": "Snapshot batch target bytes",
+              "description": "Target retained decoded MySQL row heap per snapshot batch. The reader may include one final indivisible row after crossing the target; max_row_bytes separately bounds its wire packet, while decoded Row/Value overhead is measured and accounted from actual allocations.",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1,
+              "maximum": 1073741824,
+              "default": 8388608,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "max_row_bytes": {
+              "title": "Maximum snapshot row packet bytes",
+              "description": "Exact mysql_async client max_allowed_packet for one MySQL wire packet. Decoded Row/Value overhead is measured and accounted separately. Valid range: 1024..=1073741824 bytes.",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1024,
+              "maximum": 1073741824,
+              "default": 1073741824,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
             "read_protocol": {
               "title": "Read protocol",
               "description": "MySQL wire protocol used for snapshot rows. Binary is the measured high-throughput default; text remains available for comparison and compatibility diagnostics.",
@@ -3860,6 +3884,18 @@
               "x-ui": {
                 "section": "advanced"
               }
+            },
+            "replication": {
+              "description": "Configures row-based binary-log replication for stream and batch_and_stream deliveries.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/MySqlReplicationConfig"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "additionalProperties": false,
@@ -3870,6 +3906,18 @@
             "tables",
             "installation"
           ],
+          "x-ui": {
+            "capabilities": {
+              "component": "source",
+              "key": "snapshot",
+              "delivery_modes": [
+                "batch"
+              ],
+              "record_semantics": [
+                "append_only"
+              ]
+            }
+          },
           "$defs": {
             "TableConfig": {
               "type": "object",
@@ -3889,20 +3937,98 @@
                 "text",
                 "binary"
               ]
+            },
+            "MySqlReplicationConfig": {
+              "type": "object",
+              "properties": {
+                "server_id": {
+                  "title": "Replica server ID",
+                  "description": "Unique non-zero MySQL replication client ID used to fence this binlog reader on the source server",
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 1
+                },
+                "max_events": {
+                  "title": "Maximum transaction events",
+                  "description": "Maximum binlog events and decoded rows accepted in one transaction before failing closed; lower values bound memory more tightly",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 1,
+                  "default": 4096,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "max_transaction_bytes": {
+                  "title": "Maximum transaction bytes",
+                  "description": "Maximum encoded binlog bytes buffered for one transaction before failing closed",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 19,
+                  "maximum": 1073741824,
+                  "default": 67108864,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "poll_interval_ms": {
+                  "title": "Stream poll interval",
+                  "description": "Milliseconds between MySQL replication heartbeats and the maximum time a local read waits before yielding an empty batch; it must be shorter than the replication request timeout so an idle closed reader releases its connection-owned execution lock before reacquisition times out",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 1,
+                  "maximum": 18446744073709,
+                  "default": 100,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "bootstrap_timeout_ms": {
+                  "title": "Replication request timeout",
+                  "description": "Maximum milliseconds for replication preflight, exact-boundary capture, stream startup, and stream shutdown requests",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 1,
+                  "default": 30000,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "server_id"
+              ],
+              "x-ui": {
+                "capabilities": {
+                  "component": "source",
+                  "key": "replication",
+                  "delivery_modes": [
+                    "stream",
+                    "batch_and_stream"
+                  ],
+                  "record_semantics": [
+                    "changelog"
+                  ]
+                }
+              }
             }
           }
         },
         "initial": {
+          "replication": null,
           "read_protocol": "binary",
-          "batch_rows": 16384,
           "database": "",
           "username": "",
           "password": "",
+          "max_row_bytes": 1073741824,
           "tables": [
             {
               "name": ""
             }
           ],
+          "batch_rows": 16384,
+          "batch_target_bytes": 8388608,
           "installation": {
             "host": "",
             "port": 3306,
@@ -3912,10 +4038,13 @@
           }
         },
         "delivery_modes": [
-          "batch"
+          "batch",
+          "stream",
+          "batch_and_stream"
         ],
         "record_semantics": [
-          "append_only"
+          "append_only",
+          "changelog"
         ],
         "partitioned": false,
         "connection_check": true,

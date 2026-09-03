@@ -35,7 +35,7 @@ members = [
     "crates/transferia-server-ui",
     "crates/transferia-test-support",
 ]
-exclude = ["vendor/clickhouse-arrow"]
+exclude = ["vendor/clickhouse-arrow", "vendor/mysql_async"]
 resolver = "2"
 
 [workspace.package]
@@ -260,3 +260,4 @@ strip = "symbols"
 
 [patch.crates-io]
 clickhouse-arrow = { path = "vendor/clickhouse-arrow" }
+mysql_async = { path = "vendor/mysql_async" }

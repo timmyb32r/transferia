@@ -625,6 +625,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4388bee8683e3d04af747c73422af53102d2bd24d9eadb6cbc100baef4b43f8"
 
 [[package]]
+name = "bitvec"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddcec3d12c579d40898fe0a9a358a803c23e9c52ca3c425707f81c9436211837"
+dependencies = [
+ "funty",
+ "radium",
+ "tap",
+ "wyz",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2292,6 +2304,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
+name = "funty"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6d5a32815ae3f33302d95fdcb2ce17862f8c65363dcfd29360480ba1001fc9c"
+
+[[package]]
 name = "futures"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3532,8 +3550,6 @@ dependencies = [
 [[package]]
 name = "mysql_async"
 version = "0.37.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3519e91b0d254ac1ffa495bc42053286cb2172ad7241d5b3b1b9f8a891f21ee2"
 dependencies = [
  "bytes",
  "crossbeam-queue",
@@ -3567,6 +3583,7 @@ checksum = "0f27695f286b461da077b8c2f72f47feaa04ce3c3f9c0976257410e90e21208a"
 dependencies = [
  "base64 0.22.1",
  "bitflags 2.13.0",
+ "bitvec",
  "btoi",
  "byteorder",
  "bytes",
@@ -3584,6 +3601,7 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror",
  "uuid",
+ "zstd",
 ]
 
 [[package]]
@@ -4396,6 +4414,12 @@ name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
+name = "radium"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
 name = "rand"
@@ -5387,6 +5411,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 
 [[package]]
+name = "tap"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6076,6 +6106,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow",
+ "bytes",
  "chrono",
  "futures-util",
  "getrandom 0.3.4",
@@ -6084,7 +6115,9 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "testcontainers",
  "tokio",
+ "tokio-util",
  "transferia-connector-support",
  "transferia-core",
  "transferia-delivery-contracts",
@@ -7142,6 +7175,15 @@ name = "writeable"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
+
+[[package]]
+name = "wyz"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
+dependencies = [
+ "tap",
+]
 
 [[package]]
 name = "x509-cert"

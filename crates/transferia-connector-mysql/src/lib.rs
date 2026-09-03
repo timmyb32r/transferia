@@ -23,14 +23,19 @@ pub fn register(
     registry.register(
         ComponentRegistration::new("mysql", "MySQL")
             .source::<mysql::src_batch::MySqlSourceConfig, _, _>(
-                vec![DeliveryMode::Batch],
+                vec![
+                    DeliveryMode::Batch,
+                    DeliveryMode::Stream,
+                    DeliveryMode::BatchAndStream,
+                ],
                 false,
                 || {
                     serde_json::json!({
                         "host": "", "port": 3306, "database": "", "username": "",
                         "password": "", "trusted_plaintext": true,
                         "tables": [{ "name": "" }], "batch_rows": 16384,
-                        "read_protocol": "binary"
+                        "batch_target_bytes": 8388608, "max_row_bytes": 1073741824,
+                        "read_protocol": "binary", "replication": null
                     })
                 },
                 {
@@ -44,6 +49,10 @@ pub fn register(
                 },
             )?
             .source_tuning_parameters(mysql_source_tuning_parameters())?
+            .source_record_semantics(vec![
+                RecordSemantics::AppendOnly,
+                RecordSemantics::Changelog,
+            ])?
             .source_checker::<mysql::MySqlConnectionCheckConfig, _, _>(|config| async move {
                 check_mysql_connection(config).await
             })

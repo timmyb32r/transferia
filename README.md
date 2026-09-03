@@ -7,8 +7,8 @@ share expensive connection pools and upload clients:
 ```text
 stream: Logbroker (YDB or PQv1) | Kafka
 batch:  PostgreSQL | MySQL | OpenSearch | YDB | ClickHouse | S3 | Iceberg | YTsaurus | data generator
-replication: PostgreSQL (pgoutput or wal2json)
-batch + stream: PostgreSQL (one exact replication-slot snapshot boundary)
+replication: PostgreSQL (pgoutput or wal2json) | MySQL 8 (row binlog)
+batch + stream: PostgreSQL (exact exported-slot boundary) | MySQL 8 (exact FTWRL/GTID boundary)
                                     |
                                     v
                          parser or native Arrow
@@ -22,9 +22,10 @@ Logbroker | Kafka | PostgreSQL | MySQL | OpenSearch | YDB | ClickHouse | S3 | Ic
 
 Source and sink connectors are selected from the runtime registry; parser kinds
 are validated explicitly. Logbroker and Kafka provide streaming sources and
-sinks. PostgreSQL provides finite snapshots, ordinary logical replication, and
-a sink; MySQL, OpenSearch, YDB, ClickHouse, S3, Iceberg, and YTsaurus provide
-finite-snapshot sources and sinks. YDB writes production Arrow IPC batches with `BulkUpsert` and
+sinks. PostgreSQL and MySQL 8 provide finite snapshots, ordinary database
+replication, coordinated batch-and-stream sources, and sinks. OpenSearch, YDB,
+ClickHouse, S3, Iceberg, and YTsaurus provide finite-snapshot sources and sinks.
+YDB writes production Arrow IPC batches with `BulkUpsert` and
 requires an explicit logical-to-physical table mapping plus a non-null primary
 key. The batch-only data generator and non-durable `discard` sink are explicit
 benchmark components.
@@ -40,8 +41,8 @@ the binary.
 Shared source configuration, discovery, and mode dispatch live in `source`.
 `src_batch` contains finite snapshot readers, while `src_stream` contains live
 queue streams and ordinary database replication. `src_batch_and_stream` owns
-only the coordination that hands PostgreSQL's exact batch snapshot to logical
-replication.
+only the coordination that hands PostgreSQL or MySQL's exact finite snapshot to
+its ordinary replication reader.
 PostgreSQL replication supports both `pgoutput` and `wal2json`;
 both decoders emit the same Arrow changelog contract, including operation,
 source position, changed-column presence, and old values for
@@ -105,7 +106,13 @@ transaction immediately before every logical peek.
 
 MySQL snapshots expose the text and prepared-statement binary result protocols.
 Both feed the same lossless row-to-Arrow conversion; binary with 16,384 rows per
-batch is the measured default. The sink uses a 250-row INSERT batch for the wide
+batch is the measured default. Snapshot memory is controlled explicitly by
+`batch_target_bytes` (8 MiB by default, valid range 1 byte through 1 GiB) and
+`max_row_bytes` (1 GiB by default, valid range 1 KiB through the 1 GiB MySQL
+client packet maximum). The first is a retained decoded-row target and may be
+crossed only by one indivisible final row; the second is the exact wire-packet
+limit for one row, while decoded object and Arrow allocation overhead is
+accounted separately. The sink uses a 250-row INSERT batch for the wide
 105-column ClickBench workload; the earlier narrow database fixture measured a
 1,000-row knee, so this is workload-specific rather than a universal optimum.
 The narrow fixture is recorded in
@@ -113,6 +120,57 @@ The narrow fixture is recorded in
 the exact-prefix ClickBench measurements, CPU/RSS data, persisted-integrity
 checks, and explicit read-back qualifications for all six connectors are recorded in
 [the ClickBench report](benchmarks/clickbench_throughput/REPORT.md).
+
+MySQL 8 replication is enabled explicitly with `source.mysql.replication` and
+requires `delivery_type: stream` or `delivery_type: batch_and_stream`; a snapshot
+configuration continues to expose batch only. The replication source requires
+an explicit nonzero replica `server_id`, GTID mode and consistency enforcement,
+row-format binary logging with full row images and full row metadata, CRC32
+binlog checksums, empty row-value options, transaction compression disabled, and
+InnoDB tables with real primary keys. MariaDB remains supported for finite
+snapshots but is rejected before replication state is created because its GTID
+and event contracts differ.
+
+The current replication decoder fails discovery closed for `JSON`, `TIMESTAMP`,
+`TIME`, `ENUM`, `SET`, and `YEAR`, for generated or invisible columns, and for
+text encoded with any character set other than `ascii`, `utf8mb3`, or `utf8mb4`.
+Finite snapshots retain their existing wider type support; replication never
+guesses a conversion whose row-binlog representation cannot yet be proven equal
+to the discovered snapshot schema.
+
+For `batch_and_stream`, the coordinator retains a MySQL named execution lock,
+takes `FLUSH TABLES WITH READ LOCK`, starts every configured table's read-only
+repeatable-read consistent snapshot while writes are blocked, and holds each
+table's metadata lock. It then captures one exact binary-log filename/position,
+executed GTID set, and source timestamp, durably records that boundary, and only
+then unlocks writes. All table readers consume their already-open transactions.
+After every finite snapshot row has reached the sink and the snapshot phase is
+durably completed, the binlog reader starts at that exact boundary. There is no
+independent second snapshot and no estimated handoff position.
+
+On the first `stream` start without a durable offset, the connector uses the same
+write lock and authoritative schema recheck to capture an exact starting
+filename/position and executed GTID set before streaming. On restart, both
+delivery modes resume from the durable committed GTID frontier instead of
+capturing a replacement boundary.
+
+The binlog reader validates CRC32-protected events, buffers a complete source
+transaction within `replication.max_transaction_bytes` (64 MiB by default,
+valid range 19 bytes through 1 GiB) and `replication.max_events` (4,096 by
+default, applied independently to the transaction's binlog-event count and
+decoded-row count), and emits it only after its XID or COMMIT. Crossing either
+explicit limit fails closed before emission.
+Durable progress advances only after the corresponding sink acknowledgement;
+an unacknowledged transaction is replayed. Empty transactions
+after table filtering still carry an explicit checkpoint. Restart state is
+bound to the exact non-secret delivery revision, source UUID, database, replica
+server ID, start boundary, and structured physical table identity. An
+interrupted connection-owned snapshot, changed replay identity or schema,
+purged unacknowledged GTID, reset binlog history, partial row image, compressed
+transaction payload, or lost execution lock fails closed instead of choosing a
+newer position. Purging files whose transactions are already included in the
+durable GTID frontier is supported; restart uses GTID auto-position rather than
+requiring the old filename to remain present.
 
 For the demonstration control plane, run:
 

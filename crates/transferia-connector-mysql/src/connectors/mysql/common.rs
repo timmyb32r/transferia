@@ -54,6 +54,8 @@ const fn default_mysql_port() -> u16 {
 }
 
 pub const MAX_IDENTIFIER_CHARS: usize = 64;
+pub const MYSQL_CLIENT_PACKET_MIN_BYTES: usize = 1_024;
+pub const MYSQL_CLIENT_PACKET_MAX_BYTES: usize = 1_073_741_824;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -96,6 +98,32 @@ impl MySqlConnectionConfig {
 }
 
 pub async fn connect(config: &MySqlConnectionConfig) -> anyhow::Result<Conn> {
+    connect_with_packet_limit(config, None).await
+}
+
+pub async fn connect_with_max_allowed_packet(
+    config: &MySqlConnectionConfig,
+    max_allowed_packet: usize,
+) -> anyhow::Result<Conn> {
+    validate_mysql_client_packet_limit(max_allowed_packet)?;
+    connect_with_packet_limit(config, Some(max_allowed_packet)).await
+}
+
+pub(crate) fn validate_mysql_client_packet_limit(
+    max_allowed_packet: usize,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        (MYSQL_CLIENT_PACKET_MIN_BYTES..=MYSQL_CLIENT_PACKET_MAX_BYTES)
+            .contains(&max_allowed_packet),
+        "MySQL client max_allowed_packet must be in {MYSQL_CLIENT_PACKET_MIN_BYTES}..={MYSQL_CLIENT_PACKET_MAX_BYTES} bytes"
+    );
+    Ok(())
+}
+
+async fn connect_with_packet_limit(
+    config: &MySqlConnectionConfig,
+    max_allowed_packet: Option<usize>,
+) -> anyhow::Result<Conn> {
     config.validate()?;
     let mut builder = OptsBuilder::default()
         .ip_or_hostname(config.host.clone())
@@ -105,6 +133,9 @@ pub async fn connect(config: &MySqlConnectionConfig) -> anyhow::Result<Conn> {
         .pass(Some(config.password.clone()))
         .prefer_socket(false)
         .tcp_nodelay(true);
+    if let Some(max_allowed_packet) = max_allowed_packet {
+        builder = builder.max_allowed_packet(Some(max_allowed_packet));
+    }
     if !config.trusted_plaintext {
         let mut ssl = SslOpts::default();
         if let Some(path) = &config.tls_ca_file {
