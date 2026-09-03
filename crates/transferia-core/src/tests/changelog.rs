@@ -7,8 +7,8 @@ use arrow::record_batch::RecordBatch;
 use super::*;
 use crate::data::schema::SchemaColumn;
 use crate::delivery::{
-    validate_stored_projection, DatasetRole, DiscoveredDataset, DiscoveredSystemColumn,
-    SchemaOrigin,
+    validate_batch_against_discovery, validate_stored_projection, DatasetRole, DiscoveredDataset,
+    DiscoveredSystemColumn, SchemaOrigin,
 };
 use crate::memory::PipelineMemory;
 use crate::sink::SinkBatch;
@@ -144,6 +144,22 @@ async fn splits_create_read_update_and_delete_without_storing_operation() {
         .downcast_ref::<Int64Array>()
         .unwrap();
     assert_eq!(ids.value(0), 4);
+}
+
+#[tokio::test]
+async fn runtime_schema_rejects_missing_arrow_extension_metadata() {
+    let mut expected = discovery();
+    expected.datasets[0].incoming_schema.columns[0] = expected.datasets[0]
+        .incoming_schema
+        .columns[0]
+        .clone()
+        .with_arrow_extension_metadata(
+            "transferia.mysql.signed_integer",
+            r#"{"version":1,"column_type":"bigint"}"#,
+        );
+    let actual = batch(vec![Some("c")], vec![Some(1)]).await;
+
+    assert!(validate_batch_against_discovery(&expected, &actual).is_err());
 }
 
 #[tokio::test]

@@ -9,7 +9,10 @@ use super::{
     MySqlBinlogBoundary, MySqlSourceIdentity, validate_server_uuid,
 };
 use crate::connectors::mysql::common::validate_identifier;
-use crate::connectors::mysql::src_batch::TableConfig;
+use crate::connectors::mysql::src_batch::{
+    column_generation, column_visibility, has_column_type_modifier, has_extra_modifier,
+    parse_enum_set_values, validate_structured_column_metadata, TableConfig,
+};
 use crate::connectors::mysql::src_stream::GtidSet;
 
 pub const SNAPSHOT_STREAM_STATE_KEY: &str = "mysql-snapshot-stream";
@@ -405,10 +408,48 @@ fn validate_authoritative_column(column: &AuthoritativeColumnIdentity) -> anyhow
     );
     anyhow::ensure!(
         column.character_set.is_some() == column.collation.is_some()
-            && column.collation.is_some() == column.collation_id.is_some(),
-        "MySQL authoritative identity for column '{}' has inconsistent character-set, collation, and numeric collation-id metadata",
+            && column.collation.is_some() == column.collation_id.is_some()
+            && column.collation.is_some() == column.collation_padding.is_some(),
+        "MySQL authoritative identity for column '{}' has inconsistent character-set, collation, numeric collation-id, and padding metadata",
         column.name
     );
+    anyhow::ensure!(
+        column.unsigned == has_column_type_modifier(&column.column_type, "unsigned")
+            && column.zerofill == has_column_type_modifier(&column.column_type, "zerofill")
+            && column.auto_increment == has_extra_modifier(&column.extra, "auto_increment")
+            && (!column.zerofill || column.unsigned),
+        "MySQL authoritative identity for column '{}' has inconsistent numeric modifiers",
+        column.name
+    );
+    anyhow::ensure!(
+        column.enum_set_values
+            == parse_enum_set_values(&column.data_type, &column.column_type)?,
+        "MySQL authoritative identity for column '{}' has inconsistent ENUM/SET members",
+        column.name
+    );
+    anyhow::ensure!(
+        column.visibility == column_visibility(&column.extra),
+        "MySQL authoritative identity for column '{}' has inconsistent visibility",
+        column.name
+    );
+    anyhow::ensure!(
+        column.generation
+            == column_generation(&column.extra, column.generation_expression.as_deref())?,
+        "MySQL authoritative identity for column '{}' has inconsistent generation metadata",
+        column.name
+    );
+    validate_structured_column_metadata(
+        &column.name,
+        &column.data_type,
+        column.character_maximum_length,
+        column.character_octet_length,
+        column.numeric_precision,
+        column.numeric_scale,
+        column.datetime_precision,
+        column.character_set.as_deref(),
+        column.srs_id,
+        column.enum_set_values.as_deref(),
+    )?;
     anyhow::ensure!(
         column.primary_key_ordinal.is_none() || !column.nullable,
         "MySQL authoritative identity marks nullable column '{}' as part of the primary key",

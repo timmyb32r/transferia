@@ -105,8 +105,10 @@ again inside the exported snapshot, at stream startup, and in the same
 transaction immediately before every logical peek.
 
 MySQL snapshots expose the text and prepared-statement binary result protocols.
-Both feed the same lossless row-to-Arrow conversion; binary with 16,384 rows per
-batch is the measured default. Snapshot memory is controlled explicitly by
+Both feed the same row-to-Arrow conversion when the selected physical types can
+be represented losslessly; discovery rejects text protocol for `FLOAT`, whose
+server text representation cannot preserve every IEEE-754 `f32` value. Binary
+with 16,384 rows per batch is the measured default. Snapshot memory is controlled explicitly by
 `batch_target_bytes` (8 MiB by default, valid range 1 byte through 1 GiB) and
 `max_row_bytes` (1 GiB by default, valid range 1 KiB through the 1 GiB MySQL
 client packet maximum). The first is a retained decoded-row target and may be
@@ -131,12 +133,33 @@ InnoDB tables with real primary keys. MariaDB remains supported for finite
 snapshots but is rejected before replication state is created because its GTID
 and event contracts differ.
 
-The current replication decoder fails discovery closed for `JSON`, `TIMESTAMP`,
-`TIME`, `ENUM`, `SET`, and `YEAR`, for generated or invisible columns, and for
-text encoded with any character set other than `ascii`, `utf8mb3`, or `utf8mb4`.
-Finite snapshots retain their existing wider type support; replication never
-guesses a conversion whose row-binlog representation cannot yet be proven equal
-to the discovered snapshot schema.
+MySQL snapshot and replication fields carry a versioned Arrow extension payload
+with the exact physical column declaration: signedness and `ZEROFILL`, decimal
+precision/scale, temporal precision, character set/collation, `ENUM`/`SET`
+members, spatial SRID, visibility, generation mode, and other source modifiers.
+Native numbers keep native Arrow storage. `ENUM` uses its physical `UInt16`
+ordinal and `SET` its physical `UInt64` bitset, while their declarations remain
+in extension metadata, so empty members and comma-containing members cannot
+collapse into the same value. Decimal and zero-capable temporal values use
+canonical exact text so zero and partial-zero dates are not coerced; non-UTF-8
+`latin1` text uses Arrow `Binary`; JSON uses MySQL-compatible canonical JSON
+text; and spatial values remain exact binary payloads. The same extension
+name, payload, storage type, and value representation are emitted by the finite
+snapshot and row-binlog paths, including full old values for updates and deletes.
+
+Replication rejects virtual generated columns, character sets other than
+`ascii`, `utf8mb3`, `utf8mb4`, and byte-preserving `latin1`, unsupported physical
+families, incomplete or mismatched full table-map metadata, and partial JSON
+updates. Stored generated and invisible columns are accepted only when MySQL's
+full row image proves their exact value and physical identity. These checks run
+during discovery and again on every table map, before a row can be buffered or
+acknowledged; replication never guesses a conversion whose binlog representation
+cannot be proven equal to the snapshot schema.
+
+Writes and schema changes for selected tables must remain in MySQL's binary log.
+A privileged session that deliberately sets `sql_log_bin=OFF` removes those
+events from the source protocol itself; no binlog consumer can reconstruct or
+validate data that the server omitted.
 
 For `batch_and_stream`, the coordinator retains a MySQL named execution lock,
 takes `FLUSH TABLES WITH READ LOCK`, starts every configured table's read-only

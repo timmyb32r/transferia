@@ -13,7 +13,7 @@ use super::super::offset::{
 use super::super::MySqlReplicationConfig;
 use crate::connectors::mysql::src_batch_and_stream::{
     AuthoritativeColumnIdentity, AuthoritativeTableIdentity, MySqlBinlogBoundary,
-    MySqlSourceIdentity,
+    MySqlColumnGeneration, MySqlColumnVisibility, MySqlSourceIdentity,
 };
 
 #[derive(Default)]
@@ -183,11 +183,25 @@ fn tables() -> Vec<AuthoritativeTableIdentity> {
         engine: "InnoDB".to_owned(),
         columns: vec![AuthoritativeColumnIdentity {
             name: "id".to_owned(),
+            data_type: "bigint".to_owned(),
             column_type: "bigint".to_owned(),
+            unsigned: false,
+            zerofill: false,
+            auto_increment: false,
             nullable: false,
+            character_maximum_length: None,
+            character_octet_length: None,
+            numeric_precision: Some(19),
+            numeric_scale: Some(0),
+            datetime_precision: None,
             character_set: None,
             collation: None,
             collation_id: None,
+            collation_padding: None,
+            enum_set_values: None,
+            srs_id: None,
+            visibility: MySqlColumnVisibility::Visible,
+            generation: MySqlColumnGeneration::None,
             extra: String::new(),
             generation_expression: Some(String::new()),
             primary_key_ordinal: Some(1),

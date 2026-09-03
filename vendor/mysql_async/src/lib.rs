@@ -514,7 +514,7 @@ pub mod binlog {
     pub use mysql_common::binlog::consts::*;
 
     #[doc(inline)]
-    pub use mysql_common::binlog::{events, jsonb, jsondiff, row, value};
+    pub use mysql_common::binlog::{decimal, events, jsonb, jsondiff, row, time, value};
 }
 
 #[doc(inline)]

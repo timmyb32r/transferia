@@ -1,5 +1,6 @@
 use mysql_async::binlog::events::{Event, FormatDescriptionEvent};
 use mysql_async::binlog::{BinlogVersion, EventType};
+use mysql_async::consts::GeometryType;
 
 use super::super::{
     BinlogDecodeError, DecodedBinlogEvent, MySqlBinlogDecoder, MySqlBinlogPosition,
@@ -55,6 +56,9 @@ fn gtid_row_transaction_preserves_identity_images_and_commit_position() {
     assert_eq!(table.column_identities.len(), 1);
     assert_eq!(table.column_identities[0].name, b"id");
     assert_eq!(table.column_identities[0].unsigned, Some(false));
+    assert!(table.column_identities[0].visible);
+    assert_eq!(table.column_identities[0].enum_values, None);
+    assert_eq!(table.column_identities[0].set_values, None);
     assert_eq!(table.column_identities[0].primary_key_ordinal, Some(1));
 
     let rows_start = decoder.current_position().position;
@@ -146,6 +150,71 @@ fn table_map_without_primary_key_remains_decodable_for_unselected_tables() {
         ))
         .unwrap();
     assert!(matches!(rows, DecodedBinlogEvent::Ignored(_)));
+}
+
+#[test]
+fn full_table_map_preserves_enum_set_geometry_vector_and_visibility() {
+    let mut decoder = decoder();
+    decoder
+        .decode(&raw_event(
+            EventType::GTID_EVENT,
+            &gtid_data([9; 16], 1),
+            4,
+        ))
+        .unwrap();
+    let mapped = decoder
+        .decode(&raw_event(
+            EventType::TABLE_MAP_EVENT,
+            &full_metadata_table_map_data(),
+            decoder.current_position().position,
+        ))
+        .unwrap();
+    let DecodedBinlogEvent::TableMapped(table) = mapped else {
+        panic!("expected table map")
+    };
+    assert_eq!(table.column_identities.len(), 4);
+    assert_eq!(
+        table.column_identities[0].enum_values,
+        Some(vec![Vec::new(), b"comma,value".to_vec()])
+    );
+    assert_eq!(
+        table.column_identities[1].set_values,
+        Some(vec![b"a".to_vec(), b"b,c".to_vec()])
+    );
+    assert_eq!(
+        table.column_identities[2].geometry_type,
+        Some(GeometryType::GEOM_POINT)
+    );
+    assert_eq!(table.column_identities[3].vector_dimensionality, Some(3));
+    assert!(table.column_identities[0].visible);
+    assert!(!table.column_identities[1].visible);
+    assert!(table.column_identities[2].visible);
+    assert!(table.column_identities[3].visible);
+}
+
+#[test]
+fn full_table_map_rejects_duplicate_optional_identity_fields() {
+    let mut decoder = decoder();
+    decoder
+        .decode(&raw_event(
+            EventType::GTID_EVENT,
+            &gtid_data([10; 16], 1),
+            4,
+        ))
+        .unwrap();
+    let mut table_map = table_map_data();
+    table_map.extend_from_slice(&[12, 1, 0x80]);
+    assert!(matches!(
+        decoder.decode(&raw_event(
+            EventType::TABLE_MAP_EVENT,
+            &table_map,
+            decoder.current_position().position,
+        )),
+        Err(BinlogDecodeError::DuplicateFullTableMetadata {
+            field: "column visibility",
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -364,6 +433,7 @@ fn table_map_data() -> Vec<u8> {
     data.push(0); // nullable bitmap
     data.extend_from_slice(&[1, 1, 0]); // SIGNEDNESS: one signed numeric column
     data.extend_from_slice(&[4, 3, 2, b'i', b'd']); // COLUMN_NAME: "id"
+    data.extend_from_slice(&[12, 1, 0x80]); // COLUMN_VISIBILITY: visible
     data.extend_from_slice(&[8, 1, 0]); // SIMPLE_PRIMARY_KEY: column 0
     data
 }
@@ -371,6 +441,39 @@ fn table_map_data() -> Vec<u8> {
 fn table_map_data_without_primary_key() -> Vec<u8> {
     let mut data = table_map_data();
     data.truncate(data.len() - 3);
+    data
+}
+
+fn full_metadata_table_map_data() -> Vec<u8> {
+    let mut data = Vec::new();
+    data.extend_from_slice(&23_u64.to_le_bytes()[..6]);
+    data.extend_from_slice(&0_u16.to_le_bytes());
+    data.push(2);
+    data.extend_from_slice(b"db");
+    data.push(0);
+    data.push(5);
+    data.extend_from_slice(b"items");
+    data.push(0);
+    data.push(4);
+    data.extend_from_slice(&[254, 254, 255, 242]);
+    data.push(6);
+    data.extend_from_slice(&[247, 1, 248, 1, 4, 4]);
+    data.push(0);
+    data.extend_from_slice(&[11, 2, 45, 45]);
+    data.extend_from_slice(&[
+        4, 29, 6, b'c', b'h', b'o', b'i', b'c', b'e', 5, b'f', b'l', b'a', b'g', b's', 5,
+        b's', b'h', b'a', b'p', b'e', 9, b'e', b'm', b'b', b'e', b'd', b'd', b'i', b'n', b'g',
+    ]);
+    data.extend_from_slice(&[
+        5, 7, 2, 1, b'a', 3, b'b', b',', b'c',
+    ]);
+    data.extend_from_slice(&[
+        6, 14, 2, 0, 11, b'c', b'o', b'm', b'm', b'a', b',', b'v', b'a', b'l', b'u', b'e',
+    ]);
+    data.extend_from_slice(&[7, 1, 1]);
+    data.extend_from_slice(&[12, 1, 0xb0]);
+    data.extend_from_slice(&[13, 1, 3]);
+    data.extend_from_slice(&[8, 1, 0]);
     data
 }
 

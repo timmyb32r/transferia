@@ -9,13 +9,17 @@ use transferia_connector_support::external_request::observe_external_request;
 
 use super::{
     replication_safety_violation, AuthoritativeColumnIdentity, AuthoritativeTableIdentity,
-    MySqlBinlogBoundary, validate_server_uuid, MySqlSourceIdentity, SnapshotStreamTracker,
+    MySqlBinlogBoundary, MySqlSourceIdentity, SnapshotStreamTracker, validate_server_uuid,
 };
 use crate::connectors::mysql::common::{
     connect, connect_with_max_allowed_packet, quote_identifier, validate_identifier,
     validate_mysql_client_packet_limit, MySqlConnectionConfig,
 };
-use crate::connectors::mysql::src_batch::TableConfig;
+use crate::connectors::mysql::src_batch::{
+    column_generation, column_visibility, has_column_type_modifier, has_extra_modifier,
+    parse_enum_set_values, validate_structured_column_metadata, TableConfig,
+    MYSQL_CANONICAL_SNAPSHOT_SQL_MODE,
+};
 use crate::connectors::mysql::src_stream::{
     validate_replication_prerequisites, GtidSet, MySqlReplicationPrerequisites,
 };
@@ -657,7 +661,7 @@ async fn read_authoritative_table_identity(
         request_timeout,
         "read_authoritative_column_identities",
         connection.exec::<Row, _, _>(
-            "SELECT c.COLUMN_NAME, c.COLUMN_TYPE, c.IS_NULLABLE, c.CHARACTER_SET_NAME, c.COLLATION_NAME, col.ID, c.EXTRA, c.GENERATION_EXPRESSION, s.SEQ_IN_INDEX, s.SUB_PART, s.COLLATION FROM information_schema.COLUMNS AS c LEFT JOIN information_schema.COLLATIONS AS col ON col.COLLATION_NAME = c.COLLATION_NAME LEFT JOIN information_schema.STATISTICS AS s ON s.TABLE_SCHEMA = c.TABLE_SCHEMA AND s.TABLE_NAME = c.TABLE_NAME AND s.INDEX_NAME = 'PRIMARY' AND s.COLUMN_NAME = c.COLUMN_NAME WHERE c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ? ORDER BY c.ORDINAL_POSITION",
+            "SELECT c.COLUMN_NAME, c.DATA_TYPE, c.COLUMN_TYPE, c.IS_NULLABLE, c.CHARACTER_SET_NAME, c.COLLATION_NAME, col.ID, col.PAD_ATTRIBUTE, c.EXTRA, c.GENERATION_EXPRESSION, c.CHARACTER_MAXIMUM_LENGTH, c.CHARACTER_OCTET_LENGTH, c.NUMERIC_PRECISION, c.NUMERIC_SCALE, c.DATETIME_PRECISION, c.SRS_ID, s.SEQ_IN_INDEX, s.SUB_PART, s.COLLATION FROM information_schema.COLUMNS AS c LEFT JOIN information_schema.COLLATIONS AS col ON col.COLLATION_NAME = c.COLLATION_NAME LEFT JOIN information_schema.STATISTICS AS s ON s.TABLE_SCHEMA = c.TABLE_SCHEMA AND s.TABLE_NAME = c.TABLE_NAME AND s.INDEX_NAME = 'PRIMARY' AND s.COLUMN_NAME = c.COLUMN_NAME WHERE c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ? ORDER BY c.ORDINAL_POSITION",
             (database, table.name.as_str()),
         ),
     )
@@ -772,6 +776,27 @@ pub async fn begin_locked_snapshot(
                 connection.query_drop("SET SESSION time_zone = '+00:00'"),
             )
             .await?;
+            run_request(
+                cancellation,
+                request_timeout,
+                "set_snapshot_sql_mode",
+                connection.query_drop(MYSQL_CANONICAL_SNAPSHOT_SQL_MODE),
+            )
+            .await?;
+            let forbidden_sql_mode = run_request(
+                cancellation,
+                request_timeout,
+                "verify_snapshot_sql_mode",
+                connection.query_first::<u64, _>(
+                    "SELECT FIND_IN_SET('PAD_CHAR_TO_FULL_LENGTH', @@SESSION.sql_mode)",
+                ),
+            )
+            .await?;
+            if forbidden_sql_mode != Some(0) {
+                return Err(replication_safety_violation(anyhow::anyhow!(
+                    "MySQL snapshot session retained PAD_CHAR_TO_FULL_LENGTH after canonical setup"
+                )));
+            }
             run_request(
                 cancellation,
                 request_timeout,
@@ -1345,13 +1370,14 @@ where
 fn authoritative_column_identity(row: &Row) -> anyhow::Result<AuthoritativeColumnIdentity> {
     let name = required::<String, _>(row, 0, "column name")?;
     validate_identifier("column", &name).map_err(replication_safety_violation)?;
-    let column_type = required::<String, _>(row, 1, "column type")?;
+    let data_type = required::<String, _>(row, 1, "column data type")?.to_ascii_lowercase();
+    let column_type = required::<String, _>(row, 2, "column type")?;
     if column_type.is_empty() {
         return Err(replication_safety_violation(anyhow::anyhow!(
             "MySQL authoritative metadata returned an empty type for column '{name}'"
         )));
     }
-    let nullable = match required::<String, _>(row, 2, "column nullability")?.as_str() {
+    let nullable = match required::<String, _>(row, 3, "column nullability")?.as_str() {
         "YES" => true,
         "NO" => false,
         value => {
@@ -1360,9 +1386,9 @@ fn authoritative_column_identity(row: &Row) -> anyhow::Result<AuthoritativeColum
             )));
         }
     };
-    let character_set = required::<Option<String>, _>(row, 3, "column character set")?;
-    let collation = required::<Option<String>, _>(row, 4, "column collation")?;
-    let collation_id = required::<Option<u64>, _>(row, 5, "column collation id")?
+    let character_set = required::<Option<String>, _>(row, 4, "column character set")?;
+    let collation = required::<Option<String>, _>(row, 5, "column collation")?;
+    let collation_id = required::<Option<u64>, _>(row, 6, "column collation id")?
         .map(u16::try_from)
         .transpose()
         .map_err(|_| {
@@ -1370,15 +1396,50 @@ fn authoritative_column_identity(row: &Row) -> anyhow::Result<AuthoritativeColum
                 "MySQL authoritative metadata returned a collation id outside the binlog protocol range for column '{name}'"
             ))
         })?;
-    let extra = required::<String, _>(row, 6, "column extra modifiers")?;
+    let collation_padding = required::<Option<String>, _>(row, 7, "column collation padding")?
+        .map(|value| match value.as_str() {
+            "PAD SPACE" => Ok(super::MySqlCollationPadding::PadSpace),
+            "NO PAD" => Ok(super::MySqlCollationPadding::NoPad),
+            other => Err(replication_safety_violation(anyhow::anyhow!(
+                "MySQL authoritative metadata returned unknown collation padding attribute '{other}' for column '{name}'"
+            ))),
+        })
+        .transpose()?;
+    if character_set.is_some() != collation_padding.is_some() {
+        return Err(replication_safety_violation(anyhow::anyhow!(
+            "MySQL authoritative metadata returned inconsistent collation padding identity for column '{name}'"
+        )));
+    }
+    let extra = required::<String, _>(row, 8, "column extra modifiers")?;
     let generation_expression =
-        required::<Option<String>, _>(row, 7, "column generation expression")?;
+        required::<Option<String>, _>(row, 9, "column generation expression")?;
+    let character_maximum_length =
+        required::<Option<u64>, _>(row, 10, "character maximum length")?
+            .map(usize::try_from)
+            .transpose()
+            .map_err(|error| replication_safety_violation(error.into()))?;
+    let character_octet_length =
+        required::<Option<u64>, _>(row, 11, "character octet length")?
+            .map(usize::try_from)
+            .transpose()
+            .map_err(|error| replication_safety_violation(error.into()))?;
+    let numeric_precision = required::<Option<u64>, _>(row, 12, "numeric precision")?;
+    let numeric_scale = required::<Option<u64>, _>(row, 13, "numeric scale")?;
+    let datetime_precision = required::<Option<u64>, _>(row, 14, "datetime precision")?;
+    let srs_id = required::<Option<u64>, _>(row, 15, "spatial reference system id")?
+        .map(u32::try_from)
+        .transpose()
+        .map_err(|_| {
+            replication_safety_violation(anyhow::anyhow!(
+                "MySQL authoritative metadata returned an SRS id outside the u32 range for column '{name}'"
+            ))
+        })?;
     let primary_key_ordinal =
-        required::<Option<u64>, _>(row, 8, "primary-key ordinal")?;
+        required::<Option<u64>, _>(row, 16, "primary-key ordinal")?;
     let primary_key_prefix_length =
-        required::<Option<u64>, _>(row, 9, "primary-key prefix length")?;
+        required::<Option<u64>, _>(row, 17, "primary-key prefix length")?;
     let primary_key_direction =
-        required::<Option<String>, _>(row, 10, "primary-key direction")?;
+        required::<Option<String>, _>(row, 18, "primary-key direction")?;
     if primary_key_ordinal.is_none()
         && (primary_key_prefix_length.is_some() || primary_key_direction.is_some())
     {
@@ -1386,13 +1447,53 @@ fn authoritative_column_identity(row: &Row) -> anyhow::Result<AuthoritativeColum
             "MySQL authoritative metadata returned partial primary-key identity for column '{name}'"
         )));
     }
+    let unsigned = has_column_type_modifier(&column_type, "unsigned");
+    let zerofill = has_column_type_modifier(&column_type, "zerofill");
+    let auto_increment = has_extra_modifier(&extra, "auto_increment");
+    if zerofill && !unsigned {
+        return Err(replication_safety_violation(anyhow::anyhow!(
+            "MySQL authoritative metadata returned ZEROFILL without UNSIGNED for column '{name}'"
+        )));
+    }
+    let enum_set_values =
+        parse_enum_set_values(&data_type, &column_type).map_err(replication_safety_violation)?;
+    let visibility = column_visibility(&extra);
+    let generation = column_generation(&extra, generation_expression.as_deref())
+        .map_err(replication_safety_violation)?;
+    validate_structured_column_metadata(
+        &name,
+        &data_type,
+        character_maximum_length,
+        character_octet_length,
+        numeric_precision,
+        numeric_scale,
+        datetime_precision,
+        character_set.as_deref(),
+        srs_id,
+        enum_set_values.as_deref(),
+    )
+    .map_err(replication_safety_violation)?;
     Ok(AuthoritativeColumnIdentity {
         name,
+        data_type,
         column_type,
+        unsigned,
+        zerofill,
+        auto_increment,
         nullable,
+        character_maximum_length,
+        character_octet_length,
+        numeric_precision,
+        numeric_scale,
+        datetime_precision,
         character_set,
         collation,
         collation_id,
+        collation_padding,
+        enum_set_values,
+        srs_id,
+        visibility,
+        generation,
         extra,
         generation_expression,
         primary_key_ordinal,

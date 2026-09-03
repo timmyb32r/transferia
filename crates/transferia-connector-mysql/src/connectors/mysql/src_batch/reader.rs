@@ -1,15 +1,15 @@
+use std::collections::HashMap;
 use std::mem::size_of;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use arrow::array::{
-    new_null_array, ArrayRef, BinaryArray, BinaryBuilder, Date32Array, Float32Array, Float64Array,
-    Int16Array, Int32Array, Int64Array, Int8Array, StringArray, StringBuilder,
-    TimestampMicrosecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+    new_null_array, ArrayRef, BinaryArray, BinaryBuilder, Float32Array, Float64Array, Int16Array,
+    Int32Array, Int64Array, Int8Array, StringArray, StringBuilder, UInt16Array, UInt32Array,
+    UInt64Array, UInt8Array,
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
-use chrono::NaiveDate;
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
 use mysql_async::prelude::{Query, Queryable, WithParams};
@@ -18,9 +18,10 @@ use transferia_connector_support::external_request::observe_external_request;
 
 use super::config::{MySqlReadProtocol, TableConfig, MYSQL_SNAPSHOT_BATCH_TARGET_MAX_BYTES};
 use super::connector::{
-    old_value_column_name, ColumnPlan, MySqlColumnKind, MYSQL_REPLICATION_SYSTEM_COLUMNS,
-    MYSQL_SOURCE_METADATA_COLUMNS,
+    old_value_column_name, validate_snapshot_read_protocol, ColumnPlan, MySqlColumnKind,
+    MYSQL_REPLICATION_SYSTEM_COLUMNS, MYSQL_SOURCE_METADATA_COLUMNS,
 };
+use super::MYSQL_CANONICAL_SNAPSHOT_SQL_MODE;
 use crate::connectors::mysql::common::{
     quote_identifier, validate_mysql_client_packet_limit,
 };
@@ -28,11 +29,15 @@ use crate::connectors::mysql::src_batch_and_stream::MySqlBinlogBoundary;
 use crate::connectors::mysql::src_stream::encode_snapshot_boundary_identity;
 use crate::metrics::SourceCounters;
 use transferia_core::data::message::SourceBatch;
-use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_core::data::schema::{
+    DatasetSchema, SchemaColumn, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME,
+    META_CHANGE_OPERATION, META_LOW_CARDINALITY, META_MAX_LENGTH, META_OLD_KEY_OF,
+    META_OLD_VALUE_OF, META_PRIMARY_KEY, META_SYSTEM_ROLE,
+};
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::TableData;
 use transferia_core::failure::DataPlaneFailure;
-use transferia_core::memory::PipelineMemory;
+use transferia_core::memory::{MemoryReservation, PipelineMemory};
 use transferia_core::source::{CommitMarker, Source};
 
 type TextRowStream = ResultSetStream<'static, 'static, 'static, Row, TextProtocol>;
@@ -72,12 +77,13 @@ impl MySqlRowStream {
 
 pub struct MySqlSource {
     table: TableConfig,
-    schema: DatasetSchema,
     columns: Vec<ColumnPlan>,
     batch_rows: usize,
     batch_target_bytes: usize,
     max_row_bytes: usize,
     max_decoded_row_bytes: usize,
+    output_schema: Arc<Schema>,
+    output_schema_memory: MemoryReservation,
     stream: Option<MySqlRowStream>,
     offset: i64,
     finished: bool,
@@ -108,15 +114,42 @@ impl MySqlSource {
         counters: Arc<SourceCounters>,
         memory: PipelineMemory,
     ) -> anyhow::Result<Self> {
-        connection
-            .query_drop("SET SESSION time_zone = '+00:00'")
-            .await?;
-        connection
-            .query_drop("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            .await?;
-        connection
-            .query_drop("START TRANSACTION WITH CONSISTENT SNAPSHOT")
-            .await?;
+        observe_external_request(
+            "mysql",
+            "set_snapshot_timezone",
+            connection.query_drop("SET SESSION time_zone = '+00:00'"),
+        )
+        .await?;
+        observe_external_request(
+            "mysql",
+            "set_snapshot_sql_mode",
+            connection.query_drop(MYSQL_CANONICAL_SNAPSHOT_SQL_MODE),
+        )
+        .await?;
+        let forbidden_sql_mode = observe_external_request(
+            "mysql",
+            "verify_snapshot_sql_mode",
+            connection.query_first::<u64, _>(
+                "SELECT FIND_IN_SET('PAD_CHAR_TO_FULL_LENGTH', @@SESSION.sql_mode)",
+            ),
+        )
+        .await?;
+        anyhow::ensure!(
+            forbidden_sql_mode == Some(0),
+            "MySQL snapshot session retained PAD_CHAR_TO_FULL_LENGTH after canonical setup"
+        );
+        observe_external_request(
+            "mysql",
+            "set_snapshot_isolation",
+            connection.query_drop("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"),
+        )
+        .await?;
+        observe_external_request(
+            "mysql",
+            "start_consistent_snapshot",
+            connection.query_drop("START TRANSACTION WITH CONSISTENT SNAPSHOT"),
+        )
+        .await?;
         Self::from_started_snapshot(
             connection,
             database,
@@ -153,8 +186,16 @@ impl MySqlSource {
         snapshot_metadata: Option<MySqlSnapshotMetadata>,
     ) -> anyhow::Result<Self> {
         validate_snapshot_memory_limits(batch_rows, batch_target_bytes, max_row_bytes)?;
+        validate_snapshot_read_protocol(read_protocol, &columns)?;
         let max_decoded_row_bytes =
             max_decoded_row_admission_bytes(max_row_bytes, columns.len())?;
+        let (output_schema, output_schema_memory) = build_output_schema_with_memory(
+            &memory,
+            &schema,
+            &columns,
+            snapshot_metadata.is_some(),
+        )
+        .await?;
         let projection = columns
             .iter()
             .map(|column| column.expression.as_str())
@@ -199,12 +240,13 @@ impl MySqlSource {
         );
         Ok(Self {
             table,
-            schema,
             columns,
             batch_rows,
             batch_target_bytes,
             max_row_bytes,
             max_decoded_row_bytes,
+            output_schema,
+            output_schema_memory,
             stream: Some(stream),
             offset: 0,
             finished: false,
@@ -417,8 +459,9 @@ pub(super) fn estimate_arrow_working_set_bytes(
         size_of::<Option<&Value>>(),
         "Arrow conversion references",
     )?;
-    // Every variable-width builder starts with 1024 values and 1024 payload bytes. This
-    // fixed allowance also covers 64-byte Arrow buffer rounding for fixed-width arrays.
+    // Every variable-width array builder starts with 1024 values and 1024 payload bytes.
+    // This allowance covers builder/buffer capacity only; the cached schema has its own
+    // exact persistent reservation derived from Arrow's deep Field::size accounting.
     let builder_slack = checked_snapshot_product(output_columns, 8 * 1024, "Arrow builders")?;
     let logical = checked_snapshot_sum(byte_payload, generated_payload, "Arrow payload")?;
     let logical = checked_snapshot_sum(logical, cell_storage, "Arrow cell storage")?;
@@ -579,13 +622,18 @@ impl Source for MySqlSource {
                 .map_err(DataPlaneFailure::fatal)?;
             let batch = match &self.snapshot_metadata {
                 Some(metadata) => rows_to_changelog_snapshot_batch(
-                    &self.schema,
+                    Arc::clone(&self.output_schema),
                     &self.columns,
                     &rows,
                     self.offset,
                     metadata,
                 ),
-                None => rows_to_batch(&self.schema, &self.columns, &rows, self.offset),
+                None => rows_to_batch(
+                    Arc::clone(&self.output_schema),
+                    &self.columns,
+                    &rows,
+                    self.offset,
+                ),
             }
             .map_err(DataPlaneFailure::fatal)?;
             let arrow_bytes = batch.get_array_memory_size();
@@ -643,7 +691,7 @@ impl Source for MySqlSource {
                 )],
                 source_rows,
                 commit_marker: Some(CommitMarker::new(self.offset)),
-                memory: vec![memory],
+                memory: vec![memory, self.output_schema_memory.clone()],
             })
         })
     }
@@ -664,43 +712,18 @@ impl Source for MySqlSource {
     }
 }
 
-fn rows_to_changelog_snapshot_batch<R: RowValueAccess>(
-    discovered_schema: &DatasetSchema,
+pub(super) fn rows_to_changelog_snapshot_batch<R: RowValueAccess>(
+    output_schema: Arc<Schema>,
     columns: &[ColumnPlan],
     rows: &[R],
     start_offset: i64,
     snapshot: &MySqlSnapshotMetadata,
 ) -> anyhow::Result<RecordBatch> {
-    let (mut fields, mut arrays) = user_fields_and_arrays(discovered_schema, columns, rows, true)?;
+    let mut arrays = user_arrays(columns, rows)?;
     let len = rows.len();
-    for (index, column) in discovered_schema.columns.iter().enumerate() {
-        fields.push(
-            Field::new(old_value_column_name(index), column.data_type.clone(), true)
-                .with_metadata(std::collections::HashMap::from([(
-                    transferia_core::data::schema::META_OLD_VALUE_OF.to_owned(),
-                    column.name.clone(),
-                )])),
-        );
-        arrays.push(new_null_array(&column.data_type, len));
+    for column in columns {
+        arrays.push(new_null_array(&column.kind.arrow_type(), len));
     }
-    fields.extend(MYSQL_SOURCE_METADATA_COLUMNS.iter().map(|column| {
-        Field::new(column.name, column.data_type.clone(), false).with_metadata(
-            SchemaColumn::new(column.name.to_owned(), column.data_type.clone(), false)
-                .with_system_role(column.role)
-                .arrow_metadata(),
-        )
-    }));
-    fields.extend(MYSQL_REPLICATION_SYSTEM_COLUMNS.iter().map(|kind| {
-        let field = Field::new(kind.default_name(), kind.data_type(), false);
-        if *kind == SystemColumnKind::ChangeOperation {
-            field.with_metadata(std::collections::HashMap::from([(
-                transferia_core::data::schema::META_CHANGE_OPERATION.to_owned(),
-                "true".to_owned(),
-            )]))
-        } else {
-            field
-        }
-    }));
     let transaction_identity = encode_snapshot_boundary_identity(&snapshot.boundary)?;
     let source_timestamp_us = snapshot.boundary.source_timestamp_micros;
     let source_timestamp_ms = source_timestamp_us / 1_000;
@@ -731,7 +754,7 @@ fn rows_to_changelog_snapshot_batch<R: RowValueAccess>(
     ]);
     let filename = snapshot.boundary.filename.as_str();
     let position = i64::try_from(snapshot.boundary.position)?;
-    let changed = full_changed_columns_mask(discovered_schema.columns.len());
+    let changed = full_changed_columns_mask(columns.len());
     let len_i64 = i64::try_from(len)?;
     for kind in MYSQL_REPLICATION_SYSTEM_COLUMNS {
         arrays.push(match kind {
@@ -762,7 +785,7 @@ fn rows_to_changelog_snapshot_batch<R: RowValueAccess>(
             }
         });
     }
-    Ok(RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?)
+    Ok(RecordBatch::try_new(output_schema, arrays)?)
 }
 
 fn full_changed_columns_mask(columns: usize) -> Vec<u8> {
@@ -774,36 +797,14 @@ fn full_changed_columns_mask(columns: usize) -> Vec<u8> {
 }
 
 pub(super) fn rows_to_batch<R: RowValueAccess>(
-    discovered_schema: &DatasetSchema,
+    output_schema: Arc<Schema>,
     columns: &[ColumnPlan],
     rows: &[R],
     start_offset: i64,
 ) -> anyhow::Result<RecordBatch> {
-    let (mut fields, mut arrays) = user_fields_and_arrays(discovered_schema, columns, rows, false)?;
+    let mut arrays = user_arrays(columns, rows)?;
     let len = rows.len();
     let len_i64 = i64::try_from(len)?;
-    fields.extend([
-        Field::new(
-            SystemColumnKind::Topic.default_name(),
-            DataType::Utf8,
-            false,
-        ),
-        Field::new(
-            SystemColumnKind::Partition.default_name(),
-            DataType::Int64,
-            false,
-        ),
-        Field::new(
-            SystemColumnKind::Offset.default_name(),
-            DataType::Int64,
-            false,
-        ),
-        Field::new(
-            SystemColumnKind::MessageIndex.default_name(),
-            DataType::UInt64,
-            false,
-        ),
-    ]);
     arrays.extend([
         Arc::new(arrow::array::StringArray::from(vec!["mysql"; len])) as ArrayRef,
         Arc::new(Int64Array::from(vec![0_i64; len])) as ArrayRef,
@@ -815,25 +816,44 @@ pub(super) fn rows_to_batch<R: RowValueAccess>(
         )) as ArrayRef,
         Arc::new(UInt64Array::from(vec![0_u64; len])) as ArrayRef,
     ]);
-    Ok(RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?)
+    Ok(RecordBatch::try_new(output_schema, arrays)?)
 }
 
-pub(super) fn user_fields_and_arrays<R: RowValueAccess>(
+pub(super) fn build_output_schema(
     discovered_schema: &DatasetSchema,
     columns: &[ColumnPlan],
-    rows: &[R],
-    force_nullable: bool,
-) -> anyhow::Result<(Vec<Field>, Vec<ArrayRef>)> {
+    changelog_snapshot: bool,
+) -> anyhow::Result<Arc<Schema>> {
     anyhow::ensure!(
         discovered_schema.columns.len() == columns.len(),
         "MySQL query schema has {} columns, discovery declared {}",
         columns.len(),
         discovered_schema.columns.len()
     );
-    let mut fields = Vec::with_capacity(columns.len());
-    let mut arrays = Vec::with_capacity(columns.len());
-    for (index, (column, discovered)) in columns.iter().zip(&discovered_schema.columns).enumerate()
-    {
+    let system_columns = if changelog_snapshot {
+        MYSQL_REPLICATION_SYSTEM_COLUMNS
+    } else {
+        &[
+            SystemColumnKind::Topic,
+            SystemColumnKind::Partition,
+            SystemColumnKind::Offset,
+            SystemColumnKind::MessageIndex,
+        ]
+    };
+    let capacity = columns
+        .len()
+        .checked_mul(if changelog_snapshot { 2 } else { 1 })
+        .and_then(|value| {
+            value.checked_add(if changelog_snapshot {
+                MYSQL_SOURCE_METADATA_COLUMNS.len()
+            } else {
+                0
+            })
+        })
+        .and_then(|value| value.checked_add(system_columns.len()))
+        .ok_or_else(|| anyhow::anyhow!("MySQL snapshot Arrow schema column count overflow"))?;
+    let mut fields = Vec::with_capacity(capacity);
+    for (column, discovered) in columns.iter().zip(&discovered_schema.columns) {
         anyhow::ensure!(
             column.name == discovered.name && column.kind.arrow_type() == discovered.data_type,
             "MySQL query schema drifted at column '{}'",
@@ -843,13 +863,367 @@ pub(super) fn user_fields_and_arrays<R: RowValueAccess>(
             Field::new(
                 &column.name,
                 column.kind.arrow_type(),
-                force_nullable || column.nullable,
+                changelog_snapshot || column.nullable,
             )
-                .with_metadata(discovered.arrow_metadata()),
+            .with_metadata(discovered.arrow_metadata()),
         );
-        arrays.push(column_array(rows, index, column)?);
     }
-    Ok((fields, arrays))
+    if changelog_snapshot {
+        fields.extend(discovered_schema.columns.iter().enumerate().map(
+            |(index, current)| {
+                let mut metadata = HashMap::new();
+                if let Some(extension_name) = current.arrow_extension_name {
+                    metadata.insert(
+                        META_ARROW_EXTENSION_NAME.to_owned(),
+                        extension_name.to_owned(),
+                    );
+                }
+                if let Some(extension_metadata) = &current.arrow_extension_metadata {
+                    metadata.insert(
+                        META_ARROW_EXTENSION_METADATA.to_owned(),
+                        extension_metadata.clone(),
+                    );
+                }
+                metadata.insert(META_OLD_VALUE_OF.to_owned(), current.name.clone());
+                Field::new(
+                    old_value_column_name(index),
+                    current.data_type.clone(),
+                    true,
+                )
+                .with_metadata(metadata)
+            },
+        ));
+        fields.extend(MYSQL_SOURCE_METADATA_COLUMNS.iter().map(|column| {
+            Field::new(column.name, column.data_type.clone(), false).with_metadata(HashMap::from([
+                (META_SYSTEM_ROLE.to_owned(), column.role.to_owned()),
+            ]))
+        }));
+    }
+    fields.extend(system_columns.iter().map(|kind| {
+        let field = Field::new(kind.default_name(), kind.data_type(), false);
+        if *kind == SystemColumnKind::ChangeOperation {
+            field.with_metadata(HashMap::from([(
+                transferia_core::data::schema::META_CHANGE_OPERATION.to_owned(),
+                "true".to_owned(),
+            )]))
+        } else {
+            field
+        }
+    }));
+    Ok(Arc::new(Schema::new(fields)))
+}
+
+pub(super) fn output_schema_heap_bytes(schema: &Schema) -> anyhow::Result<usize> {
+    size_of::<Schema>()
+        .checked_add(schema.fields().size())
+        .ok_or_else(|| anyhow::anyhow!("MySQL snapshot Arrow schema memory accounting overflow"))
+}
+
+fn string_capacity_bound(length: usize) -> anyhow::Result<usize> {
+    length
+        .checked_mul(2)
+        .and_then(|value| value.checked_add(1))
+        .map(|value| value.max(32))
+        .ok_or_else(|| anyhow::anyhow!("MySQL snapshot Arrow schema string capacity overflow"))
+}
+
+fn existing_string_capacity_bound(value: &String) -> anyhow::Result<usize> {
+    Ok(value.capacity().max(string_capacity_bound(value.len())?))
+}
+
+fn decimal_digits(mut value: usize) -> usize {
+    let mut digits = 1;
+    while value >= 10 {
+        value /= 10;
+        digits += 1;
+    }
+    digits
+}
+
+fn metadata_allocation_bound(column: &SchemaColumn) -> anyhow::Result<(usize, usize)> {
+    let mut entries = 0_usize;
+    let mut strings = 0_usize;
+    let mut add = |key: &str, value_capacity: usize| -> anyhow::Result<()> {
+        entries = entries.checked_add(1).ok_or_else(|| {
+            anyhow::anyhow!("MySQL snapshot Arrow field metadata count overflow")
+        })?;
+        strings = checked_snapshot_sum(
+            strings,
+            string_capacity_bound(key.len())?,
+            "Arrow metadata keys",
+        )?;
+        strings = checked_snapshot_sum(strings, value_capacity, "Arrow metadata values")?;
+        Ok(())
+    };
+    if column.primary_key {
+        add(META_PRIMARY_KEY, string_capacity_bound("true".len())?)?;
+    }
+    if column.low_cardinality {
+        add(
+            META_LOW_CARDINALITY,
+            string_capacity_bound("true".len())?,
+        )?;
+    }
+    if let Some(max_length) = column.max_length {
+        add(
+            META_MAX_LENGTH,
+            string_capacity_bound(decimal_digits(max_length))?,
+        )?;
+    }
+    if let Some(extension_name) = column.arrow_extension_name {
+        add(
+            META_ARROW_EXTENSION_NAME,
+            string_capacity_bound(extension_name.len())?,
+        )?;
+    }
+    if let Some(extension_metadata) = &column.arrow_extension_metadata {
+        add(
+            META_ARROW_EXTENSION_METADATA,
+            existing_string_capacity_bound(extension_metadata)?,
+        )?;
+    }
+    if let Some(role) = &column.system_role {
+        add(META_SYSTEM_ROLE, existing_string_capacity_bound(role)?)?;
+    }
+    if let Some(current) = &column.old_value_of {
+        add(META_OLD_VALUE_OF, existing_string_capacity_bound(current)?)?;
+    }
+    if let Some(current) = &column.old_key_of {
+        add(META_OLD_KEY_OF, existing_string_capacity_bound(current)?)?;
+    }
+    Ok((entries, strings))
+}
+
+fn metadata_map_capacity_bound(entries: usize) -> anyhow::Result<usize> {
+    if entries == 0 {
+        return Ok(0);
+    }
+    // `arrow_metadata` starts from an empty map. Eight slots per rounded entry is a
+    // conservative upper bound over the standard HashMap's geometric growth/load factor.
+    entries
+        .checked_next_power_of_two()
+        .and_then(|value| value.checked_mul(8))
+        .map(|value| value.max(16))
+        .ok_or_else(|| anyhow::anyhow!("MySQL snapshot Arrow metadata capacity overflow"))
+}
+
+fn field_allocation_bound(
+    name_capacity: usize,
+    data_type: &DataType,
+    metadata_entries: usize,
+    metadata_strings: usize,
+) -> anyhow::Result<usize> {
+    let fixed = size_of::<Field>()
+        .checked_sub(size_of::<DataType>())
+        .and_then(|value| value.checked_add(data_type.size()))
+        .and_then(|value| value.checked_add(size_of::<Arc<Field>>()))
+        .ok_or_else(|| anyhow::anyhow!("MySQL snapshot Arrow field size overflow"))?;
+    let metadata_storage = checked_snapshot_product(
+        size_of::<(String, String)>(),
+        metadata_map_capacity_bound(metadata_entries)?,
+        "Arrow metadata map",
+    )?;
+    let bound = checked_snapshot_sum(fixed, name_capacity, "Arrow field name")?;
+    let bound = checked_snapshot_sum(bound, metadata_storage, "Arrow field metadata map")?;
+    checked_snapshot_sum(bound, metadata_strings, "Arrow field metadata strings")
+}
+
+fn add_schema_column_allocation_bound(
+    total: &mut usize,
+    column: &SchemaColumn,
+    name_capacity: usize,
+) -> anyhow::Result<()> {
+    let (metadata_entries, metadata_strings) = metadata_allocation_bound(column)?;
+    *total = checked_snapshot_sum(
+        *total,
+        field_allocation_bound(
+            name_capacity,
+            &column.data_type,
+            metadata_entries,
+            metadata_strings,
+        )?,
+        "Arrow schema fields",
+    )?;
+    Ok(())
+}
+
+pub(super) fn output_schema_allocation_bound(
+    discovered_schema: &DatasetSchema,
+    columns: &[ColumnPlan],
+    changelog_snapshot: bool,
+) -> anyhow::Result<usize> {
+    anyhow::ensure!(
+        discovered_schema.columns.len() == columns.len(),
+        "MySQL query schema has {} columns, discovery declared {}",
+        columns.len(),
+        discovered_schema.columns.len()
+    );
+    let output_columns = if changelog_snapshot {
+        columns
+            .len()
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(MYSQL_SOURCE_METADATA_COLUMNS.len()))
+            .and_then(|value| value.checked_add(MYSQL_REPLICATION_SYSTEM_COLUMNS.len()))
+    } else {
+        columns.len().checked_add(4)
+    }
+    .ok_or_else(|| anyhow::anyhow!("MySQL snapshot Arrow schema column count overflow"))?;
+    let transient_field_vector = checked_snapshot_product(
+        output_columns,
+        size_of::<Field>(),
+        "Arrow schema field-vector capacity",
+    )?;
+    let mut total = checked_snapshot_sum(
+        size_of::<Schema>(),
+        transient_field_vector,
+        "Arrow schema construction",
+    )?;
+    for (index, (column, discovered)) in columns.iter().zip(&discovered_schema.columns).enumerate()
+    {
+        add_schema_column_allocation_bound(
+            &mut total,
+            discovered,
+            existing_string_capacity_bound(&column.name)?,
+        )?;
+        if changelog_snapshot {
+            let old_name_length = "_system_old_value_"
+                .len()
+                .checked_add(decimal_digits(index))
+                .ok_or_else(|| anyhow::anyhow!("MySQL old-value field name length overflow"))?;
+            let mut metadata_entries = 1_usize;
+            let mut metadata_strings = checked_snapshot_sum(
+                string_capacity_bound(META_OLD_VALUE_OF.len())?,
+                existing_string_capacity_bound(&discovered.name)?,
+                "Arrow old-value metadata",
+            )?;
+            if let Some(extension_name) = discovered.arrow_extension_name {
+                metadata_entries = metadata_entries.checked_add(1).ok_or_else(|| {
+                    anyhow::anyhow!("MySQL old-value metadata count overflow")
+                })?;
+                metadata_strings = checked_snapshot_sum(
+                    metadata_strings,
+                    checked_snapshot_sum(
+                        string_capacity_bound(META_ARROW_EXTENSION_NAME.len())?,
+                        string_capacity_bound(extension_name.len())?,
+                        "Arrow old-value extension name",
+                    )?,
+                    "Arrow old-value metadata",
+                )?;
+            }
+            if let Some(extension_metadata) = &discovered.arrow_extension_metadata {
+                metadata_entries = metadata_entries.checked_add(1).ok_or_else(|| {
+                    anyhow::anyhow!("MySQL old-value metadata count overflow")
+                })?;
+                metadata_strings = checked_snapshot_sum(
+                    metadata_strings,
+                    checked_snapshot_sum(
+                        string_capacity_bound(META_ARROW_EXTENSION_METADATA.len())?,
+                        existing_string_capacity_bound(extension_metadata)?,
+                        "Arrow old-value extension payload",
+                    )?,
+                    "Arrow old-value metadata",
+                )?;
+            }
+            total = checked_snapshot_sum(
+                total,
+                field_allocation_bound(
+                    string_capacity_bound(old_name_length)?,
+                    &discovered.data_type,
+                    metadata_entries,
+                    metadata_strings,
+                )?,
+                "Arrow old-value fields",
+            )?;
+        }
+    }
+    if changelog_snapshot {
+        for column in MYSQL_SOURCE_METADATA_COLUMNS {
+            let metadata_strings = checked_snapshot_sum(
+                string_capacity_bound(META_SYSTEM_ROLE.len())?,
+                string_capacity_bound(column.role.len())?,
+                "Arrow source-role metadata",
+            )?;
+            total = checked_snapshot_sum(
+                total,
+                field_allocation_bound(
+                    string_capacity_bound(column.name.len())?,
+                    &column.data_type,
+                    1,
+                    metadata_strings,
+                )?,
+                "Arrow source metadata fields",
+            )?;
+        }
+    }
+    let system_columns = if changelog_snapshot {
+        MYSQL_REPLICATION_SYSTEM_COLUMNS
+    } else {
+        &[
+            SystemColumnKind::Topic,
+            SystemColumnKind::Partition,
+            SystemColumnKind::Offset,
+            SystemColumnKind::MessageIndex,
+        ]
+    };
+    for kind in system_columns {
+        let (metadata_entries, metadata_strings) = if *kind == SystemColumnKind::ChangeOperation {
+            (
+                1,
+                checked_snapshot_sum(
+                    string_capacity_bound(META_CHANGE_OPERATION.len())?,
+                    string_capacity_bound("true".len())?,
+                    "Arrow change-operation metadata",
+                )?,
+            )
+        } else {
+            (0, 0)
+        };
+        total = checked_snapshot_sum(
+            total,
+            field_allocation_bound(
+                string_capacity_bound(kind.default_name().len())?,
+                &kind.data_type(),
+                metadata_entries,
+                metadata_strings,
+            )?,
+            "Arrow system fields",
+        )?;
+    }
+    Ok(total)
+}
+
+pub(super) async fn build_output_schema_with_memory(
+    memory: &PipelineMemory,
+    discovered_schema: &DatasetSchema,
+    columns: &[ColumnPlan],
+    changelog_snapshot: bool,
+) -> anyhow::Result<(Arc<Schema>, MemoryReservation)> {
+    let allocation_bound =
+        output_schema_allocation_bound(discovered_schema, columns, changelog_snapshot)?;
+    let reservation = memory.reserve(allocation_bound).await;
+    let schema = build_output_schema(discovered_schema, columns, changelog_snapshot)?;
+    let exact = output_schema_heap_bytes(&schema)?;
+    anyhow::ensure!(
+        exact <= allocation_bound,
+        "MySQL snapshot Arrow schema used {exact} bytes after pre-admitting only {allocation_bound} bytes"
+    );
+    let _ = reservation.shrink_to(exact);
+    anyhow::ensure!(
+        reservation.bytes() == exact,
+        "MySQL snapshot Arrow schema reservation did not shrink to its exact retained size"
+    );
+    Ok((schema, reservation))
+}
+
+fn user_arrays<R: RowValueAccess>(
+    columns: &[ColumnPlan],
+    rows: &[R],
+) -> anyhow::Result<Vec<ArrayRef>> {
+    columns
+        .iter()
+        .enumerate()
+        .map(|(index, column)| column_array(rows, index, column))
+        .collect()
 }
 
 pub(super) fn column_array<R: RowValueAccess>(
@@ -897,14 +1271,18 @@ fn values_to_array(values: &[Option<&Value>], column: &ColumnPlan) -> anyhow::Re
         MySqlColumnKind::Int8 => integer_array!(value_i64, i8, Int8Array),
         MySqlColumnKind::UInt8 => integer_array!(value_u64, u8, UInt8Array),
         MySqlColumnKind::Int16 => integer_array!(value_i64, i16, Int16Array),
-        MySqlColumnKind::UInt16 => integer_array!(value_u64, u16, UInt16Array),
+        MySqlColumnKind::UInt16 | MySqlColumnKind::EnumOrdinal => {
+            integer_array!(value_u64, u16, UInt16Array)
+        }
         MySqlColumnKind::Int32 => integer_array!(value_i64, i32, Int32Array),
         MySqlColumnKind::UInt32 => integer_array!(value_u64, u32, UInt32Array),
         MySqlColumnKind::Int64 => integer_array!(value_i64, i64, Int64Array),
-        MySqlColumnKind::UInt64 => integer_array!(value_u64, u64, UInt64Array),
+        MySqlColumnKind::UInt64 | MySqlColumnKind::SetBits => {
+            integer_array!(value_u64, u64, UInt64Array)
+        }
         MySqlColumnKind::Float32 => integer_array!(value_f64, f32, Float32Array),
         MySqlColumnKind::Float64 => integer_array!(value_f64, f64, Float64Array),
-        MySqlColumnKind::Binary => {
+        MySqlColumnKind::Binary | MySqlColumnKind::TextBytes => {
             let mut builder = BinaryBuilder::new();
             for value in values {
                 match value {
@@ -918,7 +1296,14 @@ fn values_to_array(values: &[Option<&Value>], column: &ColumnPlan) -> anyhow::Re
             }
             Arc::new(builder.finish())
         }
-        MySqlColumnKind::Utf8 | MySqlColumnKind::Json => {
+        MySqlColumnKind::Utf8
+        | MySqlColumnKind::Json
+        | MySqlColumnKind::DecimalText
+        | MySqlColumnKind::DateText
+        | MySqlColumnKind::DateTimeText
+        | MySqlColumnKind::TimestampText
+        | MySqlColumnKind::TimeText
+        | MySqlColumnKind::YearText => {
             let mut builder = StringBuilder::new();
             for value in values {
                 match value {
@@ -939,136 +1324,7 @@ fn values_to_array(values: &[Option<&Value>], column: &ColumnPlan) -> anyhow::Re
             }
             Arc::new(builder.finish())
         }
-        MySqlColumnKind::Date => {
-            let values = values
-                .iter()
-                .map(|value| match value {
-                    Some(Value::NULL) | None => Ok(None),
-                    Some(value) => value_date32(value).map(Some),
-                })
-                .collect::<anyhow::Result<Vec<Option<i32>>>>()?;
-            Arc::new(Date32Array::from(values))
-        }
-        MySqlColumnKind::DateTime | MySqlColumnKind::TimestampUtc => {
-            let values = values
-                .iter()
-                .map(|value| match value {
-                    Some(Value::NULL) | None => Ok(None),
-                    Some(value) => value_timestamp_micros(value).map(Some),
-                })
-                .collect::<anyhow::Result<Vec<Option<i64>>>>()?;
-            let array = TimestampMicrosecondArray::from(values);
-            if column.kind == MySqlColumnKind::TimestampUtc {
-                Arc::new(array.with_timezone("UTC"))
-            } else {
-                Arc::new(array)
-            }
-        }
     })
-}
-
-pub(super) fn value_date32(value: &Value) -> anyhow::Result<i32> {
-    let (year, month, day) = match value {
-        Value::Date(year, month, day, hour, minute, second, micros) => {
-            anyhow::ensure!(
-                (*hour, *minute, *second, *micros) == (0, 0, 0, 0),
-                "MySQL DATE contained a time component"
-            );
-            (*year, *month, *day)
-        }
-        Value::Bytes(value) => parse_date_text(value)?,
-        other => anyhow::bail!("expected MySQL DATE, got {other:?}"),
-    };
-    let date = checked_mysql_date(year, month, day)?;
-    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1)
-        .ok_or_else(|| anyhow::anyhow!("Unix epoch is not representable"))?;
-    Ok(i32::try_from(date.signed_duration_since(epoch).num_days())?)
-}
-
-pub(super) fn value_timestamp_micros(value: &Value) -> anyhow::Result<i64> {
-    let (year, month, day, hour, minute, second, micros) = match value {
-        Value::Date(year, month, day, hour, minute, second, micros) => {
-            (*year, *month, *day, *hour, *minute, *second, *micros)
-        }
-        Value::Bytes(value) => parse_datetime_text(value)?,
-        other => anyhow::bail!("expected MySQL DATETIME or TIMESTAMP, got {other:?}"),
-    };
-    let date = checked_mysql_date(year, month, day)?;
-    anyhow::ensure!(micros < 1_000_000, "MySQL temporal microseconds are out of range");
-    let datetime = date
-        .and_hms_micro_opt(
-            u32::from(hour),
-            u32::from(minute),
-            u32::from(second),
-            micros,
-        )
-        .ok_or_else(|| anyhow::anyhow!("MySQL temporal time component is invalid"))?;
-    Ok(datetime.and_utc().timestamp_micros())
-}
-
-fn checked_mysql_date(year: u16, month: u8, day: u8) -> anyhow::Result<NaiveDate> {
-    anyhow::ensure!(
-        (1000..=9999).contains(&year),
-        "MySQL temporal year {year} is outside the supported 1000..=9999 range"
-    );
-    NaiveDate::from_ymd_opt(i32::from(year), u32::from(month), u32::from(day))
-        .ok_or_else(|| anyhow::anyhow!("MySQL temporal date component is invalid"))
-}
-
-fn parse_date_text(value: &[u8]) -> anyhow::Result<(u16, u8, u8)> {
-    anyhow::ensure!(
-        value.len() == 10 && value[4] == b'-' && value[7] == b'-',
-        "MySQL DATE text does not use YYYY-MM-DD"
-    );
-    Ok((
-        decimal_digits(&value[0..4])?,
-        decimal_digits(&value[5..7])?,
-        decimal_digits(&value[8..10])?,
-    ))
-}
-
-fn parse_datetime_text(value: &[u8]) -> anyhow::Result<(u16, u8, u8, u8, u8, u8, u32)> {
-    anyhow::ensure!(
-        value.len() >= 19
-            && value[4] == b'-'
-            && value[7] == b'-'
-            && value[10] == b' '
-            && value[13] == b':'
-            && value[16] == b':',
-        "MySQL DATETIME/TIMESTAMP text does not use YYYY-MM-DD HH:MM:SS[.ffffff]"
-    );
-    let micros = match value.get(19..) {
-        Some([]) => 0,
-        Some(fraction) if fraction[0] == b'.' && (2..=7).contains(&fraction.len()) => {
-            let digits = &fraction[1..];
-            decimal_digits::<u32>(digits)?
-                * 10_u32.pow(6 - u32::try_from(digits.len())?)
-        }
-        _ => anyhow::bail!(
-            "MySQL DATETIME/TIMESTAMP fraction must contain between one and six digits"
-        ),
-    };
-    Ok((
-        decimal_digits(&value[0..4])?,
-        decimal_digits(&value[5..7])?,
-        decimal_digits(&value[8..10])?,
-        decimal_digits(&value[11..13])?,
-        decimal_digits(&value[14..16])?,
-        decimal_digits(&value[17..19])?,
-        micros,
-    ))
-}
-
-fn decimal_digits<T>(value: &[u8]) -> anyhow::Result<T>
-where
-    T: std::str::FromStr,
-    T::Err: std::error::Error + Send + Sync + 'static,
-{
-    anyhow::ensure!(
-        !value.is_empty() && value.iter().all(u8::is_ascii_digit),
-        "MySQL temporal component contains a non-decimal character"
-    );
-    Ok(std::str::from_utf8(value)?.parse()?)
 }
 
 pub(super) fn value_i64<T>(value: &Value) -> anyhow::Result<T>

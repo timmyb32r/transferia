@@ -6,10 +6,10 @@ use std::sync::Arc;
 use mysql_async::binlog::events::{
     Event, EventData, OptionalMetaExtractor, OptionalMetadataField, RowsEventData, TableMapEvent,
 };
+use mysql_async::binlog::value::BinlogValue;
 use mysql_async::binlog::EventType;
 use mysql_async::binlog::row::BinlogRow;
-use mysql_async::consts::ColumnType;
-use mysql_async::{Row, Value};
+use mysql_async::consts::{ColumnType, GeometryType};
 
 use super::checksum::{is_artificial_rotate, BinlogChecksumError, BinlogChecksumVerifier};
 use super::config::MySqlReplicationConfig;
@@ -53,6 +53,11 @@ pub struct MySqlBinlogColumnIdentity {
     pub nullable: bool,
     pub unsigned: Option<bool>,
     pub collation_id: Option<u16>,
+    pub enum_values: Option<Vec<Vec<u8>>>,
+    pub set_values: Option<Vec<Vec<u8>>>,
+    pub geometry_type: Option<GeometryType>,
+    pub vector_dimensionality: Option<u64>,
+    pub visible: bool,
     pub primary_key_ordinal: Option<u64>,
     pub primary_key_prefix_length: Option<u64>,
 }
@@ -66,8 +71,8 @@ pub enum MySqlRowOperation {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MySqlRowChange {
-    pub before: Option<Vec<Option<Value>>>,
-    pub after: Option<Vec<Option<Value>>>,
+    pub before: Option<Vec<BinlogValue<'static>>>,
+    pub after: Option<Vec<BinlogValue<'static>>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -772,20 +777,23 @@ fn validate_row_shape(
 }
 
 fn binlog_row_values(
-    row: Option<BinlogRow>,
+    mut row: Option<BinlogRow>,
     table_id: u64,
     image: &'static str,
-) -> Result<Option<Vec<Option<Value>>>, BinlogDecodeError> {
-    row.map(|row| {
-        Row::try_from(row)
-            .map(Row::unwrap_raw)
-            .map_err(|error| BinlogDecodeError::RowValueConversion {
-                table_id,
-                image,
-                reason: error.to_string(),
-            })
-    })
-    .transpose()
+) -> Result<Option<Vec<BinlogValue<'static>>>, BinlogDecodeError> {
+    let Some(row) = row.as_mut() else {
+        return Ok(None);
+    };
+    let mut values = Vec::with_capacity(row.len());
+    for index in 0..row.len() {
+        let value = row.take(index).ok_or(BinlogDecodeError::RowValueConversion {
+            table_id,
+            image,
+            reason: format!("decoded row omitted value at column {}", index + 1),
+        })?;
+        values.push(value.into_owned());
+    }
+    Ok(Some(values))
 }
 
 fn table_identity(
@@ -888,11 +896,16 @@ fn table_identity(
             received: enum_set_collations.len(),
         });
     }
+    let full_metadata = full_column_metadata(table_map, &column_types)?;
     let primary_key = primary_key_metadata(table_map, column_count)?;
 
     let mut next_numeric = 0;
     let mut next_character = 0;
     let mut next_enum_set = 0;
+    let mut next_enum = 0;
+    let mut next_set = 0;
+    let mut next_geometry = 0;
+    let mut next_vector = 0;
     let mut column_identities = Vec::with_capacity(column_count);
     for (index, column_type) in column_types.into_iter().enumerate() {
         let unsigned = column_type.is_numeric_type().then(|| {
@@ -913,6 +926,26 @@ fn table_identity(
         };
         let (primary_key_ordinal, primary_key_prefix_length) = primary_key[index]
             .map_or((None, None), |(ordinal, prefix)| (Some(ordinal), prefix));
+        let enum_values = (column_type == ColumnType::MYSQL_TYPE_ENUM).then(|| {
+            let values = full_metadata.enum_values[next_enum].clone();
+            next_enum += 1;
+            values
+        });
+        let set_values = (column_type == ColumnType::MYSQL_TYPE_SET).then(|| {
+            let values = full_metadata.set_values[next_set].clone();
+            next_set += 1;
+            values
+        });
+        let geometry_type = (column_type == ColumnType::MYSQL_TYPE_GEOMETRY).then(|| {
+            let value = full_metadata.geometry_types[next_geometry];
+            next_geometry += 1;
+            value
+        });
+        let vector_dimensionality = (column_type == ColumnType::MYSQL_TYPE_VECTOR).then(|| {
+            let value = full_metadata.vector_dimensionalities[next_vector];
+            next_vector += 1;
+            value
+        });
         column_identities.push(MySqlBinlogColumnIdentity {
             name: names[index].clone(),
             column_type,
@@ -928,6 +961,11 @@ fn table_identity(
                 .unwrap_or(false),
             unsigned,
             collation_id,
+            enum_values,
+            set_values,
+            geometry_type,
+            vector_dimensionality,
+            visible: full_metadata.visibility[index],
             primary_key_ordinal,
             primary_key_prefix_length,
         });
@@ -940,6 +978,298 @@ fn table_identity(
         columns: table_map.columns_count(),
         column_identities,
     })
+}
+
+struct FullColumnMetadata {
+    enum_values: Vec<Vec<Vec<u8>>>,
+    set_values: Vec<Vec<Vec<u8>>>,
+    geometry_types: Vec<GeometryType>,
+    vector_dimensionalities: Vec<u64>,
+    visibility: Vec<bool>,
+}
+
+fn full_column_metadata(
+    table_map: &TableMapEvent<'_>,
+    column_types: &[ColumnType],
+) -> Result<FullColumnMetadata, BinlogDecodeError> {
+    let table_id = table_map.table_id();
+    let character_count = column_types
+        .iter()
+        .filter(|column_type| column_type.is_character_type())
+        .count();
+    let enum_set_count = column_types
+        .iter()
+        .filter(|column_type| column_type.is_enum_or_set_type())
+        .count();
+    let mut enum_values = None;
+    let mut set_values = None;
+    let mut geometry_types = None;
+    let mut vector_dimensionalities = None;
+    let mut visibility = None;
+    let mut signedness = false;
+    let mut character_collations = false;
+    let mut enum_set_collations = false;
+    let mut column_names = false;
+    let mut primary_key = false;
+    for field in table_map.iter_optional_meta() {
+        let field = field.map_err(|error| BinlogDecodeError::MalformedTableMetadata {
+            table_id,
+            reason: error.to_string(),
+        })?;
+        match field {
+            OptionalMetadataField::Signedness(_) => {
+                require_metadata_flag_absent(table_id, "numeric signedness", &mut signedness)?;
+            }
+            OptionalMetadataField::DefaultCharset(values) => {
+                require_metadata_flag_absent(
+                    table_id,
+                    "character collations",
+                    &mut character_collations,
+                )?;
+                validate_default_charset(table_id, "character collations", &values, character_count)?;
+            }
+            OptionalMetadataField::ColumnCharset(values) => {
+                require_metadata_flag_absent(
+                    table_id,
+                    "character collations",
+                    &mut character_collations,
+                )?;
+                validate_per_column_charset(
+                    table_id,
+                    "character collations",
+                    values.iter_charsets(),
+                    character_count,
+                )?;
+            }
+            OptionalMetadataField::EnumAndSetDefaultCharset(values) => {
+                require_metadata_flag_absent(
+                    table_id,
+                    "enum/set collations",
+                    &mut enum_set_collations,
+                )?;
+                validate_default_charset(table_id, "enum/set collations", &values, enum_set_count)?;
+            }
+            OptionalMetadataField::EnumAndSetColumnCharset(values) => {
+                require_metadata_flag_absent(
+                    table_id,
+                    "enum/set collations",
+                    &mut enum_set_collations,
+                )?;
+                validate_per_column_charset(
+                    table_id,
+                    "enum/set collations",
+                    values.iter_charsets(),
+                    enum_set_count,
+                )?;
+            }
+            OptionalMetadataField::ColumnName(_) => {
+                require_metadata_flag_absent(table_id, "column names", &mut column_names)?;
+            }
+            OptionalMetadataField::SimplePrimaryKey(_)
+            | OptionalMetadataField::PrimaryKeyWithPrefix(_) => {
+                require_metadata_flag_absent(table_id, "primary key", &mut primary_key)?;
+            }
+            OptionalMetadataField::EnumStrValue(values) => {
+                require_metadata_absent(table_id, "enum values", &enum_values)?;
+                enum_values = Some(
+                    values
+                        .iter_values()
+                        .map(|values| {
+                            values.map(|values| {
+                                values
+                                    .values()
+                                    .iter()
+                                    .map(|value| value.value_raw().to_vec())
+                                    .collect::<Vec<_>>()
+                            })
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|error| BinlogDecodeError::MalformedTableMetadata {
+                            table_id,
+                            reason: error.to_string(),
+                        })?,
+                );
+            }
+            OptionalMetadataField::SetStrValue(values) => {
+                require_metadata_absent(table_id, "set values", &set_values)?;
+                set_values = Some(
+                    values
+                        .iter_values()
+                        .map(|values| {
+                            values.map(|values| {
+                                values
+                                    .values()
+                                    .iter()
+                                    .map(|value| value.value_raw().to_vec())
+                                    .collect::<Vec<_>>()
+                            })
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|error| BinlogDecodeError::MalformedTableMetadata {
+                            table_id,
+                            reason: error.to_string(),
+                        })?,
+                );
+            }
+            OptionalMetadataField::GeometryType(values) => {
+                require_metadata_absent(table_id, "geometry types", &geometry_types)?;
+                geometry_types = Some(
+                    values
+                        .iter_geometry_types()
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|error| BinlogDecodeError::MalformedTableMetadata {
+                            table_id,
+                            reason: error.to_string(),
+                        })?,
+                );
+            }
+            OptionalMetadataField::Dimensionality(values) => {
+                require_metadata_absent(
+                    table_id,
+                    "vector dimensionalities",
+                    &vector_dimensionalities,
+                )?;
+                vector_dimensionalities = Some(
+                    values
+                        .iter_dimensionalities()
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|error| BinlogDecodeError::MalformedTableMetadata {
+                            table_id,
+                            reason: error.to_string(),
+                        })?,
+                );
+            }
+            OptionalMetadataField::ColumnVisibility(bits) => {
+                require_metadata_absent(table_id, "column visibility", &visibility)?;
+                visibility = Some(bits.iter().by_vals().collect::<Vec<_>>());
+            }
+        }
+    }
+
+    let enum_count = count_type(column_types, ColumnType::MYSQL_TYPE_ENUM);
+    let set_count = count_type(column_types, ColumnType::MYSQL_TYPE_SET);
+    let geometry_count = count_type(column_types, ColumnType::MYSQL_TYPE_GEOMETRY);
+    let vector_count = count_type(column_types, ColumnType::MYSQL_TYPE_VECTOR);
+    Ok(FullColumnMetadata {
+        enum_values: require_metadata_count(table_id, "enum values", enum_values, enum_count)?,
+        set_values: require_metadata_count(table_id, "set values", set_values, set_count)?,
+        geometry_types: require_metadata_count(
+            table_id,
+            "geometry types",
+            geometry_types,
+            geometry_count,
+        )?,
+        vector_dimensionalities: require_metadata_count(
+            table_id,
+            "vector dimensionalities",
+            vector_dimensionalities,
+            vector_count,
+        )?,
+        visibility: require_metadata_count(
+            table_id,
+            "column visibility",
+            visibility,
+            column_types.len(),
+        )?,
+    })
+}
+
+fn count_type(column_types: &[ColumnType], expected: ColumnType) -> usize {
+    column_types
+        .iter()
+        .filter(|column_type| **column_type == expected)
+        .count()
+}
+
+fn require_metadata_absent<T>(
+    table_id: u64,
+    field: &'static str,
+    value: &Option<T>,
+) -> Result<(), BinlogDecodeError> {
+    if value.is_some() {
+        return Err(BinlogDecodeError::DuplicateFullTableMetadata { table_id, field });
+    }
+    Ok(())
+}
+
+fn require_metadata_flag_absent(
+    table_id: u64,
+    field: &'static str,
+    value: &mut bool,
+) -> Result<(), BinlogDecodeError> {
+    if *value {
+        return Err(BinlogDecodeError::DuplicateFullTableMetadata { table_id, field });
+    }
+    *value = true;
+    Ok(())
+}
+
+fn validate_default_charset(
+    table_id: u64,
+    field: &'static str,
+    values: &mysql_async::binlog::events::DefaultCharset<'_>,
+    expected: usize,
+) -> Result<(), BinlogDecodeError> {
+    let mut previous = None;
+    for value in values.iter_non_default() {
+        let value = value.map_err(|error| BinlogDecodeError::MalformedTableMetadata {
+            table_id,
+            reason: error.to_string(),
+        })?;
+        let index = usize::try_from(value.column_index()).map_err(|_| {
+            BinlogDecodeError::ColumnCountDoesNotFitPlatform(value.column_index())
+        })?;
+        if index >= expected || previous.is_some_and(|previous| index <= previous) {
+            return Err(BinlogDecodeError::MalformedTableMetadata {
+                table_id,
+                reason: format!("{field} contain an out-of-order or out-of-range override"),
+            });
+        }
+        previous = Some(index);
+    }
+    Ok(())
+}
+
+fn validate_per_column_charset(
+    table_id: u64,
+    field: &'static str,
+    values: impl Iterator<Item = std::io::Result<u16>>,
+    expected: usize,
+) -> Result<(), BinlogDecodeError> {
+    let received = values
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| BinlogDecodeError::MalformedTableMetadata {
+            table_id,
+            reason: error.to_string(),
+        })?
+        .len();
+    if received != expected {
+        return Err(BinlogDecodeError::IncompleteFullTableMetadata {
+            table_id,
+            field,
+            expected,
+            received,
+        });
+    }
+    Ok(())
+}
+
+fn require_metadata_count<T>(
+    table_id: u64,
+    field: &'static str,
+    value: Option<Vec<T>>,
+    expected: usize,
+) -> Result<Vec<T>, BinlogDecodeError> {
+    let value = value.unwrap_or_default();
+    if value.len() != expected {
+        return Err(BinlogDecodeError::IncompleteFullTableMetadata {
+            table_id,
+            field,
+            expected,
+            received: value.len(),
+        });
+    }
+    Ok(value)
 }
 
 fn primary_key_metadata(
@@ -1086,6 +1416,10 @@ pub enum BinlogDecodeError {
         field: &'static str,
         expected: usize,
         received: usize,
+    },
+    DuplicateFullTableMetadata {
+        table_id: u64,
+        field: &'static str,
     },
     PrimaryKeyColumnOutOfBounds {
         table_id: u64,

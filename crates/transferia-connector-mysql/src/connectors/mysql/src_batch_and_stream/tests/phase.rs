@@ -16,7 +16,9 @@ use transferia_registry::durable::{
 
 use super::*;
 use crate::connectors::mysql::src_batch::TableConfig;
-use crate::connectors::mysql::src_batch_and_stream::is_replication_safety_violation;
+use crate::connectors::mysql::src_batch_and_stream::{
+    is_replication_safety_violation, MySqlColumnGeneration, MySqlColumnVisibility,
+};
 
 const REPLAY_IDENTITY: &str = "delivery-revision-17";
 
@@ -130,13 +132,32 @@ fn authoritative_column(
     nullable: bool,
     primary_key_ordinal: Option<u64>,
 ) -> AuthoritativeColumnIdentity {
+    let data_type = column_type
+        .split(['(', ' '])
+        .next()
+        .expect("fixture type has a family")
+        .to_owned();
     AuthoritativeColumnIdentity {
         name: name.to_owned(),
+        data_type,
         column_type: column_type.to_owned(),
+        unsigned: column_type.contains("unsigned"),
+        zerofill: column_type.contains("zerofill"),
+        auto_increment: false,
         nullable,
+        character_maximum_length: None,
+        character_octet_length: None,
+        numeric_precision: (column_type == "bigint").then_some(19),
+        numeric_scale: (column_type == "bigint").then_some(0),
+        datetime_precision: None,
         character_set: None,
         collation: None,
         collation_id: None,
+        collation_padding: None,
+        enum_set_values: None,
+        srs_id: None,
+        visibility: MySqlColumnVisibility::Visible,
+        generation: MySqlColumnGeneration::None,
         extra: String::new(),
         generation_expression: Some(String::new()),
         primary_key_ordinal,

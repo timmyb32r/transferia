@@ -12,6 +12,28 @@ pub use phase::{
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MySqlColumnVisibility {
+    Visible,
+    Invisible,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MySqlColumnGeneration {
+    None,
+    Virtual,
+    Stored,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MySqlCollationPadding {
+    PadSpace,
+    NoPad,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MySqlSourceIdentity {
@@ -56,11 +78,30 @@ pub struct AuthoritativeTableIdentity {
 pub struct AuthoritativeColumnIdentity {
     pub name: String,
 
+    /// Canonical `information_schema.COLUMNS.DATA_TYPE` family.
+    pub data_type: String,
+
     /// Exact `information_schema.COLUMNS.COLUMN_TYPE`, including width,
     /// unsigned/zerofill modifiers, and enum/set members.
     pub column_type: String,
 
+    pub unsigned: bool,
+
+    pub zerofill: bool,
+
+    pub auto_increment: bool,
+
     pub nullable: bool,
+
+    pub character_maximum_length: Option<usize>,
+
+    pub character_octet_length: Option<usize>,
+
+    pub numeric_precision: Option<u64>,
+
+    pub numeric_scale: Option<u64>,
+
+    pub datetime_precision: Option<u64>,
 
     pub character_set: Option<String>,
 
@@ -68,6 +109,20 @@ pub struct AuthoritativeColumnIdentity {
 
     /// Numeric MySQL collation id carried by binlog table-map metadata.
     pub collation_id: Option<u16>,
+
+    /// Exact `information_schema.COLLATIONS.PAD_ATTRIBUTE` semantics.
+    pub collation_padding: Option<MySqlCollationPadding>,
+
+    /// Declared ENUM/SET members in declaration order after decoding MySQL's
+    /// quoted `COLUMN_TYPE` representation. `None` for every other family.
+    pub enum_set_values: Option<Vec<String>>,
+
+    /// Column-level spatial reference-system constraint.
+    pub srs_id: Option<u32>,
+
+    pub visibility: MySqlColumnVisibility,
+
+    pub generation: MySqlColumnGeneration,
 
     /// Stable column modifiers such as `auto_increment`, generated-column
     /// storage, and visibility.

@@ -1,23 +1,38 @@
 use std::mem::size_of;
 
 use arrow::array::Array;
-use arrow::datatypes::{DataType, TimeUnit};
+use arrow::datatypes::DataType;
 use mysql_async::{DriverError, Value};
+use transferia_core::data::schema::{
+    DatasetSchema, SchemaColumn, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME,
+    META_MAX_LENGTH, META_OLD_VALUE_OF, META_PRIMARY_KEY,
+};
+use transferia_core::delivery::DeliveryDiscoveryRequest;
 use transferia_core::failure::FailureDisposition;
+use transferia_delivery_contracts::DeliveryType;
 
 use super::config::{
     MySqlReadProtocol, MySqlSourceConfig, DEFAULT_MYSQL_BATCH_TARGET_BYTES,
     DEFAULT_MYSQL_MAX_ROW_BYTES, MYSQL_SNAPSHOT_BATCH_TARGET_MAX_BYTES,
 };
-use super::connector::{ColumnPlan, MySqlColumnKind};
-use super::reader::{
-    column_array, estimate_arrow_working_set_bytes, max_decoded_row_admission_bytes,
-    next_snapshot_rows_capacity, optional_value_column_array, retained_row_value_heap_bytes,
-    retained_rows_heap_bytes, should_read_snapshot_row, snapshot_row_error, value_date32,
-    value_f64, value_i64, value_timestamp_micros, value_u64,
-    validate_snapshot_batch_growth, validate_snapshot_memory_limits,
+use super::connector::{
+    build_delivery_discovery, column_generation, column_visibility, mysql_column_kind,
+    parse_enum_set_values, snapshot_expression, validate_snapshot_read_protocol, ColumnPlan,
+    DiscoveredTable, MySqlColumnKind,
 };
-use crate::connectors::mysql::src_stream::validate_replication_column_plan;
+use super::reader::{
+    build_output_schema, build_output_schema_with_memory, column_array,
+    estimate_arrow_working_set_bytes, max_decoded_row_admission_bytes,
+    next_snapshot_rows_capacity, optional_value_column_array, output_schema_allocation_bound,
+    output_schema_heap_bytes, retained_row_value_heap_bytes, retained_rows_heap_bytes,
+    rows_to_changelog_snapshot_batch, should_read_snapshot_row, snapshot_row_error,
+    validate_snapshot_batch_growth, validate_snapshot_memory_limits, value_f64, value_i64,
+    value_u64, MySqlSnapshotMetadata,
+};
+use crate::connectors::mysql::src_batch_and_stream::{
+    MySqlBinlogBoundary, MySqlCollationPadding, MySqlColumnGeneration,
+    MySqlColumnVisibility,
+};
 
 const MINIMAL_SOURCE_CONFIG: &str = "\
 host: db.example
@@ -29,6 +44,14 @@ trusted_plaintext: true
 tables:
   - name: events
 ";
+
+#[test]
+fn canonical_snapshot_session_removes_only_pad_char_mode() {
+    assert_eq!(
+        super::MYSQL_CANONICAL_SNAPSHOT_SQL_MODE,
+        "SET SESSION sql_mode = TRIM(BOTH ',' FROM REPLACE(CONCAT(',', @@SESSION.sql_mode, ','), ',PAD_CHAR_TO_FULL_LENGTH,', ','))"
+    );
+}
 
 #[test]
 fn read_protocol_defaults_to_binary_and_accepts_text_explicitly() -> anyhow::Result<()> {
@@ -134,6 +157,93 @@ fn arrow_working_set_is_derived_from_rows_schema_and_payload() -> anyhow::Result
     Ok(())
 }
 
+#[tokio::test]
+async fn large_physical_metadata_is_pre_admitted_and_retained_with_snapshot_schema(
+) -> anyhow::Result<()> {
+    let mut column = test_column(
+        "choice",
+        MySqlColumnKind::EnumOrdinal,
+        "enum('placeholder')",
+        Some("utf8mb4"),
+    );
+    let large_members = (0..200)
+        .map(|index| format!("{index:03}{}", "x".repeat(197)))
+        .collect::<Vec<_>>();
+    column.column_type = format!(
+        "enum({})",
+        large_members
+            .iter()
+            .map(|member| format!("'{member}'"))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    column.enum_set_values = Some(large_members);
+    let extension_metadata = column.arrow_extension_metadata()?;
+    let schema = DatasetSchema::new(vec![SchemaColumn::new(
+        column.name.clone(),
+        column.kind.arrow_type(),
+        column.nullable,
+    )
+    .with_arrow_extension_metadata(column.kind.arrow_extension_name(), extension_metadata)]);
+    let allocation_bound =
+        output_schema_allocation_bound(&schema, std::slice::from_ref(&column), true)?;
+
+    assert!(
+        allocation_bound > 128 * 1024,
+        "pre-admission includes current and old extension payloads"
+    );
+    let memory = transferia_core::memory::PipelineMemory::new(1_024);
+    let (output_schema, schema_memory) = build_output_schema_with_memory(
+        &memory,
+        &schema,
+        std::slice::from_ref(&column),
+        true,
+    )
+    .await?;
+    let schema_bytes = output_schema_heap_bytes(&output_schema)?;
+    assert!(allocation_bound >= schema_bytes);
+    assert_eq!(memory.used(), schema_bytes);
+    assert_eq!(schema_memory.bytes(), schema_bytes);
+    let rows = vec![vec![Some(Value::UInt(1))]];
+    let snapshot = MySqlSnapshotMetadata {
+        partition_id: 0,
+        database: "inventory".to_owned(),
+        table: "values".to_owned(),
+        boundary: MySqlBinlogBoundary {
+            filename: "mysql-bin.000001".to_owned(),
+            position: 4,
+            gtid_executed: "24bc7856-9a41-11ee-b9d1-0242ac120002:1".to_owned(),
+            source_timestamp_micros: 1_700_000_000_000_000,
+        },
+    };
+    let estimate = estimate_arrow_working_set_bytes(
+        &rows,
+        std::slice::from_ref(&column),
+        Some(&snapshot),
+    )?;
+    assert!(estimate > 0);
+    Ok(())
+}
+
+#[test]
+fn text_protocol_rejects_only_lossy_float32_snapshots_before_execution() -> anyhow::Result<()> {
+    let float = test_column("f", MySqlColumnKind::Float32, "float", None);
+    let double = test_column("d", MySqlColumnKind::Float64, "double", None);
+    assert!(validate_snapshot_read_protocol(
+        MySqlReadProtocol::Text,
+        std::slice::from_ref(&float)
+    )
+    .is_err());
+    validate_snapshot_read_protocol(MySqlReadProtocol::Binary, std::slice::from_ref(&float))?;
+    validate_snapshot_read_protocol(MySqlReadProtocol::Text, std::slice::from_ref(&double))?;
+
+    for bits in [0x8000_0000, 0x3f80_0001] {
+        let value = f32::from_bits(bits);
+        assert_eq!(value_f64::<f32>(&Value::Float(value))?.to_bits(), bits);
+    }
+    Ok(())
+}
+
 #[test]
 fn optional_value_slice_conversion_does_not_require_row_reconstruction() -> anyhow::Result<()> {
     let column = test_column("value", MySqlColumnKind::UInt64, "bigint unsigned", None);
@@ -165,78 +275,388 @@ fn snapshot_packet_limit_failure_is_fatal_but_transport_failure_retries() {
 }
 
 #[test]
-fn replication_rejects_unsupported_physical_types_while_snapshot_conversion_accepts_them() {
+fn mysql_and_mariadb_physical_families_have_explicit_lossless_snapshot_kinds(
+) -> anyhow::Result<()> {
     let cases = [
-        (
-            "json",
-            MySqlColumnKind::Json,
-            Some("utf8mb4"),
-            Value::Bytes(br#"{"k":1}"#.to_vec()),
-        ),
-        (
-            "timestamp(6)",
-            MySqlColumnKind::TimestampUtc,
-            None,
-            Value::Date(2024, 1, 2, 3, 4, 5, 6),
-        ),
-        (
-            "time(6)",
-            MySqlColumnKind::Utf8,
-            None,
-            Value::Bytes(b"12:34:56.000006".to_vec()),
-        ),
-        (
-            "enum('a','b')",
-            MySqlColumnKind::Utf8,
-            Some("utf8mb4"),
-            Value::Bytes(b"a".to_vec()),
-        ),
-        (
-            "set('a','b')",
-            MySqlColumnKind::Utf8,
-            Some("utf8mb4"),
-            Value::Bytes(b"a,b".to_vec()),
-        ),
-        (
-            "year",
-            MySqlColumnKind::Utf8,
-            None,
-            Value::Bytes(b"2024".to_vec()),
-        ),
+        ("tinyint", false, None, MySqlColumnKind::Int8),
+        ("tinyint", true, None, MySqlColumnKind::UInt8),
+        ("smallint", false, None, MySqlColumnKind::Int16),
+        ("smallint", true, None, MySqlColumnKind::UInt16),
+        ("mediumint", false, None, MySqlColumnKind::Int32),
+        ("mediumint", true, None, MySqlColumnKind::UInt32),
+        ("int", false, None, MySqlColumnKind::Int32),
+        ("int", true, None, MySqlColumnKind::UInt32),
+        ("integer", false, None, MySqlColumnKind::Int32),
+        ("integer", true, None, MySqlColumnKind::UInt32),
+        ("bigint", false, None, MySqlColumnKind::Int64),
+        ("bigint", true, None, MySqlColumnKind::UInt64),
+        ("float", false, None, MySqlColumnKind::Float32),
+        ("double", false, None, MySqlColumnKind::Float64),
+        ("real", false, None, MySqlColumnKind::Float64),
+        ("bit", false, None, MySqlColumnKind::Binary),
+        ("binary", false, None, MySqlColumnKind::Binary),
+        ("varbinary", false, None, MySqlColumnKind::Binary),
+        ("tinyblob", false, None, MySqlColumnKind::Binary),
+        ("blob", false, None, MySqlColumnKind::Binary),
+        ("mediumblob", false, None, MySqlColumnKind::Binary),
+        ("longblob", false, None, MySqlColumnKind::Binary),
+        ("char", false, Some("ascii"), MySqlColumnKind::Utf8),
+        ("varchar", false, Some("utf8mb4"), MySqlColumnKind::Utf8),
+        ("tinytext", false, Some("utf8mb3"), MySqlColumnKind::Utf8),
+        ("text", false, Some("latin1"), MySqlColumnKind::TextBytes),
+        ("mediumtext", false, Some("latin1"), MySqlColumnKind::TextBytes),
+        ("longtext", false, Some("latin1"), MySqlColumnKind::TextBytes),
+        ("inet4", false, Some("ascii"), MySqlColumnKind::Utf8),
+        ("inet6", false, Some("ascii"), MySqlColumnKind::Utf8),
+        ("uuid", false, Some("ascii"), MySqlColumnKind::Utf8),
+        ("json", false, None, MySqlColumnKind::Json),
+        ("decimal", false, None, MySqlColumnKind::DecimalText),
+        ("numeric", false, None, MySqlColumnKind::DecimalText),
+        ("date", false, None, MySqlColumnKind::DateText),
+        ("datetime", false, None, MySqlColumnKind::DateTimeText),
+        ("timestamp", false, None, MySqlColumnKind::TimestampText),
+        ("time", false, None, MySqlColumnKind::TimeText),
+        ("year", false, None, MySqlColumnKind::YearText),
+        ("enum", false, Some("utf8mb4"), MySqlColumnKind::EnumOrdinal),
+        ("enum", false, Some("latin1"), MySqlColumnKind::EnumOrdinal),
+        ("set", false, Some("utf8mb4"), MySqlColumnKind::SetBits),
+        ("set", false, Some("latin1"), MySqlColumnKind::SetBits),
+        ("geometry", false, None, MySqlColumnKind::Binary),
+        ("point", false, None, MySqlColumnKind::Binary),
+        ("linestring", false, None, MySqlColumnKind::Binary),
+        ("polygon", false, None, MySqlColumnKind::Binary),
+        ("multipoint", false, None, MySqlColumnKind::Binary),
+        ("multilinestring", false, None, MySqlColumnKind::Binary),
+        ("multipolygon", false, None, MySqlColumnKind::Binary),
+        ("geometrycollection", false, None, MySqlColumnKind::Binary),
+        ("vector", false, None, MySqlColumnKind::Binary),
     ];
-    for (column_type, kind, character_set, value) in cases {
-        let column = test_column("value", kind, column_type, character_set);
-        assert!(
-            validate_replication_column_plan(&column).is_err(),
-            "replication unexpectedly accepted {column_type}"
+    for (data_type, unsigned, character_set, expected) in cases {
+        assert_eq!(
+            mysql_column_kind(data_type, unsigned, character_set)?,
+            expected,
+            "wrong snapshot contract for {data_type}"
         );
-        let array = column_array(&[vec![Some(value)]], 0, &column).unwrap();
-        assert_eq!(array.len(), 1, "snapshot rejected {column_type}");
     }
+    assert!(mysql_column_kind("varchar", false, None).is_err());
+    assert!(mysql_column_kind("unsupported", false, None).is_err());
+    Ok(())
 }
 
 #[test]
-fn replication_character_set_validation_is_exact_and_snapshot_remains_available() {
-    for character_set in ["ascii", "utf8mb3", "utf8mb4"] {
-        let column = test_column("value", MySqlColumnKind::Utf8, "varchar(8)", Some(character_set));
-        validate_replication_column_plan(&column).unwrap();
+fn snapshot_projection_preserves_non_utf8_bytes_and_zero_capable_temporals() {
+    assert_eq!(
+        snapshot_expression("latin`,payload", "text", MySqlColumnKind::TextBytes),
+        "CAST(`latin``,payload` AS BINARY) AS `latin``,payload`"
+    );
+    assert_eq!(
+        snapshot_expression("fixed", "char", MySqlColumnKind::TextBytes),
+        "CAST(RTRIM(`fixed`) AS BINARY) AS `fixed`"
+    );
+    assert_eq!(
+        snapshot_expression("variable", "varchar", MySqlColumnKind::TextBytes),
+        "CAST(`variable` AS BINARY) AS `variable`"
+    );
+    for kind in [
+        MySqlColumnKind::DecimalText,
+        MySqlColumnKind::DateText,
+        MySqlColumnKind::DateTimeText,
+        MySqlColumnKind::TimestampText,
+        MySqlColumnKind::TimeText,
+        MySqlColumnKind::YearText,
+    ] {
+        assert_eq!(
+            snapshot_expression("value", "date", kind),
+            "CAST(`value` AS CHAR) AS `value`"
+        );
+        assert_eq!(kind.arrow_type(), DataType::Utf8);
     }
-    let latin1 = test_column("value", MySqlColumnKind::Utf8, "varchar(8)", Some("latin1"));
-    assert!(validate_replication_column_plan(&latin1).is_err());
-    let array = column_array(&[vec![Some(Value::Bytes(b"text".to_vec()))]], 0, &latin1).unwrap();
-    assert_eq!(array.len(), 1);
+    assert_eq!(MySqlColumnKind::TextBytes.arrow_type(), DataType::Binary);
+    assert_eq!(MySqlColumnKind::EnumOrdinal.arrow_type(), DataType::UInt16);
+    assert_eq!(MySqlColumnKind::SetBits.arrow_type(), DataType::UInt64);
+    assert_eq!(
+        snapshot_expression("choice", "enum", MySqlColumnKind::EnumOrdinal),
+        "CAST(`choice` AS UNSIGNED) AS `choice`"
+    );
+    assert_eq!(
+        snapshot_expression("flags", "set", MySqlColumnKind::SetBits),
+        "CAST(`flags` AS UNSIGNED) AS `flags`"
+    );
+}
 
-    let mut missing_numeric_collation =
-        test_column("value", MySqlColumnKind::Utf8, "varchar(8)", Some("utf8mb4"));
-    missing_numeric_collation.collation_id = None;
-    assert!(validate_replication_column_plan(&missing_numeric_collation).is_err());
-    let array = column_array(
-        &[vec![Some(Value::Bytes(b"text".to_vec()))]],
-        0,
-        &missing_numeric_collation,
+#[test]
+fn enum_ordinal_and_set_bits_preserve_ambiguous_textual_values() -> anyhow::Result<()> {
+    let enum_column = test_column(
+        "choice",
+        MySqlColumnKind::EnumOrdinal,
+        "enum('','plain')",
+        Some("utf8mb4"),
+    );
+    let enum_rows = [
+        vec![Some(Value::UInt(0))],
+        vec![Some(Value::UInt(1))],
+    ];
+    let enum_array = column_array(&enum_rows, 0, &enum_column)?;
+    let enum_array = enum_array
+        .as_any()
+        .downcast_ref::<arrow::array::UInt16Array>()
+        .expect("ENUM physical identity must use UInt16 ordinals");
+    assert_eq!(enum_array.values().as_ref(), &[0, 1]);
+
+    let set_column = test_column(
+        "flags",
+        MySqlColumnKind::SetBits,
+        "set('a,b','a','b')",
+        Some("utf8mb4"),
+    );
+    let set_rows = [
+        vec![Some(Value::UInt(1))],
+        vec![Some(Value::UInt(6))],
+    ];
+    let set_array = column_array(&set_rows, 0, &set_column)?;
+    let set_array = set_array
+        .as_any()
+        .downcast_ref::<arrow::array::UInt64Array>()
+        .expect("SET physical identity must use UInt64 bitsets");
+    assert_eq!(set_array.values().as_ref(), &[1, 6]);
+    Ok(())
+}
+
+#[test]
+fn raw_text_snapshot_accepts_bytes_that_must_not_be_coerced_to_utf8() -> anyhow::Result<()> {
+    let raw = test_column("value", MySqlColumnKind::TextBytes, "text", Some("latin1"));
+    let rows = [vec![Some(Value::Bytes(vec![0xff, 0x80, b'a']))]];
+    let array = column_array(&rows, 0, &raw)?;
+    let array = array
+        .as_any()
+        .downcast_ref::<arrow::array::BinaryArray>()
+        .expect("raw text must use Arrow Binary");
+    assert_eq!(array.value(0), [0xff, 0x80, b'a']);
+
+    let utf8 = test_column("value", MySqlColumnKind::Utf8, "text", Some("utf8mb4"));
+    assert!(column_array(&rows, 0, &utf8).is_err());
+    Ok(())
+}
+
+#[test]
+fn temporal_text_snapshot_preserves_zero_partial_and_fractional_values() -> anyhow::Result<()> {
+    let cases = [
+        (MySqlColumnKind::DateText, "0000-00-00"),
+        (MySqlColumnKind::DateText, "2024-00-01"),
+        (MySqlColumnKind::DateTimeText, "0000-00-00 00:00:00.000000"),
+        (MySqlColumnKind::TimestampText, "2038-01-19 03:14:07.499999"),
+        (MySqlColumnKind::TimeText, "-838:59:59.123456"),
+        (MySqlColumnKind::YearText, "0000"),
+    ];
+    for (kind, expected) in cases {
+        let column = test_column("value", kind, "temporal(6)", None);
+        let rows = [vec![Some(Value::Bytes(expected.as_bytes().to_vec()))]];
+        let array = column_array(&rows, 0, &column)?;
+        let array = array
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .expect("temporal logical value must use Arrow Utf8");
+        assert_eq!(array.value(0), expected);
+    }
+    Ok(())
+}
+
+#[test]
+fn enum_set_declarations_are_parsed_in_order_without_losing_members() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_enum_set_values(
+            "enum",
+            r"enum('plain','comma,value','quote\'value','slash\\value','line\nvalue','')"
+        )?,
+        Some(vec![
+            "plain".to_owned(),
+            "comma,value".to_owned(),
+            "quote'value".to_owned(),
+            "slash\\value".to_owned(),
+            "line\nvalue".to_owned(),
+            String::new(),
+        ])
+    );
+    assert_eq!(
+        parse_enum_set_values("set", "set('first','second','third')")?,
+        Some(vec![
+            "first".to_owned(),
+            "second".to_owned(),
+            "third".to_owned(),
+        ])
+    );
+    assert!(parse_enum_set_values("enum", "enum('unterminated)").is_err());
+    assert!(parse_enum_set_values("set", "set('a' 'b')").is_err());
+    assert!(parse_enum_set_values("set", "set('a',)").is_err());
+    assert_eq!(parse_enum_set_values("varchar", "varchar(8)")?, None);
+    Ok(())
+}
+
+#[test]
+fn generation_and_visibility_are_structured_without_matching_default_generated() {
+    assert_eq!(
+        column_generation("", Some("")).unwrap(),
+        MySqlColumnGeneration::None
+    );
+    assert_eq!(
+        column_generation("DEFAULT_GENERATED", Some("")).unwrap(),
+        MySqlColumnGeneration::None
+    );
+    assert_eq!(
+        column_generation("VIRTUAL GENERATED", Some("`base` + 1")).unwrap(),
+        MySqlColumnGeneration::Virtual
+    );
+    assert_eq!(
+        column_generation("STORED GENERATED INVISIBLE", Some("`base` + 1")).unwrap(),
+        MySqlColumnGeneration::Stored
+    );
+    assert!(column_generation("VIRTUAL GENERATED", Some("")).is_err());
+    assert_eq!(column_visibility(""), MySqlColumnVisibility::Visible);
+    assert_eq!(
+        column_visibility("STORED GENERATED INVISIBLE"),
+        MySqlColumnVisibility::Invisible
+    );
+}
+
+#[test]
+fn arrow_extension_metadata_retains_exact_mysql_physical_contract() -> anyhow::Result<()> {
+    let mut column = test_column(
+        "amount",
+        MySqlColumnKind::DecimalText,
+        "decimal(65,30) unsigned zerofill",
+        None,
+    );
+    column.unsigned = true;
+    column.zerofill = true;
+    column.numeric_precision = Some(65);
+    column.numeric_scale = Some(30);
+    column.visibility = MySqlColumnVisibility::Invisible;
+    column.extra = "INVISIBLE".to_owned();
+
+    let metadata: serde_json::Value =
+        serde_json::from_str(&column.arrow_extension_metadata()?)?;
+    assert_eq!(
+        metadata,
+        serde_json::json!({
+            "version": 1,
+            "data_type": "decimal",
+            "column_type": "decimal(65,30) unsigned zerofill",
+            "unsigned": true,
+            "zerofill": true,
+            "auto_increment": false,
+            "character_maximum_length": null,
+            "character_octet_length": null,
+            "numeric_precision": 65,
+            "numeric_scale": 30,
+            "datetime_precision": null,
+            "character_set": null,
+            "collation": null,
+            "collation_id": null,
+            "collation_padding": null,
+            "enum_set_values": null,
+            "srs_id": null,
+            "visibility": "invisible",
+            "generation": "none",
+            "extra": "INVISIBLE",
+            "generation_expression": "",
+            "primary_key_ordinal": null,
+            "primary_key_prefix_length": null,
+            "primary_key_direction": null
+        })
+    );
+    assert_eq!(
+        column.kind.arrow_extension_name(),
+        "transferia.mysql.decimal"
+    );
+    Ok(())
+}
+
+#[test]
+fn text_extension_metadata_retains_collation_padding_semantics() -> anyhow::Result<()> {
+    let column = test_column(
+        "fixed",
+        MySqlColumnKind::Utf8,
+        "char(8)",
+        Some("utf8mb4"),
+    );
+    let metadata: serde_json::Value =
+        serde_json::from_str(&column.arrow_extension_metadata()?)?;
+    assert_eq!(metadata["collation_padding"], serde_json::json!("no_pad"));
+    Ok(())
+}
+
+#[test]
+fn physical_extension_identity_survives_discovery_and_snapshot_old_values() -> anyhow::Result<()> {
+    let column = test_column("created_at", MySqlColumnKind::DateText, "date", None);
+    let extension_name = column.kind.arrow_extension_name();
+    let extension_metadata = column.arrow_extension_metadata()?;
+    let schema = DatasetSchema::new(vec![SchemaColumn::new(
+        column.name.clone(),
+        column.kind.arrow_type(),
+        column.nullable,
     )
-    .unwrap();
-    assert_eq!(array.len(), 1);
+    .with_constraints(true, false, Some(16))
+    .with_arrow_extension_metadata(extension_name, extension_metadata.clone())]);
+    let table = DiscoveredTable {
+        config: super::config::TableConfig {
+            name: "events".to_owned(),
+        },
+        schema: schema.clone(),
+        columns: vec![column.clone()],
+        engine: "InnoDB".to_owned(),
+    };
+    let discovery = build_delivery_discovery(
+        true,
+        DeliveryType::BatchAndStream,
+        DeliveryDiscoveryRequest {
+            keep_system_columns: false,
+        },
+        &[table],
+    )?;
+    let incoming = &discovery.datasets[0].incoming_schema.columns;
+    assert_eq!(incoming[1].arrow_extension_name, Some(extension_name));
+    assert_eq!(
+        incoming[1].arrow_extension_metadata.as_deref(),
+        Some(extension_metadata.as_str())
+    );
+
+    let rows = [vec![Some(Value::Bytes(b"0000-00-00".to_vec()))]];
+    let batch = rows_to_changelog_snapshot_batch(
+        build_output_schema(&schema, std::slice::from_ref(&column), true)?,
+        &[column],
+        &rows,
+        0,
+        &MySqlSnapshotMetadata {
+            partition_id: 0,
+            database: "inventory".to_owned(),
+            table: "events".to_owned(),
+            boundary: MySqlBinlogBoundary {
+                filename: "mysql-bin.000001".to_owned(),
+                position: 4,
+                gtid_executed: "24bc7856-9a41-11ee-b9d1-0242ac120002:1".to_owned(),
+                source_timestamp_micros: 1_700_000_000_000_000,
+            },
+        },
+    )?;
+    let runtime_schema = batch.schema();
+    let old_metadata = runtime_schema.field(1).metadata();
+    assert_eq!(
+        old_metadata.get(META_ARROW_EXTENSION_NAME).map(String::as_str),
+        Some(extension_name)
+    );
+    assert_eq!(
+        old_metadata
+            .get(META_ARROW_EXTENSION_METADATA)
+            .map(String::as_str),
+        Some(extension_metadata.as_str())
+    );
+    assert_eq!(
+        old_metadata.get(META_OLD_VALUE_OF).map(String::as_str),
+        Some("created_at")
+    );
+    assert!(!old_metadata.contains_key(META_PRIMARY_KEY));
+    assert!(!old_metadata.contains_key(META_MAX_LENGTH));
+    Ok(())
 }
 
 fn test_column(
@@ -245,17 +665,41 @@ fn test_column(
     column_type: &str,
     character_set: Option<&str>,
 ) -> ColumnPlan {
+    let data_type = column_type
+        .split(['(', ' '])
+        .next()
+        .expect("test type has a family")
+        .to_owned();
+    let unsigned = column_type
+        .split_ascii_whitespace()
+        .any(|token| token == "unsigned");
+    let enum_set_values = parse_enum_set_values(&data_type, column_type)
+        .expect("test enum/set declaration must be valid");
     ColumnPlan {
         name: name.to_owned(),
+        data_type,
         kind,
+        unsigned,
+        zerofill: false,
+        auto_increment: false,
         nullable: true,
         primary_key: false,
+        character_maximum_length: character_set.map(|_| 8),
+        character_octet_length: character_set.map(|_| 32),
+        numeric_precision: None,
+        numeric_scale: None,
+        datetime_precision: None,
         max_length: None,
         expression: format!("`{name}`"),
         column_type: column_type.to_owned(),
         character_set: character_set.map(str::to_owned),
         collation: character_set.map(|charset| format!("{charset}_fixture")),
         collation_id: character_set.map(|_| 255),
+        collation_padding: character_set.map(|_| MySqlCollationPadding::NoPad),
+        enum_set_values,
+        srs_id: None,
+        visibility: MySqlColumnVisibility::Visible,
+        generation: MySqlColumnGeneration::None,
         extra: String::new(),
         generation_expression: Some(String::new()),
         primary_key_ordinal: None,
@@ -332,96 +776,4 @@ fn numeric_conversion_rejects_lossy_or_out_of_range_values() {
     assert!(value_i64::<i8>(&Value::Int(128)).is_err());
     assert!(value_u64::<u8>(&Value::Int(-1)).is_err());
     assert!(value_i64::<i64>(&Value::Bytes(b"1.5".to_vec())).is_err());
-}
-
-#[test]
-fn temporal_discovery_uses_lossless_arrow_types_and_explicit_timestamp_timezone() {
-    assert_eq!(MySqlColumnKind::Date.arrow_type(), DataType::Date32);
-    assert_eq!(
-        MySqlColumnKind::DateTime.arrow_type(),
-        DataType::Timestamp(TimeUnit::Microsecond, None)
-    );
-    assert_eq!(
-        MySqlColumnKind::TimestampUtc.arrow_type(),
-        DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into()))
-    );
-}
-
-#[test]
-fn date_conversion_has_text_binary_parity_across_the_mysql_range() -> anyhow::Result<()> {
-    for (year, month, day) in [(1000, 1, 1), (1970, 1, 1), (2024, 2, 29), (9999, 12, 31)] {
-        let text = format!("{year:04}-{month:02}-{day:02}");
-        assert_eq!(
-            value_date32(&Value::Bytes(text.into_bytes()))?,
-            value_date32(&Value::Date(year, month, day, 0, 0, 0, 0))?
-        );
-    }
-    assert_eq!(value_date32(&Value::Bytes(b"1970-01-01".to_vec()))?, 0);
-    Ok(())
-}
-
-#[test]
-fn datetime_conversion_has_text_binary_parity_without_precision_loss() -> anyhow::Result<()> {
-    let cases = [
-        ("1000-01-01 00:00:00", Value::Date(1000, 1, 1, 0, 0, 0, 0)),
-        (
-            "2024-02-29 12:34:56.1",
-            Value::Date(2024, 2, 29, 12, 34, 56, 100_000),
-        ),
-        (
-            "2024-02-29 12:34:56.1234",
-            Value::Date(2024, 2, 29, 12, 34, 56, 123_400),
-        ),
-        (
-            "2038-01-19 03:14:07.999999",
-            Value::Date(2038, 1, 19, 3, 14, 7, 999_999),
-        ),
-        (
-            "2106-02-07 06:28:15.999999",
-            Value::Date(2106, 2, 7, 6, 28, 15, 999_999),
-        ),
-        (
-            "9999-12-31 23:59:59.999999",
-            Value::Date(9999, 12, 31, 23, 59, 59, 999_999),
-        ),
-    ];
-    for (text, binary) in cases {
-        assert_eq!(
-            value_timestamp_micros(&Value::Bytes(text.as_bytes().to_vec()))?,
-            value_timestamp_micros(&binary)?,
-            "text/binary mismatch for {text}"
-        );
-    }
-    Ok(())
-}
-
-#[test]
-fn temporal_conversion_rejects_zero_partial_and_invalid_values() {
-    for value in [
-        Value::Bytes(b"0000-00-00".to_vec()),
-        Value::Bytes(b"2024-00-01".to_vec()),
-        Value::Bytes(b"2024-01-00".to_vec()),
-        Value::Bytes(b"2023-02-29".to_vec()),
-        Value::Bytes(b"0999-12-31".to_vec()),
-        Value::Date(0, 0, 0, 0, 0, 0, 0),
-        Value::Date(2024, 2, 29, 1, 0, 0, 0),
-    ] {
-        assert!(value_date32(&value).is_err(), "unexpected valid DATE: {value:?}");
-    }
-
-    for value in [
-        Value::Bytes(b"0000-00-00 00:00:00".to_vec()),
-        Value::Bytes(b"2024-02-29T12:34:56".to_vec()),
-        Value::Bytes(b"2024-02-29 24:00:00".to_vec()),
-        Value::Bytes(b"2024-02-29 12:60:00".to_vec()),
-        Value::Bytes(b"2024-02-29 12:34:60".to_vec()),
-        Value::Bytes(b"2024-02-29 12:34:56.".to_vec()),
-        Value::Bytes(b"2024-02-29 12:34:56.1234567".to_vec()),
-        Value::Date(2024, 2, 29, 12, 34, 56, 1_000_000),
-    ] {
-        assert!(
-            value_timestamp_micros(&value).is_err(),
-            "unexpected valid DATETIME/TIMESTAMP: {value:?}"
-        );
-    }
 }

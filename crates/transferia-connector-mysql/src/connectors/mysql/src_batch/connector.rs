@@ -3,12 +3,12 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use arrow::datatypes::{DataType, TimeUnit};
+use arrow::datatypes::DataType;
 use futures_util::future::BoxFuture;
 use mysql_async::prelude::Queryable;
 use mysql_async::{Conn, Row};
 
-use super::config::{MySqlSourceConfig, TableConfig};
+use super::config::{MySqlReadProtocol, MySqlSourceConfig, TableConfig};
 use super::reader::{MySqlSnapshotMetadata, MySqlSource};
 use crate::connectors::mysql::common::{
     connect, connect_with_max_allowed_packet, quote_identifier, validate_identifier,
@@ -17,8 +17,9 @@ use crate::connectors::mysql::src_batch_and_stream::{
     acquire_execution_lock, begin_locked_snapshot, inspect_mysql8_gtid_source,
     is_replication_safety_violation, replication_safety_violation,
     AuthoritativeColumnIdentity, AuthoritativeTableIdentity, MySqlBinlogBoundary,
-    MySqlExecutionLock, MySqlGtidState, MySqlSnapshotSession, MySqlSourceIdentity,
-    SnapshotStreamPreparation, SnapshotStreamTracker,
+    MySqlCollationPadding, MySqlColumnGeneration, MySqlColumnVisibility, MySqlExecutionLock,
+    MySqlGtidState, MySqlSnapshotSession, MySqlSourceIdentity, SnapshotStreamPreparation,
+    SnapshotStreamTracker,
 };
 use crate::connectors::mysql::src_stream::{
     inspect_existing_replication_offset, validate_replication_column_plan, MySqlBinlogPosition,
@@ -57,6 +58,21 @@ pub const MYSQL_REPLICATION_SYSTEM_COLUMNS: &[SystemColumnKind] = &[
     SystemColumnKind::ChangeOperation,
     SystemColumnKind::ChangedColumns,
 ];
+
+const MYSQL_DECIMAL_EXTENSION_NAME: &str = "transferia.mysql.decimal";
+const MYSQL_DATE_EXTENSION_NAME: &str = "transferia.mysql.date";
+const MYSQL_DATETIME_EXTENSION_NAME: &str = "transferia.mysql.datetime";
+const MYSQL_TIMESTAMP_EXTENSION_NAME: &str = "transferia.mysql.timestamp";
+const MYSQL_TIME_EXTENSION_NAME: &str = "transferia.mysql.time";
+const MYSQL_YEAR_EXTENSION_NAME: &str = "transferia.mysql.year";
+const MYSQL_ENUM_EXTENSION_NAME: &str = "transferia.mysql.enum";
+const MYSQL_SET_EXTENSION_NAME: &str = "transferia.mysql.set";
+const MYSQL_TEXT_BYTES_EXTENSION_NAME: &str = "transferia.mysql.text_bytes";
+const MYSQL_SIGNED_INTEGER_EXTENSION_NAME: &str = "transferia.mysql.signed_integer";
+const MYSQL_UNSIGNED_INTEGER_EXTENSION_NAME: &str = "transferia.mysql.unsigned_integer";
+const MYSQL_FLOAT_EXTENSION_NAME: &str = "transferia.mysql.float";
+const MYSQL_BINARY_EXTENSION_NAME: &str = "transferia.mysql.binary";
+const MYSQL_TEXT_EXTENSION_NAME: &str = "transferia.mysql.text";
 
 const MYSQL_SNAPSHOT_SYSTEM_COLUMNS: &[SystemColumnKind] = &[
     SystemColumnKind::Topic,
@@ -138,10 +154,16 @@ pub(crate) enum MySqlColumnKind {
     Float64,
     Binary,
     Utf8,
+    TextBytes,
     Json,
-    Date,
-    DateTime,
-    TimestampUtc,
+    DecimalText,
+    DateText,
+    DateTimeText,
+    TimestampText,
+    TimeText,
+    YearText,
+    EnumOrdinal,
+    SetBits,
 }
 
 impl MySqlColumnKind {
@@ -150,18 +172,46 @@ impl MySqlColumnKind {
             Self::Int8 => DataType::Int8,
             Self::UInt8 => DataType::UInt8,
             Self::Int16 => DataType::Int16,
-            Self::UInt16 => DataType::UInt16,
+            Self::UInt16 | Self::EnumOrdinal => DataType::UInt16,
             Self::Int32 => DataType::Int32,
             Self::UInt32 => DataType::UInt32,
             Self::Int64 => DataType::Int64,
-            Self::UInt64 => DataType::UInt64,
+            Self::UInt64 | Self::SetBits => DataType::UInt64,
             Self::Float32 => DataType::Float32,
             Self::Float64 => DataType::Float64,
-            Self::Binary => DataType::Binary,
-            Self::Utf8 | Self::Json => DataType::Utf8,
-            Self::Date => DataType::Date32,
-            Self::DateTime => DataType::Timestamp(TimeUnit::Microsecond, None),
-            Self::TimestampUtc => DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+            Self::Binary | Self::TextBytes => DataType::Binary,
+            Self::Utf8
+            | Self::Json
+            | Self::DecimalText
+            | Self::DateText
+            | Self::DateTimeText
+            | Self::TimestampText
+            | Self::TimeText
+            | Self::YearText => DataType::Utf8,
+        }
+    }
+
+    pub(crate) const fn arrow_extension_name(self) -> &'static str {
+        match self {
+            Self::Int8 | Self::Int16 | Self::Int32 | Self::Int64 => {
+                MYSQL_SIGNED_INTEGER_EXTENSION_NAME
+            }
+            Self::UInt8 | Self::UInt16 | Self::UInt32 | Self::UInt64 => {
+                MYSQL_UNSIGNED_INTEGER_EXTENSION_NAME
+            }
+            Self::Float32 | Self::Float64 => MYSQL_FLOAT_EXTENSION_NAME,
+            Self::Binary => MYSQL_BINARY_EXTENSION_NAME,
+            Self::Utf8 => MYSQL_TEXT_EXTENSION_NAME,
+            Self::TextBytes => MYSQL_TEXT_BYTES_EXTENSION_NAME,
+            Self::Json => ARROW_JSON_EXTENSION_NAME,
+            Self::DecimalText => MYSQL_DECIMAL_EXTENSION_NAME,
+            Self::DateText => MYSQL_DATE_EXTENSION_NAME,
+            Self::DateTimeText => MYSQL_DATETIME_EXTENSION_NAME,
+            Self::TimestampText => MYSQL_TIMESTAMP_EXTENSION_NAME,
+            Self::TimeText => MYSQL_TIME_EXTENSION_NAME,
+            Self::YearText => MYSQL_YEAR_EXTENSION_NAME,
+            Self::EnumOrdinal => MYSQL_ENUM_EXTENSION_NAME,
+            Self::SetBits => MYSQL_SET_EXTENSION_NAME,
         }
     }
 }
@@ -169,20 +219,93 @@ impl MySqlColumnKind {
 #[derive(Clone)]
 pub(crate) struct ColumnPlan {
     pub(crate) name: String,
+    pub(crate) data_type: String,
     pub(crate) kind: MySqlColumnKind,
+    pub(crate) unsigned: bool,
+    pub(crate) zerofill: bool,
+    pub(crate) auto_increment: bool,
     pub(crate) nullable: bool,
     pub(crate) primary_key: bool,
+    pub(crate) character_maximum_length: Option<usize>,
+    pub(crate) character_octet_length: Option<usize>,
+    pub(crate) numeric_precision: Option<u64>,
+    pub(crate) numeric_scale: Option<u64>,
+    pub(crate) datetime_precision: Option<u64>,
     pub(crate) max_length: Option<usize>,
     pub(crate) expression: String,
     pub(crate) column_type: String,
     pub(crate) character_set: Option<String>,
     pub(crate) collation: Option<String>,
     pub(crate) collation_id: Option<u16>,
+    pub(crate) collation_padding: Option<MySqlCollationPadding>,
+    pub(crate) enum_set_values: Option<Vec<String>>,
+    pub(crate) srs_id: Option<u32>,
+    pub(crate) visibility: MySqlColumnVisibility,
+    pub(crate) generation: MySqlColumnGeneration,
     pub(crate) extra: String,
     pub(crate) generation_expression: Option<String>,
     pub(crate) primary_key_ordinal: Option<u64>,
     pub(crate) primary_key_prefix_length: Option<u64>,
     pub(crate) primary_key_direction: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct MySqlArrowExtensionMetadata<'a> {
+    version: u8,
+    data_type: &'a str,
+    column_type: &'a str,
+    unsigned: bool,
+    zerofill: bool,
+    auto_increment: bool,
+    character_maximum_length: Option<usize>,
+    character_octet_length: Option<usize>,
+    numeric_precision: Option<u64>,
+    numeric_scale: Option<u64>,
+    datetime_precision: Option<u64>,
+    character_set: Option<&'a str>,
+    collation: Option<&'a str>,
+    collation_id: Option<u16>,
+    collation_padding: Option<MySqlCollationPadding>,
+    enum_set_values: Option<&'a [String]>,
+    srs_id: Option<u32>,
+    visibility: MySqlColumnVisibility,
+    generation: MySqlColumnGeneration,
+    extra: &'a str,
+    generation_expression: Option<&'a str>,
+    primary_key_ordinal: Option<u64>,
+    primary_key_prefix_length: Option<u64>,
+    primary_key_direction: Option<&'a str>,
+}
+
+impl ColumnPlan {
+    pub(crate) fn arrow_extension_metadata(&self) -> anyhow::Result<String> {
+        Ok(serde_json::to_string(&MySqlArrowExtensionMetadata {
+            version: 1,
+            data_type: &self.data_type,
+            column_type: &self.column_type,
+            unsigned: self.unsigned,
+            zerofill: self.zerofill,
+            auto_increment: self.auto_increment,
+            character_maximum_length: self.character_maximum_length,
+            character_octet_length: self.character_octet_length,
+            numeric_precision: self.numeric_precision,
+            numeric_scale: self.numeric_scale,
+            datetime_precision: self.datetime_precision,
+            character_set: self.character_set.as_deref(),
+            collation: self.collation.as_deref(),
+            collation_id: self.collation_id,
+            collation_padding: self.collation_padding,
+            enum_set_values: self.enum_set_values.as_deref(),
+            srs_id: self.srs_id,
+            visibility: self.visibility,
+            generation: self.generation,
+            extra: &self.extra,
+            generation_expression: self.generation_expression.as_deref(),
+            primary_key_ordinal: self.primary_key_ordinal,
+            primary_key_prefix_length: self.primary_key_prefix_length,
+            primary_key_direction: self.primary_key_direction.as_deref(),
+        })?)
+    }
 }
 
 #[derive(Clone)]
@@ -263,6 +386,7 @@ impl MySqlSourceConnector {
                     &self.config.connection.database,
                     table.clone(),
                     self.config.replication.is_some(),
+                    self.config.read_protocol,
                 )
                 .await?,
             );
@@ -1051,7 +1175,7 @@ impl SourceConnector for MySqlSourceConnector {
     }
 }
 
-fn build_delivery_discovery(
+pub(super) fn build_delivery_discovery(
     replication: bool,
     delivery_type: DeliveryType,
     request: transferia_core::delivery::DeliveryDiscoveryRequest,
@@ -1076,14 +1200,7 @@ fn build_delivery_discovery(
                     column.nullable = true;
                 }
                 incoming.columns.extend(table.schema.columns.iter().enumerate().map(
-                    |(index, column)| {
-                        SchemaColumn::new(
-                            old_value_column_name(index),
-                            column.data_type.clone(),
-                            true,
-                        )
-                        .with_old_value_of(column.name.clone())
-                    },
+                    |(index, column)| old_value_schema_column(index, column),
                 ));
                 incoming
                     .columns
@@ -1166,11 +1283,25 @@ fn authoritative_table_identities(
                 .iter()
                 .map(|column| AuthoritativeColumnIdentity {
                     name: column.name.clone(),
+                    data_type: column.data_type.clone(),
                     column_type: column.column_type.clone(),
+                    unsigned: column.unsigned,
+                    zerofill: column.zerofill,
+                    auto_increment: column.auto_increment,
                     nullable: column.nullable,
+                    character_maximum_length: column.character_maximum_length,
+                    character_octet_length: column.character_octet_length,
+                    numeric_precision: column.numeric_precision,
+                    numeric_scale: column.numeric_scale,
+                    datetime_precision: column.datetime_precision,
                     character_set: column.character_set.clone(),
                     collation: column.collation.clone(),
                     collation_id: column.collation_id,
+                    collation_padding: column.collation_padding,
+                    enum_set_values: column.enum_set_values.clone(),
+                    srs_id: column.srs_id,
+                    visibility: column.visibility,
+                    generation: column.generation,
                     extra: column.extra.clone(),
                     generation_expression: column.generation_expression.clone(),
                     primary_key_ordinal: column.primary_key_ordinal,
@@ -1216,6 +1347,7 @@ async fn discover_table(
     database: &str,
     table: TableConfig,
     replication: bool,
+    read_protocol: MySqlReadProtocol,
 ) -> anyhow::Result<DiscoveredTable> {
     let table_identity: Option<(String, String, String)> = observe_mysql_request(
         "discover_table_identity",
@@ -1246,10 +1378,28 @@ async fn discover_table(
             ),
         ));
     }
+    let mysql8 = connection.server_version().0 == 8;
+    let (srs_id_projection, collation_id_projection, collation_padding_projection) = if mysql8 {
+        (
+            "c.SRS_ID",
+            "col.ID AS COLLATION_ID",
+            "col.PAD_ATTRIBUTE AS COLLATION_PADDING",
+        )
+    } else {
+        // MariaDB snapshot discovery does not expose the MySQL 8 identity
+        // fields used by FULL row-binlog metadata.
+        (
+            "NULL AS SRS_ID",
+            "NULL AS COLLATION_ID",
+            "NULL AS COLLATION_PADDING",
+        )
+    };
     let rows: Vec<Row> = observe_mysql_request(
         "discover_column_identities",
         connection.exec(
-            "SELECT c.COLUMN_NAME, c.DATA_TYPE, c.COLUMN_TYPE, c.IS_NULLABLE, c.CHARACTER_SET_NAME, c.COLLATION_NAME, col.ID AS COLLATION_ID, c.EXTRA, c.GENERATION_EXPRESSION, c.CHARACTER_MAXIMUM_LENGTH, s.SEQ_IN_INDEX, s.SUB_PART, s.COLLATION FROM information_schema.COLUMNS AS c LEFT JOIN information_schema.COLLATIONS AS col ON col.COLLATION_NAME = c.COLLATION_NAME LEFT JOIN information_schema.STATISTICS AS s ON s.TABLE_SCHEMA = c.TABLE_SCHEMA AND s.TABLE_NAME = c.TABLE_NAME AND s.INDEX_NAME = 'PRIMARY' AND s.COLUMN_NAME = c.COLUMN_NAME WHERE c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ? ORDER BY c.ORDINAL_POSITION",
+            format!(
+                "SELECT c.COLUMN_NAME, c.DATA_TYPE, c.COLUMN_TYPE, c.IS_NULLABLE, c.CHARACTER_SET_NAME, c.COLLATION_NAME, {collation_id_projection}, {collation_padding_projection}, c.EXTRA, c.GENERATION_EXPRESSION, c.CHARACTER_MAXIMUM_LENGTH, c.CHARACTER_OCTET_LENGTH, c.NUMERIC_PRECISION, c.NUMERIC_SCALE, c.DATETIME_PRECISION, {srs_id_projection}, s.SEQ_IN_INDEX, s.SUB_PART, s.COLLATION FROM information_schema.COLUMNS AS c LEFT JOIN information_schema.COLLATIONS AS col ON col.COLLATION_NAME = c.COLLATION_NAME LEFT JOIN information_schema.STATISTICS AS s ON s.TABLE_SCHEMA = c.TABLE_SCHEMA AND s.TABLE_NAME = c.TABLE_NAME AND s.INDEX_NAME = 'PRIMARY' AND s.COLUMN_NAME = c.COLUMN_NAME WHERE c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ? ORDER BY c.ORDINAL_POSITION"
+            ),
             (database, table.name.as_str()),
         ),
     )
@@ -1266,25 +1416,27 @@ async fn discover_table(
     }
     let columns = rows
         .iter()
-        .map(column_plan)
+        .map(|row| column_plan(row, mysql8))
         .collect::<anyhow::Result<Vec<_>>>()
+        .map_err(|error| classify_discovery_contract_error(replication, error))?;
+    validate_snapshot_read_protocol(read_protocol, &columns)
         .map_err(|error| classify_discovery_contract_error(replication, error))?;
     let schema = DatasetSchema::new(
         columns
             .iter()
             .map(|column| {
-                let mut schema = SchemaColumn::new(
+                Ok(SchemaColumn::new(
                     column.name.clone(),
                     column.kind.arrow_type(),
                     column.nullable,
                 )
-                .with_constraints(column.primary_key, false, column.max_length);
-                if column.kind == MySqlColumnKind::Json {
-                    schema = schema.with_arrow_extension(ARROW_JSON_EXTENSION_NAME);
-                }
-                schema
+                .with_constraints(column.primary_key, false, column.max_length)
+                .with_arrow_extension_metadata(
+                    column.kind.arrow_extension_name(),
+                    column.arrow_extension_metadata()?,
+                ))
             })
-            .collect(),
+            .collect::<anyhow::Result<Vec<_>>>()?,
     );
     if replication {
         let validate = || -> anyhow::Result<()> {
@@ -1365,18 +1517,42 @@ pub(crate) fn old_value_column_name(index: usize) -> String {
     format!("_system_old_value_{index}")
 }
 
-fn column_plan(row: &Row) -> anyhow::Result<ColumnPlan> {
+#[must_use]
+pub(crate) fn old_value_schema_column(index: usize, current: &SchemaColumn) -> SchemaColumn {
+    let mut old_value = SchemaColumn::new(
+        old_value_column_name(index),
+        current.data_type.clone(),
+        true,
+    )
+    .with_old_value_of(current.name.clone());
+    old_value.arrow_extension_name = current.arrow_extension_name;
+    old_value.arrow_extension_metadata = current.arrow_extension_metadata.clone();
+    old_value
+}
+
+fn column_plan(row: &Row, require_collation_padding: bool) -> anyhow::Result<ColumnPlan> {
     let name = required::<String>(row, "COLUMN_NAME")?;
     validate_identifier("column", &name)?;
     let data_type = required::<String>(row, "DATA_TYPE")?.to_ascii_lowercase();
     let column_type = required::<String>(row, "COLUMN_TYPE")?;
-    let column_type_lowercase = column_type.to_ascii_lowercase();
-    let nullable = required::<String>(row, "IS_NULLABLE")? == "YES";
+    let nullable = match required::<String>(row, "IS_NULLABLE")?.as_str() {
+        "YES" => true,
+        "NO" => false,
+        value => anyhow::bail!(
+            "MySQL metadata returned invalid nullability '{value}' for column '{name}'"
+        ),
+    };
     let primary_key_ordinal = required::<Option<u64>>(row, "SEQ_IN_INDEX")?;
     let primary_key = primary_key_ordinal.is_some();
-    let max_length = required::<Option<u64>>(row, "CHARACTER_MAXIMUM_LENGTH")?
+    let character_maximum_length = required::<Option<u64>>(row, "CHARACTER_MAXIMUM_LENGTH")?
         .map(usize::try_from)
         .transpose()?;
+    let character_octet_length = required::<Option<u64>>(row, "CHARACTER_OCTET_LENGTH")?
+        .map(usize::try_from)
+        .transpose()?;
+    let numeric_precision = required::<Option<u64>>(row, "NUMERIC_PRECISION")?;
+    let numeric_scale = required::<Option<u64>>(row, "NUMERIC_SCALE")?;
+    let datetime_precision = required::<Option<u64>>(row, "DATETIME_PRECISION")?;
     let character_set = required::<Option<String>>(row, "CHARACTER_SET_NAME")?;
     let collation = required::<Option<String>>(row, "COLLATION_NAME")?;
     let collation_id = required::<Option<u64>>(row, "COLLATION_ID")?
@@ -1387,23 +1563,142 @@ fn column_plan(row: &Row) -> anyhow::Result<ColumnPlan> {
                 "MySQL metadata returned a collation id outside the binlog protocol range for column '{name}'"
             )
         })?;
+    let collation_padding = required::<Option<String>>(row, "COLLATION_PADDING")?
+        .map(|value| parse_collation_padding(&name, &value))
+        .transpose()?;
     anyhow::ensure!(
         character_set.is_some() == collation.is_some()
-            && (collation_id.is_none() || collation.is_some()),
-        "MySQL metadata returned inconsistent character-set identity for column '{name}'"
+            && (collation_id.is_none() || collation.is_some())
+            && (collation_padding.is_none() || collation.is_some())
+            && (!require_collation_padding
+                || (collation.is_some() == collation_id.is_some()
+                    && collation.is_some() == collation_padding.is_some())),
+        "MySQL metadata returned inconsistent character-set, collation, numeric collation-id, and padding identity for column '{name}'"
     );
     let extra = required::<String>(row, "EXTRA")?;
     let generation_expression = required::<Option<String>>(row, "GENERATION_EXPRESSION")?;
+    let srs_id = required::<Option<u64>>(row, "SRS_ID")?
+        .map(u32::try_from)
+        .transpose()
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "MySQL metadata returned an SRS id outside the u32 range for column '{name}'"
+            )
+        })?;
     let primary_key_prefix_length = required::<Option<u64>>(row, "SUB_PART")?;
     let primary_key_direction = required::<Option<String>>(row, "COLLATION")?;
-    let unsigned = column_type_lowercase
-        .split_ascii_whitespace()
-        .any(|token| token == "unsigned");
-    let kind = match data_type.as_str() {
-        "tinyint" => if unsigned { MySqlColumnKind::UInt8 } else { MySqlColumnKind::Int8 },
-        "smallint" => if unsigned { MySqlColumnKind::UInt16 } else { MySqlColumnKind::Int16 },
-        "mediumint" | "int" | "integer" => if unsigned { MySqlColumnKind::UInt32 } else { MySqlColumnKind::Int32 },
-        "bigint" => if unsigned { MySqlColumnKind::UInt64 } else { MySqlColumnKind::Int64 },
+    let unsigned = has_column_type_modifier(&column_type, "unsigned");
+    let zerofill = has_column_type_modifier(&column_type, "zerofill");
+    let auto_increment = has_extra_modifier(&extra, "auto_increment");
+    anyhow::ensure!(
+        !zerofill || unsigned,
+        "MySQL metadata returned ZEROFILL without UNSIGNED for column '{name}'"
+    );
+    let enum_set_values = parse_enum_set_values(&data_type, &column_type)?;
+    let visibility = column_visibility(&extra);
+    let generation = column_generation(&extra, generation_expression.as_deref())?;
+    validate_structured_column_metadata(
+        &name,
+        &data_type,
+        character_maximum_length,
+        character_octet_length,
+        numeric_precision,
+        numeric_scale,
+        datetime_precision,
+        character_set.as_deref(),
+        srs_id,
+        enum_set_values.as_deref(),
+    )?;
+    let kind = mysql_column_kind(&data_type, unsigned, character_set.as_deref()).map_err(
+        |error| {
+            anyhow::anyhow!(
+                "unsupported MySQL/MariaDB column type '{data_type}' ({column_type}) for column '{name}': {error}"
+            )
+        },
+    )?;
+    let max_length = if matches!(
+        kind,
+        MySqlColumnKind::Binary | MySqlColumnKind::TextBytes
+    ) {
+        character_octet_length
+    } else if matches!(kind, MySqlColumnKind::EnumOrdinal | MySqlColumnKind::SetBits) {
+        None
+    } else {
+        character_maximum_length
+    };
+    let expression = snapshot_expression(&name, &data_type, kind);
+    Ok(ColumnPlan {
+        name,
+        data_type,
+        kind,
+        unsigned,
+        zerofill,
+        auto_increment,
+        nullable,
+        primary_key,
+        character_maximum_length,
+        character_octet_length,
+        numeric_precision,
+        numeric_scale,
+        datetime_precision,
+        max_length,
+        expression,
+        column_type,
+        character_set,
+        collation,
+        collation_id,
+        collation_padding,
+        enum_set_values,
+        srs_id,
+        visibility,
+        generation,
+        extra,
+        generation_expression,
+        primary_key_ordinal,
+        primary_key_prefix_length,
+        primary_key_direction,
+    })
+}
+
+pub(crate) fn mysql_column_kind(
+    data_type: &str,
+    unsigned: bool,
+    character_set: Option<&str>,
+) -> anyhow::Result<MySqlColumnKind> {
+    let text_is_utf8 = || match character_set {
+        Some("ascii" | "utf8mb3" | "utf8mb4") => Ok(true),
+        Some(_) => Ok(false),
+        None => anyhow::bail!("textual type has no declared character set"),
+    };
+    Ok(match data_type {
+        "tinyint" => {
+            if unsigned {
+                MySqlColumnKind::UInt8
+            } else {
+                MySqlColumnKind::Int8
+            }
+        }
+        "smallint" => {
+            if unsigned {
+                MySqlColumnKind::UInt16
+            } else {
+                MySqlColumnKind::Int16
+            }
+        }
+        "mediumint" | "int" | "integer" => {
+            if unsigned {
+                MySqlColumnKind::UInt32
+            } else {
+                MySqlColumnKind::Int32
+            }
+        }
+        "bigint" => {
+            if unsigned {
+                MySqlColumnKind::UInt64
+            } else {
+                MySqlColumnKind::Int64
+            }
+        }
         "float" => MySqlColumnKind::Float32,
         "double" | "real" => MySqlColumnKind::Float64,
         "bit" | "binary" | "varbinary" | "tinyblob" | "blob" | "mediumblob"
@@ -1412,39 +1707,327 @@ fn column_plan(row: &Row) -> anyhow::Result<ColumnPlan> {
         | "vector" => MySqlColumnKind::Binary,
         "json" => MySqlColumnKind::Json,
         "char" | "varchar" | "tinytext" | "text" | "mediumtext" | "longtext"
-        | "enum" | "set" | "inet4" | "inet6" | "uuid" => MySqlColumnKind::Utf8,
-        "date" => MySqlColumnKind::Date,
-        "datetime" => MySqlColumnKind::DateTime,
-        "timestamp" => MySqlColumnKind::TimestampUtc,
-        "decimal" | "numeric" | "time" | "year" => MySqlColumnKind::Utf8,
-        _ => anyhow::bail!(
-            "unsupported MySQL/MariaDB column type '{data_type}' ({column_type}) for column '{name}'"
-        ),
-    };
-    let quoted = quote_identifier(&name);
-    let canonical_text = matches!(data_type.as_str(), "decimal" | "numeric" | "time" | "year");
-    let expression = if canonical_text {
-        format!("CAST({quoted} AS CHAR) AS {quoted}")
-    } else {
-        quoted
-    };
-    Ok(ColumnPlan {
-        name,
-        kind,
-        nullable,
-        primary_key,
-        max_length,
-        expression,
-        column_type,
-        character_set,
-        collation,
-        collation_id,
-        extra,
-        generation_expression,
-        primary_key_ordinal,
-        primary_key_prefix_length,
-        primary_key_direction,
+        | "inet4" | "inet6" | "uuid" => {
+            if text_is_utf8()? {
+                MySqlColumnKind::Utf8
+            } else {
+                MySqlColumnKind::TextBytes
+            }
+        }
+        "enum" => MySqlColumnKind::EnumOrdinal,
+        "set" => MySqlColumnKind::SetBits,
+        "decimal" | "numeric" => MySqlColumnKind::DecimalText,
+        "date" => MySqlColumnKind::DateText,
+        "datetime" => MySqlColumnKind::DateTimeText,
+        "timestamp" => MySqlColumnKind::TimestampText,
+        "time" => MySqlColumnKind::TimeText,
+        "year" => MySqlColumnKind::YearText,
+        unsupported => anyhow::bail!("unknown physical family '{unsupported}'"),
     })
+}
+
+pub(crate) fn snapshot_expression(name: &str, data_type: &str, kind: MySqlColumnKind) -> String {
+    let quoted = quote_identifier(name);
+    match kind {
+        MySqlColumnKind::TextBytes if data_type == "char" => {
+            format!("CAST(RTRIM({quoted}) AS BINARY) AS {quoted}")
+        }
+        MySqlColumnKind::TextBytes => format!("CAST({quoted} AS BINARY) AS {quoted}"),
+        MySqlColumnKind::EnumOrdinal | MySqlColumnKind::SetBits => {
+            format!("CAST({quoted} AS UNSIGNED) AS {quoted}")
+        }
+        MySqlColumnKind::DecimalText
+        | MySqlColumnKind::DateText
+        | MySqlColumnKind::DateTimeText
+        | MySqlColumnKind::TimestampText
+        | MySqlColumnKind::TimeText
+        | MySqlColumnKind::YearText => format!("CAST({quoted} AS CHAR) AS {quoted}"),
+        _ => quoted,
+    }
+}
+
+fn parse_collation_padding(
+    column_name: &str,
+    value: &str,
+) -> anyhow::Result<MySqlCollationPadding> {
+    match value {
+        "PAD SPACE" => Ok(MySqlCollationPadding::PadSpace),
+        "NO PAD" => Ok(MySqlCollationPadding::NoPad),
+        other => anyhow::bail!(
+            "MySQL metadata returned unknown collation padding attribute '{other}' for column '{column_name}'"
+        ),
+    }
+}
+
+pub(crate) fn validate_snapshot_read_protocol(
+    read_protocol: MySqlReadProtocol,
+    columns: &[ColumnPlan],
+) -> anyhow::Result<()> {
+    if read_protocol == MySqlReadProtocol::Text {
+        if let Some(column) = columns
+            .iter()
+            .find(|column| column.kind == MySqlColumnKind::Float32)
+        {
+            anyhow::bail!(
+                "MySQL text snapshot protocol cannot preserve every exact IEEE-754 FLOAT value in column '{}'; use read_protocol='binary'",
+                column.name
+            );
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn has_column_type_modifier(column_type: &str, modifier: &str) -> bool {
+    column_type
+        .split_ascii_whitespace()
+        .any(|token| token.eq_ignore_ascii_case(modifier))
+}
+
+pub(crate) fn has_extra_modifier(extra: &str, modifier: &str) -> bool {
+    extra
+        .split_ascii_whitespace()
+        .any(|token| token.eq_ignore_ascii_case(modifier))
+}
+
+pub(crate) fn column_visibility(extra: &str) -> MySqlColumnVisibility {
+    if has_extra_modifier(extra, "invisible") {
+        MySqlColumnVisibility::Invisible
+    } else {
+        MySqlColumnVisibility::Visible
+    }
+}
+
+pub(crate) fn column_generation(
+    extra: &str,
+    generation_expression: Option<&str>,
+) -> anyhow::Result<MySqlColumnGeneration> {
+    let tokens = extra.split_ascii_whitespace().collect::<Vec<_>>();
+    let has_pair = |storage: &str| {
+        tokens.windows(2).any(|pair| {
+            pair[0].eq_ignore_ascii_case(storage)
+                && pair[1].eq_ignore_ascii_case("generated")
+        })
+    };
+    let virtual_generated = has_pair("virtual");
+    let stored_generated = has_pair("stored");
+    anyhow::ensure!(
+        !(virtual_generated && stored_generated),
+        "MySQL metadata marks one column as both VIRTUAL and STORED generated"
+    );
+    let expression_present = generation_expression.is_some_and(|value| !value.is_empty());
+    anyhow::ensure!(
+        expression_present == (virtual_generated || stored_generated),
+        "MySQL generated-column expression and EXTRA modifiers disagree"
+    );
+    Ok(if virtual_generated {
+        MySqlColumnGeneration::Virtual
+    } else if stored_generated {
+        MySqlColumnGeneration::Stored
+    } else {
+        MySqlColumnGeneration::None
+    })
+}
+
+#[allow(clippy::too_many_arguments, reason = "validates the exact INFORMATION_SCHEMA column tuple")]
+pub(crate) fn validate_structured_column_metadata(
+    name: &str,
+    data_type: &str,
+    character_maximum_length: Option<usize>,
+    character_octet_length: Option<usize>,
+    numeric_precision: Option<u64>,
+    numeric_scale: Option<u64>,
+    datetime_precision: Option<u64>,
+    character_set: Option<&str>,
+    srs_id: Option<u32>,
+    enum_set_values: Option<&[String]>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(!data_type.is_empty(), "MySQL column '{name}' has an empty DATA_TYPE");
+    let is_textual = matches!(
+        data_type,
+        "char"
+            | "varchar"
+            | "tinytext"
+            | "text"
+            | "mediumtext"
+            | "longtext"
+            | "enum"
+            | "set"
+            | "inet4"
+            | "inet6"
+            | "uuid"
+    );
+    anyhow::ensure!(
+        is_textual == character_set.is_some(),
+        "MySQL column '{name}' has inconsistent textual character-set metadata"
+    );
+    let has_character_capacity = matches!(
+        data_type,
+        "char"
+            | "varchar"
+            | "binary"
+            | "varbinary"
+            | "tinytext"
+            | "text"
+            | "mediumtext"
+            | "longtext"
+            | "tinyblob"
+            | "blob"
+            | "mediumblob"
+            | "longblob"
+            | "enum"
+            | "set"
+            | "inet4"
+            | "inet6"
+            | "uuid"
+    );
+    if has_character_capacity {
+        anyhow::ensure!(
+            character_maximum_length.is_some() && character_octet_length.is_some(),
+            "MySQL string column '{name}' omits character or octet length"
+        );
+    }
+    if let (Some(characters), Some(octets)) =
+        (character_maximum_length, character_octet_length)
+    {
+        anyhow::ensure!(
+            octets >= characters,
+            "MySQL column '{name}' has CHARACTER_OCTET_LENGTH below CHARACTER_MAXIMUM_LENGTH"
+        );
+    }
+    anyhow::ensure!(
+        numeric_scale.is_none() || numeric_precision.is_some(),
+        "MySQL numeric column '{name}' has scale without precision"
+    );
+    let is_numeric = matches!(
+        data_type,
+        "tinyint"
+            | "smallint"
+            | "mediumint"
+            | "int"
+            | "integer"
+            | "bigint"
+            | "decimal"
+            | "numeric"
+            | "float"
+            | "double"
+            | "real"
+            | "bit"
+    );
+    anyhow::ensure!(
+        is_numeric == numeric_precision.is_some(),
+        "MySQL column '{name}' has inconsistent numeric precision metadata"
+    );
+    anyhow::ensure!(
+        !matches!(data_type, "decimal" | "numeric") || numeric_scale.is_some(),
+        "MySQL exact numeric column '{name}' omits scale"
+    );
+    let has_fractional_seconds = matches!(data_type, "datetime" | "timestamp" | "time");
+    anyhow::ensure!(
+        has_fractional_seconds == datetime_precision.is_some(),
+        "MySQL column '{name}' has inconsistent temporal precision metadata"
+    );
+    anyhow::ensure!(
+        datetime_precision.is_none_or(|precision| precision <= 6),
+        "MySQL temporal column '{name}' has fractional precision above 6"
+    );
+    let is_enum_set = matches!(data_type, "enum" | "set");
+    anyhow::ensure!(
+        is_enum_set == enum_set_values.is_some(),
+        "MySQL column '{name}' has inconsistent ENUM/SET declaration metadata"
+    );
+    let is_spatial = matches!(
+        data_type,
+        "geometry"
+            | "point"
+            | "linestring"
+            | "polygon"
+            | "multipoint"
+            | "multilinestring"
+            | "multipolygon"
+            | "geometrycollection"
+    );
+    anyhow::ensure!(
+        srs_id.is_none() || is_spatial,
+        "MySQL non-spatial column '{name}' has an SRS id"
+    );
+    Ok(())
+}
+
+pub(crate) fn parse_enum_set_values(
+    data_type: &str,
+    column_type: &str,
+) -> anyhow::Result<Option<Vec<String>>> {
+    if !matches!(data_type, "enum" | "set") {
+        return Ok(None);
+    }
+    let prefix = format!("{data_type}(");
+    anyhow::ensure!(
+        column_type
+            .get(..prefix.len())
+            .is_some_and(|actual| actual.eq_ignore_ascii_case(&prefix))
+            && column_type.ends_with(')'),
+        "MySQL {data_type} COLUMN_TYPE has invalid framing"
+    );
+    let input = &column_type.as_bytes()[prefix.len()..column_type.len() - 1];
+    let mut offset = 0;
+    let mut values = Vec::new();
+    while offset < input.len() {
+        anyhow::ensure!(
+            input[offset] == b'\'',
+            "MySQL {data_type} COLUMN_TYPE member is not quoted"
+        );
+        offset += 1;
+        let mut value = Vec::new();
+        loop {
+            let byte = *input.get(offset).ok_or_else(|| {
+                anyhow::anyhow!("MySQL {data_type} COLUMN_TYPE has an unterminated member")
+            })?;
+            offset += 1;
+            match byte {
+                b'\'' if input.get(offset) == Some(&b'\'') => {
+                    value.push(b'\'');
+                    offset += 1;
+                }
+                b'\'' => break,
+                b'\\' => {
+                    let escaped = *input.get(offset).ok_or_else(|| {
+                        anyhow::anyhow!("MySQL {data_type} COLUMN_TYPE ends in an escape")
+                    })?;
+                    offset += 1;
+                    value.push(match escaped {
+                        b'0' => 0,
+                        b'b' => 8,
+                        b'n' => b'\n',
+                        b'r' => b'\r',
+                        b't' => b'\t',
+                        b'Z' => 26,
+                        escaped => escaped,
+                    });
+                }
+                byte => value.push(byte),
+            }
+        }
+        values.push(String::from_utf8(value).map_err(|error| {
+            anyhow::anyhow!("MySQL {data_type} COLUMN_TYPE member is not valid UTF-8: {error}")
+        })?);
+        if offset == input.len() {
+            break;
+        }
+        anyhow::ensure!(
+            input[offset] == b',',
+            "MySQL {data_type} COLUMN_TYPE members are not comma-separated"
+        );
+        offset += 1;
+        anyhow::ensure!(
+            offset < input.len(),
+            "MySQL {data_type} COLUMN_TYPE has a trailing comma"
+        );
+    }
+    anyhow::ensure!(
+        !values.is_empty(),
+        "MySQL {data_type} COLUMN_TYPE has no members"
+    );
+    Ok(Some(values))
 }
 
 fn required<T>(row: &Row, name: &str) -> anyhow::Result<T>

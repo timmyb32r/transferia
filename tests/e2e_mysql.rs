@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context as _;
-use arrow::array::{Array, ArrayRef, BinaryArray, StringArray, UInt64Array};
+use arrow::array::{Array, ArrayRef, BinaryArray, Float32Array, StringArray, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use mysql_async::prelude::Queryable as _;
@@ -64,11 +64,12 @@ async fn wait_for_mysql(config: &MySqlConnectionConfig) -> anyhow::Result<mysql_
 async fn read_mysql_snapshot(
     host: &str,
     port: u16,
+    table: &str,
     read_protocol: &str,
 ) -> anyhow::Result<(DeliveryDiscovery, Vec<RecordBatch>)> {
     let source = MySqlSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: root\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: {read_protocol}\ntables:\n  - name: all_types\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: root\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: {read_protocol}\ntables:\n  - name: {table}\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -193,10 +194,40 @@ async fn assert_mysql_family_source(image: GenericImage, password_env: &str) -> 
                 NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
         )
         .await?;
+    connection
+        .query_drop(
+            "CREATE TABLE protocol_parity (\
+                id BIGINT UNSIGNED PRIMARY KEY, signed_value BIGINT, \
+                unsigned_value BIGINT UNSIGNED, double_value DOUBLE, \
+                decimal_value DECIMAL(65, 30), binary_value VARBINARY(16), \
+                text_value VARCHAR(255), date_value DATE, datetime_value DATETIME(6)\
+            )",
+        )
+        .await?;
+    connection
+        .query_drop(
+            "INSERT INTO protocol_parity VALUES (\
+                18446744073709551615, -9223372036854775808, \
+                18446744073709551615, -3.25, \
+                99999999999999999999999999999999999.123456789012345678901234567890, \
+                X'00FF', 'utf8 text', '2024-02-29', '2024-02-29 12:34:56.123456'\
+            ), (1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+        )
+        .await?;
     connection.disconnect().await?;
 
-    let (discovery, batches) = read_mysql_snapshot(&host, port, "text").await?;
-    let (binary_discovery, binary_batches) = read_mysql_snapshot(&host, port, "binary").await?;
+    let text_float_error = read_mysql_snapshot(&host, port, "all_types", "text")
+        .await
+        .expect_err("text protocol must reject FLOAT before source construction");
+    assert!(
+        text_float_error.to_string().contains("FLOAT"),
+        "unexpected text+FLOAT diagnostic: {text_float_error:#}"
+    );
+    let (discovery, batches) = read_mysql_snapshot(&host, port, "all_types", "binary").await?;
+    let (text_parity_discovery, text_parity_batches) =
+        read_mysql_snapshot(&host, port, "protocol_parity", "text").await?;
+    let (binary_parity_discovery, binary_parity_batches) =
+        read_mysql_snapshot(&host, port, "protocol_parity", "binary").await?;
     assert!(matches!(
         discovery.source_topology,
         SourceTopology::StaticPartitions(ref partitions) if partitions == &[0]
@@ -235,20 +266,20 @@ async fn assert_mysql_family_source(image: GenericImage, password_env: &str) -> 
         2
     );
     assert_eq!(
-        binary_batches
+        text_parity_batches
             .iter()
             .map(|batch| batch.num_rows())
             .sum::<usize>(),
         2
     );
     assert_eq!(
-        dataset.stored_schema.columns.len(),
-        binary_discovery.datasets[0].stored_schema.columns.len()
+        text_parity_discovery.datasets[0].stored_schema.columns.len(),
+        binary_parity_discovery.datasets[0].stored_schema.columns.len()
     );
     assert_user_batches_equal(
-        dataset.stored_schema.columns.len(),
-        batches.clone(),
-        binary_batches,
+        text_parity_discovery.datasets[0].stored_schema.columns.len(),
+        text_parity_batches,
+        binary_parity_batches,
     );
     let populated = batches
         .iter()
@@ -259,6 +290,17 @@ async fn assert_mysql_family_source(image: GenericImage, password_env: &str) -> 
                 .is_some_and(|column| column.value(0) == u64::MAX)
         })
         .unwrap();
+    assert_eq!(
+        populated
+            .column_by_name("float_value")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap()
+            .value(0)
+            .to_bits(),
+        1.5_f32.to_bits()
+    );
     assert_eq!(
         populated
             .column_by_name("decimal_value")

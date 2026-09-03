@@ -54,7 +54,7 @@ pub struct MySqlSourceConfig {
     #[serde(default)]
     #[schemars(
         title = "Read protocol",
-        description = "MySQL wire protocol used for snapshot rows. Binary is the measured high-throughput default; text remains available for comparison and compatibility diagnostics.",
+        description = "MySQL wire protocol used for snapshot rows. Binary is the lossless measured high-throughput default. Text remains available for supported schemas, but discovery rejects FLOAT columns because MySQL text formatting cannot preserve every f32 value exactly.",
         extend("x-ui" = { "section": "advanced" })
     )]
     pub read_protocol: MySqlReadProtocol,

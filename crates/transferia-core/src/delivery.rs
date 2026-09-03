@@ -5,8 +5,9 @@ use schemars::JsonSchema;
 use serde::Serialize;
 
 use crate::data::schema::{
-    DatasetSchema, META_LOW_CARDINALITY, META_MAX_LENGTH, META_OLD_KEY_OF, META_OLD_VALUE_OF,
-    META_PRIMARY_KEY, META_SYSTEM_ROLE,
+    DatasetSchema, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME,
+    META_LOW_CARDINALITY, META_MAX_LENGTH, META_OLD_KEY_OF, META_OLD_VALUE_OF, META_PRIMARY_KEY,
+    META_SYSTEM_ROLE,
 };
 use crate::data::system_columns::SystemColumnKind;
 use crate::sink::SinkBatch;
@@ -370,7 +371,11 @@ pub fn validate_batch_against_discovery<'a>(
                         .as_deref()
                 && metadata.get(META_OLD_VALUE_OF) == expected_column.old_value_of.as_ref()
                 && metadata.get(META_OLD_KEY_OF) == expected_column.old_key_of.as_ref()
-                && metadata.get(META_SYSTEM_ROLE) == expected_column.system_role.as_ref(),
+                && metadata.get(META_SYSTEM_ROLE) == expected_column.system_role.as_ref()
+                && metadata.get(META_ARROW_EXTENSION_NAME).map(String::as_str)
+                    == expected_column.arrow_extension_name
+                && metadata.get(META_ARROW_EXTENSION_METADATA)
+                    == expected_column.arrow_extension_metadata.as_ref(),
             "runtime dataset '{}' column '{}' metadata does not match discovery",
             batch.table,
             actual.name(),
@@ -508,6 +513,8 @@ pub fn validate_stored_projection(
                         && stored.primary_key == incoming.primary_key
                         && stored.low_cardinality == incoming.low_cardinality
                         && stored.max_length == incoming.max_length
+                        && stored.arrow_extension_name == incoming.arrow_extension_name
+                        && stored.arrow_extension_metadata == incoming.arrow_extension_metadata
                         && stored.old_value_of.is_none()
                         && stored.old_key_of.is_none()
                         && stored.system_role.is_none()
@@ -648,6 +655,8 @@ fn validate_cdc_control_column(
         control.old_value_of.is_some() != control.old_key_of.is_some()
             && control.name != current_name
             && control.data_type == current.data_type
+            && control.arrow_extension_name == current.arrow_extension_name
+            && control.arrow_extension_metadata == current.arrow_extension_metadata
             && control.nullable
             && !control.primary_key
             && !control.low_cardinality

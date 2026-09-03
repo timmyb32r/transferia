@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use arrow::array::{Array as _, BinaryArray, Int64Array, StringArray};
-use arrow::datatypes::Schema;
+use arrow::datatypes::{DataType, Schema};
 use mysql_async::prelude::Queryable as _;
 use testcontainers::core::{IntoContainerPort as _, WaitFor};
 use testcontainers::runners::AsyncRunner as _;
@@ -23,7 +23,8 @@ use transferia_connector_mysql::mysql::{
 };
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{
-    META_OLD_VALUE_OF, META_SYSTEM_ROLE, SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
+    META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME, META_CHANGE_OPERATION,
+    META_OLD_KEY_OF, META_OLD_VALUE_OF, META_SYSTEM_ROLE, SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
     SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
     SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
@@ -492,6 +493,330 @@ async fn exact_snapshot_boundary_has_no_gap_overlap_or_duplicate() -> anyhow::Re
     assert_eq!(snapshot.schemas, changes.schemas);
     stream.commit_offsets(&[delivery.marker]).await?;
     stream.shutdown().await?;
+    admin.disconnect().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn exhaustive_physical_types_match_snapshot_and_binlog_exactly() -> anyhow::Result<()> {
+    let fixture = MySqlFixture::mysql(MySqlServerMode::ReplicationReady).await?;
+    let mut admin = fixture.connection().await?;
+    exec_all(
+        &mut admin,
+        &[
+            "SET SESSION sql_mode = ''",
+            "SET SESSION time_zone = '+00:00'",
+            "SET GLOBAL sql_mode = 'PAD_CHAR_TO_FULL_LENGTH'",
+            "CREATE TABLE type_parity (\
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, \
+                i8 TINYINT NOT NULL, u8 TINYINT UNSIGNED ZEROFILL NOT NULL, \
+                i16 SMALLINT NOT NULL, u16 SMALLINT UNSIGNED NOT NULL, \
+                i24 MEDIUMINT NOT NULL, u24 MEDIUMINT UNSIGNED NOT NULL, \
+                i32 INT NOT NULL, u32 INT UNSIGNED NOT NULL, \
+                i64 BIGINT NOT NULL, u64 BIGINT UNSIGNED NOT NULL, \
+                f32 FLOAT NOT NULL, f64 DOUBLE NOT NULL, \
+                dec65 DECIMAL(65,30) NOT NULL, \
+                bit1 BIT(1) NOT NULL, bit9 BIT(9) NOT NULL, bit64 BIT(64) NOT NULL, \
+                bin_fixed BINARY(4) NOT NULL, var_bin VARBINARY(8) NOT NULL, \
+                blob_value BLOB NOT NULL, \
+                utf8_value VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \
+                latin1_value VARCHAR(8) CHARACTER SET latin1 COLLATE latin1_bin NOT NULL, \
+                char_utf8 CHAR(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \
+                char_latin1 CHAR(4) CHARACTER SET latin1 COLLATE latin1_bin NOT NULL, \
+                date_valid DATE NOT NULL, date_zero DATE NOT NULL, date_partial DATE NOT NULL, \
+                datetime_valid DATETIME(6) NOT NULL, datetime_zero DATETIME(6) NOT NULL, \
+                datetime_partial DATETIME(6) NOT NULL, timestamp_valid TIMESTAMP(6) NOT NULL, \
+                timestamp_zero TIMESTAMP(6) NOT NULL, \
+                time_negative TIME(6) NOT NULL, year_zero YEAR NOT NULL, year_valid YEAR NOT NULL, \
+                enum_utf8 ENUM('', 'plain', 'quote''value') CHARACTER SET utf8mb4 NOT NULL, \
+                enum_empty ENUM('', 'plain') CHARACTER SET utf8mb4 NOT NULL, \
+                enum_bytes ENUM('plain', 'ÿ') CHARACTER SET latin1 COLLATE latin1_bin NOT NULL, \
+                set_utf8 SET('alpha', 'beta', 'quote''value') CHARACTER SET utf8mb4 NOT NULL, \
+                set_empty SET('alpha', 'beta') CHARACTER SET utf8mb4 NOT NULL, \
+                json_value JSON NOT NULL, \
+                point_value POINT SRID 4326 NOT NULL, \
+                stored_generated BIGINT GENERATED ALWAYS AS (i32 + 1) STORED, \
+                secret VARBINARY(4) INVISIBLE NOT NULL, nullable_utf8 VARCHAR(8) NULL, \
+                PRIMARY KEY (id)\
+            ) ENGINE=InnoDB",
+            "CREATE TABLE unsupported_virtual (\
+                id BIGINT NOT NULL PRIMARY KEY, value INT NOT NULL, \
+                derived INT GENERATED ALWAYS AS (value + 1) VIRTUAL\
+            ) ENGINE=InnoDB",
+            "INSERT INTO type_parity (\
+                id, i8, u8, i16, u16, i24, u24, i32, u32, i64, u64, f32, f64, dec65, \
+                bit1, bit9, bit64, bin_fixed, var_bin, blob_value, utf8_value, latin1_value, \
+                char_utf8, char_latin1, \
+                date_valid, date_zero, date_partial, datetime_valid, datetime_zero, \
+                datetime_partial, timestamp_valid, timestamp_zero, time_negative, year_zero, year_valid, \
+                enum_utf8, enum_empty, enum_bytes, set_utf8, set_empty, json_value, \
+                point_value, secret, nullable_utf8\
+            ) VALUES (\
+                1, -128, 255, -32768, 65535, -8388608, 16777215, -2147483648, 4294967295, \
+                -9223372036854775808, 18446744073709551615, 1.5, -3.25, \
+                12345678901234567890123456789012345.123456789012345678901234567890, \
+                b'1', b'101010101', 0xFEDCBA9876543210, 0x00FF, 0x00FF7F, 0x000102FF, \
+                _utf8mb4'text 🙂', _latin1 0x80FF, _utf8mb4'a b', _latin1 0x80, \
+                '2024-02-29', '0000-00-00', '2024-00-15', \
+                '2024-02-29 23:59:58.123456', '0000-00-00 00:00:00.000000', \
+                '2024-00-15 12:34:56.000001', '2038-01-19 03:14:07.499999', \
+                '0000-00-00 00:00:00.000000', \
+                '-123:45:56.123456', 0, 2155, 'quote''value', '', _latin1 0xFF, \
+                'alpha,quote''value', '', \
+                JSON_OBJECT(\
+                    'array', JSON_ARRAY(1, TRUE, NULL, _utf8mb4'🙂'), \
+                    'double_fixed_high', CAST(1e15 AS DOUBLE), \
+                    'double_scientific_high', CAST(1e16 AS DOUBLE), \
+                    'double_fixed_low', CAST(1e-15 AS DOUBLE), \
+                    'double_scientific_low', CAST(1e-16 AS DOUBLE), \
+                    'double_large', CAST(1e200 AS DOUBLE), \
+                    'double_negative_zero', CAST('-0' AS DOUBLE), \
+                    'decimal', CAST('12345678901234567890.12345678901234567890' AS DECIMAL(40,20)), \
+                    'date', CAST('2024-02-29' AS DATE), \
+                    'datetime', CAST('2024-02-29 23:59:58.123456' AS DATETIME(6)), \
+                    'time', CAST('-123:45:56.123456' AS TIME(6)), \
+                    'opaque_binary', CAST(_binary 0x5100FF AS BINARY)\
+                ), \
+                ST_SRID(POINT(-7.25, 12.5), 4326), 0x00FF7F, NULL\
+            )",
+        ],
+    )
+    .await?;
+
+    let config = source_yaml(
+        &fixture.source,
+        &["type_parity"],
+        Some(FIRST_REPLICA_SERVER_ID + 20),
+    );
+    let connector = mysql_connector(&config)?;
+    let durable = TestDurable::new("mysql-exhaustive-type-parity");
+    let cancellation = CancellationToken::new();
+    let preview = connector
+        .delivery_discovery(discovery_context(
+            DeliveryType::BatchAndStream,
+            &cancellation,
+        ))
+        .await?;
+    let phases = connector.execution_phases(DeliveryType::BatchAndStream, &preview)?;
+    let prepared = connector
+        .prepare_execution(execution_context(
+            DeliveryType::BatchAndStream,
+            &durable.context,
+            &cancellation,
+        ))
+        .await?
+        .context("type parity source did not prepare an exact snapshot")?;
+    assert_eq!(prepared.remaining_phases, phases);
+
+    admin
+        .query_drop(
+            "INSERT INTO type_parity (\
+                id, i8, u8, i16, u16, i24, u24, i32, u32, i64, u64, f32, f64, dec65, \
+                bit1, bit9, bit64, bin_fixed, var_bin, blob_value, utf8_value, latin1_value, \
+                char_utf8, char_latin1, \
+                date_valid, date_zero, date_partial, datetime_valid, datetime_zero, \
+                datetime_partial, timestamp_valid, timestamp_zero, time_negative, year_zero, year_valid, \
+                enum_utf8, enum_empty, enum_bytes, set_utf8, set_empty, json_value, \
+                point_value, secret, nullable_utf8\
+            ) SELECT \
+                2, i8, u8, i16, u16, i24, u24, i32, u32, i64, u64, f32, f64, dec65, \
+                bit1, bit9, bit64, bin_fixed, var_bin, blob_value, utf8_value, latin1_value, \
+                char_utf8, char_latin1, \
+                date_valid, date_zero, date_partial, datetime_valid, datetime_zero, \
+                datetime_partial, timestamp_valid, timestamp_zero, time_negative, year_zero, year_valid, \
+                enum_utf8, enum_empty, enum_bytes, set_utf8, set_empty, json_value, \
+                point_value, secret, nullable_utf8 \
+            FROM type_parity WHERE id = 1",
+        )
+        .await?;
+
+    let snapshot = read_one_snapshot_table(
+        &connector,
+        &prepared.discovery,
+        &durable.context,
+        &cancellation,
+        "type_parity",
+    )
+    .await?;
+    assert_mysql_extension(
+        &snapshot,
+        "id",
+        &DataType::UInt64,
+        "transferia.mysql.unsigned_integer",
+        &[("unsigned", serde_json::Value::Bool(true))],
+    )?;
+    assert_mysql_extension(
+        &snapshot,
+        "u8",
+        &DataType::UInt8,
+        "transferia.mysql.unsigned_integer",
+        &[("zerofill", serde_json::Value::Bool(true))],
+    )?;
+    assert_mysql_extension(
+        &snapshot,
+        "dec65",
+        &DataType::Utf8,
+        "transferia.mysql.decimal",
+        &[
+            ("numeric_precision", serde_json::Value::from(65_u64)),
+            ("numeric_scale", serde_json::Value::from(30_u64)),
+        ],
+    )?;
+    assert_mysql_extension(
+        &snapshot,
+        "latin1_value",
+        &DataType::Binary,
+        "transferia.mysql.text_bytes",
+        &[(
+            "character_set",
+            serde_json::Value::String("latin1".to_owned()),
+        )],
+    )?;
+    assert_mysql_extension(
+        &snapshot,
+        "char_utf8",
+        &DataType::Utf8,
+        "transferia.mysql.text",
+        &[(
+            "collation_padding",
+            serde_json::Value::String("pad_space".to_owned()),
+        )],
+    )?;
+    assert_mysql_extension(
+        &snapshot,
+        "char_latin1",
+        &DataType::Binary,
+        "transferia.mysql.text_bytes",
+        &[(
+            "collation_padding",
+            serde_json::Value::String("pad_space".to_owned()),
+        )],
+    )?;
+    assert_mysql_extension(
+        &snapshot,
+        "date_zero",
+        &DataType::Utf8,
+        "transferia.mysql.date",
+        &[],
+    )?;
+    assert_mysql_extension(
+        &snapshot,
+        "json_value",
+        &DataType::Utf8,
+        "arrow.json",
+        &[],
+    )?;
+    assert_mysql_extension(
+        &snapshot,
+        "enum_empty",
+        &DataType::UInt16,
+        "transferia.mysql.enum",
+        &[(
+            "enum_set_values",
+            serde_json::json!(["", "plain"]),
+        )],
+    )?;
+    assert_mysql_extension(
+        &snapshot,
+        "set_utf8",
+        &DataType::UInt64,
+        "transferia.mysql.set",
+        &[(
+            "enum_set_values",
+            serde_json::json!(["alpha", "beta", "quote'value"]),
+        )],
+    )?;
+    assert_mysql_extension(
+        &snapshot,
+        "point_value",
+        &DataType::Binary,
+        "transferia.mysql.binary",
+        &[("srs_id", serde_json::Value::from(4_326_u64))],
+    )?;
+    assert_mysql_extension(
+        &snapshot,
+        "stored_generated",
+        &DataType::Int64,
+        "transferia.mysql.signed_integer",
+        &[(
+            "generation",
+            serde_json::Value::String("stored".to_owned()),
+        )],
+    )?;
+    assert_mysql_extension(
+        &snapshot,
+        "secret",
+        &DataType::Binary,
+        "transferia.mysql.binary",
+        &[(
+            "visibility",
+            serde_json::Value::String("invisible".to_owned()),
+        )],
+    )?;
+    connector
+        .complete_execution_phase(
+            SourcePhase::Snapshot,
+            durable.context.clone(),
+            cancellation.child_token(),
+        )
+        .await?;
+    let mut stream = connector
+        .build_source(build_context(
+            DeliveryType::BatchAndStream,
+            SourcePhase::Stream,
+            0,
+            &durable.context,
+            &cancellation,
+        ))
+        .await?;
+
+    let inserted = read_nonempty(&mut stream).await?;
+    let inserted_table = take_only_table(inserted.tables, "type_parity")?;
+    anyhow::ensure!(
+        snapshot.batch.schema() == inserted_table.batch.schema(),
+        "MySQL snapshot and binlog emitted different Arrow schemas"
+    );
+    assert_user_columns_equal(&snapshot, 0, &inserted_table, 0, &["id"])?;
+    assert_old_values_are_null_and_typed(&inserted_table, 0)?;
+    assert_operation(&inserted_table, 0, "c")?;
+    stream.commit_offsets(&[inserted.marker]).await?;
+
+    admin
+        .query_drop("UPDATE type_parity SET id = 3 WHERE id = 2")
+        .await?;
+    let updated = read_nonempty(&mut stream).await?;
+    let updated_table = take_only_table(updated.tables, "type_parity")?;
+    assert_user_columns_equal(&inserted_table, 0, &updated_table, 0, &["id"])?;
+    assert_old_values_equal_current(&inserted_table, 0, &updated_table, 0)?;
+    assert_operation(&updated_table, 0, "u")?;
+    stream.commit_offsets(&[updated.marker]).await?;
+
+    admin.query_drop("DELETE FROM type_parity WHERE id = 3").await?;
+    let deleted = read_nonempty(&mut stream).await?;
+    let deleted_table = take_only_table(deleted.tables, "type_parity")?;
+    assert_user_columns_equal(&updated_table, 0, &deleted_table, 0, &[])?;
+    assert_old_values_equal_current(&updated_table, 0, &deleted_table, 0)?;
+    assert_operation(&deleted_table, 0, "d")?;
+    stream.commit_offsets(&[deleted.marker]).await?;
+
+    stream.shutdown().await?;
+    let unsupported = source_yaml(
+        &fixture.source,
+        &["unsupported_virtual"],
+        Some(FIRST_REPLICA_SERVER_ID + 21),
+    );
+    let unsupported_durable = TestDurable::new("mysql-unsupported-virtual-column");
+    let diagnostic = reject_before_execution(
+        &unsupported,
+        DeliveryType::BatchAndStream,
+        &unsupported_durable,
+        &cancellation,
+    )
+    .await?
+    .to_lowercase();
+    assert!(diagnostic.contains("virtual"), "{diagnostic}");
+    assert!(diagnostic.contains("generated"), "{diagnostic}");
+    assert!(unsupported_durable.is_empty());
     admin.disconnect().await?;
     Ok(())
 }
@@ -1205,6 +1530,55 @@ async fn read_snapshot(
     Ok(observed)
 }
 
+async fn read_one_snapshot_table(
+    connector: &MySqlSourceConnector,
+    discovery: &DeliveryDiscovery,
+    durable: &DurableContext,
+    cancellation: &CancellationToken,
+    expected_table: &str,
+) -> anyhow::Result<TableData> {
+    let partitions = snapshot_partitions(discovery)?;
+    anyhow::ensure!(
+        partitions.len() == 1,
+        "single-table MySQL fixture exposed {} snapshot partitions",
+        partitions.len()
+    );
+    let mut source = connector
+        .build_source(build_context(
+            DeliveryType::BatchAndStream,
+            SourcePhase::Snapshot,
+            partitions[0],
+            durable,
+            cancellation,
+        ))
+        .await?;
+    let table = match source.read_batch().await? {
+        SourceBatch::Typed {
+            tables,
+            source_rows: 1,
+            commit_marker,
+            ..
+        } => {
+            if let Some(marker) = commit_marker {
+                source.commit_offsets(&[marker]).await?;
+            }
+            take_only_table(tables, expected_table)?
+        }
+        SourceBatch::Typed { source_rows, .. } => {
+            anyhow::bail!("type-parity snapshot returned {source_rows} rows instead of one")
+        }
+        SourceBatch::Raw { .. } | SourceBatch::Finished => {
+            anyhow::bail!("type-parity snapshot returned raw or empty data")
+        }
+    };
+    anyhow::ensure!(
+        matches!(source.read_batch().await?, SourceBatch::Finished),
+        "type-parity snapshot returned more than one batch"
+    );
+    source.shutdown().await?;
+    Ok(table)
+}
+
 async fn read_nonempty(source: &mut Box<dyn Source>) -> anyhow::Result<TypedSourceBatch> {
     tokio::time::timeout(TEST_TIMEOUT, async {
         loop {
@@ -1326,6 +1700,221 @@ fn assert_same_deterministic_tables(expected: &[TableData], actual: &[TableData]
             );
         }
     }
+}
+
+fn take_only_table(mut tables: Vec<TableData>, expected_table: &str) -> anyhow::Result<TableData> {
+    anyhow::ensure!(
+        tables.len() == 1,
+        "expected one '{expected_table}' table batch, got {}",
+        tables.len()
+    );
+    let table = tables.pop().context("one-table batch was empty")?;
+    anyhow::ensure!(
+        table.table.to_string() == expected_table,
+        "expected table '{expected_table}', got '{}'",
+        table.table
+    );
+    Ok(table)
+}
+
+fn assert_user_columns_equal(
+    expected: &TableData,
+    expected_row: usize,
+    actual: &TableData,
+    actual_row: usize,
+    excluded_names: &[&str],
+) -> anyhow::Result<()> {
+    let expected_schema = expected.batch.schema();
+    let actual_schema = actual.batch.schema();
+    for (expected_index, expected_field) in expected_schema.fields().iter().enumerate() {
+        if !is_mysql_user_current_field(expected_field)
+            || excluded_names.contains(&expected_field.name().as_str())
+        {
+            continue;
+        }
+        let actual_index = actual_schema.index_of(expected_field.name())?;
+        let actual_field = actual_schema.field(actual_index);
+        anyhow::ensure!(
+            expected_field.as_ref() == actual_field,
+            "MySQL field '{}' changed between snapshot and binlog: expected {expected_field:?}, got {actual_field:?}",
+            expected_field.name()
+        );
+        anyhow::ensure!(
+            expected_field.metadata().contains_key(META_ARROW_EXTENSION_NAME)
+                && expected_field
+                    .metadata()
+                    .contains_key(META_ARROW_EXTENSION_METADATA),
+            "MySQL user field '{}' omitted its physical extension metadata",
+            expected_field.name()
+        );
+        let expected_value = expected
+            .batch
+            .column(expected_index)
+            .slice(expected_row, 1)
+            .to_data();
+        let actual_value = actual
+            .batch
+            .column(actual_index)
+            .slice(actual_row, 1)
+            .to_data();
+        anyhow::ensure!(
+            expected_value == actual_value,
+            "MySQL field '{}' changed value between snapshot and binlog: expected {expected_value:?}, got {actual_value:?}",
+            expected_field.name()
+        );
+    }
+    Ok(())
+}
+
+fn assert_mysql_extension(
+    table: &TableData,
+    column: &str,
+    data_type: &DataType,
+    extension_name: &str,
+    expected_metadata: &[(&str, serde_json::Value)],
+) -> anyhow::Result<()> {
+    let schema = table.batch.schema();
+    let field = schema.field_with_name(column)?;
+    anyhow::ensure!(
+        field.data_type() == data_type,
+        "MySQL column '{column}' uses Arrow {:?}, expected {data_type:?}",
+        field.data_type()
+    );
+    anyhow::ensure!(
+        field
+            .metadata()
+            .get(META_ARROW_EXTENSION_NAME)
+            .map(String::as_str)
+            == Some(extension_name),
+        "MySQL column '{column}' has the wrong Arrow extension name"
+    );
+    let payload = field
+        .metadata()
+        .get(META_ARROW_EXTENSION_METADATA)
+        .with_context(|| format!("MySQL column '{column}' omitted extension metadata"))?;
+    let payload: serde_json::Value = serde_json::from_str(payload)
+        .with_context(|| format!("MySQL column '{column}' extension metadata is not JSON"))?;
+    anyhow::ensure!(
+        payload.get("version") == Some(&serde_json::Value::from(1_u64)),
+        "MySQL column '{column}' has an unknown extension metadata version"
+    );
+    for (key, expected) in expected_metadata {
+        anyhow::ensure!(
+            payload.get(*key) == Some(expected),
+            "MySQL column '{column}' extension metadata key '{key}' is {:?}, expected {expected:?}",
+            payload.get(*key)
+        );
+    }
+    Ok(())
+}
+
+fn assert_old_values_are_null_and_typed(table: &TableData, row: usize) -> anyhow::Result<()> {
+    let schema = table.batch.schema();
+    for current in schema.fields().iter().filter(|field| is_mysql_user_current_field(field)) {
+        let old_index = old_value_index(table, current.name())?;
+        let old = schema.field(old_index);
+        assert_old_field_matches_current(current, old)?;
+        anyhow::ensure!(
+            table.batch.column(old_index).is_null(row),
+            "MySQL INSERT unexpectedly carried an old value for '{}'",
+            current.name()
+        );
+    }
+    Ok(())
+}
+
+fn assert_old_values_equal_current(
+    expected_current: &TableData,
+    expected_row: usize,
+    actual: &TableData,
+    actual_row: usize,
+) -> anyhow::Result<()> {
+    let expected_schema = expected_current.batch.schema();
+    let actual_schema = actual.batch.schema();
+    for (current_index, current) in expected_schema
+        .fields()
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| is_mysql_user_current_field(field))
+    {
+        let old_index = old_value_index(actual, current.name())?;
+        let old = actual_schema.field(old_index);
+        assert_old_field_matches_current(current, old)?;
+        anyhow::ensure!(
+            expected_current
+                .batch
+                .column(current_index)
+                .slice(expected_row, 1)
+                .to_data()
+                == actual
+                    .batch
+                    .column(old_index)
+                    .slice(actual_row, 1)
+                    .to_data(),
+            "MySQL old value for '{}' differs from the prior current value",
+            current.name()
+        );
+    }
+    Ok(())
+}
+
+fn assert_old_field_matches_current(
+    current: &arrow::datatypes::Field,
+    old: &arrow::datatypes::Field,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        current.data_type() == old.data_type(),
+        "old value of '{}' changed Arrow storage type",
+        current.name()
+    );
+    for key in [META_ARROW_EXTENSION_NAME, META_ARROW_EXTENSION_METADATA] {
+        anyhow::ensure!(
+            current.metadata().get(key) == old.metadata().get(key),
+            "old value of '{}' changed extension metadata key '{key}'",
+            current.name()
+        );
+    }
+    anyhow::ensure!(
+        old.metadata().get(META_OLD_VALUE_OF).map(String::as_str)
+            == Some(current.name().as_str()),
+        "old-value field is not paired with '{}'",
+        current.name()
+    );
+    Ok(())
+}
+
+fn old_value_index(table: &TableData, current_name: &str) -> anyhow::Result<usize> {
+    table
+        .batch
+        .schema()
+        .fields()
+        .iter()
+        .position(|field| {
+            field
+                .metadata()
+                .get(META_OLD_VALUE_OF)
+                .is_some_and(|name| name == current_name)
+        })
+        .with_context(|| format!("missing old-value field for '{current_name}'"))
+}
+
+fn assert_operation(table: &TableData, row: usize, expected: &str) -> anyhow::Result<()> {
+    let operations = system_array::<StringArray>(table, SystemColumnKind::ChangeOperation)?;
+    anyhow::ensure!(
+        !operations.is_null(row) && operations.value(row) == expected,
+        "expected MySQL operation '{expected}', got {:?}",
+        (!operations.is_null(row)).then(|| operations.value(row))
+    );
+    Ok(())
+}
+
+fn is_mysql_user_current_field(field: &arrow::datatypes::Field) -> bool {
+    field.metadata().contains_key(META_ARROW_EXTENSION_NAME)
+        && field.metadata().contains_key(META_ARROW_EXTENSION_METADATA)
+        && !field.metadata().contains_key(META_SYSTEM_ROLE)
+        && !field.metadata().contains_key(META_CHANGE_OPERATION)
+        && !field.metadata().contains_key(META_OLD_VALUE_OF)
+        && !field.metadata().contains_key(META_OLD_KEY_OF)
 }
 
 fn array_by_name<'a, T: arrow::array::Array + 'static>(

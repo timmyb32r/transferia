@@ -10,6 +10,9 @@ use std::time::Duration;
 use super::*;
 use crate::connectors::mysql::common::MySqlConnectionConfig;
 use crate::connectors::mysql::src_batch::TableConfig;
+use crate::connectors::mysql::src_batch_and_stream::{
+    MySqlColumnGeneration, MySqlColumnVisibility,
+};
 
 const SERVER_UUID: &str = "24bc7856-9a41-11ee-b9d1-0242ac120002";
 
@@ -49,11 +52,25 @@ fn authoritative_table() -> AuthoritativeTableIdentity {
         engine: "InnoDB".to_owned(),
         columns: vec![AuthoritativeColumnIdentity {
             name: "id".to_owned(),
+            data_type: "bigint".to_owned(),
             column_type: "bigint unsigned".to_owned(),
+            unsigned: true,
+            zerofill: false,
+            auto_increment: true,
             nullable: false,
+            character_maximum_length: None,
+            character_octet_length: None,
+            numeric_precision: Some(20),
+            numeric_scale: Some(0),
+            datetime_precision: None,
             character_set: None,
             collation: None,
             collation_id: None,
+            collation_padding: None,
+            enum_set_values: None,
+            srs_id: None,
+            visibility: MySqlColumnVisibility::Visible,
+            generation: MySqlColumnGeneration::None,
             extra: "auto_increment".to_owned(),
             generation_expression: Some(String::new()),
             primary_key_ordinal: Some(1),
