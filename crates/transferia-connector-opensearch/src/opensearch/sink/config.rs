@@ -129,7 +129,7 @@ impl fmt::Debug for OpenSearchSinkConfig {
 }
 
 const fn default_bulk_target_rows() -> usize {
-    10_000
+    20_000
 }
 
 const fn default_bulk_target_bytes() -> usize {
@@ -137,7 +137,7 @@ const fn default_bulk_target_bytes() -> usize {
 }
 
 const fn default_bulk_concurrency() -> usize {
-    4
+    8
 }
 
 const fn default_flush_interval_ms() -> u64 {

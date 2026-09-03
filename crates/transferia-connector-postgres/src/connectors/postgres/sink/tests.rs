@@ -1,6 +1,6 @@
 use arrow::array::{
     ArrayRef, BinaryArray, Date32Array, Int64Array, Int8Array, StringArray,
-    TimestampNanosecondArray,
+    TimestampNanosecondArray, UInt16Array, UInt64Array, UInt8Array,
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
@@ -82,7 +82,10 @@ fn postgres_sink_ddl_covers_every_copy_encoder_type() {
         (DataType::Int16, "smallint"),
         (DataType::Int32, "integer"),
         (DataType::Int64, "bigint"),
+        (DataType::UInt8, "smallint"),
+        (DataType::UInt16, "integer"),
         (DataType::UInt32, "oid"),
+        (DataType::UInt64, "numeric(20,0)"),
         (DataType::Float32, "real"),
         (DataType::Float64, "double precision"),
         (DataType::Binary, "bytea"),
@@ -95,6 +98,41 @@ fn postgres_sink_ddl_covers_every_copy_encoder_type() {
     ] {
         assert_eq!(postgres_sql_type(&data_type).unwrap(), sql);
     }
+}
+
+#[test]
+fn copy_encoders_preserve_every_unsigned_integer_without_narrowing() {
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("u8", DataType::UInt8, false),
+            Field::new("u16", DataType::UInt16, false),
+            Field::new("u64", DataType::UInt64, false),
+        ])),
+        vec![
+            Arc::new(UInt8Array::from(vec![u8::MAX])) as ArrayRef,
+            Arc::new(UInt16Array::from(vec![u16::MAX])) as ArrayRef,
+            Arc::new(UInt64Array::from(vec![u64::MAX])) as ArrayRef,
+        ],
+    )
+    .unwrap();
+
+    let text = super::copy_text::encode(&batch).unwrap();
+    assert_eq!(text.as_ref(), b"255\t65535\t18446744073709551615\n");
+
+    let binary = super::copy_binary::encode(&batch).unwrap();
+    let numeric = [
+        0, 0, 0, 18, // field length
+        0, 5, // ndigits
+        0, 4, // weight
+        0, 0, // positive sign
+        0, 0, // scale
+        7, 52, // 1844
+        26, 88, // 6744
+        2, 225, // 737
+        3, 187, // 955
+        6, 79, // 1615
+    ];
+    assert!(binary.windows(numeric.len()).any(|window| window == numeric));
 }
 
 #[test]

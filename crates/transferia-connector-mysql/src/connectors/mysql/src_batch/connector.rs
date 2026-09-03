@@ -225,6 +225,7 @@ impl SourceConnector for MySqlSourceConnector {
                     table.schema,
                     table.columns,
                     self.config.batch_rows,
+                    self.config.read_protocol,
                     counters,
                 )
                 .await?,

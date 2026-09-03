@@ -13,6 +13,7 @@ pub use connectors::postgres;
 use std::sync::Arc;
 use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_delivery_contracts::semantics::RecordSemantics;
+use transferia_registry::tuning::{NumericScale, TuningParameter};
 use transferia_registry::{ComponentRegistration, DeliveryMode, RegistryBuilder};
 
 pub fn register(
@@ -43,6 +44,7 @@ pub fn register(
                     }
                 },
             )?
+            .source_tuning_parameters(postgres_source_tuning_parameters())?
             .source_record_semantics(vec![
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,
@@ -64,6 +66,7 @@ pub fn register(
                     )?))
                 },
             )?
+            .sink_tuning_parameters(postgres_sink_tuning_parameters())?
             .sink_record_semantics(vec![
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,
@@ -73,6 +76,41 @@ pub fn register(
             }),
     )?;
     Ok(())
+}
+
+fn postgres_source_tuning_parameters() -> Vec<TuningParameter> {
+    vec![
+        TuningParameter::UnsignedInteger {
+            pointer: "/batch_rows".to_owned(),
+            label: "Rows per snapshot batch".to_owned(),
+            baseline: 65_536,
+            minimum: 1,
+            maximum: u64::MAX,
+            candidates: vec![16_384, 65_536, 262_144, 1_048_576],
+            scale: NumericScale::Logarithmic,
+        },
+        TuningParameter::Choice {
+            pointer: "/copy_to_format".to_owned(),
+            label: "COPY TO format".to_owned(),
+            baseline: serde_json::Value::from("binary"),
+            values: ["binary", "text"]
+                .into_iter()
+                .map(serde_json::Value::from)
+                .collect(),
+        },
+    ]
+}
+
+fn postgres_sink_tuning_parameters() -> Vec<TuningParameter> {
+    vec![TuningParameter::Choice {
+        pointer: "/copy_from_format".to_owned(),
+        label: "COPY FROM format".to_owned(),
+        baseline: serde_json::Value::from("binary"),
+        values: ["binary", "text"]
+            .into_iter()
+            .map(serde_json::Value::from)
+            .collect(),
+    }]
 }
 
 async fn check_postgres_connection(

@@ -305,7 +305,7 @@ fn rows_to_batch(
             discovered.data_type,
             data_type
         );
-        fields.push(Field::new(column.name(), data_type, discovered.nullable));
+        fields.push(source_user_field(discovered));
         arrays.push(column_array(rows, index, column.type_(), copy_format)?);
     }
     let len = rows.len();
@@ -348,6 +348,15 @@ fn rows_to_batch(
         )) as ArrayRef,
     ]);
     Ok(RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?)
+}
+
+pub(super) fn source_user_field(column: &SchemaColumn) -> Field {
+    Field::new(
+        column.name.as_str(),
+        column.data_type.clone(),
+        column.nullable,
+    )
+    .with_metadata(column.arrow_metadata())
 }
 
 #[derive(Clone, Copy)]

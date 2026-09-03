@@ -1,7 +1,8 @@
 use arrow::array::{
     Array, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array,
     Int32Array, Int64Array, Int8Array, StringArray, TimestampMicrosecondArray,
-    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt32Array,
+    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt16Array,
+    UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow::datatypes::{DataType, TimeUnit};
 use arrow::record_batch::RecordBatch;
@@ -70,9 +71,21 @@ fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow
             output,
             downcast::<Int64Array>(column)?.value(row).to_be_bytes(),
         ),
+        DataType::UInt8 => fixed(
+            output,
+            i16::from(downcast::<UInt8Array>(column)?.value(row)).to_be_bytes(),
+        ),
+        DataType::UInt16 => fixed(
+            output,
+            i32::from(downcast::<UInt16Array>(column)?.value(row)).to_be_bytes(),
+        ),
         DataType::UInt32 => fixed(
             output,
             downcast::<UInt32Array>(column)?.value(row).to_be_bytes(),
+        ),
+        DataType::UInt64 => encode_u64_numeric(
+            output,
+            downcast::<UInt64Array>(column)?.value(row),
         ),
         DataType::Float32 => fixed(
             output,
@@ -130,6 +143,35 @@ fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow
             anyhow::bail!("unsupported Arrow type {data_type:?} for PostgreSQL binary COPY")
         }
     }
+}
+
+fn encode_u64_numeric(output: &mut BytesMut, mut value: u64) -> anyhow::Result<()> {
+    const BASE: u64 = 10_000;
+    let mut reversed = [0_i16; 5];
+    let mut digits = 0_usize;
+    while value > 0 {
+        reversed[digits] = i16::try_from(value % BASE)?;
+        value /= BASE;
+        digits += 1;
+    }
+    let payload_bytes = 8_usize
+        .checked_add(digits.checked_mul(2).ok_or_else(|| {
+            anyhow::anyhow!("PostgreSQL numeric binary payload length overflow")
+        })?)
+        .ok_or_else(|| anyhow::anyhow!("PostgreSQL numeric binary payload length overflow"))?;
+    output.put_i32(i32::try_from(payload_bytes)?);
+    output.put_i16(i16::try_from(digits)?);
+    output.put_i16(if digits == 0 {
+        0
+    } else {
+        i16::try_from(digits - 1)?
+    });
+    output.put_i16(0);
+    output.put_i16(0);
+    for digit in reversed[..digits].iter().rev() {
+        output.put_i16(*digit);
+    }
+    Ok(())
 }
 
 fn downcast<T: Array + 'static>(column: &dyn Array) -> anyhow::Result<&T> {

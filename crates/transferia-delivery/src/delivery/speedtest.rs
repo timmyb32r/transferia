@@ -19,7 +19,7 @@ use arrow::array::{
     TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
     TimestampSecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
-use arrow::datatypes::{DataType, TimeUnit};
+use arrow::datatypes::{DataType, SchemaRef, TimeUnit};
 use arrow::ipc::reader::FileReader;
 use arrow::ipc::writer::FileWriter;
 use arrow::record_batch::RecordBatch;
@@ -40,6 +40,7 @@ use transferia_core::delivery::DatasetRole;
 use transferia_core::memory::{MemoryReservation, PipelineMemory};
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
 use transferia_core::source::{CommitMarker, Source};
+use transferia_core::compact_record_batch;
 use transferia_delivery_contracts::metrics::{ParseCounters, SinkCounters};
 use transferia_registry::durable::{
     CompareExchangeResult, DurableContext, DurableStorage, DurableValue,
@@ -799,8 +800,6 @@ struct AnonymousSampleFile {
     // therefore serializes seek+decode so concurrent tuning trials cannot
     // corrupt one another's IPC reads.
     file: Mutex<File>,
-
-    encoded_bytes: usize,
 }
 
 #[derive(Clone)]
@@ -810,6 +809,8 @@ struct SpooledOutput {
     is_dlq: bool,
 
     system_columns: transferia_core::data::system_columns::SystemColumns,
+
+    schema: SchemaRef,
 
     arrow_bytes: usize,
 
@@ -865,12 +866,9 @@ fn spool_record_batch(batch: &RecordBatch) -> anyhow::Result<AnonymousSampleFile
         writer.write(batch)?;
         writer.finish()?;
     }
-    let encoded_bytes = usize::try_from(file.metadata()?.len())
-        .context("speedtest sample file size exceeds usize")?;
     file.seek(SeekFrom::Start(0))?;
     Ok(AnonymousSampleFile {
         file: Mutex::new(file),
-        encoded_bytes,
     })
 }
 
@@ -1001,6 +999,7 @@ impl ProfileCollector {
                             table,
                             is_dlq,
                             system_columns,
+                            schema: batch.schema(),
                             arrow_bytes,
                             file: Arc::new(file),
                         })
@@ -1203,18 +1202,26 @@ async fn load_spooled_deliveries(
         .iter()
         .flat_map(|delivery| delivery.outputs.iter())
         .try_fold(0_usize, |total, output| {
-        total
-            .checked_add(output.arrow_bytes)
-            .and_then(|total| total.checked_add(output.file.encoded_bytes))
-            .context("speedtest sample memory estimate overflow")
-    })?;
+            total
+                .checked_add(output.arrow_bytes)
+                .context("speedtest sample memory estimate overflow")
+        })?;
     let reservation = memory.reserve_progress_source(reserved_bytes).await;
     let mut loaded = Vec::with_capacity(deliveries.len());
     for delivery in deliveries {
         let mut outputs = Vec::with_capacity(delivery.outputs.len());
         for output in delivery.outputs.iter() {
             let file = Arc::clone(&output.file);
-            let batch = tokio::task::spawn_blocking(move || read_spooled_batch(&file))
+            let schema = Arc::clone(&output.schema);
+            let batch = tokio::task::spawn_blocking(move || {
+                // Arrow IPC may expose every column as a slice of one shared
+                // record-block allocation. Summing each array's retained size
+                // then counts that allocation once per column and can throttle
+                // replay by orders of magnitude. Materialize only when the
+                // shared backing is materially larger than the visible arrays.
+                let decoded = compact_record_batch(read_spooled_batch(&file)?)?;
+                Ok::<_, anyhow::Error>(RecordBatch::try_new(schema, decoded.columns().to_vec())?)
+            })
                 .await
                 .context("speedtest sample load task failed")??;
             outputs.push(LoadedOutput {

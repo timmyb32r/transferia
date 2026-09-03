@@ -54,6 +54,12 @@ dates, microsecond timestamps, nulls, and COPY escaping. Values PostgreSQL canno
 store losslessly, such as a nanosecond timestamp outside microsecond precision,
 fail before a COPY request is sent.
 
+MySQL snapshots expose the text and prepared-statement binary result protocols.
+Both feed the same lossless row-to-Arrow conversion; binary with 16,384 rows per
+batch is the measured default. The sink keeps the measured 1,000-row INSERT
+knee. PostgreSQL, MySQL, and OpenSearch candidate grids and before/after numbers
+are recorded in [the database throughput report](benchmarks/database_throughput/REPORT.md).
+
 For the demonstration control plane, run:
 
 ```bash
@@ -325,6 +331,10 @@ acknowledged only after every bulk item succeeds. As required by the default
 primary-key contract, the source must provide one logical record per complete
 primary key; the sink detects duplicates in its bounded buffered and in-flight
 window without carrying an unbounded all-history key set.
+
+The measured sink defaults are 20,000 rows per bulk request and eight concurrent
+requests. The source keeps 10,000 rows per page and four concurrent shard
+readers; larger ordinary pages exceed OpenSearch's default result-window limit.
 
 Custom-routed OpenSearch source documents and flat rows fail by default because
 preserving their original ID against a target with different shard geometry is

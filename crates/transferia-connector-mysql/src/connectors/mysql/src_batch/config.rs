@@ -3,6 +3,15 @@ use serde::Deserialize;
 
 use crate::connectors::mysql::common::{validate_identifier, MySqlConnectionConfig};
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum MySqlReadProtocol {
+    Text,
+
+    #[default]
+    Binary,
+}
+
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MySqlSourceConfig {
@@ -14,6 +23,14 @@ pub struct MySqlSourceConfig {
     #[serde(default = "default_batch_rows")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub batch_rows: usize,
+
+    #[serde(default)]
+    #[schemars(
+        title = "Read protocol",
+        description = "MySQL wire protocol used for snapshot rows. Binary is the measured high-throughput default; text remains available for comparison and compatibility diagnostics.",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub read_protocol: MySqlReadProtocol,
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -41,5 +58,5 @@ impl MySqlSourceConfig {
 }
 
 const fn default_batch_rows() -> usize {
-    65_536
+    16_384
 }

@@ -61,6 +61,81 @@ async fn wait_for_mysql(config: &MySqlConnectionConfig) -> anyhow::Result<mysql_
     .map_err(|_| anyhow::anyhow!("MySQL-compatible testcontainer did not become ready"))
 }
 
+async fn read_mysql_snapshot(
+    host: &str,
+    port: u16,
+    read_protocol: &str,
+) -> anyhow::Result<(DeliveryDiscovery, Vec<RecordBatch>)> {
+    let source = MySqlSourceConnector::from_config(
+        serde_yaml::from_str(&format!(
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: root\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: {read_protocol}\ntables:\n  - name: all_types\n"
+        ))?,
+        Arc::new(MetricsRegistry::new()),
+    )?;
+    let discovery = source
+        .delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest {
+                keep_system_columns: false,
+            },
+            cancellation: CancellationToken::new(),
+        })
+        .await?;
+    let mut actor = source
+        .build_source(SourceBuildContext {
+            partition_id: 0,
+            cancellation: CancellationToken::new(),
+            memory: PipelineMemory::new(64 * 1024 * 1024),
+            durable: support::durable_context(),
+        })
+        .await?;
+    let mut batches = Vec::new();
+    loop {
+        match actor.read_batch().await? {
+            SourceBatch::Typed { tables, .. } => batches.push(tables[0].batch.clone()),
+            SourceBatch::Finished => break,
+            other => anyhow::bail!("unexpected MySQL source batch: {other:?}"),
+        }
+    }
+    Ok((discovery, batches))
+}
+
+fn assert_user_batches_equal(
+    user_column_count: usize,
+    mut text: Vec<RecordBatch>,
+    mut binary: Vec<RecordBatch>,
+) {
+    let id = |batch: &RecordBatch| {
+        let ids = batch
+            .column_by_name("id")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap();
+        assert_eq!(ids.len(), 1, "parity test expects one row per batch");
+        ids.value(0)
+    };
+    text.sort_by_key(&id);
+    binary.sort_by_key(&id);
+
+    assert_eq!(text.len(), binary.len());
+    for (text_batch, binary_batch) in text.iter().zip(&binary) {
+        assert_eq!(text_batch.num_rows(), binary_batch.num_rows());
+        for column_index in 0..user_column_count {
+            assert_eq!(
+                text_batch.schema().field(column_index),
+                binary_batch.schema().field(column_index),
+                "text and binary protocols returned different Arrow fields at column {column_index}"
+            );
+            assert_eq!(
+                text_batch.column(column_index).to_data(),
+                binary_batch.column(column_index).to_data(),
+                "text and binary protocols returned different values for column '{}'",
+                text_batch.schema().field(column_index).name()
+            );
+        }
+    }
+}
+
 async fn assert_mysql_family_source(image: GenericImage, password_env: &str) -> anyhow::Result<()> {
     let container = image
         .with_exposed_port(3306.tcp())
@@ -116,20 +191,8 @@ async fn assert_mysql_family_source(image: GenericImage, password_env: &str) -> 
         .await?;
     connection.disconnect().await?;
 
-    let source = MySqlSourceConnector::from_config(
-        serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: root\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\ntables:\n  - name: all_types\n"
-        ))?,
-        Arc::new(MetricsRegistry::new()),
-    )?;
-    let discovery = source
-        .delivery_discovery(SourceDiscoveryContext {
-            request: DeliveryDiscoveryRequest {
-                keep_system_columns: false,
-            },
-            cancellation: CancellationToken::new(),
-        })
-        .await?;
+    let (discovery, batches) = read_mysql_snapshot(&host, port, "text").await?;
+    let (binary_discovery, binary_batches) = read_mysql_snapshot(&host, port, "binary").await?;
     assert!(matches!(
         discovery.source_topology,
         SourceTopology::StaticPartitions(ref partitions) if partitions == &[0]
@@ -163,26 +226,25 @@ async fn assert_mysql_family_source(image: GenericImage, password_env: &str) -> 
             .data_type,
         DataType::Binary
     );
-
-    let mut actor = source
-        .build_source(SourceBuildContext {
-            partition_id: 0,
-            cancellation: CancellationToken::new(),
-            memory: PipelineMemory::new(64 * 1024 * 1024),
-            durable: support::durable_context(),
-        })
-        .await?;
-    let mut batches = Vec::new();
-    loop {
-        match actor.read_batch().await? {
-            SourceBatch::Typed { tables, .. } => batches.push(tables[0].batch.clone()),
-            SourceBatch::Finished => break,
-            other => anyhow::bail!("unexpected MySQL source batch: {other:?}"),
-        }
-    }
     assert_eq!(
         batches.iter().map(|batch| batch.num_rows()).sum::<usize>(),
         2
+    );
+    assert_eq!(
+        binary_batches
+            .iter()
+            .map(|batch| batch.num_rows())
+            .sum::<usize>(),
+        2
+    );
+    assert_eq!(
+        dataset.stored_schema.columns.len(),
+        binary_discovery.datasets[0].stored_schema.columns.len()
+    );
+    assert_user_batches_equal(
+        dataset.stored_schema.columns.len(),
+        batches.clone(),
+        binary_batches,
     );
     let populated = batches
         .iter()

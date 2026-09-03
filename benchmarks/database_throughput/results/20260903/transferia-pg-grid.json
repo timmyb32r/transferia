@@ -1,0 +1,2294 @@
+[
+  {
+    "connector": "postgres",
+    "parameters": {
+      "batch_rows": 16384,
+      "copy_from_format": "binary",
+      "copy_to_format": "binary"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "8556892864",
+        "bytes_per_second": 2414789802.5641837,
+        "completed": false,
+        "duration_ms": 3543.5352820000003,
+        "rows": "1703936",
+        "rows_per_second": 480857.6363428459
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "881",
+                "numeric_min": "881"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406834570",
+                "numeric_min": "1788406834570"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406834570972",
+                "numeric_min": "1788406834570972"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406834570972000",
+                "numeric_min": "1788406834570972000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406834570",
+                "numeric_min": "1788406834570"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406834570972",
+                "numeric_min": "1788406834570972"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406834570972000",
+                "numeric_min": "1788406834570972000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "700963984",
+                "numeric_min": "700963984"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 456319700,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 456319700,
+        "sampled_deliveries": 123,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "456319700",
+        "bytes_per_second": 241448514.67900205,
+        "completed": true,
+        "duration_ms": 1889.92548,
+        "rows": "2000000",
+        "rows_per_second": 1058242.7832022244
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 8.336830907966942
+  },
+  {
+    "connector": "postgres",
+    "parameters": {
+      "batch_rows": 16384,
+      "copy_from_format": "text",
+      "copy_to_format": "binary"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "6006280568",
+        "bytes_per_second": 1614967816.7665155,
+        "completed": false,
+        "duration_ms": 3719.1332890000003,
+        "rows": "1196032",
+        "rows_per_second": 321588.90447338304
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "989",
+                "numeric_min": "989"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406842885",
+                "numeric_min": "1788406842885"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406842885983",
+                "numeric_min": "1788406842885983"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406842885983000",
+                "numeric_min": "1788406842885983000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406842885",
+                "numeric_min": "1788406842885"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406842885983",
+                "numeric_min": "1788406842885983"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406842885983000",
+                "numeric_min": "1788406842885983000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "1048365176",
+                "numeric_min": "1048365176"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 456319700,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 456319700,
+        "sampled_deliveries": 123,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "456319700",
+        "bytes_per_second": 275290677.4226434,
+        "completed": true,
+        "duration_ms": 1657.592274,
+        "rows": "2000000",
+        "rows_per_second": 1206569.3303297816
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 8.271822128910571
+  },
+  {
+    "connector": "postgres",
+    "parameters": {
+      "batch_rows": 16384,
+      "copy_from_format": "binary",
+      "copy_to_format": "text"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "8886004128",
+        "bytes_per_second": 2528784274.3203416,
+        "completed": false,
+        "duration_ms": 3513.94313,
+        "rows": "1769472",
+        "rows_per_second": 503557.38113496447
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1066",
+                "numeric_min": "1066"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406851128",
+                "numeric_min": "1788406851128"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406851128136",
+                "numeric_min": "1788406851128136"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406851128136000",
+                "numeric_min": "1788406851128136000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406851128",
+                "numeric_min": "1788406851128"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406851128136",
+                "numeric_min": "1788406851128136"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406851128136000",
+                "numeric_min": "1788406851128136000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "1292310696",
+                "numeric_min": "1292310696"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 456319700,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 456319700,
+        "sampled_deliveries": 123,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "456319700",
+        "bytes_per_second": 277603137.4080903,
+        "completed": true,
+        "duration_ms": 1643.784376,
+        "rows": "2000000",
+        "rows_per_second": 1216704.592889986
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 7.914230627939105
+  },
+  {
+    "connector": "postgres",
+    "parameters": {
+      "batch_rows": 16384,
+      "copy_from_format": "text",
+      "copy_to_format": "text"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "6417669648",
+        "bytes_per_second": 1732933674.7834125,
+        "completed": false,
+        "duration_ms": 3703.355611,
+        "rows": "1277952",
+        "rows_per_second": 345079.4723045569
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1178",
+                "numeric_min": "1178"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406859043",
+                "numeric_min": "1788406859043"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406859043863",
+                "numeric_min": "1788406859043863"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406859043863000",
+                "numeric_min": "1788406859043863000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406859043",
+                "numeric_min": "1788406859043"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406859043863",
+                "numeric_min": "1788406859043863"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406859043863000",
+                "numeric_min": "1788406859043863000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "1653067792",
+                "numeric_min": "1653067792"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 456319700,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 456319700,
+        "sampled_deliveries": 123,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "456319700",
+        "bytes_per_second": 229260555.6046401,
+        "completed": true,
+        "duration_ms": 1990.397776,
+        "rows": "2000000",
+        "rows_per_second": 1004824.2738792128
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 8.41633148305118
+  },
+  {
+    "connector": "postgres",
+    "parameters": {
+      "batch_rows": 65536,
+      "copy_from_format": "binary",
+      "copy_to_format": "binary"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "10671037496",
+        "bytes_per_second": 2470303601.928923,
+        "completed": false,
+        "duration_ms": 4319.727132999999,
+        "rows": "2131072",
+        "rows_per_second": 493334.86453807453
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1260",
+                "numeric_min": "1260"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406867460",
+                "numeric_min": "1788406867460"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406867460672",
+                "numeric_min": "1788406867460672"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406867460672000",
+                "numeric_min": "1788406867460672000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406867460",
+                "numeric_min": "1788406867460"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406867460672",
+                "numeric_min": "1788406867460672"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406867460672000",
+                "numeric_min": "1788406867460672000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "1913726472",
+                "numeric_min": "1913726472"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 458304836,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 458304836,
+        "sampled_deliveries": 31,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "458304836",
+        "bytes_per_second": 316328065.892996,
+        "completed": true,
+        "duration_ms": 1448.827611,
+        "rows": "2000000",
+        "rows_per_second": 1380426.4805662928
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 8.70580352190882
+  },
+  {
+    "connector": "postgres",
+    "parameters": {
+      "batch_rows": 65536,
+      "copy_from_format": "text",
+      "copy_to_format": "binary"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "8554222768",
+        "bytes_per_second": 1752324100.9188905,
+        "completed": false,
+        "duration_ms": 4881.644191,
+        "rows": "1703936",
+        "rows_per_second": 349049.6097895554
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1297",
+                "numeric_min": "1297"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406876151",
+                "numeric_min": "1788406876151"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406876151239",
+                "numeric_min": "1788406876151239"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406876151239000",
+                "numeric_min": "1788406876151239000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406876151",
+                "numeric_min": "1788406876151"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406876151239",
+                "numeric_min": "1788406876151239"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406876151239000",
+                "numeric_min": "1788406876151239000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "2350094152",
+                "numeric_min": "2350094152"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 458304836,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 458304836,
+        "sampled_deliveries": 31,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "458304836",
+        "bytes_per_second": 298206675.03384686,
+        "completed": true,
+        "duration_ms": 1536.86981,
+        "rows": "2000000",
+        "rows_per_second": 1301346.4035707747
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 9.41385803394951
+  },
+  {
+    "connector": "postgres",
+    "parameters": {
+      "batch_rows": 65536,
+      "copy_from_format": "binary",
+      "copy_to_format": "text"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "10671037496",
+        "bytes_per_second": 2449237217.116448,
+        "completed": false,
+        "duration_ms": 4356.88198,
+        "rows": "2131072",
+        "rows_per_second": 489127.77756720415
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1327",
+                "numeric_min": "1327"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406885577",
+                "numeric_min": "1788406885577"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406885577740",
+                "numeric_min": "1788406885577740"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406885577740000",
+                "numeric_min": "1788406885577740000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406885577",
+                "numeric_min": "1788406885577"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406885577740",
+                "numeric_min": "1788406885577740"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406885577740000",
+                "numeric_min": "1788406885577740000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "2697673000",
+                "numeric_min": "2697673000"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 458304836,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 458304836,
+        "sampled_deliveries": 31,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "458304836",
+        "bytes_per_second": 244199847.00494868,
+        "completed": true,
+        "duration_ms": 1876.761356,
+        "rows": "2000000",
+        "rows_per_second": 1065665.5912090295
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 9.39546729088761
+  },
+  {
+    "connector": "postgres",
+    "parameters": {
+      "batch_rows": 65536,
+      "copy_from_format": "text",
+      "copy_to_format": "text"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "8883231336",
+        "bytes_per_second": 1771419117.9640982,
+        "completed": false,
+        "duration_ms": 5014.754129,
+        "rows": "1769472",
+        "rows_per_second": 352853.1916983242
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1366",
+                "numeric_min": "1366"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406894992",
+                "numeric_min": "1788406894992"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406894992619",
+                "numeric_min": "1788406894992619"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406894992619000",
+                "numeric_min": "1788406894992619000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406894992",
+                "numeric_min": "1788406894992"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406894992619",
+                "numeric_min": "1788406894992619"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406894992619000",
+                "numeric_min": "1788406894992619000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "3134311368",
+                "numeric_min": "3134311368"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 458304836,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 458304836,
+        "sampled_deliveries": 31,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "458304836",
+        "bytes_per_second": 235328076.58815673,
+        "completed": true,
+        "duration_ms": 1947.514477,
+        "rows": "2000000",
+        "rows_per_second": 1026950.0040281344
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 10.185878788121045
+  },
+  {
+    "connector": "postgres",
+    "parameters": {
+      "batch_rows": 262144,
+      "copy_from_format": "binary",
+      "copy_to_format": "binary"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "18865494472",
+        "bytes_per_second": 1985930460.8600895,
+        "completed": false,
+        "duration_ms": 9499.574554,
+        "rows": "3835008",
+        "rows_per_second": 403703.13198765175
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1397",
+                "numeric_min": "1397"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406905166",
+                "numeric_min": "1788406905166"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406905166040",
+                "numeric_min": "1788406905166040"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406905166040000",
+                "numeric_min": "1788406905166040000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406905166",
+                "numeric_min": "1788406905166"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406905166040",
+                "numeric_min": "1788406905166040"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406905166040000",
+                "numeric_min": "1788406905166040000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "3495222360",
+                "numeric_min": "3495222360"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 461926368,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 461926368,
+        "sampled_deliveries": 8,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "461926368",
+        "bytes_per_second": 282220682.1364729,
+        "completed": true,
+        "duration_ms": 1636.755905,
+        "rows": "2000000",
+        "rows_per_second": 1221929.3016694507
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 14.968373535200953
+  },
+  {
+    "connector": "postgres",
+    "parameters": {
+      "batch_rows": 262144,
+      "copy_from_format": "text",
+      "copy_to_format": "binary"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "16776407384",
+        "bytes_per_second": 1548907212.0558515,
+        "completed": false,
+        "duration_ms": 10831.124843,
+        "rows": "3407872",
+        "rows_per_second": 314636.9420903184
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1815871,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "1835008",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1807014,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 1835008,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "229376.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1734700,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1416",
+                "numeric_min": "1416"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406920160",
+                "numeric_min": "1788406920160"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406920160722",
+                "numeric_min": "1788406920160722"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406920160722000",
+                "numeric_min": "1788406920160722000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406920160",
+                "numeric_min": "1788406920160"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406920160722",
+                "numeric_min": "1788406920160722"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406920160722000",
+                "numeric_min": "1788406920160722000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "4303949472",
+                "numeric_min": "4303949472"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1815871,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1835007",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 418396580,
+            "sampled_rows": 1835008
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 418396580,
+        "sampled_deliveries": 7,
+        "sampled_rows": 1835008,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "461926368",
+        "bytes_per_second": 265083616.99568328,
+        "completed": true,
+        "duration_ms": 1742.568527,
+        "rows": "2000000",
+        "rows_per_second": 1147731.0470212572
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 16.39538667188026
+  },
+  {
+    "connector": "postgres",
+    "parameters": {
+      "batch_rows": 262144,
+      "copy_from_format": "binary",
+      "copy_to_format": "text"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "18865494472",
+        "bytes_per_second": 2164072043.992969,
+        "completed": false,
+        "duration_ms": 8717.590768,
+        "rows": "3835008",
+        "rows_per_second": 439916.03896770574
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1433",
+                "numeric_min": "1433"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406936528",
+                "numeric_min": "1788406936528"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406936528087",
+                "numeric_min": "1788406936528087"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406936528087000",
+                "numeric_min": "1788406936528087000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406936528",
+                "numeric_min": "1788406936528"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406936528087",
+                "numeric_min": "1788406936528087"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406936528087000",
+                "numeric_min": "1788406936528087000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "5022126672",
+                "numeric_min": "5022126672"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 461926368,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 461926368,
+        "sampled_deliveries": 8,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "461926368",
+        "bytes_per_second": 277381894.9220072,
+        "completed": true,
+        "duration_ms": 1665.3082860000002,
+        "rows": "2000000",
+        "rows_per_second": 1200978.8318557611
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 14.816753522027284
+  },
+  {
+    "connector": "postgres",
+    "parameters": {
+      "batch_rows": 262144,
+      "copy_from_format": "text",
+      "copy_to_format": "text"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "16343865688",
+        "bytes_per_second": 1599997421.343709,
+        "completed": false,
+        "duration_ms": 10214.932518,
+        "rows": "3310720",
+        "rows_per_second": 324105.9100651026
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1453",
+                "numeric_min": "1453"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406951350",
+                "numeric_min": "1788406951350"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406951350707",
+                "numeric_min": "1788406951350707"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406951350707000",
+                "numeric_min": "1788406951350707000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788406951350",
+                "numeric_min": "1788406951350"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788406951350707",
+                "numeric_min": "1788406951350707"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788406951350707000",
+                "numeric_min": "1788406951350707000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "5832654848",
+                "numeric_min": "5832654848"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 461926368,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 461926368,
+        "sampled_deliveries": 8,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "461926368",
+        "bytes_per_second": 259067967.53530526,
+        "completed": true,
+        "duration_ms": 1783.031582,
+        "rows": "2000000",
+        "rows_per_second": 1121685.1233541414
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 15.429432169999927
+  }
+]

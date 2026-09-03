@@ -1,7 +1,8 @@
 use arrow::array::{
     Array, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array,
     Int32Array, Int64Array, Int8Array, StringArray, TimestampMicrosecondArray,
-    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt32Array,
+    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt16Array,
+    UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow::datatypes::{DataType, TimeUnit};
 use arrow::record_batch::RecordBatch;
@@ -38,7 +39,10 @@ fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow
         DataType::Int16 => write_integer(output, downcast::<Int16Array>(column)?.value(row)),
         DataType::Int32 => write_integer(output, downcast::<Int32Array>(column)?.value(row)),
         DataType::Int64 => write_integer(output, downcast::<Int64Array>(column)?.value(row)),
+        DataType::UInt8 => write_integer(output, downcast::<UInt8Array>(column)?.value(row)),
+        DataType::UInt16 => write_integer(output, downcast::<UInt16Array>(column)?.value(row)),
         DataType::UInt32 => write_integer(output, downcast::<UInt32Array>(column)?.value(row)),
+        DataType::UInt64 => write_integer(output, downcast::<UInt64Array>(column)?.value(row)),
         DataType::Float32 => write_f32(output, downcast::<Float32Array>(column)?.value(row)),
         DataType::Float64 => write_f64(output, downcast::<Float64Array>(column)?.value(row)),
         DataType::Utf8 => {

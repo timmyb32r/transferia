@@ -8,9 +8,9 @@ fn initial_configuration_is_complete_and_lossless() {
     let config: OpenSearchSinkConfig = serde_json::from_value(value).unwrap();
     assert_eq!(config.routed_identity, RoutedIdentity::Fail);
     assert!(config.create_indices);
-    assert!(config.bulk_target_rows > 0);
-    assert!(config.bulk_target_bytes > 0);
-    assert!(config.bulk_concurrency > 0);
+    assert_eq!(config.bulk_target_rows, 20_000);
+    assert_eq!(config.bulk_target_bytes, 16_777_216);
+    assert_eq!(config.bulk_concurrency, 8);
     assert!(config.retry_max_attempts > 0);
     config.validate().unwrap();
 }

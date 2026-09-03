@@ -1,0 +1,326 @@
+[
+  {
+    "connector": "opensearch_source",
+    "parameters": {
+      "page_rows": 10000,
+      "read_concurrency": 4
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "48240727698",
+        "bytes_per_second": 4823051895.144478,
+        "completed": false,
+        "duration_ms": 10002.116657,
+        "rows": "50140000",
+        "rows_per_second": 5012938.932771738
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 200000,
+                "max_length": 6,
+                "min_length": 1,
+                "name": "_id",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 0,
+                "name": "_routing",
+                "null_count": 200000
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 200000,
+                "max_length": 66,
+                "min_length": 56,
+                "name": "_source",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 200000,
+                "max_length": 6,
+                "min_length": 1,
+                "name": "_routing_key",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 195726,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "199999",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 37228600,
+            "sampled_rows": 200000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 37228600,
+        "sampled_deliveries": 23,
+        "sampled_rows": 200000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "37228600",
+        "bytes_per_second": 205423023.0184629,
+        "completed": true,
+        "duration_ms": 181.22895599999998,
+        "rows": "200000",
+        "rows_per_second": 1103576.4064104634
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 10.578413733979687
+  },
+  {
+    "connector": "opensearch_source",
+    "parameters": {
+      "page_rows": 10000,
+      "read_concurrency": 4
+    },
+    "repetition": 2,
+    "result": {
+      "destination": {
+        "arrow_bytes": "51175661021",
+        "bytes_per_second": 5115844565.152704,
+        "completed": false,
+        "duration_ms": 10003.365108,
+        "rows": "53180000",
+        "rows_per_second": 5316211.037570778
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 200000,
+                "max_length": 6,
+                "min_length": 1,
+                "name": "_id",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 0,
+                "name": "_routing",
+                "null_count": 200000
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 200000,
+                "max_length": 66,
+                "min_length": 56,
+                "name": "_source",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 200000,
+                "max_length": 6,
+                "min_length": 1,
+                "name": "_routing_key",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 195726,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "199999",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 37228600,
+            "sampled_rows": 200000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 37228600,
+        "sampled_deliveries": 23,
+        "sampled_rows": 200000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "37228600",
+        "bytes_per_second": 211516228.75119418,
+        "completed": true,
+        "duration_ms": 176.00824400000002,
+        "rows": "200000",
+        "rows_per_second": 1136310.4105509967
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 10.523925349116325
+  },
+  {
+    "connector": "opensearch_source",
+    "parameters": {
+      "page_rows": 10000,
+      "read_concurrency": 4
+    },
+    "repetition": 3,
+    "result": {
+      "destination": {
+        "arrow_bytes": "43384532109",
+        "bytes_per_second": 4337836905.34735,
+        "completed": false,
+        "duration_ms": 10001.420767000001,
+        "rows": "45110000",
+        "rows_per_second": 4510359.183051457
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 200000,
+                "max_length": 6,
+                "min_length": 1,
+                "name": "_id",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 0,
+                "name": "_routing",
+                "null_count": 200000
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 200000,
+                "max_length": 66,
+                "min_length": 56,
+                "name": "_source",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 200000,
+                "max_length": 6,
+                "min_length": 1,
+                "name": "_routing_key",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 195726,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "199999",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 37228600,
+            "sampled_rows": 200000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 37228600,
+        "sampled_deliveries": 23,
+        "sampled_rows": 200000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "37228600",
+        "bytes_per_second": 188080330.8519571,
+        "completed": true,
+        "duration_ms": 197.93989000000002,
+        "rows": "200000",
+        "rows_per_second": 1010407.7556070178
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 10.538744682911783
+  }
+]

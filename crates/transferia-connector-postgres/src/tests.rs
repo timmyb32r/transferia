@@ -1,5 +1,67 @@
 use super::*;
 
+#[test]
+fn registration_exposes_only_the_bounded_copy_tuning_surface() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    register(&mut builder, &Arc::new(MetricsRegistry::new()))?;
+    let registry = builder.build();
+
+    assert_eq!(
+        tuning_contract(
+            registry.tuning_parameters("postgres", transferia_registry::EndpointRole::Source)?
+        )?,
+        vec![
+            (
+                "/batch_rows",
+                serde_json::json!(65_536),
+                vec![
+                    serde_json::json!(16_384),
+                    serde_json::json!(65_536),
+                    serde_json::json!(262_144),
+                    serde_json::json!(1_048_576),
+                ],
+            ),
+            (
+                "/copy_to_format",
+                serde_json::json!("binary"),
+                vec![serde_json::json!("binary"), serde_json::json!("text")],
+            ),
+        ]
+    );
+    assert_eq!(
+        tuning_contract(
+            registry.tuning_parameters("postgres", transferia_registry::EndpointRole::Sink)?
+        )?,
+        vec![(
+            "/copy_from_format",
+            serde_json::json!("binary"),
+            vec![serde_json::json!("binary"), serde_json::json!("text")],
+        )]
+    );
+    Ok(())
+}
+
+fn tuning_contract(
+    parameters: &[transferia_registry::tuning::TuningParameter],
+) -> anyhow::Result<Vec<(&str, serde_json::Value, Vec<serde_json::Value>)>> {
+    parameters
+        .iter()
+        .map(|parameter| {
+            let candidates = match parameter {
+                transferia_registry::tuning::TuningParameter::UnsignedInteger {
+                    candidates,
+                    ..
+                } => candidates.iter().copied().map(serde_json::Value::from).collect(),
+                transferia_registry::tuning::TuningParameter::Choice { values, .. } => {
+                    values.clone()
+                }
+                other => anyhow::bail!("unexpected PostgreSQL tuning parameter: {other:?}"),
+            };
+            Ok((parameter.pointer(), parameter.baseline(), candidates))
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn incomplete_credentials_produce_a_network_only_result() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

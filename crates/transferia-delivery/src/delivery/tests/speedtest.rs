@@ -12,7 +12,7 @@ use tokio::sync::Notify;
 use tokio_util::task::TaskTracker;
 
 use super::*;
-use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_core::data::schema::{DatasetSchema, SchemaColumn, META_PRIMARY_KEY};
 use transferia_core::data::system_columns::SystemColumns;
 use transferia_core::delivery::{
     DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology, NO_LIMITS,
@@ -201,6 +201,7 @@ fn aggregate_profile_merges_multibatch_ranges_and_cardinality() -> anyhow::Resul
                     table: Arc::from("dataset"),
                     is_dlq: false,
                     system_columns: SystemColumns::default(),
+                    schema: batch.schema(),
                     arrow_bytes: batch.get_array_memory_size(),
                     file: Arc::new(spool_record_batch(batch)?),
                     profile: profile_batch_state("dataset", false, batch)?,
@@ -216,6 +217,88 @@ fn aggregate_profile_merges_multibatch_ranges_and_cardinality() -> anyhow::Resul
     assert_eq!(profiles[0].columns[0].min_value.as_deref(), Some("-5"));
     assert_eq!(profiles[0].columns[0].max_value.as_deref(), Some("100"));
     assert_eq!(profiles[0].columns[0].distinct_count, Some(4));
+    Ok(())
+}
+
+#[tokio::test]
+async fn loaded_speedtest_sample_restores_source_field_metadata() -> anyhow::Result<()> {
+    let field = Field::new("id", DataType::Int64, false)
+        .with_metadata([(META_PRIMARY_KEY.to_owned(), "true".to_owned())].into());
+    let schema = Arc::new(Schema::new(vec![field]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![Arc::new(Int64Array::from(vec![1_i64, 2]))],
+    )?;
+    let sample = SpooledDelivery {
+        outputs: Arc::from([SpooledOutput {
+            table: Arc::from("dataset"),
+            is_dlq: false,
+            system_columns: SystemColumns::default(),
+            schema: Arc::clone(&schema),
+            arrow_bytes: batch.get_array_memory_size(),
+            file: Arc::new(spool_record_batch(&batch)?),
+            profile: profile_batch_state("dataset", false, &batch)?,
+        }]),
+    };
+
+    let loaded = load_spooled_deliveries(&[sample], &PipelineMemory::new(1024 * 1024)).await?;
+
+    assert_eq!(loaded[0].outputs[0].batch.schema(), schema);
+    assert_eq!(
+        loaded[0].outputs[0]
+            .batch
+            .schema()
+            .field(0)
+            .metadata()
+            .get(META_PRIMARY_KEY)
+            .map(String::as_str),
+        Some("true")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn loaded_ipc_sample_does_not_multiply_shared_record_block_memory() -> anyhow::Result<()> {
+    let rows = 16_384;
+    let columns = (0..16)
+        .map(|column| {
+            (
+                format!("value_{column}"),
+                Arc::new(StringArray::from_iter_values(
+                    (0..rows).map(|row| format!("{column}-{row:08}")),
+                )) as ArrayRef,
+            )
+        })
+        .collect::<Vec<_>>();
+    let batch = RecordBatch::try_from_iter(columns)?;
+    let original_bytes = batch.get_array_memory_size();
+    let file = Arc::new(spool_record_batch(&batch)?);
+    let uncompacted_bytes = read_spooled_batch(&file)?.get_array_memory_size();
+    assert!(
+        uncompacted_bytes > original_bytes.saturating_mul(2),
+        "fixture must expose Arrow IPC's shared record-block retention"
+    );
+    let sample = SpooledDelivery {
+        outputs: Arc::from([SpooledOutput {
+            table: Arc::from("logical"),
+            is_dlq: false,
+            system_columns: SystemColumns::default(),
+            schema: batch.schema(),
+            arrow_bytes: original_bytes,
+            file,
+            profile: profile_batch_state("logical", false, &batch)?,
+        }]),
+    };
+    let memory = PipelineMemory::new(original_bytes.saturating_mul(2));
+
+    let loaded = load_spooled_deliveries(&[sample], &memory).await?;
+    let loaded_bytes = loaded[0].outputs[0].batch.get_array_memory_size();
+
+    assert!(
+        loaded_bytes <= original_bytes.saturating_mul(2),
+        "IPC replay retained {loaded_bytes} bytes for {original_bytes} bytes of source arrays"
+    );
+    assert_eq!(memory.used(), loaded_bytes.max(1));
     Ok(())
 }
 
@@ -649,6 +732,7 @@ async fn destination_first_replay_does_not_double_reserve_the_sample() -> anyhow
         table: Arc::from("logical"),
         is_dlq: false,
         system_columns: SystemColumns::default(),
+        schema: batch.schema(),
         arrow_bytes,
         file: Arc::new(spool_record_batch(&batch)?),
         profile: profile_batch_state("logical", false, &batch)?,

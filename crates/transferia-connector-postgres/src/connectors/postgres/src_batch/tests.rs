@@ -1,11 +1,14 @@
 use super::copy_out::{CopyDecoder, DecodeState};
-use super::reader::{decode_i8, source_column_expression};
+use super::reader::{decode_i8, source_column_expression, source_user_field};
 use bytes::Bytes;
 use arrow::datatypes::DataType;
 use tokio_postgres::types::{Kind, Type};
 
 use crate::connectors::postgres::common::postgres_to_arrow;
 use crate::connectors::postgres::PostgresCopyFormat;
+use transferia_core::data::schema::{
+    SchemaColumn, META_LOW_CARDINALITY, META_MAX_LENGTH, META_PRIMARY_KEY,
+};
 
 #[test]
 fn binary_copy_decoder_handles_fragmented_header_rows_nulls_and_trailer() {
@@ -157,6 +160,21 @@ fn postgres_types_use_native_arrow_where_lossless_and_canonical_text_otherwise()
             "\"value\"::text AS \"value\""
         );
     }
+}
+
+#[test]
+fn snapshot_arrow_fields_preserve_discovered_column_constraints() {
+    let discovered = SchemaColumn::new("id".to_owned(), DataType::Int64, true)
+        .with_constraints(true, true, Some(64));
+
+    let field = source_user_field(&discovered);
+
+    assert_eq!(field.name(), "id");
+    assert_eq!(field.data_type(), &DataType::Int64);
+    assert!(field.is_nullable());
+    assert_eq!(field.metadata().get(META_PRIMARY_KEY).map(String::as_str), Some("true"));
+    assert_eq!(field.metadata().get(META_LOW_CARDINALITY).map(String::as_str), Some("true"));
+    assert_eq!(field.metadata().get(META_MAX_LENGTH).map(String::as_str), Some("64"));
 }
 
 #[test]

@@ -8,10 +8,10 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
-use mysql_async::prelude::{Query, Queryable};
-use mysql_async::{Conn, ResultSetStream, Row, TextProtocol, Value};
+use mysql_async::prelude::{Query, Queryable, WithParams};
+use mysql_async::{BinaryProtocol, Conn, ResultSetStream, Row, TextProtocol, Value};
 
-use super::config::TableConfig;
+use super::config::{MySqlReadProtocol, TableConfig};
 use super::connector::{ColumnPlan, MySqlColumnKind};
 use crate::connectors::mysql::common::quote_identifier;
 use crate::metrics::SourceCounters;
@@ -22,7 +22,22 @@ use transferia_core::data::table_data::TableData;
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::source::{CommitMarker, Source};
 
-type MySqlRowStream = ResultSetStream<'static, 'static, 'static, Row, TextProtocol>;
+type TextRowStream = ResultSetStream<'static, 'static, 'static, Row, TextProtocol>;
+type BinaryRowStream = ResultSetStream<'static, 'static, 'static, Row, BinaryProtocol>;
+
+enum MySqlRowStream {
+    Text(TextRowStream),
+    Binary(BinaryRowStream),
+}
+
+impl MySqlRowStream {
+    async fn next(&mut self) -> Option<mysql_async::Result<Row>> {
+        match self {
+            Self::Text(stream) => stream.next().await,
+            Self::Binary(stream) => stream.next().await,
+        }
+    }
+}
 
 pub struct MySqlSource {
     table: TableConfig,
@@ -43,6 +58,7 @@ impl MySqlSource {
         schema: DatasetSchema,
         columns: Vec<ColumnPlan>,
         batch_rows: usize,
+        read_protocol: MySqlReadProtocol,
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
         connection
@@ -61,11 +77,21 @@ impl MySqlSource {
             quote_identifier(&database),
             quote_identifier(&table.name)
         );
-        let stream = query.stream::<Row, _>(connection).await?;
+        let stream = match read_protocol {
+            MySqlReadProtocol::Text => {
+                MySqlRowStream::Text(query.stream::<Row, _>(connection).await?)
+            }
+            MySqlReadProtocol::Binary => {
+                MySqlRowStream::Binary(query.with(()).stream::<Row, _>(connection).await?)
+            }
+        };
+        let actual_columns = match &stream {
+            MySqlRowStream::Text(stream) => stream.columns_ref(),
+            MySqlRowStream::Binary(stream) => stream.columns_ref(),
+        };
         anyhow::ensure!(
-            stream.columns_ref().len() == columns.len()
-                && stream
-                    .columns_ref()
+            actual_columns.len() == columns.len()
+                && actual_columns
                     .iter()
                     .zip(&columns)
                     .all(|(actual, expected)| actual.name_str() == expected.name),
@@ -111,12 +137,6 @@ impl Source for MySqlSource {
             let source_rows = rows.len() as u64;
             let batch = rows_to_batch(&self.schema, &self.columns, &rows, self.offset)
                 .map_err(DataPlaneFailure::fatal)?;
-            let decoded_bytes = batch
-                .columns()
-                .iter()
-                .take(self.columns.len())
-                .map(|column| column.get_array_memory_size() as u64)
-                .sum();
             self.offset = self
                 .offset
                 .checked_add(
@@ -127,7 +147,6 @@ impl Source for MySqlSource {
                     DataPlaneFailure::fatal(anyhow::anyhow!("MySQL source offset overflow"))
                 })?;
             self.counters.add_records(source_rows);
-            self.counters.add_network_decoded_bytes(decoded_bytes);
             Ok(SourceBatch::Typed {
                 tables: vec![TableData::new(
                     Arc::from(self.table.name.as_str()),

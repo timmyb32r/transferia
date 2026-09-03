@@ -1,0 +1,193 @@
+[
+  {
+    "connector": "postgres",
+    "parameters": {
+      "batch_rows": 16384,
+      "copy_from_format": "binary",
+      "copy_to_format": "binary"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "605729552",
+        "bytes_per_second": 105723295.48427188,
+        "completed": false,
+        "duration_ms": 5729.385839,
+        "rows": "2802816",
+        "rows_per_second": 489200.0781167847
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1471",
+                "numeric_min": "1471"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788407046691",
+                "numeric_min": "1788407046691"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788407046691327",
+                "numeric_min": "1788407046691327"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788407046691327000",
+                "numeric_min": "1788407046691327000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788407046691",
+                "numeric_min": "1788407046691"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788407046691327",
+                "numeric_min": "1788407046691327"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788407046691327000",
+                "numeric_min": "1788407046691327000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "6527151000",
+                "numeric_min": "6527151000"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 456319700,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 456319700,
+        "sampled_deliveries": 123,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "456319700",
+        "bytes_per_second": 270387556.94606143,
+        "completed": true,
+        "duration_ms": 1687.6505160000002,
+        "rows": "2000000",
+        "rows_per_second": 1185079.4824157774
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 10.25990873388946
+  }
+]

@@ -201,6 +201,7 @@ impl SinkLimits for PostgresSinkConfig {
             supported_arrow_types: vec![
                 ArrowTypeFamily::Utf8,
                 ArrowTypeFamily::SignedInteger,
+                ArrowTypeFamily::UnsignedInteger,
                 ArrowTypeFamily::FloatingPoint,
                 ArrowTypeFamily::Boolean,
                 ArrowTypeFamily::Date32,
@@ -971,7 +972,10 @@ pub(super) fn postgres_sql_type(data_type: &DataType) -> anyhow::Result<&'static
         DataType::Int16 => "smallint",
         DataType::Int32 => "integer",
         DataType::Int64 => "bigint",
+        DataType::UInt8 => "smallint",
+        DataType::UInt16 => "integer",
         DataType::UInt32 => "oid",
+        DataType::UInt64 => "numeric(20,0)",
         DataType::Float32 => "real",
         DataType::Float64 => "double precision",
         DataType::Binary => "bytea",

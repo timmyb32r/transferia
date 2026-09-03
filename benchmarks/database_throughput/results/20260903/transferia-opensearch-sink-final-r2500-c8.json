@@ -1,0 +1,575 @@
+[
+  {
+    "connector": "opensearch_sink",
+    "parameters": {
+      "bulk_concurrency": 8,
+      "bulk_target_bytes": 16777216,
+      "bulk_target_rows": 2500
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "650610511",
+        "bytes_per_second": 21958797.65215733,
+        "completed": false,
+        "duration_ms": 29628.694672,
+        "rows": "1835008",
+        "rows_per_second": 61933.4742996335
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1863",
+                "numeric_min": "1863"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788409652518",
+                "numeric_min": "1788409652518"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788409652518354",
+                "numeric_min": "1788409652518354"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788409652518354000",
+                "numeric_min": "1788409652518354000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788409652518",
+                "numeric_min": "1788409652518"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788409652518354",
+                "numeric_min": "1788409652518354"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788409652518354000",
+                "numeric_min": "1788409652518354000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "9508247856",
+                "numeric_min": "9508247856"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 458304836,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 458304836,
+        "sampled_deliveries": 31,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "458304836",
+        "bytes_per_second": 316206846.26659423,
+        "completed": true,
+        "duration_ms": 1449.383027,
+        "rows": "2000000",
+        "rows_per_second": 1379897.4893059789
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 34.21911360207014
+  },
+  {
+    "connector": "opensearch_sink",
+    "parameters": {
+      "bulk_concurrency": 8,
+      "bulk_target_bytes": 16777216,
+      "bulk_target_rows": 2500
+    },
+    "repetition": 2,
+    "result": {
+      "destination": {
+        "arrow_bytes": "627263311",
+        "bytes_per_second": 19972550.9255976,
+        "completed": false,
+        "duration_ms": 31406.269201,
+        "rows": "1769472",
+        "rows_per_second": 56341.362569217825
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1865",
+                "numeric_min": "1865"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788409686702",
+                "numeric_min": "1788409686702"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788409686702274",
+                "numeric_min": "1788409686702274"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788409686702274000",
+                "numeric_min": "1788409686702274000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788409686702",
+                "numeric_min": "1788409686702"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788409686702274",
+                "numeric_min": "1788409686702274"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788409686702274000",
+                "numeric_min": "1788409686702274000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "9508247992",
+                "numeric_min": "9508247992"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 458304836,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 458304836,
+        "sampled_deliveries": 31,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "458304836",
+        "bytes_per_second": 325189546.71514815,
+        "completed": true,
+        "duration_ms": 1409.3467660000001,
+        "rows": "2000000",
+        "rows_per_second": 1419097.1649059716
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 35.898936786921695
+  },
+  {
+    "connector": "opensearch_sink",
+    "parameters": {
+      "bulk_concurrency": 8,
+      "bulk_target_bytes": 16777216,
+      "bulk_target_rows": 2500
+    },
+    "repetition": 3,
+    "result": {
+      "destination": {
+        "arrow_bytes": "650610511",
+        "bytes_per_second": 21549213.7812855,
+        "completed": false,
+        "duration_ms": 30191.844473,
+        "rows": "1835008",
+        "rows_per_second": 60778.26750998977
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_source_database",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 6,
+                "min_length": 6,
+                "name": "_system_source_schema",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 9,
+                "min_length": 9,
+                "name": "_system_source_table",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_source_transaction_id",
+                "null_count": 0,
+                "numeric_max": "1867",
+                "numeric_min": "1867"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788409722603",
+                "numeric_min": "1788409722603"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788409722603615",
+                "numeric_min": "1788409722603615"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_source_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788409722603615000",
+                "numeric_min": "1788409722603615000"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ms",
+                "null_count": 0,
+                "numeric_max": "1788409722603",
+                "numeric_min": "1788409722603"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_us",
+                "null_count": 0,
+                "numeric_max": "1788409722603615",
+                "numeric_min": "1788409722603615"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_event_timestamp_ns",
+                "null_count": 0,
+                "numeric_max": "1788409722603615000",
+                "numeric_min": "1788409722603615000"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 8,
+                "min_length": 8,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "9508248184",
+                "numeric_min": "9508248184"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1967963,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 458304836,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 458304836,
+        "sampled_deliveries": 31,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "458304836",
+        "bytes_per_second": 315106057.7356982,
+        "completed": true,
+        "duration_ms": 1454.4462879999999,
+        "rows": "2000000",
+        "rows_per_second": 1375093.749766578
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 34.64070572797209
+  }
+]

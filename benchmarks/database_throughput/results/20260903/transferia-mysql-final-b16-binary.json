@@ -1,0 +1,335 @@
+[
+  {
+    "connector": "mysql",
+    "parameters": {
+      "batch_rows": 16384,
+      "insert_rows": 1000,
+      "read_protocol": "binary"
+    },
+    "repetition": 1,
+    "result": {
+      "destination": {
+        "arrow_bytes": "307468424",
+        "bytes_per_second": 26498748.885887135,
+        "completed": false,
+        "duration_ms": 11603.129842999999,
+        "rows": "2458752",
+        "rows_per_second": 211904.2045783302
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 256175960,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 256175960,
+        "sampled_deliveries": 123,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "256175960",
+        "bytes_per_second": 206681261.49184957,
+        "completed": true,
+        "duration_ms": 1239.473565,
+        "rows": "2000000",
+        "rows_per_second": 1613588.2655956442
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 14.530823518056422
+  },
+  {
+    "connector": "mysql",
+    "parameters": {
+      "batch_rows": 16384,
+      "insert_rows": 1000,
+      "read_protocol": "binary"
+    },
+    "repetition": 2,
+    "result": {
+      "destination": {
+        "arrow_bytes": "297224304",
+        "bytes_per_second": 26086922.981208388,
+        "completed": false,
+        "duration_ms": 11393.612969,
+        "rows": "2376832",
+        "rows_per_second": 208610.91266369485
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 256175960,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 256175960,
+        "sampled_deliveries": 123,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "256175960",
+        "bytes_per_second": 210898535.37713125,
+        "completed": true,
+        "duration_ms": 1214.6881890000002,
+        "rows": "2000000",
+        "rows_per_second": 1646513.0871540892
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 14.316854323027655
+  },
+  {
+    "connector": "mysql",
+    "parameters": {
+      "batch_rows": 16384,
+      "insert_rows": 1000,
+      "read_protocol": "binary"
+    },
+    "repetition": 3,
+    "result": {
+      "destination": {
+        "arrow_bytes": "282882536",
+        "bytes_per_second": 24904578.50027654,
+        "completed": false,
+        "duration_ms": 11358.655839000001,
+        "rows": "2262144",
+        "rows_per_second": 199155.95930223694
+      },
+      "logical_streams": 1,
+      "profile": {
+        "datasets": [
+          {
+            "columns": [
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "id",
+                "null_count": 0,
+                "numeric_max": "2000000",
+                "numeric_min": "1"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1918020,
+                "name": "value1",
+                "null_count": 0,
+                "numeric_max": "306184191",
+                "numeric_min": "304087040"
+              },
+              {
+                "arrow_type": "Float64",
+                "cardinality": 2000000,
+                "name": "value2",
+                "null_count": 0,
+                "numeric_max": "250000.0",
+                "numeric_min": "0.125"
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1899684,
+                "max_length": 64,
+                "min_length": 64,
+                "name": "payload",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Utf8",
+                "cardinality": 1,
+                "max_length": 5,
+                "min_length": 5,
+                "name": "_system_topic",
+                "null_count": 0
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1,
+                "name": "_system_partition",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "Int64",
+                "cardinality": 1967963,
+                "name": "_system_offset",
+                "null_count": 0,
+                "numeric_max": "1999999",
+                "numeric_min": "0"
+              },
+              {
+                "arrow_type": "UInt64",
+                "cardinality": 1,
+                "name": "_system_message_index",
+                "null_count": 0,
+                "numeric_max": "0",
+                "numeric_min": "0"
+              }
+            ],
+            "dataset": "perf_rows",
+            "is_dlq": false,
+            "sampled_arrow_bytes": 256175960,
+            "sampled_rows": 2000000
+          }
+        ],
+        "sample_limit_bytes": 536870912,
+        "sampled_arrow_bytes": 256175960,
+        "sampled_deliveries": 123,
+        "sampled_rows": 2000000,
+        "truncated": false
+      },
+      "source": {
+        "arrow_bytes": "256175960",
+        "bytes_per_second": 213288929.81541732,
+        "completed": true,
+        "duration_ms": 1201.074806,
+        "rows": "2000000",
+        "rows_per_second": 1665175.216405297
+      }
+    },
+    "status": "ok",
+    "wall_seconds": 14.221813917858526
+  }
+]

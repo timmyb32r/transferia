@@ -1,6 +1,50 @@
 use mysql_async::Value;
 
+use super::config::{MySqlReadProtocol, MySqlSourceConfig};
 use super::reader::{value_f64, value_i64, value_u64};
+
+const MINIMAL_SOURCE_CONFIG: &str = "\
+host: db.example
+port: 3306
+database: transferia
+username: reader
+password: secret
+trusted_plaintext: true
+tables:
+  - name: events
+";
+
+#[test]
+fn read_protocol_defaults_to_binary_and_accepts_text_explicitly() -> anyhow::Result<()> {
+    let default: MySqlSourceConfig = serde_yaml::from_str(MINIMAL_SOURCE_CONFIG)?;
+    assert_eq!(default.batch_rows, 16_384);
+    assert_eq!(default.read_protocol, MySqlReadProtocol::Binary);
+
+    let text: MySqlSourceConfig = serde_yaml::from_str(&format!(
+        "{MINIMAL_SOURCE_CONFIG}read_protocol: text\n"
+    ))?;
+    assert_eq!(text.read_protocol, MySqlReadProtocol::Text);
+
+    assert!(serde_yaml::from_str::<MySqlSourceConfig>(&format!(
+        "{MINIMAL_SOURCE_CONFIG}read_protocol: native\n"
+    ))
+    .is_err());
+    Ok(())
+}
+
+#[test]
+fn read_protocol_is_a_user_visible_advanced_choice() -> anyhow::Result<()> {
+    let schema = serde_json::to_value(schemars::schema_for!(MySqlSourceConfig))?;
+    let read_protocol = &schema["properties"]["read_protocol"];
+
+    assert_eq!(read_protocol["$ref"], "#/$defs/MySqlReadProtocol");
+    assert_eq!(read_protocol["x-ui"]["section"], "advanced");
+    assert_eq!(
+        schema["$defs"]["MySqlReadProtocol"]["enum"],
+        serde_json::json!(["text", "binary"])
+    );
+    Ok(())
+}
 
 #[test]
 fn numeric_conversion_accepts_text_and_native_protocol_values() -> anyhow::Result<()> {
