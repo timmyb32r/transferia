@@ -435,3 +435,15 @@ fn corrupt_or_wrong_version_snapshot_baseline_is_rejected() {
         .expect_err("unknown version must fail");
     assert!(error.to_string().contains("unsupported"));
 }
+
+#[test]
+fn source_build_failure_preserves_an_explicit_fatal_disposition() {
+    let fatal = DataPlaneFailure::fatal(anyhow::anyhow!("snapshot owner is gone"));
+    let classified = source_build_failure(fatal.into());
+
+    assert!(!classified.is_retryable());
+    assert!(classified.to_string().contains("source creation failed"));
+
+    let unclassified = source_build_failure(anyhow::anyhow!("connection reset"));
+    assert!(unclassified.is_retryable());
+}

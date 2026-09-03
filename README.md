@@ -54,6 +54,14 @@ dates, microsecond timestamps, nulls, and COPY escaping. Values PostgreSQL canno
 store losslessly, such as a nanosecond timestamp outside microsecond precision,
 fail before a COPY request is sent.
 
+A PostgreSQL batch source opens one coordinator `REPEATABLE READ READ ONLY`
+transaction, exports its MVCC snapshot, and imports that snapshot into every
+table reader before issuing schema or data queries. Table partitions still run
+concurrently, but they are deliberately co-located on worker zero so a
+process-local transaction can own the snapshot for their complete lifetime;
+distributing those partitions across workers would create inconsistent
+snapshots and is therefore not attempted.
+
 MySQL snapshots expose the text and prepared-statement binary result protocols.
 Both feed the same lossless row-to-Arrow conversion; binary with 16,384 rows per
 batch is the measured default. The sink uses a 250-row INSERT batch for the wide

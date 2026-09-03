@@ -1,17 +1,135 @@
 use super::copy_out::{CopyDecoder, DecodeState};
 use super::reader::{
-    decode_date, decode_i8, decode_timestamp, decode_timestamptz, source_column_expression,
-    source_user_field,
+    decode_date, decode_i8, decode_timestamp, decode_timestamptz, discovered_schema_matches,
+    source_column_expression, source_user_field,
 };
+use super::snapshot::set_snapshot_sql;
 use arrow::datatypes::{DataType, TimeUnit};
 use bytes::Bytes;
 use tokio_postgres::types::{Kind, Type};
 
 use crate::connectors::postgres::common::postgres_to_arrow;
+use crate::connectors::postgres::source::POSTGRES_SOURCE_METADATA_COLUMNS;
 use crate::connectors::postgres::PostgresCopyFormat;
 use transferia_core::data::schema::{
     SchemaColumn, META_LOW_CARDINALITY, META_MAX_LENGTH, META_PRIMARY_KEY,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA,
+    SYSTEM_ROLE_SOURCE_TABLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
+
+#[test]
+fn imported_snapshot_sql_accepts_a_real_postgres_snapshot_identifier() {
+    assert_eq!(
+        set_snapshot_sql("00000003-0000001B-1").unwrap(),
+        "SET TRANSACTION SNAPSHOT '00000003-0000001B-1'"
+    );
+}
+
+#[test]
+fn imported_snapshot_sql_rejects_every_non_literal_identifier_shape() {
+    let too_long = "a".repeat(129);
+    for invalid in [
+        "",
+        too_long.as_str(),
+        "00000003-0000001B-'1",
+        " 00000003-0000001B-1",
+        "00000003-0000001B-1 ",
+        "00000003-0000 01B-1",
+        "00000003-0000001G-1",
+        "00000003/0000001B/1",
+    ] {
+        assert!(
+            set_snapshot_sql(invalid).is_err(),
+            "unsafe snapshot identifier was accepted: {invalid:?}"
+        );
+    }
+}
+
+#[test]
+fn snapshot_and_replication_share_one_stable_source_metadata_schema() {
+    let expected = [
+        (
+            "_system_source_database",
+            SYSTEM_ROLE_SOURCE_DATABASE,
+            DataType::Utf8,
+        ),
+        (
+            "_system_source_schema",
+            SYSTEM_ROLE_SOURCE_SCHEMA,
+            DataType::Utf8,
+        ),
+        (
+            "_system_source_table",
+            SYSTEM_ROLE_SOURCE_TABLE,
+            DataType::Utf8,
+        ),
+        (
+            "_system_source_transaction_id",
+            SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+            DataType::UInt64,
+        ),
+        (
+            "_system_source_timestamp_ms",
+            SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
+            DataType::Int64,
+        ),
+        (
+            "_system_source_timestamp_us",
+            SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
+            DataType::Int64,
+        ),
+        (
+            "_system_source_timestamp_ns",
+            SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+            DataType::Int64,
+        ),
+        (
+            "_system_event_timestamp_ms",
+            SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
+            DataType::Int64,
+        ),
+        (
+            "_system_event_timestamp_us",
+            SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+            DataType::Int64,
+        ),
+        (
+            "_system_event_timestamp_ns",
+            SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
+            DataType::Int64,
+        ),
+    ];
+    let actual = POSTGRES_SOURCE_METADATA_COLUMNS
+        .iter()
+        .map(|column| (column.name, column.role, column.data_type.clone()))
+        .collect::<Vec<_>>();
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn empty_snapshot_table_schema_validation_rejects_order_type_and_nullability_drift() {
+    let expected = transferia_core::data::schema::DatasetSchema::new(vec![
+        SchemaColumn::new("id".to_owned(), DataType::Int64, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("payload".to_owned(), DataType::Utf8, true),
+    ]);
+    assert!(discovered_schema_matches(&expected, &expected));
+
+    let mut reordered = expected.clone();
+    reordered.columns.swap(0, 1);
+    assert!(!discovered_schema_matches(&reordered, &expected));
+
+    let mut changed_type = expected.clone();
+    changed_type.columns[1].data_type = DataType::Binary;
+    assert!(!discovered_schema_matches(&changed_type, &expected));
+
+    let mut changed_nullability = expected.clone();
+    changed_nullability.columns[0].nullable = true;
+    assert!(!discovered_schema_matches(&changed_nullability, &expected));
+}
 
 #[test]
 fn binary_copy_decoder_handles_fragmented_header_rows_nulls_and_trailer() {

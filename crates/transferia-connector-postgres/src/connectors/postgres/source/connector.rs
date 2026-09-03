@@ -7,7 +7,7 @@ use super::config::{PostgresSourceConfig, TableConfig};
 use crate::connectors::postgres::common::{
     connect, postgres_to_arrow, quote_identifier, validate_identifier,
 };
-use crate::connectors::postgres::src_batch::PostgresSource;
+use crate::connectors::postgres::src_batch::{ExportedSnapshot, PostgresSource};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use transferia_core::data::schema::{
@@ -116,6 +116,7 @@ pub struct PostgresSourceConnector {
     parser_plan: ParserPlan,
     metrics: Arc<MetricsRegistry>,
     discovered: tokio::sync::OnceCell<Arc<Vec<DiscoveredTable>>>,
+    exported_snapshot: tokio::sync::OnceCell<Arc<ExportedSnapshot>>,
     counters: Mutex<HashMap<i64, Arc<SourceCounters>>>,
 }
 
@@ -130,6 +131,7 @@ impl PostgresSourceConnector {
             parser_plan: ParserPlan::native_source(),
             metrics,
             discovered: tokio::sync::OnceCell::new(),
+            exported_snapshot: tokio::sync::OnceCell::new(),
             counters: Mutex::new(HashMap::new()),
         })
     }
@@ -137,10 +139,17 @@ impl PostgresSourceConnector {
     async fn discovered_tables(&self) -> anyhow::Result<Arc<Vec<DiscoveredTable>>> {
         self.discovered
             .get_or_try_init(|| async {
-                let client = connect(&self.config.connection).await?;
                 let mut tables = Vec::with_capacity(self.config.tables.len());
-                for table in &self.config.tables {
-                    tables.push(discover_table(&client, table.clone()).await?);
+                if self.config.replication.is_some() {
+                    let client = connect(&self.config.connection).await?;
+                    for table in &self.config.tables {
+                        tables.push(discover_table(&client, table.clone()).await?);
+                    }
+                } else {
+                    let snapshot = self.exported_snapshot().await?;
+                    for table in &self.config.tables {
+                        tables.push(discover_table(snapshot.client(), table.clone()).await?);
+                    }
                 }
                 Ok(Arc::new(tables))
             })
@@ -156,6 +165,13 @@ impl PostgresSourceConnector {
                 .entry(partition)
                 .or_insert_with(|| Arc::new(SourceCounters::new())),
         )
+    }
+
+    async fn exported_snapshot(&self) -> anyhow::Result<Arc<ExportedSnapshot>> {
+        self.exported_snapshot
+            .get_or_try_init(|| ExportedSnapshot::create(&self.config.connection))
+            .await
+            .map(Arc::clone)
     }
 }
 
@@ -278,7 +294,7 @@ impl SourceConnector for PostgresSourceConnector {
             let source_topology = if self.config.replication.is_some() {
                 SourceTopology::StaticPartitions(vec![0])
             } else {
-                SourceTopology::StaticPartitions(
+                SourceTopology::CoLocatedStaticPartitions(
                     (0..tables.len())
                         .map(i64::try_from)
                         .collect::<Result<Vec<_>, _>>()?,
@@ -331,11 +347,13 @@ impl SourceConnector for PostgresSourceConnector {
                     anyhow::anyhow!("PostgreSQL source partition {partition_id} does not exist")
                 })?
                 .clone();
+            let snapshot = self.exported_snapshot().await?;
             Ok(Box::new(
                 PostgresSource::new(
                     client,
-                    table.config,
-                    incoming_user_schema(&table.schema),
+                    snapshot,
+                    partition_id,
+                    table,
                     self.config.connection.database.clone(),
                     self.config.batch_rows,
                     self.config.copy_to_format,
@@ -369,7 +387,7 @@ impl SourceConnector for PostgresSourceConnector {
     }
 }
 
-pub(super) fn incoming_user_schema(stored: &DatasetSchema) -> DatasetSchema {
+pub(crate) fn incoming_user_schema(stored: &DatasetSchema) -> DatasetSchema {
     // Snapshot and CDC expose one stable Arrow user schema. CDC needs nullable
     // incoming fields for unchanged TOAST values; snapshots use the same
     // representation so consumers cannot distinguish the modes by data fields.
@@ -380,7 +398,7 @@ pub(super) fn incoming_user_schema(stored: &DatasetSchema) -> DatasetSchema {
     incoming
 }
 
-async fn discover_table(
+pub(crate) async fn discover_table(
     client: &tokio_postgres::Client,
     table: TableConfig,
 ) -> anyhow::Result<DiscoveredTable> {

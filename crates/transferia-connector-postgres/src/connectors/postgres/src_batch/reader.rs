@@ -13,7 +13,11 @@ use tokio_postgres::{Client, Column, Statement};
 use crate::connectors::postgres::common::{
     postgres_requires_text_projection, postgres_to_arrow, quote_identifier, PostgresCopyFormat,
 };
-use crate::connectors::postgres::source::{TableConfig, POSTGRES_SOURCE_METADATA_COLUMNS};
+use crate::connectors::postgres::source::{
+    discover_table, incoming_user_schema, DiscoveredTable, TableConfig,
+    POSTGRES_SOURCE_METADATA_COLUMNS,
+};
+use crate::connectors::postgres::src_batch::ExportedSnapshot;
 use crate::connectors::postgres::temporal::{
     parse_date, parse_timestamp, postgres_date_to_unix_days,
     postgres_timestamp_to_unix_micros,
@@ -30,6 +34,11 @@ use transferia_core::source::{CommitMarker, Source};
 
 pub struct PostgresSource {
     client: Client,
+
+    _exported_snapshot: Arc<ExportedSnapshot>,
+
+    partition_id: i64,
+
     table: TableConfig,
 
     statement: Statement,
@@ -62,13 +71,29 @@ pub struct PostgresSource {
 impl PostgresSource {
     pub async fn new(
         client: Client,
-        table: TableConfig,
-        schema: DatasetSchema,
+        exported_snapshot: Arc<ExportedSnapshot>,
+        partition_id: i64,
+        discovered: DiscoveredTable,
         database: String,
         batch_rows: usize,
         copy_format: PostgresCopyFormat,
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
+        exported_snapshot.import(&client).await?;
+        let current = discover_table(&client, discovered.config.clone()).await?;
+        if !discovered_schema_matches(&current.schema, &discovered.schema)
+            || current.type_oids != discovered.type_oids
+            || current.replica_identity_full != discovered.replica_identity_full
+        {
+            return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
+                "PostgreSQL table '{}.{}' schema differs from the exported snapshot discovery",
+                discovered.config.schema,
+                discovered.config.name,
+            ))
+            .into());
+        }
+        let table = discovered.config;
+        let schema = incoming_user_schema(&discovered.schema);
         let metadata = client
             .prepare(&format!(
                 "SELECT * FROM {}.{} LIMIT 0",
@@ -83,27 +108,6 @@ impl PostgresSource {
             quote_identifier(&table.name)
         );
         let statement = client.prepare(&format!("{select} LIMIT 0")).await?;
-        client
-            .batch_execute("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .await?;
-        client
-            .batch_execute(
-                "SET LOCAL DateStyle = 'ISO, YMD';\
-                 SET LOCAL IntervalStyle = 'postgres';\
-                 SET LOCAL TimeZone = 'UTC';\
-                 SET LOCAL bytea_output = 'hex';\
-                 SET LOCAL extra_float_digits = 3;",
-            )
-            .await?;
-        let snapshot = client
-            .query_one(
-                "SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0')::bigint, txid_current()::text, (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint",
-                &[],
-            )
-            .await?;
-        let snapshot_lsn = snapshot.try_get::<_, i64>(0)?;
-        let snapshot_transaction_id = snapshot.try_get::<_, &str>(1)?.parse::<u64>()?;
-        let snapshot_timestamp_ns = snapshot.try_get::<_, i64>(2)?;
         let format = match copy_format {
             PostgresCopyFormat::Binary => "BINARY",
             PostgresCopyFormat::Text => "TEXT",
@@ -114,6 +118,8 @@ impl PostgresSource {
         let copy = CopyOutReader::new(stream, copy_format, statement.columns().len());
         Ok(Self {
             client,
+            _exported_snapshot: exported_snapshot.clone(),
+            partition_id,
             table,
             statement,
             copy: Some(copy),
@@ -121,15 +127,35 @@ impl PostgresSource {
             database,
             batch_rows,
             copy_format,
-            snapshot_lsn,
-            snapshot_transaction_id,
-            snapshot_timestamp_ns,
+            snapshot_lsn: exported_snapshot.lsn,
+            snapshot_transaction_id: exported_snapshot.transaction_id,
+            snapshot_timestamp_ns: exported_snapshot.timestamp_ns,
             offset: 0,
             copy_done: false,
             finished: false,
             counters,
         })
     }
+}
+
+pub(super) fn discovered_schema_matches(current: &DatasetSchema, expected: &DatasetSchema) -> bool {
+    current.columns.len() == expected.columns.len()
+        && current
+            .columns
+            .iter()
+            .zip(&expected.columns)
+            .all(|(current, expected)| {
+                current.name == expected.name
+                    && current.data_type == expected.data_type
+                    && current.nullable == expected.nullable
+                    && current.primary_key == expected.primary_key
+                    && current.low_cardinality == expected.low_cardinality
+                    && current.max_length == expected.max_length
+                    && current.arrow_extension_name == expected.arrow_extension_name
+                    && current.system_role == expected.system_role
+                    && current.old_value_of == expected.old_value_of
+                    && current.old_key_of == expected.old_key_of
+            })
 }
 
 pub(super) fn source_select_projection(columns: &[Column]) -> anyhow::Result<String> {
@@ -191,6 +217,7 @@ impl Source for PostgresSource {
                 &rows,
                 self.copy_format,
                 self.offset,
+                self.partition_id,
                 SnapshotMetadata {
                     database: &self.database,
                     schema: &self.table.schema,
@@ -281,6 +308,7 @@ fn rows_to_batch(
     rows: &[RawCopyRow],
     copy_format: PostgresCopyFormat,
     start_offset: i64,
+    partition_id: i64,
     snapshot: SnapshotMetadata<'_>,
 ) -> anyhow::Result<RecordBatch> {
     let output_columns = statement
@@ -341,7 +369,7 @@ fn rows_to_batch(
     arrays.extend(snapshot_metadata_arrays(snapshot, len));
     arrays.extend([
         Arc::new(StringArray::from(vec!["postgres"; len])) as ArrayRef,
-        Arc::new(Int64Array::from(vec![0_i64; len])) as ArrayRef,
+        Arc::new(Int64Array::from(vec![partition_id; len])) as ArrayRef,
         Arc::new(Int64Array::from(vec![snapshot.lsn; len])) as ArrayRef,
         Arc::new(UInt64Array::from_iter_values(
             u64::try_from(start_offset)?

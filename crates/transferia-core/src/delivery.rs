@@ -81,12 +81,23 @@ impl PartialEq<SystemColumnKind> for DiscoveredSystemColumn {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceTopology {
     StaticPartitions(Vec<i64>),
+    CoLocatedStaticPartitions(Vec<i64>),
     DynamicWorkerLanes,
 }
 
 impl SourceTopology {
+    #[must_use]
+    pub fn static_partitions(&self) -> Option<&[i64]> {
+        match self {
+            Self::StaticPartitions(partitions) | Self::CoLocatedStaticPartitions(partitions) => {
+                Some(partitions)
+            }
+            Self::DynamicWorkerLanes => None,
+        }
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
-        let Self::StaticPartitions(partitions) = self else {
+        let Some(partitions) = self.static_partitions() else {
             return Ok(());
         };
         anyhow::ensure!(!partitions.is_empty(), "source topology has no partitions");
@@ -122,6 +133,13 @@ impl SourceTopology {
                     })
                 })
                 .collect(),
+            Self::CoLocatedStaticPartitions(partitions) => {
+                if worker_index == 0 {
+                    partitions.clone()
+                } else {
+                    Vec::new()
+                }
+            }
             Self::DynamicWorkerLanes => vec![i64::from(worker_index)],
         })
     }

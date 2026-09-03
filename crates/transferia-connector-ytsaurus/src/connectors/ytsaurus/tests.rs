@@ -1384,6 +1384,10 @@ fn unique_sorted_snapshots_reject_multiple_source_partitions() -> anyhow::Result
     assert!(config.validate_discovery(&discovery).is_err());
     discovery.source_topology = SourceTopology::StaticPartitions(vec![0]);
     config.validate_discovery(&discovery)?;
+    discovery.source_topology = SourceTopology::CoLocatedStaticPartitions(vec![0, 1]);
+    assert!(config.validate_discovery(&discovery).is_err());
+    discovery.source_topology = SourceTopology::CoLocatedStaticPartitions(vec![0]);
+    config.validate_discovery(&discovery)?;
     Ok(())
 }
 

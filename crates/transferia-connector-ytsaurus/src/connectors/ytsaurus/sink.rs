@@ -32,7 +32,7 @@ use crate::metrics::SinkCounters;
 use transferia_core::delivery::{
     validate_batch_against_discovery, validate_stored_projection, ArrowTypeFamily,
     DeliveryDiscovery, NameSyntax, PerformanceAdvice, PerformanceAdviceSeverity, SinkLimits,
-    SinkLimitsDescription, SourceTopology, TextLimit,
+    SinkLimitsDescription, TextLimit,
 };
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
@@ -270,29 +270,26 @@ impl SinkLimits for YTsaurusSinkConfig {
         }
         if static_unique_sorted {
             anyhow::ensure!(
-                matches!(
-                    &discovery.source_topology,
-                    SourceTopology::StaticPartitions(partitions) if partitions.len() == 1
-                ),
+                discovery
+                    .source_topology
+                    .static_partitions()
+                    .is_some_and(|partitions| partitions.len() == 1),
                 "unique sorted YTsaurus primary-key semantics require exactly one finite source partition so one atomic replacement contains the complete snapshot"
             );
         }
         if !self.static_tables()
             && self.stages_dynamic_snapshots()
-            && matches!(
-                discovery.source_topology,
-                SourceTopology::StaticPartitions(_)
-            )
+            && discovery.source_topology.static_partitions().is_some()
         {
             anyhow::ensure!(
                 self.replace_tables(),
                 "dynamic snapshot delivery through static staging replaces the destination and requires replace_tables=true"
             );
             anyhow::ensure!(
-                matches!(
-                    &discovery.source_topology,
-                    SourceTopology::StaticPartitions(partitions) if partitions.len() == 1
-                ),
+                discovery
+                    .source_topology
+                    .static_partitions()
+                    .is_some_and(|partitions| partitions.len() == 1),
                 "dynamic snapshot delivery through static staging requires exactly one finite source partition"
             );
         }

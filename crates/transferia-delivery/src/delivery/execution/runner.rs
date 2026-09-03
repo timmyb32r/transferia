@@ -650,7 +650,7 @@ async fn run_partition_attempt(
             durable: dependencies.durable.clone(),
         })
         .await
-        .map_err(|error| DataPlaneFailure::retryable(error.context("source creation failed")))?;
+        .map_err(source_build_failure)?;
     let sink = dependencies
         .sink_connector
         .build_sink(SinkBuildContext {
@@ -679,6 +679,10 @@ async fn run_partition_attempt(
         output_row_counts,
     )
     .await
+}
+
+fn source_build_failure(error: anyhow::Error) -> DataPlaneFailure {
+    DataPlaneFailure::retryable_or_passthrough(error).context("source creation failed")
 }
 
 const INITIAL_PARTITION_RESTART_DELAY: core::time::Duration = core::time::Duration::from_secs(1);

@@ -66,6 +66,25 @@ fn dynamic_topology_assigns_one_lane_per_worker() -> anyhow::Result<()> {
 }
 
 #[test]
+fn colocated_topology_keeps_every_partition_on_worker_zero() -> anyhow::Result<()> {
+    let topology = SourceTopology::CoLocatedStaticPartitions(vec![0, 1, 2]);
+    assert_eq!(topology.partitions_for_worker(3, 0)?, vec![0, 1, 2]);
+    assert_eq!(topology.partitions_for_worker(3, 1)?, Vec::<i64>::new());
+    assert_eq!(topology.partitions_for_worker(3, 2)?, Vec::<i64>::new());
+
+    assert!(SourceTopology::CoLocatedStaticPartitions(vec![])
+        .validate()
+        .is_err());
+    assert!(SourceTopology::CoLocatedStaticPartitions(vec![1, 1])
+        .validate()
+        .is_err());
+    assert!(SourceTopology::CoLocatedStaticPartitions(vec![-1])
+        .validate()
+        .is_err());
+    Ok(())
+}
+
+#[test]
 fn stored_projection_follows_the_discovered_system_column_policy() -> anyhow::Result<()> {
     for keep in [false, true] {
         let discovery = projection_discovery(keep);
