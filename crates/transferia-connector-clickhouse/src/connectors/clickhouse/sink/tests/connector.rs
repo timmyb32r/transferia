@@ -1,5 +1,6 @@
 use arrow::array::BinaryArray;
 use arrow::datatypes::DataType;
+use std::collections::BTreeSet;
 
 use super::*;
 
@@ -70,6 +71,300 @@ fn authentication_failure_does_not_expose_server_details() {
         connection_check_error(&error).to_string(),
         "Network connection succeeded, but authentication failed: password is incorrect, or there is no user with such name."
     );
+}
+
+#[test]
+fn speedtest_rewrites_every_dataset_into_disjoint_scratch_tables() -> anyhow::Result<()> {
+    let original = discovery("events", DataType::Int64);
+    let (rewritten, mapping, tables) =
+        isolate_discovery(&original, "0123456789abcdef0123456789abcdef")?;
+
+    assert_eq!(rewritten.datasets.len(), original.datasets.len());
+    let names = rewritten
+        .datasets
+        .iter()
+        .map(|dataset| dataset.name.as_ref())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(names.len(), original.datasets.len());
+    assert!(names.iter().all(|name| is_speedtest_table(name)));
+    assert!(names.iter().all(|name| name.len() <= 63));
+    assert_eq!(
+        mapping.get("events").map(AsRef::as_ref),
+        Some("_transferia_st_0123456789abcdef0123456789abcdef_0")
+    );
+    assert_eq!(tables.len(), original.datasets.len());
+    Ok(())
+}
+
+#[tokio::test]
+async fn speedtest_cleanup_requires_exact_connector_owned_sets() -> anyhow::Result<()> {
+    let scratch: Arc<str> =
+        Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
+    let target = SpeedtestPhysicalTarget {
+        production: Arc::from("`analytics`.`events`"),
+        scratch: Arc::from(format!("`analytics`.`{scratch}`")),
+    };
+    let production = Arc::new(ClickHouseSinkConnector::from_config(
+        serde_yaml::from_str(
+            "hosts: [127.0.0.1]\nport: 1\ntrusted_plaintext: true\ndatabase: analytics\nusername: default\n",
+        )?,
+    )?);
+    let connector: Arc<dyn SinkConnector> = Arc::clone(&production) as Arc<dyn SinkConnector>;
+    let original = discovery("events", DataType::Int64);
+    let mut rewritten = original.clone();
+    rewritten.datasets[0].name = Arc::clone(&scratch);
+    rewritten.datasets.truncate(1);
+    let single_original = DeliveryDiscovery {
+        datasets: original.datasets[..1].to_vec(),
+        ..original
+    };
+    let isolation = SinkSpeedtestIsolation::scratch(
+        connector,
+        &single_original,
+        rewritten,
+        BTreeMap::from([(Arc::from("events"), Arc::clone(&scratch))]),
+        vec![target.clone()],
+    )?;
+    let cleanup_error = production.cleanup_speedtest(&isolation).await.unwrap_err();
+    assert!(cleanup_error
+        .to_string()
+        .contains("production ClickHouse connector"));
+
+    let wrong_table_scope = ClickHouseSpeedtestScope {
+        database: Arc::from("analytics"),
+        owner_marker: Arc::from("transferia-speedtest-owner:test"),
+        tables: BTreeSet::from([Arc::from(
+            "_transferia_st_0123456789abcdef0123456789abcdef_1",
+        )]),
+        physical_targets: physical_target_set(std::slice::from_ref(&target)),
+        shard_group: None,
+        replica_hosts: BTreeSet::from([Arc::from("host-a")]),
+        attempted_tables: Mutex::new(BTreeSet::new()),
+        claimed_tables: Mutex::new(BTreeSet::new()),
+    };
+    assert!(validate_cleanup_scope(&isolation, &wrong_table_scope).is_err());
+
+    let wrong_target_scope = ClickHouseSpeedtestScope {
+        database: Arc::from("analytics"),
+        owner_marker: Arc::from("transferia-speedtest-owner:test"),
+        tables: BTreeSet::from([scratch]),
+        physical_targets: BTreeSet::from([(
+            Arc::from("`analytics`.`events`"),
+            Arc::from("`analytics`.`different_scratch`"),
+        )]),
+        shard_group: None,
+        replica_hosts: BTreeSet::from([Arc::from("host-a")]),
+        attempted_tables: Mutex::new(BTreeSet::new()),
+        claimed_tables: Mutex::new(BTreeSet::new()),
+    };
+    assert!(validate_cleanup_scope(&isolation, &wrong_target_scope).is_err());
+    Ok(())
+}
+
+#[test]
+fn clickhouse_cleanup_ddl_quotes_database_table_and_cluster() -> anyhow::Result<()> {
+    let table = "_transferia_st_0123456789abcdef0123456789abcdef_f";
+    assert_eq!(
+        clickhouse_cleanup_ddl("odd`db", table, Some("odd`cluster"))?,
+        "DROP TABLE IF EXISTS `odd\\`db`.`_transferia_st_0123456789abcdef0123456789abcdef_f` ON CLUSTER `odd\\`cluster` SYNC"
+    );
+    assert!(clickhouse_cleanup_ddl("analytics", "events", None).is_err());
+    Ok(())
+}
+
+#[test]
+fn speedtest_isolation_id_rejects_noncanonical_or_injectable_values() {
+    assert!(validate_isolation_id("0123456789abcdef0123456789abcdef").is_ok());
+    assert!(validate_isolation_id("0123456789ABCDEF0123456789ABCDEF").is_err());
+    assert!(validate_isolation_id("0123456789abcdef; DROP TABLE events").is_err());
+}
+
+#[test]
+fn replica_owner_proof_rejects_collisions_missing_replicas_and_replacements() {
+    let hosts = BTreeSet::from([Arc::from("host-a"), Arc::from("host-b")]);
+    let owner: Arc<str> = Arc::from("transferia-speedtest-owner:ours");
+    let owned = BTreeMap::from([
+        (Arc::from("host-a"), Some(Arc::clone(&owner))),
+        (Arc::from("host-b"), Some(Arc::clone(&owner))),
+    ]);
+    assert_eq!(
+        classify_replica_owners(&hosts, &owned, &owner),
+        ReplicaOwnershipEvidence::Owned
+    );
+    assert_eq!(
+        classify_replica_owners(&hosts, &BTreeMap::new(), &owner),
+        ReplicaOwnershipEvidence::Missing
+    );
+
+    let partial = BTreeMap::from([(Arc::from("host-a"), Some(Arc::clone(&owner)))]);
+    assert_eq!(
+        classify_replica_owners(&hosts, &partial, &owner),
+        ReplicaOwnershipEvidence::Unsafe
+    );
+    let replaced = BTreeMap::from([
+        (Arc::from("host-a"), Some(Arc::clone(&owner))),
+        (
+            Arc::from("host-b"),
+            Some(Arc::from("transferia-speedtest-owner:foreign")),
+        ),
+    ]);
+    assert_eq!(
+        classify_replica_owners(&hosts, &replaced, &owner),
+        ReplicaOwnershipEvidence::Unsafe
+    );
+    assert!(replica_owner_allows_side_effect(
+        ReplicaOwnershipEvidence::Owned
+    ));
+    assert!(!replica_owner_allows_side_effect(
+        ReplicaOwnershipEvidence::Unsafe
+    ));
+    assert!(!replica_owner_allows_side_effect(
+        ReplicaOwnershipEvidence::Missing
+    ));
+}
+
+#[test]
+fn clickhouse_partial_setup_tracks_every_attempt_but_only_proven_ownership() {
+    let first: Arc<str> = Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
+    let second: Arc<str> = Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_1");
+    let scope = ClickHouseSpeedtestScope {
+        database: Arc::from("analytics"),
+        owner_marker: Arc::from("transferia-speedtest-owner:ours"),
+        tables: BTreeSet::from([Arc::clone(&first), Arc::clone(&second)]),
+        physical_targets: BTreeSet::new(),
+        shard_group: Some(Arc::from("cluster-a")),
+        replica_hosts: BTreeSet::from([Arc::from("host-a")]),
+        attempted_tables: Mutex::new(BTreeSet::new()),
+        claimed_tables: Mutex::new(BTreeSet::new()),
+    };
+
+    scope.record_attempt(Arc::clone(&first));
+    scope.claim(Arc::clone(&first));
+    scope.record_attempt(Arc::clone(&second));
+    assert_eq!(
+        scope.attempted_tables(),
+        BTreeSet::from([Arc::clone(&first), Arc::clone(&second)])
+    );
+    assert_eq!(
+        scope.claimed_tables(),
+        BTreeSet::from([Arc::clone(&first)])
+    );
+    scope.unclaim(&first);
+    scope.unclaim(&first);
+    assert!(scope.claimed_tables().is_empty());
+    assert_eq!(scope.attempted_tables(), BTreeSet::from([second]));
+}
+
+fn fake_clickhouse_cleanup(
+    scope: &ClickHouseSpeedtestScope,
+    table: &Arc<str>,
+    owner_probe: Result<ReplicaOwnershipEvidence, &'static str>,
+    schema_matches: bool,
+) -> Result<bool, &'static str> {
+    match cleanup_ownership_action(owner_probe?) {
+        CleanupOwnershipAction::AlreadyAbsent => {
+            scope.unclaim(table);
+            Ok(false)
+        }
+        CleanupOwnershipAction::VerifySchemaAndDrop if schema_matches => {
+            scope.unclaim(table);
+            Ok(true)
+        }
+        CleanupOwnershipAction::VerifySchemaAndDrop | CleanupOwnershipAction::Preserve => {
+            Err("preserved: ownership or schema is not proven")
+        }
+    }
+}
+
+fn fault_scope(table: &Arc<str>) -> ClickHouseSpeedtestScope {
+    ClickHouseSpeedtestScope {
+        database: Arc::from("analytics"),
+        owner_marker: Arc::from("transferia-speedtest-owner:ours"),
+        tables: BTreeSet::from([Arc::clone(table)]),
+        physical_targets: BTreeSet::new(),
+        shard_group: Some(Arc::from("cluster-a")),
+        replica_hosts: BTreeSet::from([Arc::from("host-a"), Arc::from("host-b")]),
+        attempted_tables: Mutex::new(BTreeSet::new()),
+        claimed_tables: Mutex::new(BTreeSet::new()),
+    }
+}
+
+#[test]
+fn clickhouse_lost_committed_create_remains_recoverable_after_unreadable_probes() {
+    let table: Arc<str> = Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
+    let scope = fault_scope(&table);
+    scope.record_attempt(Arc::clone(&table));
+
+    for _ in 0..2 {
+        assert!(fake_clickhouse_cleanup(&scope, &table, Err("unreadable"), true).is_err());
+        assert_eq!(
+            scope.attempted_tables(),
+            BTreeSet::from([Arc::clone(&table)])
+        );
+    }
+    assert!(fake_clickhouse_cleanup(
+        &scope,
+        &table,
+        Ok(ReplicaOwnershipEvidence::Owned),
+        true,
+    )
+    .expect("an exact late owner and schema proof permits exact cleanup"));
+    assert!(scope.attempted_tables().is_empty());
+}
+
+#[test]
+fn clickhouse_foreign_partial_or_wrong_schema_collision_is_preserved() {
+    let table: Arc<str> = Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
+    let scope = fault_scope(&table);
+    scope.record_attempt(Arc::clone(&table));
+
+    let error = fake_clickhouse_cleanup(
+        &scope,
+        &table,
+        Ok(ReplicaOwnershipEvidence::Unsafe),
+        true,
+    )
+    .unwrap_err();
+    assert!(error.contains("preserved"));
+    assert_eq!(
+        scope.attempted_tables(),
+        BTreeSet::from([Arc::clone(&table)])
+    );
+    assert!(fake_clickhouse_cleanup(
+        &scope,
+        &table,
+        Ok(ReplicaOwnershipEvidence::Owned),
+        false,
+    )
+    .unwrap_err()
+    .contains("preserved"));
+    assert_eq!(scope.attempted_tables(), BTreeSet::from([table]));
+}
+
+#[test]
+fn successful_cluster_drop_is_incomplete_while_any_pinned_replica_still_owns_table() {
+    let table: Arc<str> = Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
+    let scope = fault_scope(&table);
+    scope.record_attempt(Arc::clone(&table));
+    scope.claim(Arc::clone(&table));
+
+    assert_eq!(
+        classify_drop_completion(true, ReplicaOwnershipEvidence::Owned),
+        DropCompletion::StillOwnedAfterSuccess
+    );
+    assert_eq!(
+        classify_drop_completion(true, ReplicaOwnershipEvidence::Unsafe),
+        DropCompletion::Unsafe
+    );
+    assert_eq!(
+        classify_drop_completion(true, ReplicaOwnershipEvidence::Missing),
+        DropCompletion::Complete
+    );
+    assert_eq!(
+        scope.attempted_tables(),
+        BTreeSet::from([Arc::clone(&table)])
+    );
+    assert_eq!(scope.claimed_tables(), BTreeSet::from([table]));
 }
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::delivery::{DatasetRole, DiscoveredDataset, SchemaOrigin};

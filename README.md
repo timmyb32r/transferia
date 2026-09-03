@@ -71,6 +71,31 @@ lost. Deliveries remain stopped after a server restart until manually activated.
 See [the control-plane architecture](docs/server.md) for the storage, launcher,
 API, and UI boundaries.
 
+The editor's **Speedtest** view becomes available as soon as the required source
+and destination settings are complete; the delivery name and shared pipeline
+settings do not gate it. **Estimate maximum performance** measures one logical
+source stream without committing its cursor. An untimed first pass records a
+bounded empirical sequence of post-parser Arrow deliveries; a fresh second pass
+measures source throughput without profiler or spool work. The destination test
+replays the exact sampled dataset, batch, and DLQ mix into a connector-owned
+scratch destination and reports when the configured pipeline-memory limit
+truncated that profile. **Tune optimal parameters** evaluates source and
+destination candidates concurrently, but may change only finite, safe values
+declared by each connector. Its optional time budget starts after the one-time
+profile and source baseline, which are each bounded by the visible trial
+duration. Results compare the winner with connector-authored defaults.
+
+Every request has an explicit cleanup timeout. Cleanup is tracked independently
+of the HTTP client and retries idempotently until that deadline; exhaustion
+returns the exact credential-free scratch targets for manual cleanup. A
+connector that cannot prove non-disruptive source isolation, exclusive scratch
+ownership, and safe cleanup fails before source I/O. Speedtest never falls back
+to a production consumer, replication slot, table, object prefix, or
+durable-state directory. S3 and Iceberg destinations are currently rejected:
+the generic object-store API cannot prove removal of historical object versions,
+while the available HDFS writer does not yet share the hardened outbound-HTTP
+boundary required for a destructive probe.
+
 ## Quality checks
 
 ```bash

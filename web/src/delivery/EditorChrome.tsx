@@ -263,10 +263,14 @@ export function EditorTabs({
   disabled,
   dataSchemaAvailable,
   dataSchemaUnavailableReason,
+  speedtestAvailable = false,
+  speedtestUnavailableReason,
   onUi,
   onYaml,
   onDataSchema,
   onDataSchemaUnavailable,
+  onSpeedtest,
+  onSpeedtestUnavailable,
   onPerformanceAdvice,
   onLogs,
 }: {
@@ -274,10 +278,14 @@ export function EditorTabs({
   disabled: boolean;
   dataSchemaAvailable: boolean;
   dataSchemaUnavailableReason?: string | undefined;
+  speedtestAvailable?: boolean;
+  speedtestUnavailableReason?: string | undefined;
   onUi: () => void;
   onYaml: () => void;
   onDataSchema: () => void;
   onDataSchemaUnavailable?: (() => void) | undefined;
+  onSpeedtest?: (() => void) | undefined;
+  onSpeedtestUnavailable?: (() => void) | undefined;
   onPerformanceAdvice: () => void;
   onLogs?: () => void;
 }) {
@@ -333,6 +341,35 @@ export function EditorTabs({
             }
           >
             Data schema
+          </Button>
+        </InstantTooltip>
+        <InstantTooltip
+          class="editor-tab-tooltip"
+          content={
+            speedtestAvailable
+              ? "Open the one-stream performance test"
+              : (speedtestUnavailableReason ??
+                "Complete the required source and destination fields")
+          }
+        >
+          <Button
+            role="tab"
+            aria-selected={active === "speedtest"}
+            aria-disabled={!speedtestAvailable}
+            class={[
+              active === "speedtest" ? "active" : "",
+              !speedtestAvailable ? "diagnostic-disabled" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            disabled={disabled}
+            onClick={
+              speedtestAvailable
+                ? onSpeedtest
+                : (onSpeedtestUnavailable ?? onSpeedtest)
+            }
+          >
+            Speedtest
           </Button>
         </InstantTooltip>
         <Button

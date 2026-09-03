@@ -12,7 +12,8 @@ use prost::Message as _;
 use schemars::schema_for;
 use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -20,9 +21,9 @@ use tokio::task::JoinSet;
 use super::client::{
     dynamic_conversion_attributes, dynamic_table_attributes, json_header_value,
     normalize_rpc_proxy_roles, resolved_link_suggestion, rich_read_path, rpc_proxy_discovery_url,
-    sort_operation_parameters, static_table_attributes, suggestion_directory,
-    table_path_suggestions, table_writer_spec, uniform_reshard_parameters, yson_header_value,
-    ListedNode,
+    recursive_removal_parameters, sort_operation_parameters, speedtest_directory_parameters,
+    static_table_attributes, suggestion_directory, table_path_suggestions, table_writer_spec,
+    uniform_reshard_parameters, yson_header_value, ListedNode,
 };
 use super::config::{
     YTsaurusAtomicity, YTsaurusBigValuePolicy, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics,
@@ -44,8 +45,12 @@ fn dynamic_row_modification_codes_match_the_native_rpc_contract() {
 }
 use super::schema::{parse_schema, schema_to_yt, sorted_unique_schema_to_yt};
 use super::sink::{
-    drop_oversized_rows, dynamic_row_modification, encode_arrow, encode_arrow_batches,
-    validate_initial_tablet_count, validate_row_weight, yt_guid, YTsaurusSinkConnector,
+    cleanup_ytsaurus_speedtest_root, drop_oversized_rows, dynamic_row_modification, encode_arrow,
+    encode_arrow_batches, is_speedtest_scratch_root, is_within_speedtest_root,
+    physical_target_set, prepare_ytsaurus_speedtest_root, speedtest_root_proof,
+    speedtest_scratch_root, validate_initial_tablet_count, validate_row_weight,
+    validate_speedtest_cleanup_scope, validate_speedtest_isolation_id, yt_guid,
+    YTsaurusSinkConnector, YTsaurusSpeedtestClient, YTsaurusSpeedtestScope,
 };
 use super::src_batch::{
     dataset_arrow_schema, normalize_read_batch, performance_advice, system_column_layout,
@@ -61,7 +66,491 @@ use transferia_core::delivery::{
 };
 use transferia_core::memory::PipelineMemory;
 use transferia_core::sink::SinkBatch;
-use transferia_registry::SinkConnector as _;
+use transferia_registry::{
+    SinkConnector as _, SinkSpeedtestIsolation, SpeedtestPhysicalTarget,
+};
+
+fn speedtest_sink_discovery() -> DeliveryDiscovery {
+    let schema = DatasetSchema::new(vec![
+        SchemaColumn::new("id".to_owned(), DataType::Int64, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("payload".to_owned(), DataType::Utf8, true),
+    ]);
+    DeliveryDiscovery {
+        source_name: Arc::from("speedtest-source"),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![
+            DiscoveredDataset {
+                role: DatasetRole::Main,
+                name: Arc::from("events"),
+                incoming_schema: schema.clone(),
+                stored_schema: schema.clone(),
+                system_columns: Vec::new(),
+            },
+            DiscoveredDataset {
+                role: DatasetRole::DeadLetterQueue,
+                name: Arc::from("events_dlq"),
+                incoming_schema: schema.clone(),
+                stored_schema: schema,
+                system_columns: Vec::new(),
+            },
+        ],
+        performance_advice: Vec::new(),
+    }
+}
+
+fn speedtest_static_config(replace_tables: bool) -> anyhow::Result<YTsaurusSinkConfig> {
+    Ok(serde_yaml::from_str(&format!(
+        "tables: {{ type: static_tables, replace_tables: {replace_tables}, path: //tmp/production }}\n\
+         auth: {{ type: token, token: test }}\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n"
+    ))?)
+}
+
+fn assert_same_speedtest_schema(left: &DatasetSchema, right: &DatasetSchema) {
+    assert_eq!(left.columns.len(), right.columns.len());
+    for (left, right) in left.columns.iter().zip(&right.columns) {
+        assert_eq!(left.name, right.name);
+        assert_eq!(left.data_type, right.data_type);
+        assert_eq!(left.nullable, right.nullable);
+        assert_eq!(left.primary_key, right.primary_key);
+        assert_eq!(left.low_cardinality, right.low_cardinality);
+        assert_eq!(left.max_length, right.max_length);
+        assert_eq!(left.arrow_extension_name, right.arrow_extension_name);
+        assert_eq!(left.system_role, right.system_role);
+        assert_eq!(left.old_value_of, right.old_value_of);
+        assert_eq!(left.old_key_of, right.old_key_of);
+    }
+}
+
+#[test]
+fn speedtest_root_is_a_canonical_128_bit_sibling_namespace() -> anyhow::Result<()> {
+    let id = "0123456789abcdef0123456789abcdef";
+    let root = speedtest_scratch_root("//home/transfer/output/", id)?;
+    assert_eq!(
+        root,
+        "//home/transfer/.transferia-speedtest-0123456789abcdef0123456789abcdef"
+    );
+    assert!(is_speedtest_scratch_root(&root));
+    assert!(validate_speedtest_isolation_id(id).is_ok());
+    assert!(validate_speedtest_isolation_id("0123456789ABCDEF0123456789ABCDEF").is_err());
+    assert!(validate_speedtest_isolation_id("../../production").is_err());
+    assert!(speedtest_scratch_root("//", id).is_err());
+    let create = speedtest_directory_parameters(&root, "owner", "1-2-3-4", false);
+    assert_eq!(create["path"], root);
+    assert_eq!(create["recursive"], false);
+    assert_eq!(create["ignore_existing"], false);
+    assert_eq!(create["attributes"]["transferia_speedtest_owner"], "owner");
+    assert_eq!(create["mutation_id"], "1-2-3-4");
+    assert_eq!(create["retry"], false);
+    let remove = recursive_removal_parameters(&root, 42, "4-3-2-1", true);
+    assert_eq!(remove["path"], root);
+    assert_eq!(remove["force"], true);
+    assert_eq!(remove["recursive"], true);
+    assert_eq!(remove["prerequisite_revisions"][0]["path"], root);
+    assert_eq!(remove["prerequisite_revisions"][0]["revision"], 42);
+    assert_eq!(remove["mutation_id"], "4-3-2-1");
+    assert_eq!(remove["retry"], true);
+    assert_eq!(
+        speedtest_root_proof(
+            &serde_json::json!({
+                "transferia_speedtest_owner": "owner",
+                "revision": 42
+            }),
+            "owner"
+        )?,
+        42
+    );
+    assert!(speedtest_root_proof(
+        &serde_json::json!({
+            "transferia_speedtest_owner": "foreign",
+            "revision": 42
+        }),
+        "owner"
+    )
+    .is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn speedtest_isolation_preserves_logical_datasets_and_never_mutates_production_config(
+) -> anyhow::Result<()> {
+    let production_config = speedtest_static_config(false)?;
+    let connector = Arc::new(YTsaurusSinkConnector::from_config(production_config.clone())?);
+    let original = Arc::new(speedtest_sink_discovery());
+    let isolation = Arc::clone(&connector)
+        .isolate_speedtest(
+            Arc::clone(&original),
+            "0123456789abcdef0123456789abcdef".to_owned(),
+        )
+        .await?;
+
+    assert_eq!(production_config.path(), "//tmp/production");
+    assert!(!production_config.replace_tables());
+    assert_eq!(isolation.discovery.datasets.len(), original.datasets.len());
+    for (isolated, original) in isolation.discovery.datasets.iter().zip(&original.datasets) {
+        assert_eq!(isolated.name, original.name);
+        assert_eq!(isolated.role, original.role);
+        assert_same_speedtest_schema(&isolated.incoming_schema, &original.incoming_schema);
+        assert_same_speedtest_schema(&isolated.stored_schema, &original.stored_schema);
+        assert_eq!(isolated.system_columns, original.system_columns);
+        assert_eq!(isolation.table_name(&original.name)?, original.name);
+    }
+    assert_eq!(isolation.physical_targets().len(), 2);
+    assert!(isolation.physical_targets().iter().all(|target| {
+        target.production.starts_with("//tmp/production/")
+            && target
+                .scratch
+                .starts_with("//tmp/.transferia-speedtest-0123456789abcdef0123456789abcdef/")
+            && target.production != target.scratch
+    }));
+    isolation.connector().cleanup_speedtest(&isolation).await?;
+    assert!(connector.cleanup_speedtest(&isolation).await.is_err());
+    Ok(())
+}
+
+#[test]
+fn dynamic_via_static_clone_forces_replacement_and_keeps_every_artifact_inside_owned_root(
+) -> anyhow::Result<()> {
+    let production: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: dynamic_tables, replace_tables: false, path: //tmp/production }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n\
+         trusted_native_rpc_plaintext: true\n",
+    )?;
+    assert!(production.stages_dynamic_snapshots());
+    assert!(!production.replace_tables());
+    let root = speedtest_scratch_root(
+        production.path(),
+        "0123456789abcdef0123456789abcdef",
+    )?;
+    let isolated = production.clone_for_speedtest(root.clone())?;
+    assert!(isolated.stages_dynamic_snapshots());
+    assert!(isolated.replace_tables());
+    assert_eq!(isolated.path(), root);
+
+    let destination = format!("{root}/events");
+    let staging = format!("{root}/.transferia-stage-deadbeef-events");
+    let sorted = format!("{root}/.transferia-sorted-deadbeef-events");
+    assert!(is_within_speedtest_root(&root, &destination));
+    assert!(is_within_speedtest_root(&root, &staging));
+    assert!(is_within_speedtest_root(&root, &sorted));
+    assert!(!is_within_speedtest_root(
+        &root,
+        "//tmp/production/.transferia-stage-deadbeef-events"
+    ));
+    assert!(!is_within_speedtest_root(
+        &root,
+        &format!("{root}-lookalike/events")
+    ));
+    Ok(())
+}
+
+#[test]
+fn speedtest_cleanup_refuses_tampered_root_discovery_or_physical_proof() -> anyhow::Result<()> {
+    let production = speedtest_static_config(false)?;
+    let discovery = speedtest_sink_discovery();
+    let root = speedtest_scratch_root(
+        production.path(),
+        "0123456789abcdef0123456789abcdef",
+    )?;
+    let isolated_config = production.clone_for_speedtest(root.clone())?;
+    let mapping = discovery
+        .datasets
+        .iter()
+        .map(|dataset| (Arc::clone(&dataset.name), Arc::clone(&dataset.name)))
+        .collect::<BTreeMap<_, _>>();
+    let targets = discovery
+        .datasets
+        .iter()
+        .map(|dataset| {
+            Ok(SpeedtestPhysicalTarget {
+                production: Arc::from(production.path_for_dataset(&dataset.name)?),
+                scratch: Arc::from(isolated_config.path_for_dataset(&dataset.name)?),
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let connector: Arc<dyn transferia_registry::SinkConnector> = Arc::new(
+        YTsaurusSinkConnector::from_config(isolated_config.clone())?,
+    );
+    let isolation = SinkSpeedtestIsolation::scratch(
+        connector,
+        &discovery,
+        discovery.clone(),
+        mapping,
+        targets.clone(),
+    )?;
+    let scope = YTsaurusSpeedtestScope {
+        root: Arc::from(root.clone()),
+        owner: Arc::from("owner"),
+        create_mutation_id: Arc::from("1-2-3-4"),
+        remove_mutation_id: Arc::from("4-3-2-1"),
+        datasets: discovery
+            .datasets
+            .iter()
+            .map(|dataset| Arc::clone(&dataset.name))
+            .collect(),
+        physical_targets: physical_target_set(&targets),
+        creation_attempted: AtomicBool::new(false),
+        cleaned: AtomicBool::new(false),
+    };
+    validate_speedtest_cleanup_scope(&isolated_config, &isolation, &scope)?;
+
+    let wrong_root = YTsaurusSpeedtestScope {
+        root: Arc::from("//tmp/production"),
+        owner: Arc::clone(&scope.owner),
+        create_mutation_id: Arc::clone(&scope.create_mutation_id),
+        remove_mutation_id: Arc::clone(&scope.remove_mutation_id),
+        datasets: scope.datasets.clone(),
+        physical_targets: scope.physical_targets.clone(),
+        creation_attempted: AtomicBool::new(false),
+        cleaned: AtomicBool::new(false),
+    };
+    assert!(validate_speedtest_cleanup_scope(&isolated_config, &isolation, &wrong_root).is_err());
+
+    let mut wrong_targets = scope.physical_targets.clone();
+    let first = wrong_targets.pop_first().unwrap();
+    wrong_targets.insert((first.0, Arc::from("//tmp/production/events")));
+    let wrong_proof = YTsaurusSpeedtestScope {
+        root: scope.root,
+        owner: scope.owner,
+        create_mutation_id: scope.create_mutation_id,
+        remove_mutation_id: scope.remove_mutation_id,
+        datasets: scope.datasets,
+        physical_targets: wrong_targets,
+        creation_attempted: AtomicBool::new(false),
+        cleaned: AtomicBool::new(false),
+    };
+    assert!(validate_speedtest_cleanup_scope(&isolated_config, &isolation, &wrong_proof).is_err());
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum FakeYtCreateOutcome {
+    Success,
+    LostResponse,
+    Collision,
+}
+
+struct FakeYtSpeedtestState {
+    attributes: Option<serde_json::Value>,
+    create_outcome: FakeYtCreateOutcome,
+    attributes_unreadable: bool,
+    replace_before_remove: bool,
+    lose_remove_response: bool,
+    remove_calls: usize,
+}
+
+struct FakeYtSpeedtestClient {
+    state: Mutex<FakeYtSpeedtestState>,
+}
+
+impl FakeYtSpeedtestClient {
+    fn new(create_outcome: FakeYtCreateOutcome) -> Self {
+        Self {
+            state: Mutex::new(FakeYtSpeedtestState {
+                attributes: None,
+                create_outcome,
+                attributes_unreadable: false,
+                replace_before_remove: false,
+                lose_remove_response: false,
+                remove_calls: 0,
+            }),
+        }
+    }
+}
+
+impl YTsaurusSpeedtestClient for FakeYtSpeedtestClient {
+    fn create_root<'a>(
+        &'a self,
+        _path: &'a str,
+        owner: &'a str,
+        _mutation_id: &'a str,
+    ) -> futures_util::future::BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(async move {
+            let mut state = self.state.lock().unwrap();
+            match state.create_outcome {
+                FakeYtCreateOutcome::Success => {
+                    state.attributes = Some(serde_json::json!({
+                        "transferia_speedtest_owner": owner,
+                        "revision": 7
+                    }));
+                    Ok(())
+                }
+                FakeYtCreateOutcome::LostResponse => {
+                    state.attributes = Some(serde_json::json!({
+                        "transferia_speedtest_owner": owner,
+                        "revision": 7
+                    }));
+                    anyhow::bail!("create response lost")
+                }
+                FakeYtCreateOutcome::Collision => anyhow::bail!("path already exists"),
+            }
+        })
+    }
+
+    fn root_attributes<'a>(
+        &'a self,
+        _path: &'a str,
+    ) -> futures_util::future::BoxFuture<'a, anyhow::Result<serde_json::Value>> {
+        Box::pin(async move {
+            let state = self.state.lock().unwrap();
+            if state.attributes_unreadable {
+                anyhow::bail!("attributes timed out")
+            }
+            state
+                .attributes
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("root is missing"))
+        })
+    }
+
+    fn remove_root<'a>(
+        &'a self,
+        _path: &'a str,
+        revision: u64,
+        _mutation_id: &'a str,
+    ) -> futures_util::future::BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(async move {
+            let mut state = self.state.lock().unwrap();
+            if state.replace_before_remove {
+                state.attributes = Some(serde_json::json!({
+                    "transferia_speedtest_owner": "replacement",
+                    "revision": revision + 1
+                }));
+            }
+            let current_revision = state
+                .attributes
+                .as_ref()
+                .and_then(|attributes| attributes["revision"].as_u64());
+            anyhow::ensure!(
+                current_revision == Some(revision),
+                "prerequisite revision changed"
+            );
+            state.remove_calls += 1;
+            state.attributes = None;
+            if state.lose_remove_response {
+                anyhow::bail!("remove response lost")
+            }
+            Ok(())
+        })
+    }
+
+    fn root_exists<'a>(
+        &'a self,
+        _path: &'a str,
+    ) -> futures_util::future::BoxFuture<'a, anyhow::Result<bool>> {
+        Box::pin(async move { Ok(self.state.lock().unwrap().attributes.is_some()) })
+    }
+}
+
+fn fake_yt_scope() -> YTsaurusSpeedtestScope {
+    YTsaurusSpeedtestScope {
+        root: Arc::from(
+            "//tmp/.transferia-speedtest-0123456789abcdef0123456789abcdef",
+        ),
+        owner: Arc::from("owner"),
+        create_mutation_id: Arc::from("1-2-3-4"),
+        remove_mutation_id: Arc::from("4-3-2-1"),
+        datasets: Default::default(),
+        physical_targets: Default::default(),
+        creation_attempted: AtomicBool::new(false),
+        cleaned: AtomicBool::new(false),
+    }
+}
+
+#[tokio::test]
+async fn yt_lost_create_response_is_cleaned_after_exact_owner_proof() -> anyhow::Result<()> {
+    let client = FakeYtSpeedtestClient::new(FakeYtCreateOutcome::LostResponse);
+    let scope = fake_yt_scope();
+    prepare_ytsaurus_speedtest_root(&client, &scope).await?;
+    cleanup_ytsaurus_speedtest_root(&client, &scope).await?;
+    cleanup_ytsaurus_speedtest_root(&client, &scope).await?;
+    let state = client.state.lock().unwrap();
+    assert_eq!(state.remove_calls, 1);
+    assert!(state.attributes.is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn yt_foreign_collision_and_unreadable_marker_never_permit_remove() -> anyhow::Result<()> {
+    let client = FakeYtSpeedtestClient::new(FakeYtCreateOutcome::Collision);
+    let scope = fake_yt_scope();
+    client.state.lock().unwrap().attributes = Some(serde_json::json!({
+        "transferia_speedtest_owner": "foreign",
+        "revision": 7
+    }));
+    assert!(prepare_ytsaurus_speedtest_root(&client, &scope)
+        .await
+        .is_err());
+    assert!(cleanup_ytsaurus_speedtest_root(&client, &scope)
+        .await
+        .is_err());
+    assert_eq!(client.state.lock().unwrap().remove_calls, 0);
+
+    let client = FakeYtSpeedtestClient::new(FakeYtCreateOutcome::Success);
+    let scope = fake_yt_scope();
+    prepare_ytsaurus_speedtest_root(&client, &scope).await?;
+    client.state.lock().unwrap().attributes_unreadable = true;
+    assert!(cleanup_ytsaurus_speedtest_root(&client, &scope)
+        .await
+        .is_err());
+    assert_eq!(client.state.lock().unwrap().remove_calls, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn yt_revision_prerequisite_preserves_replacement() -> anyhow::Result<()> {
+    let client = FakeYtSpeedtestClient::new(FakeYtCreateOutcome::Success);
+    let scope = fake_yt_scope();
+    prepare_ytsaurus_speedtest_root(&client, &scope).await?;
+    client.state.lock().unwrap().replace_before_remove = true;
+    assert!(cleanup_ytsaurus_speedtest_root(&client, &scope)
+        .await
+        .is_err());
+    let state = client.state.lock().unwrap();
+    assert_eq!(state.remove_calls, 0);
+    assert_eq!(
+        state.attributes.as_ref().unwrap()["transferia_speedtest_owner"],
+        "replacement"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn yt_lost_remove_response_is_success_only_after_absence_proof() -> anyhow::Result<()> {
+    let client = FakeYtSpeedtestClient::new(FakeYtCreateOutcome::Success);
+    let scope = fake_yt_scope();
+    prepare_ytsaurus_speedtest_root(&client, &scope).await?;
+    client.state.lock().unwrap().lose_remove_response = true;
+    cleanup_ytsaurus_speedtest_root(&client, &scope).await?;
+    cleanup_ytsaurus_speedtest_root(&client, &scope).await?;
+    let state = client.state.lock().unwrap();
+    assert_eq!(state.remove_calls, 1);
+    assert!(state.attributes.is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn yt_cleanup_is_idempotent_when_the_owned_root_is_already_absent() -> anyhow::Result<()> {
+    let client = FakeYtSpeedtestClient::new(FakeYtCreateOutcome::Success);
+    let scope = fake_yt_scope();
+    scope.creation_attempted.store(true, Ordering::Release);
+
+    cleanup_ytsaurus_speedtest_root(&client, &scope).await?;
+    cleanup_ytsaurus_speedtest_root(&client, &scope).await?;
+
+    let state = client.state.lock().unwrap();
+    assert_eq!(state.remove_calls, 0);
+    assert!(state.attributes.is_none());
+    Ok(())
+}
 
 #[tokio::test]
 async fn dynamic_partial_update_preserves_toast_by_using_modify_with_only_changed_columns(

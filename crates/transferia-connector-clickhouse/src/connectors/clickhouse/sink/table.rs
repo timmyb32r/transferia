@@ -130,8 +130,16 @@ async fn create_table(
 ) -> anyhow::Result<()> {
     let data_host_count = config.effective_data_host_count();
     let engine = TableEngine::for_data_host_count(data_host_count, changelog);
-    let ddl =
-        create_table_ddl_for_cluster(name, schema, sorting_key, engine, shard_group, changelog)?;
+    let ddl = create_table_ddl_for_cluster(
+        name,
+        schema,
+        sorting_key,
+        engine,
+        shard_group,
+        changelog,
+        true,
+        None,
+    )?;
     tracing::info!(
         table = name,
         engine = engine.as_str(),
@@ -142,6 +150,67 @@ async fn create_table(
         .execute(&ddl)
         .await
         .map_err(|error| anyhow::anyhow!("Failed to create table '{name}': {error}"))?;
+    validate_prepared_table(client, config, name, schema, sorting_key, changelog).await
+}
+
+pub(super) fn speedtest_create_table_ddl(
+    config: &ClickHouseSinkConfig,
+    dataset: &transferia_registry::DatasetPrepare,
+    shard_group: Option<&str>,
+    owner_marker: &str,
+) -> anyhow::Result<String> {
+    let sorting_key = if dataset.role == transferia_core::delivery::DatasetRole::Main {
+        dataset
+            .schema
+            .columns
+            .iter()
+            .filter(|column| column.primary_key)
+            .map(|column| column.name.clone())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    create_table_ddl_for_cluster(
+        &dataset.table,
+        &dataset.schema,
+        &sorting_key,
+        TableEngine::for_data_host_count(config.effective_data_host_count(), dataset.changelog),
+        shard_group,
+        dataset.changelog,
+        false,
+        Some(owner_marker),
+    )
+}
+
+pub(super) async fn validate_speedtest_table(
+    client: &ReconnectingClient,
+    config: &ClickHouseSinkConfig,
+    name: &str,
+    schema: &DatasetSchema,
+    role: transferia_core::delivery::DatasetRole,
+    changelog: bool,
+) -> anyhow::Result<()> {
+    let sorting_key = if role == transferia_core::delivery::DatasetRole::Main {
+        schema
+            .columns
+            .iter()
+            .filter(|column| column.primary_key)
+            .map(|column| column.name.clone())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    validate_prepared_table(client, config, name, schema, &sorting_key, changelog).await
+}
+
+async fn validate_prepared_table(
+    client: &ReconnectingClient,
+    config: &ClickHouseSinkConfig,
+    name: &str,
+    schema: &DatasetSchema,
+    sorting_key: &[String],
+    changelog: bool,
+) -> anyhow::Result<()> {
     let target = fetch_target_schema(client, &config.database, name).await?;
     validate_target_schema(name, schema, &target, sorting_key)?;
     if changelog {
@@ -190,7 +259,16 @@ fn create_table_ddl(
         engine,
         TableEngine::Replacing | TableEngine::ReplicatedReplacing
     );
-    create_table_ddl_for_cluster(name, schema, sorting_key, engine, None, changelog)
+    create_table_ddl_for_cluster(
+        name,
+        schema,
+        sorting_key,
+        engine,
+        None,
+        changelog,
+        true,
+        None,
+    )
 }
 
 fn create_table_ddl_for_cluster(
@@ -200,6 +278,8 @@ fn create_table_ddl_for_cluster(
     engine: TableEngine,
     shard_group: Option<&str>,
     changelog: bool,
+    if_not_exists: bool,
+    comment: Option<&str>,
 ) -> anyhow::Result<String> {
     let mut columns = validated_column_definitions(name, schema)?;
     if changelog {
@@ -254,8 +334,12 @@ fn create_table_ddl_for_cluster(
             "ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}', __data_transfer_commit_time, __data_transfer_is_deleted)"
         }
     };
+    let if_not_exists = if if_not_exists { " IF NOT EXISTS" } else { "" };
+    let comment = comment
+        .map(|value| format!(" COMMENT {}", quote_string_literal(value)))
+        .unwrap_or_default();
     Ok(format!(
-        "CREATE TABLE IF NOT EXISTS {}{on_cluster} ({columns}) ENGINE = {engine_clause} ORDER BY ({order_by})",
+        "CREATE TABLE{if_not_exists} {}{on_cluster} ({columns}) ENGINE = {engine_clause} ORDER BY ({order_by}){comment}",
         quote_identifier(name),
     ))
 }

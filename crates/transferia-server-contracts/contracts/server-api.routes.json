@@ -48,6 +48,22 @@
     "response": "sql_playground_response"
   },
   {
+    "body": "speedtest_estimate_request",
+    "method": "POST",
+    "name": "speedtest_estimate",
+    "path": "/api/v1/speedtest/estimate",
+    "query": null,
+    "response": "speedtest_estimate_response"
+  },
+  {
+    "body": "speedtest_tune_request",
+    "method": "POST",
+    "name": "speedtest_tune",
+    "path": "/api/v1/speedtest/tune",
+    "query": null,
+    "response": "speedtest_tune_response"
+  },
+  {
     "body": "config_request",
     "method": "POST",
     "name": "render_yaml",

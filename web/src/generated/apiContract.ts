@@ -13,6 +13,7 @@ export type ApiErrorCode =
   | "not_found"
   | "conflict"
   | "validation_failed"
+  | "operation_failed"
   | "internal_error";
 
 export type ApiErrorView = {
@@ -295,6 +296,98 @@ export type SinkLimitsDescription = {
   supported_arrow_types: Array<ArrowTypeFamily>;
 };
 
+export type SpeedtestColumnProfileView = {
+  arrow_type: string;
+  cardinality?: number;
+  max_length?: number;
+  min_length?: number;
+  name: string;
+  null_count: number;
+  numeric_max?: string;
+  numeric_min?: string;
+  temporal_max?: string;
+  temporal_min?: string;
+};
+
+export type SpeedtestDatasetProfileView = {
+  columns: Array<SpeedtestColumnProfileView>;
+  dataset: string;
+  is_dlq: boolean;
+  sampled_arrow_bytes: number;
+  sampled_rows: number;
+};
+
+export type SpeedtestEstimateRequest = {
+  cleanup_timeout_seconds: number;
+  config: JsonObject;
+  duration_seconds: number;
+};
+
+export type SpeedtestEstimateResult = {
+  destination: SpeedtestMeasurementView;
+  logical_streams: number;
+  profile: SpeedtestProfileView;
+  source: SpeedtestMeasurementView;
+};
+
+export type SpeedtestMeasurementView = {
+  arrow_bytes: string;
+  bytes_per_second: number;
+  completed: boolean;
+  duration_ms: number;
+  rows: string;
+  rows_per_second: number;
+};
+
+export type SpeedtestProfileView = {
+  datasets: Array<SpeedtestDatasetProfileView>;
+  sample_limit_bytes: number;
+  sampled_arrow_bytes: number;
+  sampled_deliveries: number;
+  sampled_rows: number;
+  truncated: boolean;
+};
+
+export type SpeedtestTuneRequest = {
+  budget: SpeedtestTuningBudgetView;
+  cleanup_timeout_seconds: number;
+  config: JsonObject;
+  trial_duration_seconds: number;
+};
+
+export type SpeedtestTuneResult = {
+  destination: SpeedtestTuningResultView;
+  source: SpeedtestTuningResultView;
+};
+
+export type SpeedtestTuningBudgetView =
+  | {
+      max_trials: number;
+      type: "automatic";
+    }
+  | {
+      seconds: number;
+      type: "time";
+    };
+
+export type SpeedtestTuningResultView = {
+  baseline_rows_per_second: number;
+  gain_percent: number;
+  optimized_rows_per_second: number;
+  parameters: {
+    [key: string]: JsonValue;
+  };
+  trial_history: Array<SpeedtestTuningTrialView>;
+  trials: number;
+};
+
+export type SpeedtestTuningTrialView = {
+  parameters: {
+    [key: string]: JsonValue;
+  };
+  rows_per_second: number;
+};
+
 export type SqlPlaygroundRequest = {
   rows: Array<JsonValue>;
   sql: string;
@@ -397,6 +490,10 @@ export interface ApiContract {
   message_preview_request: MessagePreviewRequest;
   message_preview_response: MessagePreviewResult;
   revision_request: RevisionRequest;
+  speedtest_estimate_request: SpeedtestEstimateRequest;
+  speedtest_estimate_response: SpeedtestEstimateResult;
+  speedtest_tune_request: SpeedtestTuneRequest;
+  speedtest_tune_response: SpeedtestTuneResult;
   sql_playground_request: SqlPlaygroundRequest;
   sql_playground_response: SqlPlaygroundResult;
   stop_request: StopRequest;
@@ -453,6 +550,20 @@ export const API_ROUTES = {
     body: "sql_playground_request",
     query: null,
     response: "sql_playground_response",
+  },
+  speedtest_estimate: {
+    method: "POST",
+    path: "/api/v1/speedtest/estimate",
+    body: "speedtest_estimate_request",
+    query: null,
+    response: "speedtest_estimate_response",
+  },
+  speedtest_tune: {
+    method: "POST",
+    path: "/api/v1/speedtest/tune",
+    body: "speedtest_tune_request",
+    query: null,
+    response: "speedtest_tune_response",
   },
   render_yaml: {
     method: "POST",
@@ -562,6 +673,8 @@ export interface ApiRouteContract {
   check_connection: ApiContract["connection_check_response"];
   preview_message: ApiContract["message_preview_response"];
   sql_playground: ApiContract["sql_playground_response"];
+  speedtest_estimate: ApiContract["speedtest_estimate_response"];
+  speedtest_tune: ApiContract["speedtest_tune_response"];
   render_yaml: ApiContract["yaml_response"];
   parse_yaml: ApiContract["config_response"];
   discover: ApiContract["discovery_response"];
@@ -583,6 +696,8 @@ export interface ApiRouteBody {
   check_connection: ApiContract["connection_check_request"];
   preview_message: ApiContract["message_preview_request"];
   sql_playground: ApiContract["sql_playground_request"];
+  speedtest_estimate: ApiContract["speedtest_estimate_request"];
+  speedtest_tune: ApiContract["speedtest_tune_request"];
   render_yaml: ApiContract["config_request"];
   parse_yaml: ApiContract["yaml_request"];
   discover: ApiContract["config_request"];
@@ -604,6 +719,8 @@ export interface ApiRouteQuery {
   check_connection: undefined;
   preview_message: undefined;
   sql_playground: undefined;
+  speedtest_estimate: undefined;
+  speedtest_tune: undefined;
   render_yaml: undefined;
   parse_yaml: undefined;
   discover: undefined;
@@ -625,6 +742,8 @@ export interface ApiRouteParameters {
   check_connection: Record<string, never>;
   preview_message: Record<string, never>;
   sql_playground: Record<string, never>;
+  speedtest_estimate: Record<string, never>;
+  speedtest_tune: Record<string, never>;
   render_yaml: Record<string, never>;
   parse_yaml: Record<string, never>;
   discover: Record<string, never>;

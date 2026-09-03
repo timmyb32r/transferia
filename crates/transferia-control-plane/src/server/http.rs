@@ -18,7 +18,7 @@ use super::api_contract::{
     ApiErrorBody, ApiErrorCode, ApiErrorView, ConfigRequest, ConfigResponse,
     ConnectionCheckRequest, CreateDraftRequest, DeliverySummary, HealthResponse,
     MessagePreviewRequest, RevisionRequest, SqlPlaygroundRequest, StopRequest, UpdateDraftRequest,
-    WorkerLogReadQuery, YamlRequest, YamlResponse,
+    SpeedtestEstimateRequest, SpeedtestTuneRequest, WorkerLogReadQuery, YamlRequest, YamlResponse,
 };
 use super::assets::{APP_JS, INDEX_HTML, STYLE_CSS};
 use super::service::{ControlPlane, ServiceError};
@@ -103,6 +103,11 @@ impl IntoResponse for ApiError {
                 ApiErrorCode::ValidationFailed,
                 message,
             ),
+            ServiceError::OperationFailed(message) => (
+                StatusCode::BAD_GATEWAY,
+                ApiErrorCode::OperationFailed,
+                message,
+            ),
             ServiceError::Internal(error) => {
                 tracing::error!(error = ?error, "control-plane request failed");
                 (
@@ -148,6 +153,8 @@ declare_api_handlers! {
     CHECK_CONNECTION => post(check_connection),
     PREVIEW_MESSAGE => post(preview_message),
     SQL_PLAYGROUND => post(sql_playground),
+    SPEEDTEST_ESTIMATE => post(speedtest_estimate),
+    SPEEDTEST_TUNE => post(speedtest_tune),
     RENDER_YAML => post(render_yaml),
     PARSE_YAML => post(parse_yaml),
     DISCOVER => post(discover),
@@ -326,6 +333,43 @@ async fn preview_message(
             &request.connector,
             request.config,
             request.max_bytes,
+            cancellation,
+        )
+        .await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
+}
+
+async fn speedtest_estimate(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<SpeedtestEstimateRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let cancellation = state.control_plane.request_cancellation();
+    let _cancel_on_drop = CancelOnDrop(cancellation.clone());
+    let result = state
+        .control_plane
+        .spawn_speedtest_estimate(
+            request.config,
+            request.duration_seconds,
+            request.cleanup_timeout_seconds,
+            cancellation,
+        )
+        .await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
+}
+
+async fn speedtest_tune(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<SpeedtestTuneRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let cancellation = state.control_plane.request_cancellation();
+    let _cancel_on_drop = CancelOnDrop(cancellation.clone());
+    let result = state
+        .control_plane
+        .spawn_speedtest_tune(
+            request.config,
+            request.budget,
+            request.trial_duration_seconds,
+            request.cleanup_timeout_seconds,
             cancellation,
         )
         .await?;

@@ -247,6 +247,13 @@ impl SinkCounters {
     pub fn rows_total(&self) -> u64 {
         self.rows.load(RELAXED)
     }
+
+    /// Total Arrow bytes durably acknowledged by this sink.
+    #[must_use]
+    pub fn bytes_total(&self) -> u64 {
+        self.bytes.load(RELAXED)
+    }
+
     #[must_use]
     pub fn flushes_total(&self) -> u64 {
         self.flushes.load(RELAXED)

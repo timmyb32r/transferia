@@ -181,6 +181,20 @@ pub struct YdbSourceConfig {
     #[serde(default = "default_batch_rows")]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub batch_rows: usize,
+
+    #[serde(default = "default_session_shutdown_timeout_ms")]
+    #[schemars(
+        title = "Session shutdown timeout, ms",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub session_shutdown_timeout_ms: u64,
+
+    #[serde(default = "default_session_shutdown_retry_initial_ms")]
+    #[schemars(
+        title = "Session shutdown retry backoff, ms",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub session_shutdown_retry_initial_ms: u64,
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -222,7 +236,35 @@ impl YdbSourceConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
         anyhow::ensure!(self.batch_rows > 0, "ydb.batch_rows must be positive");
+        anyhow::ensure!(
+            self.session_shutdown_timeout_ms > 0,
+            "ydb.session_shutdown_timeout_ms must be positive"
+        );
+        anyhow::ensure!(
+            self.session_shutdown_retry_initial_ms > 0,
+            "ydb.session_shutdown_retry_initial_ms must be positive"
+        );
+        anyhow::ensure!(
+            self.session_shutdown_retry_initial_ms <= self.session_shutdown_timeout_ms,
+            "ydb.session_shutdown_retry_initial_ms must not exceed session_shutdown_timeout_ms"
+        );
+        anyhow::ensure!(
+            std::time::Instant::now()
+                .checked_add(self.session_shutdown_timeout())
+                .is_some(),
+            "ydb.session_shutdown_timeout_ms exceeds the platform clock range"
+        );
         validate_tables(&self.tables)
+    }
+
+    #[must_use]
+    pub const fn session_shutdown_timeout(&self) -> Duration {
+        Duration::from_millis(self.session_shutdown_timeout_ms)
+    }
+
+    #[must_use]
+    pub const fn session_shutdown_retry_initial(&self) -> Duration {
+        Duration::from_millis(self.session_shutdown_retry_initial_ms)
     }
 }
 
@@ -265,4 +307,12 @@ const fn default_retry_max_ms() -> u64 {
 
 const fn default_batch_rows() -> usize {
     65_536
+}
+
+const fn default_session_shutdown_timeout_ms() -> u64 {
+    60_000
+}
+
+const fn default_session_shutdown_retry_initial_ms() -> u64 {
+    50
 }

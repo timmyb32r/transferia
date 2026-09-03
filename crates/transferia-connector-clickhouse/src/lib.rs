@@ -13,6 +13,7 @@ pub use connectors::clickhouse;
 use std::sync::Arc;
 use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_delivery_contracts::semantics::RecordSemantics;
+use transferia_registry::tuning::{NumericScale, TuningParameter};
 use transferia_registry::{ComponentRegistration, DeliveryMode, RegistryBuilder};
 
 pub fn register(
@@ -51,6 +52,7 @@ pub fn register(
                     }
                 },
             )?
+            .source_tuning_parameters(clickhouse_source_tuning_parameters())?
             .source_checker::<clickhouse::src_batch::ClickHouseSourceConfig, _, _>({
                 let metrics = Arc::clone(metrics);
                 move |config| {
@@ -82,6 +84,7 @@ pub fn register(
                     )?))
                 },
             )?
+            .sink_tuning_parameters(clickhouse_sink_tuning_parameters())?
             .sink_record_semantics(vec![
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,
@@ -92,6 +95,88 @@ pub fn register(
             }),
     )?;
     Ok(())
+}
+
+fn clickhouse_source_tuning_parameters() -> Vec<TuningParameter> {
+    vec![
+        TuningParameter::UnsignedInteger {
+            pointer: "/batch_rows".to_owned(),
+            label: "Maximum block rows".to_owned(),
+            baseline: 65_409,
+            minimum: 1,
+            maximum: i64::MAX as u64,
+            candidates: vec![16_384, 65_409, 262_144, 1_000_000],
+            scale: NumericScale::Logarithmic,
+        },
+        TuningParameter::Choice {
+            pointer: "/snapshot_reader/compression".to_owned(),
+            label: "Snapshot compression".to_owned(),
+            baseline: serde_json::Value::from("zstd"),
+            values: vec!["zstd", "lz4"]
+                .into_iter()
+                .map(serde_json::Value::from)
+                .collect(),
+        },
+        TuningParameter::UnsignedInteger {
+            pointer: "/snapshot_reader/row_group_rows".to_owned(),
+            label: "Rows per Parquet row group".to_owned(),
+            baseline: 250_000,
+            minimum: 1,
+            maximum: i64::MAX as u64,
+            candidates: vec![65_536, 250_000, 1_000_000],
+            scale: NumericScale::Logarithmic,
+        },
+        TuningParameter::UnsignedInteger {
+            pointer: "/snapshot_reader/decode_threads".to_owned(),
+            label: "Parquet decode threads".to_owned(),
+            baseline: 16,
+            minimum: 1,
+            maximum: 32,
+            candidates: vec![1, 4, 8, 16, 32],
+            scale: NumericScale::Logarithmic,
+        },
+    ]
+}
+
+fn clickhouse_sink_tuning_parameters() -> Vec<TuningParameter> {
+    vec![
+        TuningParameter::UnsignedInteger {
+            pointer: "/insert_target_rows".to_owned(),
+            label: "Rows per insert".to_owned(),
+            baseline: 1_000_000,
+            minimum: 1,
+            maximum: u64::MAX,
+            candidates: vec![100_000, 250_000, 500_000, 1_000_000],
+            scale: NumericScale::Logarithmic,
+        },
+        TuningParameter::UnsignedInteger {
+            pointer: "/insert_target_bytes".to_owned(),
+            label: "Bytes per insert".to_owned(),
+            baseline: 640 << 20,
+            minimum: 1,
+            maximum: u64::MAX,
+            candidates: vec![64 << 20, 256 << 20, 640 << 20],
+            scale: NumericScale::Logarithmic,
+        },
+        TuningParameter::UnsignedInteger {
+            pointer: "/insert_concurrency".to_owned(),
+            label: "Concurrent inserts".to_owned(),
+            baseline: 32,
+            minimum: 1,
+            maximum: 32,
+            candidates: vec![1, 2, 4, 8, 16, 32],
+            scale: NumericScale::Logarithmic,
+        },
+        TuningParameter::Choice {
+            pointer: "/compression".to_owned(),
+            label: "Native compression".to_owned(),
+            baseline: serde_json::Value::from("zstd"),
+            values: vec!["zstd", "lz4", "none"]
+                .into_iter()
+                .map(serde_json::Value::from)
+                .collect(),
+        },
+    ]
 }
 
 fn sink_connection_check_result(

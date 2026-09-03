@@ -12,7 +12,9 @@ use transferia_core::delivery::{
     ObjectKeyLimit, SinkLimits, SinkLimitsDescription, TextLimit,
 };
 use transferia_core::sink::Sink;
-use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
+use transferia_registry::{
+    SinkBuildContext, SinkConnector, SinkPrepare, SinkSpeedtestIsolation,
+};
 
 use super::actor::S3Sink;
 use super::config::{PartitioningConfig, S3OutputFormat, S3SinkConfig};
@@ -398,6 +400,20 @@ impl SinkConnector for S3SinkConnector {
             context.durable.storage,
         );
         Box::pin(async move { Ok(Box::new(sink?) as Box<dyn Sink>) })
+    }
+
+    /// Generic object-store deletion cannot enumerate or remove historical object versions.
+    /// Reject before external I/O until the S3 adapter can prove a version-aware full purge.
+    fn isolate_speedtest(
+        self: Arc<Self>,
+        _discovery: Arc<DeliveryDiscovery>,
+        _isolation_id: String,
+    ) -> BoxFuture<'static, anyhow::Result<SinkSpeedtestIsolation>> {
+        Box::pin(async {
+            anyhow::bail!(
+                "S3 speedtests are disabled because the object-store API cannot prove that cleanup removes historical versions from versioned buckets"
+            )
+        })
     }
 }
 

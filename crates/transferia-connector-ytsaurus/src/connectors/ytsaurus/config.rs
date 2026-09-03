@@ -1456,6 +1456,28 @@ impl YTsaurusSinkConfig {
         Ok(format!("{}/{dataset}", self.path().trim_end_matches('/')))
     }
 
+    pub(super) fn clone_for_speedtest(&self, scratch_path: String) -> anyhow::Result<Self> {
+        validate_path(&scratch_path)?;
+        let mut isolated = self.clone();
+        match &mut isolated.tables {
+            YTsaurusTableMode::StaticTables {
+                path,
+                replace_tables,
+                ..
+            }
+            | YTsaurusTableMode::DynamicTables {
+                path,
+                replace_tables,
+                ..
+            } => {
+                *path = scratch_path;
+                *replace_tables = true;
+            }
+        }
+        isolated.validate()?;
+        Ok(isolated)
+    }
+
     pub(super) fn parsed_table_attributes(
         &self,
     ) -> anyhow::Result<BTreeMap<String, serde_json::Value>> {

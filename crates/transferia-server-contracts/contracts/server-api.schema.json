@@ -19,6 +19,7 @@
         "not_found",
         "conflict",
         "validation_failed",
+        "operation_failed",
         "internal_error"
       ],
       "type": "string"
@@ -1112,6 +1113,397 @@
       ],
       "type": "object"
     },
+    "SpeedtestColumnProfileView": {
+      "additionalProperties": false,
+      "properties": {
+        "arrow_type": {
+          "type": "string"
+        },
+        "cardinality": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-omit-none": true
+        },
+        "max_length": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-omit-none": true
+        },
+        "min_length": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-omit-none": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "null_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "numeric_max": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-omit-none": true
+        },
+        "numeric_min": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-omit-none": true
+        },
+        "temporal_max": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-omit-none": true
+        },
+        "temporal_min": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-omit-none": true
+        }
+      },
+      "required": [
+        "name",
+        "arrow_type",
+        "null_count"
+      ],
+      "type": "object"
+    },
+    "SpeedtestDatasetProfileView": {
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/SpeedtestColumnProfileView"
+          },
+          "type": "array"
+        },
+        "dataset": {
+          "type": "string"
+        },
+        "is_dlq": {
+          "type": "boolean"
+        },
+        "sampled_arrow_bytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sampled_rows": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dataset",
+        "is_dlq",
+        "sampled_rows",
+        "sampled_arrow_bytes",
+        "columns"
+      ],
+      "type": "object"
+    },
+    "SpeedtestEstimateRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "cleanup_timeout_seconds": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "config": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonObject"
+        },
+        "duration_seconds": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "config",
+        "duration_seconds",
+        "cleanup_timeout_seconds"
+      ],
+      "type": "object"
+    },
+    "SpeedtestEstimateResult": {
+      "additionalProperties": false,
+      "properties": {
+        "destination": {
+          "$ref": "#/$defs/SpeedtestMeasurementView"
+        },
+        "logical_streams": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "profile": {
+          "$ref": "#/$defs/SpeedtestProfileView"
+        },
+        "source": {
+          "$ref": "#/$defs/SpeedtestMeasurementView"
+        }
+      },
+      "required": [
+        "logical_streams",
+        "source",
+        "destination",
+        "profile"
+      ],
+      "type": "object"
+    },
+    "SpeedtestMeasurementView": {
+      "additionalProperties": false,
+      "properties": {
+        "arrow_bytes": {
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "type": "string"
+        },
+        "bytes_per_second": {
+          "format": "double",
+          "type": "number"
+        },
+        "completed": {
+          "type": "boolean"
+        },
+        "duration_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "rows": {
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "type": "string"
+        },
+        "rows_per_second": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "rows",
+        "arrow_bytes",
+        "duration_ms",
+        "rows_per_second",
+        "bytes_per_second",
+        "completed"
+      ],
+      "type": "object"
+    },
+    "SpeedtestProfileView": {
+      "additionalProperties": false,
+      "properties": {
+        "datasets": {
+          "items": {
+            "$ref": "#/$defs/SpeedtestDatasetProfileView"
+          },
+          "type": "array"
+        },
+        "sample_limit_bytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sampled_arrow_bytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sampled_deliveries": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sampled_rows": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sampled_rows",
+        "sampled_arrow_bytes",
+        "sampled_deliveries",
+        "sample_limit_bytes",
+        "truncated",
+        "datasets"
+      ],
+      "type": "object"
+    },
+    "SpeedtestTuneRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/SpeedtestTuningBudgetView"
+        },
+        "cleanup_timeout_seconds": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "config": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonObject"
+        },
+        "trial_duration_seconds": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "config",
+        "budget",
+        "trial_duration_seconds",
+        "cleanup_timeout_seconds"
+      ],
+      "type": "object"
+    },
+    "SpeedtestTuneResult": {
+      "additionalProperties": false,
+      "properties": {
+        "destination": {
+          "$ref": "#/$defs/SpeedtestTuningResultView"
+        },
+        "source": {
+          "$ref": "#/$defs/SpeedtestTuningResultView"
+        }
+      },
+      "required": [
+        "source",
+        "destination"
+      ],
+      "type": "object"
+    },
+    "SpeedtestTuningBudgetView": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "max_trials": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "automatic",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "max_trials"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "seconds": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "time",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "seconds"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SpeedtestTuningResultView": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline_rows_per_second": {
+          "format": "double",
+          "type": "number"
+        },
+        "gain_percent": {
+          "format": "double",
+          "type": "number"
+        },
+        "optimized_rows_per_second": {
+          "format": "double",
+          "type": "number"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "trial_history": {
+          "items": {
+            "$ref": "#/$defs/SpeedtestTuningTrialView"
+          },
+          "type": "array"
+        },
+        "trials": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "baseline_rows_per_second",
+        "optimized_rows_per_second",
+        "gain_percent",
+        "trials",
+        "parameters",
+        "trial_history"
+      ],
+      "type": "object"
+    },
+    "SpeedtestTuningTrialView": {
+      "additionalProperties": false,
+      "properties": {
+        "parameters": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "rows_per_second": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "rows_per_second",
+        "parameters"
+      ],
+      "type": "object"
+    },
     "SqlPlaygroundRequest": {
       "additionalProperties": false,
       "properties": {
@@ -1505,6 +1897,18 @@
     "revision_request": {
       "$ref": "#/$defs/RevisionRequest"
     },
+    "speedtest_estimate_request": {
+      "$ref": "#/$defs/SpeedtestEstimateRequest"
+    },
+    "speedtest_estimate_response": {
+      "$ref": "#/$defs/SpeedtestEstimateResult"
+    },
+    "speedtest_tune_request": {
+      "$ref": "#/$defs/SpeedtestTuneRequest"
+    },
+    "speedtest_tune_response": {
+      "$ref": "#/$defs/SpeedtestTuneResult"
+    },
     "sql_playground_request": {
       "$ref": "#/$defs/SqlPlaygroundRequest"
     },
@@ -1550,6 +1954,10 @@
     "message_preview_response",
     "sql_playground_request",
     "sql_playground_response",
+    "speedtest_estimate_request",
+    "speedtest_estimate_response",
+    "speedtest_tune_request",
+    "speedtest_tune_response",
     "yaml_response",
     "config_response",
     "health_response",

@@ -13,6 +13,7 @@ pub use connectors::s3;
 use std::sync::Arc;
 
 use transferia_delivery_contracts::metrics::MetricsRegistry;
+use transferia_registry::tuning::{NumericScale, TuningParameter};
 use transferia_registry::{ComponentRegistration, DeliveryMode, RegistryBuilder};
 
 pub fn register(
@@ -38,6 +39,7 @@ pub fn register(
                     move |config| Ok(Box::new(s3::S3SourceConnector::from_config(config, Arc::clone(&metrics))?))
                 },
             )?
+            .source_tuning_parameters(s3_source_tuning_parameters())?
             .source_checker::<s3::src_batch::S3SourceConfig, _, _>(|config| async move {
                 config.check_connection().await?;
                 Ok(transferia_registry::ConnectionCheckResult::default())
@@ -59,10 +61,73 @@ pub fn register(
                 }),
                 |config| Ok(Box::new(s3::sink::S3SinkConnector::from_config(config)?)),
             )?
+            .sink_tuning_parameters(s3_sink_tuning_parameters())?
             .sink_checker::<s3::sink::S3SinkConfig, _, _>(|config| async move {
                 config.check_connection().await?;
                 Ok(transferia_registry::ConnectionCheckResult::default())
             }),
     )?;
     Ok(())
+}
+
+fn s3_source_tuning_parameters() -> Vec<TuningParameter> {
+    vec![TuningParameter::UnsignedInteger {
+        pointer: "/parser/batch_rows".to_owned(),
+        label: "Parquet batch rows".to_owned(),
+        baseline: 65_536,
+        minimum: 1,
+        maximum: 1_000_000,
+        candidates: vec![16_384, 65_536, 262_144, 1_000_000],
+        scale: NumericScale::Logarithmic,
+    }]
+}
+
+fn s3_sink_tuning_parameters() -> Vec<TuningParameter> {
+    vec![
+        TuningParameter::Choice {
+            pointer: "/format/compression".to_owned(),
+            label: "Parquet compression".to_owned(),
+            baseline: serde_json::Value::from("zstd"),
+            values: vec!["zstd", "snappy", "uncompressed"]
+                .into_iter()
+                .map(serde_json::Value::from)
+                .collect(),
+        },
+        TuningParameter::UnsignedInteger {
+            pointer: "/format/row_group/max_rows".to_owned(),
+            label: "Rows per Parquet row group".to_owned(),
+            baseline: 1_000_000,
+            minimum: 1,
+            maximum: 1_000_000,
+            candidates: vec![65_536, 250_000, 1_000_000],
+            scale: NumericScale::Logarithmic,
+        },
+        TuningParameter::UnsignedInteger {
+            pointer: "/rotation/max_rows".to_owned(),
+            label: "Rows per object".to_owned(),
+            baseline: 10_000,
+            minimum: 1,
+            maximum: 1_000_000,
+            candidates: vec![10_000, 100_000, 250_000, 1_000_000],
+            scale: NumericScale::Logarithmic,
+        },
+        TuningParameter::UnsignedInteger {
+            pointer: "/upload/parallel_parts".to_owned(),
+            label: "Parallel multipart uploads".to_owned(),
+            baseline: 2,
+            minimum: 1,
+            maximum: 8,
+            candidates: vec![1, 2, 4, 8],
+            scale: NumericScale::Logarithmic,
+        },
+        TuningParameter::UnsignedInteger {
+            pointer: "/upload/max_in_flight_objects".to_owned(),
+            label: "Concurrent object uploads".to_owned(),
+            baseline: 2,
+            minimum: 1,
+            maximum: 8,
+            candidates: vec![1, 2, 4, 8],
+            scale: NumericScale::Logarithmic,
+        },
+    ]
 }

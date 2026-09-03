@@ -318,6 +318,20 @@ impl YTsaurusClient {
         Ok(Self::checked(response).await?.json().await?)
     }
 
+    pub async fn node_exists(&self, path: &str) -> anyhow::Result<bool> {
+        let parameters = serde_json::json!({ "path": path });
+        let response = self
+            .request(reqwest::Method::GET, "exists")?
+            .configure(|request| {
+                request
+                    .header("X-YT-Parameters", parameters.to_string())
+                    .header(reqwest::header::ACCEPT, "application/json")
+            })
+            .send()
+            .await?;
+        Ok(Self::checked(response).await?.json().await?)
+    }
+
     pub async fn list_table_paths(&self, query: &str) -> anyhow::Result<Vec<String>> {
         let directory = suggestion_directory(query)?;
         let parameters = serde_json::json!({
@@ -594,6 +608,31 @@ impl YTsaurusClient {
             .await?;
         Self::checked(response).await?;
         Ok(())
+    }
+
+    pub async fn remove_speedtest_root(
+        &self,
+        path: &str,
+        revision: u64,
+        mutation_id: &str,
+    ) -> anyhow::Result<()> {
+        let mut last_error = None;
+        for retry in [false, true] {
+            let parameters = recursive_removal_parameters(path, revision, mutation_id, retry);
+            let response = self
+                .request(reqwest::Method::POST, "remove")?
+                .configure(|request| request.header("X-YT-Parameters", parameters.to_string()))
+                .send()
+                .await;
+            match response {
+                Ok(response) => match Self::checked(response).await {
+                    Ok(_) => return Ok(()),
+                    Err(error) => last_error = Some(error),
+                },
+                Err(error) => last_error = Some(error.into()),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("YTsaurus remove returned no result")))
     }
 
     pub async fn create_table(
@@ -884,6 +923,66 @@ impl YTsaurusClient {
         Self::checked(response).await?;
         Ok(())
     }
+
+    pub async fn create_speedtest_directory(
+        &self,
+        path: &str,
+        owner: &str,
+        mutation_id: &str,
+    ) -> anyhow::Result<()> {
+        let mut last_error = None;
+        for retry in [false, true] {
+            let parameters = speedtest_directory_parameters(path, owner, mutation_id, retry);
+            let response = self
+                .request(reqwest::Method::POST, "create")?
+                .configure(|request| {
+                    request.header("X-YT-Parameters", parameters.to_string())
+                })
+                .send()
+                .await;
+            match response {
+                Ok(response) => match Self::checked(response).await {
+                    Ok(_) => return Ok(()),
+                    Err(error) => last_error = Some(error),
+                },
+                Err(error) => last_error = Some(error.into()),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("YTsaurus create returned no result")))
+    }
+}
+
+pub(super) fn speedtest_directory_parameters(
+    path: &str,
+    owner: &str,
+    mutation_id: &str,
+    retry: bool,
+) -> Value {
+    serde_json::json!({
+        "type": "map_node",
+        "path": path,
+        "recursive": false,
+        "ignore_existing": false,
+        "attributes": { "transferia_speedtest_owner": owner },
+        "mutation_id": mutation_id,
+        "retry": retry
+    })
+}
+
+pub(super) fn recursive_removal_parameters(
+    path: &str,
+    revision: u64,
+    mutation_id: &str,
+    retry: bool,
+) -> Value {
+    serde_json::json!({
+        "path": path,
+        "force": true,
+        "recursive": true,
+        "prerequisite_revisions": [{ "path": path, "revision": revision }],
+        "mutation_id": mutation_id,
+        "retry": retry
+    })
 }
 
 pub(super) fn rpc_proxy_discovery_url(

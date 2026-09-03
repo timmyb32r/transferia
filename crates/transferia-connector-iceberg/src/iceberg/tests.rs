@@ -1,10 +1,15 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use arrow::array::{Decimal128Array, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use schemars::schema_for;
+use tokio::sync::Notify;
+use tokio::task::JoinSet;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_core::delivery::{DeliveryDiscovery, SchemaOrigin, SourceTopology};
+use transferia_registry::SinkConnector;
 
 use super::config::{
     IcebergParquetCompression, IcebergSinkConfig, IcebergSourceConfig, OpenDalStorageConfig,
@@ -255,5 +260,138 @@ fn iceberg_commit_identity_is_stable_and_scoped() {
         assert_ne!(first.token, distinct.token);
         assert_ne!(first.durable_key, distinct.durable_key);
         assert_ne!(first.uuid, distinct.uuid);
+    }
+}
+
+#[tokio::test]
+async fn writer_collection_drains_all_tasks_after_one_writer_fails() {
+    struct DropGuard(Arc<AtomicBool>);
+
+    impl Drop for DropGuard {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    let entered = Arc::new(AtomicBool::new(false));
+    let dropped = Arc::new(AtomicBool::new(false));
+    let late_write = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(Notify::new());
+    let mut writers = JoinSet::new();
+    let writer_entered = Arc::clone(&entered);
+    let writer_dropped = Arc::clone(&dropped);
+    let writer_late_write = Arc::clone(&late_write);
+    let writer_release = Arc::clone(&release);
+    writers.spawn(async move {
+        let _guard = DropGuard(writer_dropped);
+        writer_entered.store(true, Ordering::Release);
+        writer_release.notified().await;
+        writer_late_write.store(true, Ordering::Release);
+        Ok::<Vec<u8>, anyhow::Error>(Vec::new())
+    });
+    writers.spawn(async { anyhow::bail!("simulated writer failure") });
+    let collector = tokio::spawn(super::sink::collect_writer_results(writers));
+    while !entered.load(Ordering::Acquire) {
+        tokio::task::yield_now().await;
+    }
+
+    tokio::task::yield_now().await;
+    assert!(
+        !collector.is_finished(),
+        "a writer error must not detach or abort another in-flight writer"
+    );
+    release.notify_one();
+    let error = collector
+        .await
+        .expect("the collector task must not panic")
+        .expect_err("the first writer failure must be reported after all writers quiesce");
+    assert!(error.to_string().contains("Iceberg file writer failed"));
+    assert!(dropped.load(Ordering::Acquire));
+    assert!(late_write.load(Ordering::Acquire));
+}
+
+#[tokio::test]
+async fn writer_collection_drains_all_tasks_after_one_writer_panics() {
+    let entered = Arc::new(AtomicBool::new(false));
+    let completed = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(Notify::new());
+    let mut writers = JoinSet::new();
+    let writer_entered = Arc::clone(&entered);
+    let writer_completed = Arc::clone(&completed);
+    let writer_release = Arc::clone(&release);
+    writers.spawn(async move {
+        writer_entered.store(true, Ordering::Release);
+        writer_release.notified().await;
+        writer_completed.store(true, Ordering::Release);
+        Ok::<Vec<u8>, anyhow::Error>(Vec::new())
+    });
+    writers.spawn(async {
+        panic!("simulated writer panic");
+        #[allow(unreachable_code)]
+        Ok::<Vec<u8>, anyhow::Error>(Vec::new())
+    });
+    let collector = tokio::spawn(super::sink::collect_writer_results(writers));
+    while !entered.load(Ordering::Acquire) {
+        tokio::task::yield_now().await;
+    }
+
+    tokio::task::yield_now().await;
+    assert!(
+        !collector.is_finished(),
+        "a writer panic must not detach or abort another in-flight writer"
+    );
+    release.notify_one();
+    let error = collector
+        .await
+        .expect("the collector task must not panic")
+        .expect_err("the writer panic must be reported after all writers quiesce");
+    assert!(error.to_string().contains("Iceberg file writer task failed"));
+    assert!(completed.load(Ordering::Acquire));
+}
+
+#[tokio::test]
+async fn iceberg_sink_speedtest_is_rejected_before_external_io_for_every_storage() {
+    let storage_configs = [
+        serde_json::json!({ "type": "s3", "bucket": "production" }),
+        serde_json::json!({
+            "type": "hdfs",
+            "endpoint": "https://unreachable.invalid:9871",
+            "authority": "unreachable.invalid",
+            "root": "/production"
+        }),
+    ];
+    let discovery = Arc::new(DeliveryDiscovery {
+        source_name: Arc::from("source"),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: Vec::new(),
+        performance_advice: Vec::new(),
+    });
+
+    for storage in storage_configs {
+        let config: IcebergSinkConfig = serde_json::from_value(serde_json::json!({
+            "catalog": {
+                "uri": "https://unreachable.invalid",
+                "auth": { "type": "none" }
+            },
+            "storage": storage,
+            "namespace": "production"
+        }))
+        .expect("valid sink config");
+        let connector =
+            Arc::new(super::sink::IcebergSinkConnector::from_config(config).expect("connector"));
+        let error = match connector
+            .isolate_speedtest(
+                Arc::clone(&discovery),
+                "0123456789abcdef0123456789abcdef".to_owned(),
+            )
+            .await
+        {
+            Ok(_) => panic!("Iceberg sink speedtest must fail before external I/O"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("Iceberg sink speedtests are disabled"));
+        assert!(error.to_string().contains("before external I/O"));
     }
 }

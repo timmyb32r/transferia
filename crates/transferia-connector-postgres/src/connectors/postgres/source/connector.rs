@@ -345,6 +345,20 @@ impl SourceConnector for PostgresSourceConnector {
         })
     }
 
+    fn build_speedtest_source(
+        &self,
+        context: SourceBuildContext,
+    ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
+        if self.config.replication.is_some() {
+            return Box::pin(async {
+                anyhow::bail!(
+                    "PostgreSQL replication speedtest requires an isolated replication slot"
+                )
+            });
+        }
+        self.build_source(context)
+    }
+
     fn parser(&self) -> Arc<dyn transferia_delivery_contracts::parser::ParserFactory> {
         self.parser_plan.parser()
     }

@@ -71,6 +71,7 @@ jsonpath_lib = "0.3"
 jsonschema = { version = "0.33.0", default-features = false }
 lz4_flex = "0.12"
 mimalloc = { version = "0.1", features = ["v2"] }
+murmur3 = "0.5.2"
 mysql_async = { version = "0.37", default-features = false, features = ["default-rustls"] }
 object_store = { version = "0.12", default-features = false, features = ["aws"] }
 opendal = { version = "0.55.0", default-features = false, features = ["executors-tokio", "services-s3", "services-webhdfs"] }

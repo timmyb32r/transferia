@@ -50,7 +50,7 @@ export function DeliveryConfiguration({
   editor: EditorState;
   selection: EndpointSelection | undefined;
   readOnly: boolean;
-  requiredErrorScope: "none" | "source" | "all";
+  requiredErrorScope: "none" | "source" | "endpoints" | "all";
   onName: (name: string) => void;
   onDescription: (description: string) => void;
   onConfig: (config: JsonObject) => void;
@@ -135,7 +135,7 @@ export function DeliveryConfiguration({
             label="Delivery name"
             required
             incomplete={!readOnly && editor.name.trim() === ""}
-            invalid={requiredErrorScope !== "none" && editor.name.trim() === ""}
+            invalid={requiredErrorScope === "all" && editor.name.trim() === ""}
           >
             <AutofillResistantInput
               type="text"
@@ -158,7 +158,7 @@ export function DeliveryConfiguration({
             required
             incomplete={!readOnly && !deliveryTypeSelected}
             invalid={
-              requiredErrorScope !== "none" &&
+              requiredErrorScope === "all" &&
               stringValue(editor.config.delivery_type) === ""
             }
           >
@@ -206,7 +206,10 @@ export function DeliveryConfiguration({
             config={editor.config}
             readOnly={readOnly}
             showSettings={routeSelectionComplete}
-            showRequiredErrors={requiredErrorScope === "all"}
+            showRequiredErrors={
+              requiredErrorScope === "endpoints" ||
+              requiredErrorScope === "all"
+            }
             {...(requiredSinkRecordSemantics === undefined
               ? {}
               : { requiredRecordSemantics: requiredSinkRecordSemantics })}
@@ -240,7 +243,10 @@ export function DeliveryConfiguration({
                 node={compiledSchema(selection.sink.schema, widgets)}
                 value={endpointValue(editor.config, "sink", selection.sinkKey)}
                 disabled={readOnly}
-                showRequiredErrors={requiredErrorScope === "all"}
+                showRequiredErrors={
+                  requiredErrorScope === "endpoints" ||
+                  requiredErrorScope === "all"
+                }
                 onChange={(next) =>
                   onConfig({
                     ...editor.config,
@@ -264,7 +270,7 @@ export function DeliveryConfiguration({
               schema={catalog.common_schema}
               config={editor.config}
               disabled={readOnly}
-              showRequiredErrors={requiredErrorScope !== "none"}
+              showRequiredErrors={requiredErrorScope === "all"}
               partitionedSource={selection?.source?.partitioned === true}
               onChange={onConfig}
             />

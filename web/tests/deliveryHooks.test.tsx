@@ -441,6 +441,58 @@ describe("delivery controllers", () => {
     expect(parseYaml).not.toHaveBeenCalled();
     expect(applyConfig).not.toHaveBeenCalled();
   });
+
+  it("does not open Speedtest from stale readiness when edited YAML makes an endpoint incomplete", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(api, "yaml").mockResolvedValue({
+      yaml: "source:\n  test: {}\nsink:\n  test: {}",
+    });
+    vi.spyOn(api, "parseYaml").mockResolvedValue({
+      config: { source: { test: {} }, sink: {} },
+    });
+    const applyConfig = vi.fn();
+    const editor = {
+      ...newEditor(),
+      config: { source: { test: {} }, sink: { test: {} } },
+    };
+    const { result } = renderHook(() => {
+      const jobs = useDeliveryJobs();
+      const operations = useOperations();
+      return useYamlEditor({
+        enabled: true,
+        editable: true,
+        editor,
+        jobs,
+        operations,
+        isCurrentContext: () => true,
+        applyConfig,
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120);
+    });
+    await act(async () => result.current.showYaml());
+    act(() => result.current.editYaml("source:\n  test: {}\nsink: {}"));
+
+    let outcome;
+    await act(async () => {
+      outcome = await result.current.showSpeedtest(
+        (config) =>
+          Object.keys(config.source ?? {}).length === 1 &&
+          Object.keys(config.sink ?? {}).length === 1,
+      );
+    });
+
+    expect(applyConfig).toHaveBeenCalledWith({
+      source: { test: {} },
+      sink: {},
+    });
+    expect(outcome).toEqual({
+      status: "unavailable",
+      context: { sessionId: "session", localRevision: 2 },
+    });
+    expect(result.current.activeView).toBe("ui");
+  });
 });
 
 function delivery(): DeliveryRecord {

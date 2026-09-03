@@ -134,6 +134,77 @@ describe("control-plane API", () => {
     );
   });
 
+  it("sends Speedtest estimates and tuning through the generated POST routes", async () => {
+    const estimateResponse = {
+      logical_streams: 1,
+      source: speedtestMeasurement(1_000),
+      destination: speedtestMeasurement(900),
+      profile: {
+        sampled_rows: 0,
+        sampled_arrow_bytes: 0,
+        sampled_deliveries: 0,
+        sample_limit_bytes: 16_777_216,
+        truncated: false,
+        datasets: [],
+      },
+    };
+    const tuneResponse = {
+      source: speedtestTuningResult(1_000),
+      destination: speedtestTuningResult(900),
+    };
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(estimateResponse), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(tuneResponse), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", request);
+    const controller = new AbortController();
+    const config = { source: { generator: {} }, sink: { discard: {} } };
+
+    await api.speedtestEstimate(
+      { config, duration_seconds: 12, cleanup_timeout_seconds: 60 },
+      controller.signal,
+    );
+    await api.speedtestTune(
+      {
+        config,
+        budget: { type: "automatic", max_trials: 8 },
+        trial_duration_seconds: 7,
+        cleanup_timeout_seconds: 60,
+      },
+      controller.signal,
+    );
+
+    expect(request.mock.calls[0]?.[0]).toBe("/api/v1/speedtest/estimate");
+    expect(request.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        signal: controller.signal,
+        body: JSON.stringify({
+          config,
+          duration_seconds: 12,
+          cleanup_timeout_seconds: 60,
+        }),
+      }),
+    );
+    expect(request.mock.calls[1]?.[0]).toBe("/api/v1/speedtest/tune");
+    expect(request.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        signal: controller.signal,
+        body: JSON.stringify({
+          config,
+          budget: { type: "automatic", max_trials: 8 },
+          trial_duration_seconds: 7,
+          cleanup_timeout_seconds: 60,
+        }),
+      }),
+    );
+  });
+
   it("sends endpoint credentials only in the connection-check POST body", async () => {
     const request = vi
       .fn()
@@ -255,5 +326,27 @@ function delivery(id: string, name: string) {
     config: {},
     created_at_ms: 1,
     updated_at_ms: 1,
+  };
+}
+
+function speedtestMeasurement(rowsPerSecond: number) {
+  return {
+    rows: "1000",
+    arrow_bytes: "8000",
+    duration_ms: 1_000,
+    rows_per_second: rowsPerSecond,
+    bytes_per_second: rowsPerSecond * 8,
+    completed: false,
+  };
+}
+
+function speedtestTuningResult(rowsPerSecond: number) {
+  return {
+    baseline_rows_per_second: rowsPerSecond,
+    optimized_rows_per_second: rowsPerSecond,
+    gain_percent: 0,
+    trials: 1,
+    parameters: {},
+    trial_history: [{ rows_per_second: rowsPerSecond, parameters: {} }],
   };
 }

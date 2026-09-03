@@ -368,6 +368,8 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
             connection,
             tables: vec![table],
             batch_rows: 1024,
+            session_shutdown_timeout_ms: 30_000,
+            session_shutdown_retry_initial_ms: 50,
         },
         Arc::new(transferia_connector_ydb::metrics::MetricsRegistry::new()),
     )?;

@@ -1,4 +1,5 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -33,7 +34,10 @@ use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
 use transferia_core::{project_sink_batch, ProjectedSinkBatch, SystemColumnKind};
 use transferia_delivery_contracts::semantics::{EndpointDescriptor, YTsaurusSinkMode};
-use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
+use transferia_registry::{
+    SinkBuildContext, SinkConnector, SinkPrepare, SinkSpeedtestIsolation,
+    SinkSpeedtestIsolationSafety, SpeedtestPhysicalTarget,
+};
 
 const MAX_STATIC_ROW_WEIGHT: usize = 128 * 1024 * 1024;
 const MAX_DYNAMIC_VALUE_BYTES: usize = 16 * 1024 * 1024;
@@ -43,6 +47,72 @@ pub struct YTsaurusSinkConnector {
     client: YTsaurusClient,
     table_attributes: Arc<BTreeMap<String, serde_json::Value>>,
     writer_spec: Arc<BTreeMap<String, serde_json::Value>>,
+    speedtest_scope: Option<Arc<YTsaurusSpeedtestScope>>,
+}
+
+pub(super) struct YTsaurusSpeedtestScope {
+    pub(super) root: Arc<str>,
+    pub(super) owner: Arc<str>,
+    pub(super) create_mutation_id: Arc<str>,
+    pub(super) remove_mutation_id: Arc<str>,
+    pub(super) datasets: BTreeSet<Arc<str>>,
+    pub(super) physical_targets: BTreeSet<(Arc<str>, Arc<str>)>,
+    pub(super) creation_attempted: AtomicBool,
+    pub(super) cleaned: AtomicBool,
+}
+
+pub(super) trait YTsaurusSpeedtestClient {
+    fn create_root<'a>(
+        &'a self,
+        path: &'a str,
+        owner: &'a str,
+        mutation_id: &'a str,
+    ) -> BoxFuture<'a, anyhow::Result<()>>;
+
+    fn root_attributes<'a>(
+        &'a self,
+        path: &'a str,
+    ) -> BoxFuture<'a, anyhow::Result<serde_json::Value>>;
+
+    fn remove_root<'a>(
+        &'a self,
+        path: &'a str,
+        revision: u64,
+        mutation_id: &'a str,
+    ) -> BoxFuture<'a, anyhow::Result<()>>;
+
+    fn root_exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<bool>>;
+}
+
+impl YTsaurusSpeedtestClient for YTsaurusClient {
+    fn create_root<'a>(
+        &'a self,
+        path: &'a str,
+        owner: &'a str,
+        mutation_id: &'a str,
+    ) -> BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(self.create_speedtest_directory(path, owner, mutation_id))
+    }
+
+    fn root_attributes<'a>(
+        &'a self,
+        path: &'a str,
+    ) -> BoxFuture<'a, anyhow::Result<serde_json::Value>> {
+        Box::pin(async move { self.get_json(&format!("{path}/@")).await })
+    }
+
+    fn remove_root<'a>(
+        &'a self,
+        path: &'a str,
+        revision: u64,
+        mutation_id: &'a str,
+    ) -> BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(self.remove_speedtest_root(path, revision, mutation_id))
+    }
+
+    fn root_exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<bool>> {
+        Box::pin(self.node_exists(path))
+    }
 }
 
 impl YTsaurusSinkConnector {
@@ -56,6 +126,7 @@ impl YTsaurusSinkConnector {
             client,
             table_attributes,
             writer_spec,
+            speedtest_scope: None,
         })
     }
 
@@ -256,7 +327,12 @@ impl SinkConnector for YTsaurusSinkConnector {
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
             let table_attributes = self.table_attributes_for_transfer(&request.transfer_id);
-            self.client.create_directory(self.config.path()).await?;
+            if let Some(scope) = &self.speedtest_scope {
+                validate_ytsaurus_connector_scope(&self.config, scope)?;
+                prepare_ytsaurus_speedtest_root(&self.client, scope).await?;
+            } else {
+                self.client.create_directory(self.config.path()).await?;
+            }
             let stage_dynamic_snapshot = !self.config.static_tables()
                 && self.config.stages_dynamic_snapshots()
                 && request.finite_source;
@@ -397,6 +473,10 @@ impl SinkConnector for YTsaurusSinkConnector {
         context: SinkBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
         Box::pin(async move {
+            if let Some(scope) = &self.speedtest_scope {
+                validate_ytsaurus_connector_scope(&self.config, scope)?;
+                verify_ytsaurus_speedtest_root(&self.client, scope).await?;
+            }
             let static_unique_sorted = context.discovery.datasets.iter().any(|dataset| {
                 self.config.static_tables()
                     && self.config.primary_key_semantics()
@@ -453,9 +533,313 @@ impl SinkConnector for YTsaurusSinkConnector {
                 delivery_id: context.durable.delivery_id,
                 partition_id: context.partition_id,
                 attempt_id: Uuid::new_v4(),
+                speedtest_scope: self.speedtest_scope.clone(),
             }) as Box<dyn Sink>)
         })
     }
+
+    fn isolate_speedtest(
+        self: Arc<Self>,
+        discovery: Arc<DeliveryDiscovery>,
+        isolation_id: String,
+    ) -> BoxFuture<'static, anyhow::Result<SinkSpeedtestIsolation>> {
+        Box::pin(async move {
+            let scratch_root = speedtest_scratch_root(self.config.path(), &isolation_id)?;
+            let isolated_config = self.config.clone_for_speedtest(scratch_root.clone())?;
+            let table_names = discovery
+                .datasets
+                .iter()
+                .map(|dataset| (Arc::clone(&dataset.name), Arc::clone(&dataset.name)))
+                .collect::<BTreeMap<_, _>>();
+            let physical_targets = discovery
+                .datasets
+                .iter()
+                .map(|dataset| {
+                    Ok(SpeedtestPhysicalTarget {
+                        production: Arc::from(self.config.path_for_dataset(&dataset.name)?),
+                        scratch: Arc::from(isolated_config.path_for_dataset(&dataset.name)?),
+                    })
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let scope = Arc::new(YTsaurusSpeedtestScope {
+                root: Arc::from(scratch_root),
+                owner: Arc::from(Uuid::new_v4().simple().to_string()),
+                create_mutation_id: Arc::from(yt_guid(*Uuid::new_v4().as_bytes())),
+                remove_mutation_id: Arc::from(yt_guid(*Uuid::new_v4().as_bytes())),
+                datasets: discovery
+                    .datasets
+                    .iter()
+                    .map(|dataset| Arc::clone(&dataset.name))
+                    .collect(),
+                physical_targets: physical_target_set(&physical_targets),
+                creation_attempted: AtomicBool::new(false),
+                cleaned: AtomicBool::new(false),
+            });
+            let mut connector = Self::from_config(isolated_config)?;
+            connector.speedtest_scope = Some(scope);
+            let connector: Arc<dyn SinkConnector> = Arc::new(connector);
+            SinkSpeedtestIsolation::scratch(
+                connector,
+                discovery.as_ref(),
+                discovery.as_ref().clone(),
+                table_names,
+                physical_targets,
+            )
+        })
+    }
+
+    fn cleanup_speedtest<'a>(
+        &'a self,
+        isolation: &'a SinkSpeedtestIsolation,
+    ) -> BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(async move {
+            let scope = self.speedtest_scope.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "refusing to clean a YTsaurus speedtest with a production connector"
+                )
+            })?;
+            validate_speedtest_cleanup_scope(&self.config, isolation, scope)?;
+            if !scope.creation_attempted.load(Ordering::Acquire)
+                || scope.cleaned.load(Ordering::Acquire)
+            {
+                return Ok(());
+            }
+            cleanup_ytsaurus_speedtest_root(&self.client, scope).await
+        })
+    }
+}
+
+const SPEEDTEST_OWNER_ATTRIBUTE: &str = "transferia_speedtest_owner";
+
+pub(super) fn speedtest_root_proof(
+    attributes: &serde_json::Value,
+    expected_owner: &str,
+) -> anyhow::Result<u64> {
+    let attributes = attributes.as_object().ok_or_else(|| {
+        anyhow::anyhow!("YTsaurus speedtest root attributes are not a JSON object")
+    })?;
+    let owner = attributes
+        .get(SPEEDTEST_OWNER_ATTRIBUTE)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("YTsaurus speedtest root owner marker is missing"))?;
+    anyhow::ensure!(
+        owner == expected_owner,
+        "YTsaurus speedtest root is owned by a different operation"
+    );
+    attributes
+        .get("revision")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| anyhow::anyhow!("YTsaurus speedtest root revision is missing or invalid"))
+}
+
+pub(super) async fn prepare_ytsaurus_speedtest_root<C: YTsaurusSpeedtestClient>(
+    client: &C,
+    scope: &YTsaurusSpeedtestScope,
+) -> anyhow::Result<()> {
+    scope.creation_attempted.store(true, Ordering::Release);
+    let create_error = client
+        .create_root(&scope.root, &scope.owner, &scope.create_mutation_id)
+        .await
+        .err();
+    verify_ytsaurus_speedtest_root(client, scope)
+        .await
+        .map_err(|proof_error| match create_error {
+            Some(create_error) => anyhow::anyhow!(
+                "YTsaurus speedtest root creation failed and ownership could not be proven: create={create_error:#}; proof={proof_error:#}"
+            ),
+            None => proof_error,
+        })?;
+    Ok(())
+}
+
+pub(super) async fn cleanup_ytsaurus_speedtest_root<C: YTsaurusSpeedtestClient>(
+    client: &C,
+    scope: &YTsaurusSpeedtestScope,
+) -> anyhow::Result<()> {
+    if scope.cleaned.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    match client.root_exists(&scope.root).await {
+        Ok(false) => {
+            scope.cleaned.store(true, Ordering::Release);
+            return Ok(());
+        }
+        Ok(true) => {}
+        Err(error) => {
+            anyhow::bail!(
+                "refusing to remove YTsaurus speedtest root '{}' because its existence could not be read: {error:#}",
+                scope.root
+            );
+        }
+    }
+    let revision = verify_ytsaurus_speedtest_root(client, scope).await?;
+    if let Err(error) = client
+        .remove_root(&scope.root, revision, &scope.remove_mutation_id)
+        .await
+    {
+        return match client.root_exists(&scope.root).await {
+            Ok(false) => {
+                scope.cleaned.store(true, Ordering::Release);
+                Ok(())
+            }
+            Ok(true) => Err(anyhow::anyhow!(
+                "failed to remove the still-present YTsaurus speedtest root '{}': {error:#}",
+                scope.root
+            )),
+            Err(probe_error) => Err(anyhow::anyhow!(
+                "failed to remove YTsaurus speedtest root '{}' and could not prove that it is absent: remove={error:#}; probe={probe_error:#}",
+                scope.root
+            )),
+        };
+    }
+    scope.cleaned.store(true, Ordering::Release);
+    Ok(())
+}
+
+async fn verify_ytsaurus_speedtest_root<C: YTsaurusSpeedtestClient>(
+    client: &C,
+    scope: &YTsaurusSpeedtestScope,
+) -> anyhow::Result<u64> {
+    let attributes = client.root_attributes(&scope.root).await?;
+    speedtest_root_proof(&attributes, &scope.owner).map_err(|error| {
+        anyhow::anyhow!(
+            "refusing to use YTsaurus speedtest root '{}': {error:#}",
+            scope.root
+        )
+    })
+}
+
+const SPEEDTEST_ROOT_PREFIX: &str = ".transferia-speedtest-";
+
+pub(super) fn validate_speedtest_isolation_id(value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        value.len() == 32
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+        "YTsaurus speedtest isolation ID must contain exactly 32 lowercase hexadecimal characters"
+    );
+    Ok(())
+}
+
+pub(super) fn speedtest_scratch_root(
+    production_root: &str,
+    isolation_id: &str,
+) -> anyhow::Result<String> {
+    validate_speedtest_isolation_id(isolation_id)?;
+    super::config::validate_path(production_root)?;
+    let normalized = production_root.trim_end_matches('/');
+    let (parent, _) = normalized.rsplit_once('/').ok_or_else(|| {
+        anyhow::anyhow!("YTsaurus destination path '{production_root}' has no parent")
+    })?;
+    let root = format!("{parent}/{SPEEDTEST_ROOT_PREFIX}{isolation_id}");
+    super::config::validate_path(&root)?;
+    anyhow::ensure!(
+        root != normalized,
+        "YTsaurus speedtest root must not alias the production destination"
+    );
+    Ok(root)
+}
+
+pub(super) fn is_speedtest_scratch_root(path: &str) -> bool {
+    let Some(segment) = path.trim_end_matches('/').rsplit('/').next() else {
+        return false;
+    };
+    segment
+        .strip_prefix(SPEEDTEST_ROOT_PREFIX)
+        .is_some_and(|id| validate_speedtest_isolation_id(id).is_ok())
+}
+
+pub(super) fn is_within_speedtest_root(root: &str, path: &str) -> bool {
+    is_speedtest_scratch_root(root)
+        && path
+            .strip_prefix(root.trim_end_matches('/'))
+            .is_some_and(|suffix| suffix.starts_with('/') && suffix.len() > 1)
+}
+
+pub(super) fn physical_target_set(
+    targets: &[SpeedtestPhysicalTarget],
+) -> BTreeSet<(Arc<str>, Arc<str>)> {
+    targets
+        .iter()
+        .map(|target| (Arc::clone(&target.production), Arc::clone(&target.scratch)))
+        .collect()
+}
+
+pub(super) fn validate_speedtest_cleanup_scope(
+    config: &YTsaurusSinkConfig,
+    isolation: &SinkSpeedtestIsolation,
+    scope: &YTsaurusSpeedtestScope,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        isolation.safety() == SinkSpeedtestIsolationSafety::Scratch,
+        "refusing to clean a YTsaurus speedtest isolation without scratch safety"
+    );
+    validate_ytsaurus_connector_scope(config, scope)?;
+    let datasets = isolation
+        .discovery
+        .datasets
+        .iter()
+        .map(|dataset| Arc::clone(&dataset.name))
+        .collect::<BTreeSet<_>>();
+    anyhow::ensure!(
+        datasets == scope.datasets,
+        "refusing to clean a YTsaurus speedtest root: isolated discovery does not match the connector-owned dataset set"
+    );
+    anyhow::ensure!(
+        physical_target_set(isolation.physical_targets()) == scope.physical_targets,
+        "refusing to clean a YTsaurus speedtest root: physical target proof does not match the connector-owned scratch set"
+    );
+    let expected_scratch = scope
+        .datasets
+        .iter()
+        .map(|dataset| config.path_for_dataset(dataset).map(Arc::<str>::from))
+        .collect::<anyhow::Result<BTreeSet<_>>>()?;
+    let actual_scratch = scope
+        .physical_targets
+        .iter()
+        .map(|(_, scratch)| Arc::clone(scratch))
+        .collect::<BTreeSet<_>>();
+    anyhow::ensure!(
+        actual_scratch == expected_scratch,
+        "refusing to clean a YTsaurus speedtest root: scratch targets escape the owned root"
+    );
+    anyhow::ensure!(
+        actual_scratch
+            .iter()
+            .all(|path| is_within_speedtest_root(&scope.root, path)),
+        "refusing to clean a YTsaurus speedtest root: a scratch target is not its descendant"
+    );
+    Ok(())
+}
+
+fn validate_ytsaurus_connector_scope(
+    config: &YTsaurusSinkConfig,
+    scope: &YTsaurusSpeedtestScope,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        config.replace_tables(),
+        "refusing to use a YTsaurus speedtest connector without isolated replacement semantics"
+    );
+    anyhow::ensure!(
+        config.path() == scope.root.as_ref() && is_speedtest_scratch_root(&scope.root),
+        "refusing to use a YTsaurus path outside the connector-owned speedtest namespace"
+    );
+    let expected_scratch = scope
+        .datasets
+        .iter()
+        .map(|dataset| config.path_for_dataset(dataset).map(Arc::<str>::from))
+        .collect::<anyhow::Result<BTreeSet<_>>>()?;
+    let owned_scratch = scope
+        .physical_targets
+        .iter()
+        .map(|(_, scratch)| Arc::clone(scratch))
+        .collect::<BTreeSet<_>>();
+    anyhow::ensure!(
+        expected_scratch == owned_scratch,
+        "refusing to use a YTsaurus speedtest connector whose target set escapes its owned root"
+    );
+    Ok(())
 }
 
 pub(super) fn validate_initial_tablet_count(
@@ -507,6 +891,7 @@ struct YTsaurusSink {
     delivery_id: Arc<str>,
     partition_id: i64,
     attempt_id: Uuid,
+    speedtest_scope: Option<Arc<YTsaurusSpeedtestScope>>,
 }
 
 impl YTsaurusSink {
@@ -838,6 +1223,9 @@ impl YTsaurusSink {
     }
 
     async fn write_deliveries(&self, deliveries: &[Delivery]) -> anyhow::Result<()> {
+        if let Some(scope) = &self.speedtest_scope {
+            verify_ytsaurus_speedtest_root(&self.client, scope).await?;
+        }
         let mut tables = Vec::<(Arc<str>, Vec<RecordBatch>, u64, u64)>::new();
         for delivery in deliveries {
             for batch in &delivery.outputs {
@@ -996,6 +1384,9 @@ impl Sink for YTsaurusSink {
                 let mut buffered_bytes = 0_usize;
                 let mut deferred_commit = None;
                 if self.has_staged_tables() {
+                    if let Some(scope) = &self.speedtest_scope {
+                        verify_ytsaurus_speedtest_root(&self.client, scope).await?;
+                    }
                     self.prepare_unique_staging().await?;
                 }
                 loop {
@@ -1035,6 +1426,9 @@ impl Sink for YTsaurusSink {
                         self.flush_pending(&mut pending, &io.events, &mut deferred_commit)
                             .await?;
                         if self.has_staged_tables() {
+                            if let Some(scope) = &self.speedtest_scope {
+                                verify_ytsaurus_speedtest_root(&self.client, scope).await?;
+                            }
                             self.finalize_unique_tables().await.map_err(|error| {
                                 anyhow::Error::from(DataPlaneFailure::fatal(error))
                             })?;

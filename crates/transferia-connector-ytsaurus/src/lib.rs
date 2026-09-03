@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_delivery_contracts::semantics::RecordSemantics;
+use transferia_registry::tuning::{NumericScale, TuningParameter};
 use transferia_registry::{
     ComponentRegistration, ConnectionCheckResult, DeliveryMode, RegistryBuilder,
 };
@@ -54,6 +55,7 @@ pub fn register(
                     }
                 },
             )?
+            .source_tuning_parameters(ytsaurus_source_tuning_parameters())?
             .source_checker::<ytsaurus::YTsaurusSourceConfig, _, _>(check_source_connection)
             .sink_draft::<ytsaurus::YTsaurusSinkConfig, _, _>(
                 || {
@@ -61,7 +63,19 @@ pub fn register(
                         "auth": { "type": "token", "token": "" },
                         "host": "", "port": 8000, "trusted_plaintext": true,
                         "trusted_native_rpc_plaintext": false,
-                        "timeout_ms": 30000
+                        "timeout_ms": 30000,
+                        "write_target_bytes": 536_870_912_u64,
+                        "write_concurrency": 4,
+                        "write_flush_interval_ms": 1000,
+                        "write_row_buffer_bytes": 1_048_576_u64,
+                        "table_writer": {
+                            "block_size": 16_777_216_u64,
+                            "max_buffer_size": 16_777_216_u64,
+                            "writer_window_size": 67_108_864_u64,
+                            "writer_group_size": 16_777_216_u64,
+                            "desired_chunk_size": 2_147_483_648_u64
+                        },
+                        "primary_key_sort_timeout_ms": 86_400_000_u64
                     })
                 },
                 |config| {
@@ -70,6 +84,7 @@ pub fn register(
                     )?))
                 },
             )?
+            .sink_tuning_parameters(ytsaurus_sink_tuning_parameters())?
             .sink_record_semantics(vec![
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,
@@ -77,6 +92,59 @@ pub fn register(
             .sink_checker::<ytsaurus::YTsaurusSinkConfig, _, _>(check_sink_connection),
     )?;
     Ok(())
+}
+
+fn ytsaurus_source_tuning_parameters() -> Vec<TuningParameter> {
+    vec![TuningParameter::UnsignedInteger {
+        pointer: "/batch_rows".to_owned(),
+        label: "Rows per Arrow batch".to_owned(),
+        baseline: 65_536,
+        minimum: 1,
+        maximum: u64::MAX,
+        candidates: vec![16_384, 65_536, 262_144, 1_048_576],
+        scale: NumericScale::Logarithmic,
+    }]
+}
+
+fn ytsaurus_sink_tuning_parameters() -> Vec<TuningParameter> {
+    vec![
+        TuningParameter::UnsignedInteger {
+            pointer: "/write_target_bytes".to_owned(),
+            label: "Write target bytes".to_owned(),
+            baseline: 512 << 20,
+            minimum: 1,
+            maximum: u64::MAX,
+            candidates: vec![64 << 20, 256 << 20, 512 << 20],
+            scale: NumericScale::Logarithmic,
+        },
+        TuningParameter::UnsignedInteger {
+            pointer: "/write_concurrency".to_owned(),
+            label: "Concurrent writes".to_owned(),
+            baseline: 4,
+            minimum: 1,
+            maximum: 32,
+            candidates: vec![1, 2, 4, 8],
+            scale: NumericScale::Logarithmic,
+        },
+        TuningParameter::UnsignedInteger {
+            pointer: "/write_flush_interval_ms".to_owned(),
+            label: "Write flush interval".to_owned(),
+            baseline: 1_000,
+            minimum: 1,
+            maximum: u64::MAX,
+            candidates: vec![50, 100, 250, 1_000],
+            scale: NumericScale::Logarithmic,
+        },
+        TuningParameter::UnsignedInteger {
+            pointer: "/write_row_buffer_bytes".to_owned(),
+            label: "Writer row buffer".to_owned(),
+            baseline: 1 << 20,
+            minimum: 1,
+            maximum: u64::MAX,
+            candidates: vec![256 << 10, 512 << 10, 1 << 20],
+            scale: NumericScale::Logarithmic,
+        },
+    ]
 }
 
 async fn check_source_connection(

@@ -1,15 +1,233 @@
-use super::config::{YdbAuth, YdbConnectionConfig, YdbSinkConfig, YdbTableConfig};
-use super::sink::{create_table_query, encode_arrow_batch, encode_delete, encode_update};
+use super::config::{
+    YdbAuth, YdbConnectionConfig, YdbSinkConfig, YdbSourceConfig, YdbTableConfig,
+};
+use super::sink::{
+    cleanup_ydb_speedtest_scope, cleanup_ydb_speedtest_table, create_speedtest_table_request,
+    create_table_query,
+    encode_arrow_batch, encode_delete, encode_update, isolate_ydb_discovery, isolated_ydb_config,
+    is_ydb_speedtest_table_name, physical_target_set, prepare_ydb_speedtest_table,
+    validate_speedtest_isolation_id, validate_ydb_cleanup_scope,
+    verify_ydb_speedtest_description, ydb_speedtest_table, YdbSinkConnector, YdbSpeedtestScope,
+    YdbSpeedtestTableClient,
+};
+use super::source::{close_ydb_session, YdbSessionClient};
 use super::types::{column_plans, dataset_schema, result_set_to_batch, ColumnKind};
 use arrow::array::{Array as _, Decimal128Array, FixedSizeBinaryArray, StringArray, UInt64Array};
 use arrow::buffer::Buffer;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::ipc::reader::StreamDecoder;
 use arrow::record_batch::RecordBatch;
-use std::sync::Arc;
+use futures_util::future::BoxFuture;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_core::delivery::{
+    DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
+};
+use transferia_registry::{SinkConnector as _, SinkSpeedtestIsolation};
 use ydb_grpc::ydb_proto::r#type::{PrimitiveTypeId, Type as TypeKind};
-use ydb_grpc::ydb_proto::table::ColumnMeta;
+use ydb_grpc::ydb_proto::table::{ColumnMeta, CreateTableRequest, DescribeTableResult};
+
+#[derive(Default)]
+struct RecordingSessionClient {
+    deleted: Vec<String>,
+    outcomes: VecDeque<SessionDeleteOutcome>,
+    persistent_failure: bool,
+}
+
+enum SessionDeleteOutcome {
+    Success,
+    RetryableFailure,
+    AlreadyAbsent,
+}
+
+impl YdbSessionClient for RecordingSessionClient {
+    fn delete_session(&mut self, session_id: String) -> BoxFuture<'_, anyhow::Result<()>> {
+        self.deleted.push(session_id);
+        let result = match self
+            .outcomes
+            .pop_front()
+            .unwrap_or(if self.persistent_failure {
+                SessionDeleteOutcome::RetryableFailure
+            } else {
+                SessionDeleteOutcome::Success
+            })
+        {
+            SessionDeleteOutcome::Success => Ok(()),
+            SessionDeleteOutcome::RetryableFailure => {
+                Err(anyhow::anyhow!("retryable session deletion failure"))
+            }
+            SessionDeleteOutcome::AlreadyAbsent => {
+                Err(anyhow::anyhow!("session is already absent"))
+            }
+        };
+        Box::pin(async move { result })
+    }
+
+    fn is_session_absent(&self, error: &anyhow::Error) -> bool {
+        error.to_string() == "session is already absent"
+    }
+}
+
+#[tokio::test]
+async fn source_session_cleanup_deletes_each_session_exactly_once() {
+    let mut client = RecordingSessionClient::default();
+    let mut session_id = Some("session-1".to_owned());
+
+    close_ydb_session(
+        &mut client,
+        &mut session_id,
+        Duration::from_secs(1),
+        Duration::from_millis(1),
+    )
+        .await
+        .unwrap();
+    close_ydb_session(
+        &mut client,
+        &mut session_id,
+        Duration::from_secs(1),
+        Duration::from_millis(1),
+    )
+        .await
+        .unwrap();
+
+    assert_eq!(client.deleted, ["session-1"]);
+    assert!(session_id.is_none());
+}
+
+#[tokio::test(start_paused = true)]
+async fn source_session_cleanup_retries_after_an_unconfirmed_failure() {
+    let mut client = RecordingSessionClient {
+        deleted: Vec::new(),
+        outcomes: VecDeque::from([
+            SessionDeleteOutcome::RetryableFailure,
+            SessionDeleteOutcome::Success,
+        ]),
+        persistent_failure: false,
+    };
+    let mut session_id = Some("session-1".to_owned());
+
+    close_ydb_session(
+        &mut client,
+        &mut session_id,
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+    )
+        .await
+        .unwrap();
+
+    assert_eq!(client.deleted, ["session-1", "session-1"]);
+    assert!(session_id.is_none());
+}
+
+#[tokio::test]
+async fn source_session_cleanup_treats_already_absent_as_idempotent_success() {
+    let mut client = RecordingSessionClient {
+        deleted: Vec::new(),
+        outcomes: VecDeque::from([SessionDeleteOutcome::AlreadyAbsent]),
+        persistent_failure: false,
+    };
+    let mut session_id = Some("session-1".to_owned());
+
+    close_ydb_session(
+        &mut client,
+        &mut session_id,
+        Duration::from_secs(1),
+        Duration::from_millis(1),
+    )
+        .await
+        .unwrap();
+
+    assert_eq!(client.deleted, ["session-1"]);
+    assert!(session_id.is_none());
+}
+
+#[tokio::test(start_paused = true)]
+async fn source_session_cleanup_exhaustion_is_bounded_sanitized_and_retryable() {
+    let mut client = RecordingSessionClient {
+        deleted: Vec::new(),
+        outcomes: VecDeque::new(),
+        persistent_failure: true,
+    };
+    let mut session_id = Some("session-1".to_owned());
+
+    let error = close_ydb_session(
+        &mut client,
+        &mut session_id,
+        Duration::from_millis(100),
+        Duration::from_millis(10),
+    )
+    .await
+    .expect_err("persistent failure must exhaust the configured deadline");
+
+    assert!(error.to_string().contains("configured 100 ms"));
+    assert!(!error
+        .to_string()
+        .contains("retryable session deletion failure"));
+    assert_eq!(session_id.as_deref(), Some("session-1"));
+    assert!(client.deleted.len() >= 4);
+    let exhausted_attempts = client.deleted.len();
+
+    client.persistent_failure = false;
+    close_ydb_session(
+        &mut client,
+        &mut session_id,
+        Duration::from_millis(100),
+        Duration::from_millis(10),
+    )
+    .await
+    .unwrap();
+    assert!(session_id.is_none());
+    assert_eq!(client.deleted.len(), exhausted_attempts + 1);
+}
+
+#[test]
+fn source_shutdown_retry_controls_are_visible_defaulted_and_validated() {
+    let schema = serde_json::to_value(schemars::schema_for!(YdbSourceConfig)).unwrap();
+    let properties = &schema["properties"];
+    assert_eq!(properties["session_shutdown_timeout_ms"]["default"], 60_000);
+    assert_eq!(
+        properties["session_shutdown_timeout_ms"]["x-ui"]["section"],
+        "advanced"
+    );
+    assert_eq!(
+        properties["session_shutdown_retry_initial_ms"]["default"],
+        50
+    );
+    assert_eq!(
+        properties["session_shutdown_retry_initial_ms"]["x-ui"]["section"],
+        "advanced"
+    );
+
+    let base = r#"
+endpoint: grpc://localhost:2136
+database: /local
+trusted_plaintext: true
+auth:
+  type: anonymous
+tables:
+  - path: /local/events
+batch_rows: 1024
+"#;
+    let defaults: YdbSourceConfig = serde_yaml::from_str(base).unwrap();
+    assert_eq!(defaults.session_shutdown_timeout_ms, 60_000);
+    assert_eq!(defaults.session_shutdown_retry_initial_ms, 50);
+    defaults.validate().unwrap();
+
+    let mut zero_timeout = defaults.clone();
+    zero_timeout.session_shutdown_timeout_ms = 0;
+    assert!(zero_timeout.validate().is_err());
+    let mut zero_backoff = defaults.clone();
+    zero_backoff.session_shutdown_retry_initial_ms = 0;
+    assert!(zero_backoff.validate().is_err());
+
+    let invalid: YdbSourceConfig = serde_yaml::from_str(&format!(
+        "{base}session_shutdown_timeout_ms: 10\nsession_shutdown_retry_initial_ms: 11\n"
+    ))
+    .unwrap();
+    assert!(invalid.validate().is_err());
+}
 
 #[test]
 fn sink_schema_exposes_only_create_tables_tuning() {
@@ -297,6 +515,476 @@ fn sink_requires_exact_table_mappings_and_primary_key() -> anyhow::Result<()> {
     config.validate()?;
     assert_eq!(config.table_path("events")?, "/local/events");
     assert!(config.table_path("missing").is_err());
+    Ok(())
+}
+
+fn speedtest_discovery() -> DeliveryDiscovery {
+    let schema = DatasetSchema::new(vec![
+        SchemaColumn::new("id".to_owned(), DataType::UInt64, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("payload".to_owned(), DataType::Utf8, false),
+    ]);
+    DeliveryDiscovery {
+        source_name: Arc::from("source"),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![
+            DiscoveredDataset {
+                role: DatasetRole::Main,
+                name: Arc::from("events"),
+                incoming_schema: schema.clone(),
+                stored_schema: schema.clone(),
+                system_columns: Vec::new(),
+            },
+            DiscoveredDataset {
+                role: DatasetRole::DeadLetterQueue,
+                name: Arc::from("events_dlq"),
+                incoming_schema: schema.clone(),
+                stored_schema: schema,
+                system_columns: Vec::new(),
+            },
+        ],
+        performance_advice: Vec::new(),
+    }
+}
+
+fn speedtest_sink_config(create_tables: bool) -> YdbSinkConfig {
+    YdbSinkConfig {
+        connection: YdbConnectionConfig {
+            endpoint: "grpc://localhost:2136".to_owned(),
+            database: "/local".to_owned(),
+            trusted_plaintext: true,
+            auth: YdbAuth::Anonymous,
+            request_timeout_ms: 30_000,
+        },
+        tables: vec![
+            YdbTableConfig {
+                path: "/local/primary/events".to_owned(),
+            },
+            YdbTableConfig {
+                path: "/local/dead-letter/events_dlq".to_owned(),
+            },
+        ],
+        create_tables,
+        retry_max_ms: 30_000,
+    }
+}
+
+fn assert_same_schema(left: &DatasetSchema, right: &DatasetSchema) {
+    assert_eq!(left.columns.len(), right.columns.len());
+    for (left, right) in left.columns.iter().zip(&right.columns) {
+        assert_eq!(left.name, right.name);
+        assert_eq!(left.data_type, right.data_type);
+        assert_eq!(left.nullable, right.nullable);
+        assert_eq!(left.primary_key, right.primary_key);
+        assert_eq!(left.low_cardinality, right.low_cardinality);
+        assert_eq!(left.max_length, right.max_length);
+        assert_eq!(left.arrow_extension_name, right.arrow_extension_name);
+        assert_eq!(left.system_role, right.system_role);
+        assert_eq!(left.old_value_of, right.old_value_of);
+        assert_eq!(left.old_key_of, right.old_key_of);
+    }
+}
+
+#[tokio::test]
+async fn speedtest_isolation_uses_same_parents_and_preserves_dataset_semantics(
+) -> anyhow::Result<()> {
+    let production_config = speedtest_sink_config(false);
+    let connector = Arc::new(YdbSinkConnector::from_config(production_config.clone())?);
+    let original = Arc::new(speedtest_discovery());
+    let isolation = Arc::clone(&connector)
+        .isolate_speedtest(
+            Arc::clone(&original),
+            "0123456789abcdef0123456789abcdef".to_owned(),
+        )
+        .await?;
+
+    assert!(!production_config.create_tables);
+    assert_eq!(isolation.discovery.datasets.len(), original.datasets.len());
+    for (index, dataset) in isolation.discovery.datasets.iter().enumerate() {
+        assert_eq!(dataset.role, original.datasets[index].role);
+        assert_same_schema(
+            &dataset.incoming_schema,
+            &original.datasets[index].incoming_schema,
+        );
+        assert_same_schema(
+            &dataset.stored_schema,
+            &original.datasets[index].stored_schema,
+        );
+        assert_eq!(dataset.system_columns, original.datasets[index].system_columns);
+        assert!(is_ydb_speedtest_table_name(&dataset.name));
+    }
+    assert_eq!(
+        isolation.table_name("events")?.as_ref(),
+        "_transferia_st_0123456789abcdef0123456789abcdef_0"
+    );
+    assert_eq!(
+        isolation.table_name("events_dlq")?.as_ref(),
+        "_transferia_st_0123456789abcdef0123456789abcdef_1"
+    );
+    let scratch_targets = isolation
+        .physical_targets()
+        .iter()
+        .map(|target| serde_json::from_str::<(String, String)>(&target.scratch))
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(scratch_targets[0].1.rsplit_once('/').unwrap().0, "/local/primary");
+    assert_eq!(
+        scratch_targets[1].1.rsplit_once('/').unwrap().0,
+        "/local/dead-letter"
+    );
+    isolation.connector().cleanup_speedtest(&isolation).await?;
+    assert!(connector.cleanup_speedtest(&isolation).await.is_err());
+    Ok(())
+}
+
+#[test]
+fn speedtest_clone_forces_create_only_on_the_isolated_config() -> anyhow::Result<()> {
+    let production = speedtest_sink_config(false);
+    let original = speedtest_discovery();
+    let (_, _, tables, _) = isolate_ydb_discovery(
+        &production,
+        &original,
+        "0123456789abcdef0123456789abcdef",
+    )?;
+    let isolated = isolated_ydb_config(&production, &tables)?;
+
+    assert!(!production.create_tables);
+    assert!(isolated.create_tables);
+    assert_eq!(isolated.tables.len(), production.tables.len());
+    assert!(isolated
+        .tables
+        .iter()
+        .all(|table| is_ydb_speedtest_table_name(table.name())));
+    Ok(())
+}
+
+#[test]
+fn speedtest_names_reject_noncanonical_ids_and_preserve_exact_parent() -> anyhow::Result<()> {
+    let id = "0123456789abcdef0123456789abcdef";
+    let (name, path) = ydb_speedtest_table("/odd`parent/events", id, usize::MAX)?;
+    assert!(is_ydb_speedtest_table_name(&name));
+    assert_eq!(path.rsplit_once('/').unwrap().0, "/odd`parent");
+    assert!(name.len() <= 255);
+    let schema = DatasetSchema::new(vec![
+        SchemaColumn::new("id".to_owned(), DataType::UInt64, false)
+            .with_constraints(true, false, None),
+    ]);
+    let request = create_speedtest_table_request(&path, &schema, "owner-token")?;
+    assert_eq!(request.path, path);
+    assert_eq!(
+        request.attributes.get("transferia.speedtest.owner"),
+        Some(&"owner-token".to_owned())
+    );
+    let description = ydb_grpc::ydb_proto::table::DescribeTableResult {
+        columns: request.columns.clone(),
+        primary_key: request.primary_key.clone(),
+        attributes: request.attributes.clone(),
+        ..Default::default()
+    };
+    verify_ydb_speedtest_description(&path, &schema, "owner-token", &description)?;
+    assert!(verify_ydb_speedtest_description(&path, &schema, "foreign", &description).is_err());
+    assert!(create_speedtest_table_request("/local/events", &schema, "owner").is_err());
+    assert!(validate_speedtest_isolation_id("0123456789ABCDEF0123456789ABCDEF").is_err());
+    assert!(validate_speedtest_isolation_id("0123; DROP TABLE events").is_err());
+    assert!(ydb_speedtest_table("relative/events", id, 0).is_err());
+    Ok(())
+}
+
+#[test]
+fn cleanup_refuses_tampered_targets_and_prevalidates_every_drop() -> anyhow::Result<()> {
+    let production = speedtest_sink_config(false);
+    let original = speedtest_discovery();
+    let (isolated_discovery, table_names, tables, targets) = isolate_ydb_discovery(
+        &production,
+        &original,
+        "0123456789abcdef0123456789abcdef",
+    )?;
+    let isolated_config = isolated_ydb_config(&production, &tables)?;
+    let connector: Arc<dyn transferia_registry::SinkConnector> =
+        Arc::new(YdbSinkConnector::from_config(isolated_config.clone())?);
+    let isolation = SinkSpeedtestIsolation::scratch(
+        connector,
+        &original,
+        isolated_discovery,
+        table_names,
+        targets.clone(),
+    )?;
+    let schemas = tables
+        .values()
+        .cloned()
+        .map(|path| {
+            (
+                path,
+                DatasetSchema::new(vec![
+                    SchemaColumn::new("id".to_owned(), DataType::UInt64, false)
+                        .with_constraints(true, false, None),
+                ]),
+            )
+        })
+        .collect();
+    let scope = YdbSpeedtestScope {
+        tables: tables.clone(),
+        schemas,
+        owner: Arc::from("owner"),
+        physical_targets: physical_target_set(&targets),
+        attempted: Mutex::new(tables.values().cloned().collect()),
+    };
+    validate_ydb_cleanup_scope(&isolated_config, &isolation, &scope)?;
+
+    let mut wrong_targets = scope.physical_targets.clone();
+    let first = wrong_targets.pop_first().unwrap();
+    wrong_targets.insert((first.0, Arc::from("tampered")));
+    let wrong_scope = YdbSpeedtestScope {
+        tables: tables.clone(),
+        schemas: scope.schemas.clone(),
+        owner: Arc::clone(&scope.owner),
+        physical_targets: wrong_targets,
+        attempted: Mutex::new(tables.values().cloned().collect()),
+    };
+    assert!(validate_ydb_cleanup_scope(&isolated_config, &isolation, &wrong_scope).is_err());
+
+    let mut unsafe_tables = tables;
+    let key = unsafe_tables.keys().next().unwrap().clone();
+    unsafe_tables.insert(key, Arc::from("/local/production/events"));
+    let unsafe_scope = YdbSpeedtestScope {
+        attempted: Mutex::new(unsafe_tables.values().cloned().collect()),
+        tables: unsafe_tables,
+        schemas: scope.schemas,
+        owner: scope.owner,
+        physical_targets: scope.physical_targets,
+    };
+    assert!(validate_ydb_cleanup_scope(&isolated_config, &isolation, &unsafe_scope).is_err());
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum FakeCreateOutcome {
+    Success,
+    LostResponse,
+    Collision,
+}
+
+struct FakeSpeedtestYdb {
+    tables: BTreeMap<String, DescribeTableResult>,
+    creates: VecDeque<FakeCreateOutcome>,
+    describe_failures: BTreeSet<String>,
+    lost_drop_responses: BTreeSet<String>,
+    drops: Vec<String>,
+}
+
+impl FakeSpeedtestYdb {
+    fn new(outcomes: impl IntoIterator<Item = FakeCreateOutcome>) -> Self {
+        Self {
+            tables: BTreeMap::new(),
+            creates: outcomes.into_iter().collect(),
+            describe_failures: BTreeSet::new(),
+            lost_drop_responses: BTreeSet::new(),
+            drops: Vec::new(),
+        }
+    }
+
+    fn description(request: &CreateTableRequest) -> DescribeTableResult {
+        DescribeTableResult {
+            columns: request.columns.clone(),
+            primary_key: request.primary_key.clone(),
+            attributes: request.attributes.clone(),
+            ..Default::default()
+        }
+    }
+}
+
+impl YdbSpeedtestTableClient for FakeSpeedtestYdb {
+    fn create_owned<'a>(
+        &'a mut self,
+        request: CreateTableRequest,
+    ) -> futures_util::future::BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(async move {
+            match self
+                .creates
+                .pop_front()
+                .unwrap_or(FakeCreateOutcome::Success)
+            {
+                FakeCreateOutcome::Success => {
+                    self.tables
+                        .insert(request.path.clone(), Self::description(&request));
+                    Ok(())
+                }
+                FakeCreateOutcome::LostResponse => {
+                    self.tables
+                        .insert(request.path.clone(), Self::description(&request));
+                    anyhow::bail!("create response lost")
+                }
+                FakeCreateOutcome::Collision => anyhow::bail!("table already exists"),
+            }
+        })
+    }
+
+    fn describe_owned<'a>(
+        &'a mut self,
+        path: &'a str,
+    ) -> futures_util::future::BoxFuture<'a, anyhow::Result<DescribeTableResult>> {
+        Box::pin(async move {
+            if self.describe_failures.contains(path) {
+                anyhow::bail!("describe timed out")
+            }
+            self.tables
+                .get(path)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("not found"))
+        })
+    }
+
+    fn drop_owned<'a>(
+        &'a mut self,
+        path: &'a str,
+    ) -> futures_util::future::BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(async move {
+            self.drops.push(path.to_owned());
+            self.tables.remove(path);
+            if self.lost_drop_responses.contains(path) {
+                anyhow::bail!("drop response lost")
+            }
+            Ok(())
+        })
+    }
+
+    fn is_not_found(&self, error: &anyhow::Error) -> bool {
+        error.to_string() == "not found"
+    }
+}
+
+fn speedtest_table_schema() -> DatasetSchema {
+    DatasetSchema::new(vec![
+        SchemaColumn::new("id".to_owned(), DataType::UInt64, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("payload".to_owned(), DataType::Utf8, true),
+    ])
+}
+
+fn fake_owned_description(path: &str, owner: &str) -> DescribeTableResult {
+    let request = create_speedtest_table_request(path, &speedtest_table_schema(), owner).unwrap();
+    FakeSpeedtestYdb::description(&request)
+}
+
+#[tokio::test]
+async fn lost_create_response_is_accepted_only_after_owner_and_schema_proof() -> anyhow::Result<()> {
+    let path = "/db/_transferia_st_0123456789abcdef0123456789abcdef_0";
+    let schema = speedtest_table_schema();
+    let mut client = FakeSpeedtestYdb::new([FakeCreateOutcome::LostResponse]);
+    prepare_ydb_speedtest_table(&mut client, path, &schema, "owner").await?;
+    cleanup_ydb_speedtest_table(&mut client, path, &schema, "owner").await?;
+    assert_eq!(client.drops, [path]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn foreign_collision_is_never_accepted_or_dropped() -> anyhow::Result<()> {
+    let path = "/db/_transferia_st_0123456789abcdef0123456789abcdef_0";
+    let schema = speedtest_table_schema();
+    let mut client = FakeSpeedtestYdb::new([FakeCreateOutcome::Collision]);
+    client
+        .tables
+        .insert(path.to_owned(), fake_owned_description(path, "foreign"));
+    assert!(prepare_ydb_speedtest_table(&mut client, path, &schema, "owner")
+        .await
+        .is_err());
+    assert!(cleanup_ydb_speedtest_table(&mut client, path, &schema, "owner")
+        .await
+        .is_err());
+    assert!(client.drops.is_empty());
+    assert!(client.tables.contains_key(path));
+    Ok(())
+}
+
+#[tokio::test]
+async fn unreadable_owner_never_permits_drop() -> anyhow::Result<()> {
+    let path = "/db/_transferia_st_0123456789abcdef0123456789abcdef_0";
+    let schema = speedtest_table_schema();
+    let mut client = FakeSpeedtestYdb::new([]);
+    client
+        .tables
+        .insert(path.to_owned(), fake_owned_description(path, "owner"));
+    client.describe_failures.insert(path.to_owned());
+    assert!(cleanup_ydb_speedtest_table(&mut client, path, &schema, "owner")
+        .await
+        .is_err());
+    assert!(client.drops.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn replaced_marker_survives_cleanup() -> anyhow::Result<()> {
+    let path = "/db/_transferia_st_0123456789abcdef0123456789abcdef_0";
+    let schema = speedtest_table_schema();
+    let mut client = FakeSpeedtestYdb::new([FakeCreateOutcome::Success]);
+    prepare_ydb_speedtest_table(&mut client, path, &schema, "owner").await?;
+    client
+        .tables
+        .insert(path.to_owned(), fake_owned_description(path, "replacement"));
+    assert!(cleanup_ydb_speedtest_table(&mut client, path, &schema, "owner")
+        .await
+        .is_err());
+    assert!(client.drops.is_empty());
+    assert!(client.tables.contains_key(path));
+    Ok(())
+}
+
+#[tokio::test]
+async fn lost_drop_response_is_success_only_after_not_found_proof() -> anyhow::Result<()> {
+    let path = "/db/_transferia_st_0123456789abcdef0123456789abcdef_0";
+    let schema = speedtest_table_schema();
+    let mut client = FakeSpeedtestYdb::new([FakeCreateOutcome::Success]);
+    prepare_ydb_speedtest_table(&mut client, path, &schema, "owner").await?;
+    client.lost_drop_responses.insert(path.to_owned());
+    cleanup_ydb_speedtest_table(&mut client, path, &schema, "owner").await?;
+    cleanup_ydb_speedtest_table(&mut client, path, &schema, "owner").await?;
+    assert_eq!(client.drops, [path]);
+    assert!(!client.tables.contains_key(path));
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_prepare_cleanup_attempts_all_and_drops_only_proven_owned_tables(
+) -> anyhow::Result<()> {
+    let first = "/db/_transferia_st_0123456789abcdef0123456789abcdef_0";
+    let second = "/db/_transferia_st_0123456789abcdef0123456789abcdef_1";
+    let schema = speedtest_table_schema();
+    let mut client = FakeSpeedtestYdb::new([
+        FakeCreateOutcome::Success,
+        FakeCreateOutcome::Collision,
+    ]);
+    prepare_ydb_speedtest_table(&mut client, first, &schema, "owner").await?;
+    client.tables.insert(
+        second.to_owned(),
+        fake_owned_description(second, "foreign"),
+    );
+    assert!(prepare_ydb_speedtest_table(&mut client, second, &schema, "owner")
+        .await
+        .is_err());
+    let scope = YdbSpeedtestScope {
+        tables: BTreeMap::from([
+            (Arc::from("first"), Arc::from(first)),
+            (Arc::from("second"), Arc::from(second)),
+        ]),
+        schemas: BTreeMap::from([
+            (Arc::from(first), schema.clone()),
+            (Arc::from(second), schema),
+        ]),
+        owner: Arc::from("owner"),
+        physical_targets: BTreeSet::new(),
+        attempted: Mutex::new(BTreeSet::from([Arc::from(first), Arc::from(second)])),
+    };
+    let error = cleanup_ydb_speedtest_scope(&mut client, &scope)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains(second));
+    assert!(cleanup_ydb_speedtest_scope(&mut client, &scope)
+        .await
+        .is_err());
+    assert_eq!(client.drops, [first]);
+    assert!(!client.tables.contains_key(first));
+    assert!(client.tables.contains_key(second));
     Ok(())
 }
 

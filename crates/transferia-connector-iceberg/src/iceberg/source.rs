@@ -186,6 +186,13 @@ impl SourceConnector for IcebergSourceConnector {
         })
     }
 
+    fn build_speedtest_source(
+        &self,
+        context: SourceBuildContext,
+    ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
+        self.build_source(context)
+    }
+
     fn parser(&self) -> Arc<dyn transferia_delivery_contracts::parser::ParserFactory> {
         self.parser.parser()
     }

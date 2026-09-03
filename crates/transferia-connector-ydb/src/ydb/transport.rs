@@ -7,10 +7,11 @@ use ydb_grpc::ydb_proto::status_ids::StatusCode;
 use ydb_grpc::ydb_proto::table::v1::table_service_client::TableServiceClient;
 use ydb_grpc::ydb_proto::table::{
     bulk_upsert_request, BulkUpsertRequest, BulkUpsertResult, CommitTransactionRequest,
-    CommitTransactionResult, CreateSessionRequest, CreateSessionResult, DeleteSessionRequest,
-    DescribeTableRequest, DescribeTableResult, ExecuteDataQueryRequest, ExecuteQueryResult,
-    ExecuteSchemeQueryRequest, Query, QueryCachePolicy, RollbackTransactionRequest,
-    SerializableModeSettings, TransactionControl, TransactionSettings,
+    CommitTransactionResult, CreateSessionRequest, CreateSessionResult, CreateTableRequest,
+    DeleteSessionRequest, DescribeTableRequest, DescribeTableResult, DropTableRequest,
+    ExecuteDataQueryRequest, ExecuteQueryResult, ExecuteSchemeQueryRequest, Query,
+    QueryCachePolicy, RollbackTransactionRequest, SerializableModeSettings, TransactionControl,
+    TransactionSettings,
 };
 use ydb_grpc::ydb_proto::{table, value, TypedValue};
 
@@ -54,6 +55,12 @@ pub(super) fn is_retryable_error(error: &anyhow::Error) -> bool {
                 | tonic::Code::DeadlineExceeded
         )
     })
+}
+
+pub(super) fn is_not_found_error(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<YdbStatusError>()
+        .is_some_and(|error| error.status == StatusCode::NotFound)
 }
 
 #[derive(Clone)]
@@ -148,6 +155,43 @@ impl YdbClient {
         });
         let _ignored = self.service.delete_session(delete).await;
         result
+    }
+
+    pub async fn create_table(&mut self, mut request: CreateTableRequest) -> anyhow::Result<()> {
+        let session_id = self.create_session().await?;
+        request.session_id = session_id.clone();
+        let request = self.request(request);
+        let response = tokio::time::timeout(self.timeout, self.service.create_table(request))
+            .await
+            .map_err(|_| anyhow::anyhow!("YDB CreateTable timed out"))??
+            .into_inner();
+        ensure_operation(response.operation, "CreateTable")?;
+        let delete = self.request(DeleteSessionRequest {
+            session_id,
+            operation_params: None,
+        });
+        let _ignored = self.service.delete_session(delete).await;
+        Ok(())
+    }
+
+    pub async fn drop_table(&mut self, path: String) -> anyhow::Result<()> {
+        let session_id = self.create_session().await?;
+        let request = self.request(DropTableRequest {
+            session_id: session_id.clone(),
+            path,
+            operation_params: None,
+        });
+        let response = tokio::time::timeout(self.timeout, self.service.drop_table(request))
+            .await
+            .map_err(|_| anyhow::anyhow!("YDB DropTable timed out"))??
+            .into_inner();
+        ensure_operation(response.operation, "DropTable")?;
+        let delete = self.request(DeleteSessionRequest {
+            session_id,
+            operation_params: None,
+        });
+        let _ignored = self.service.delete_session(delete).await;
+        Ok(())
     }
 
     pub async fn delete_session(&mut self, session_id: String) -> anyhow::Result<()> {

@@ -2033,6 +2033,316 @@ button::after {
   margin-top: 12px;
 }
 
+.speedtest-workspace {
+  min-height: 620px;
+}
+
+.speedtest-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.speedtest-heading h2,
+.speedtest-heading p {
+  margin: 0;
+}
+
+.speedtest-heading p {
+  margin-top: 4px;
+  color: var(--text-secondary);
+}
+
+.speedtest-stream-count {
+  flex: none;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.speedtest-tabs {
+  margin-bottom: 18px;
+}
+
+.speedtest-tabs button {
+  min-width: 220px;
+}
+
+.speedtest-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 24px;
+  min-height: 380px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--card);
+}
+
+.speedtest-action-column {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.speedtest-action-column > p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.speedtest-run-button,
+.speedtest-run-button.primary {
+  width: 92px;
+  height: 92px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.speedtest-run-button.interaction-pending::after {
+  top: 10px;
+  right: 16px;
+  width: 10px;
+  height: 10px;
+}
+
+.speedtest-result-slot {
+  height: 360px;
+  min-width: 0;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--line-inner);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.speedtest-placeholder,
+.speedtest-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.speedtest-error {
+  color: var(--danger-text);
+}
+
+.speedtest-results h3,
+.speedtest-results p {
+  margin: 0;
+}
+
+.speedtest-results > h3 {
+  margin-top: 20px;
+}
+
+.speedtest-results > p {
+  margin-top: 4px;
+  color: var(--text-secondary);
+}
+
+.speedtest-results > .speedtest-profile-warning {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--warning-text);
+  border-radius: 6px;
+  color: var(--warning-text);
+  background: var(--warning-surface);
+}
+
+.speedtest-dataset-profile {
+  margin-top: 14px;
+}
+
+.speedtest-dataset-profile h4,
+.speedtest-dataset-profile small {
+  display: block;
+  margin: 0;
+}
+
+.speedtest-dataset-profile small {
+  margin-top: 3px;
+  color: var(--text-secondary);
+}
+
+.speedtest-measurements,
+.speedtest-tuning-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.speedtest-metric-card,
+.speedtest-tuning-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.speedtest-metric-card h3,
+.speedtest-metric-card strong,
+.speedtest-metric-card span {
+  display: block;
+}
+
+.speedtest-metric-card h3 {
+  margin: 0 0 10px;
+}
+
+.speedtest-metric-card strong {
+  font-size: 20px;
+}
+
+.speedtest-metric-card span,
+.speedtest-tuning-card small {
+  margin-top: 5px;
+  color: var(--text-secondary);
+}
+
+.speedtest-profile-table {
+  width: 100%;
+  margin-top: 12px;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.speedtest-profile-table th,
+.speedtest-profile-table td {
+  padding: 7px 8px;
+  border-top: 1px solid var(--line-inner);
+}
+
+.speedtest-profile-table th {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.speedtest-budget-selector {
+  display: flex;
+}
+
+.speedtest-budget-selector button {
+  border-radius: 0;
+}
+
+.speedtest-budget-selector button:first-child {
+  border-radius: 5px 0 0 5px;
+}
+
+.speedtest-budget-selector button:last-child {
+  margin-left: -1px;
+  border-radius: 0 5px 5px 0;
+}
+
+.speedtest-budget-selector button.active {
+  position: relative;
+  z-index: 1;
+  border-color: var(--blue);
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+
+.speedtest-time-field,
+.speedtest-duration-field {
+  display: grid;
+  grid-template-columns: auto minmax(90px, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.speedtest-time-field input,
+.speedtest-duration-field input {
+  width: 100%;
+}
+
+.speedtest-duration-input {
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-secondary);
+}
+
+.speedtest-tuning-card h3,
+.speedtest-tuning-card p,
+.speedtest-tuning-card dl {
+  margin: 0;
+}
+
+.speedtest-tuning-card p {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.speedtest-tuning-card p strong {
+  font-size: 20px;
+}
+
+.speedtest-gain {
+  color: var(--success-text);
+  font-weight: 600;
+}
+
+.speedtest-tuning-card dl {
+  margin-top: 14px;
+}
+
+.speedtest-tuning-card dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid var(--line-inner);
+}
+
+.speedtest-tuning-card dt,
+.speedtest-tuning-card dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.speedtest-tuning-card dt {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 900px) {
+  .speedtest-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .speedtest-action-column {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .speedtest-budget-selector,
+  .speedtest-time-field,
+  .speedtest-duration-field {
+    grid-column: 1 / -1;
+  }
+}
+
 .delivery-logs {
   display: grid;
   grid-template-rows: auto minmax(420px, calc(100vh - 250px));

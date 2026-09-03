@@ -11,6 +11,7 @@ import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import { DeliveryConfiguration } from "./DeliveryConfiguration";
 import { DeliveryLogs } from "./DeliveryLogs";
 import { PerformanceAdviceWorkspace } from "./PerformanceAdviceWorkspace";
+import { SpeedtestWorkspace } from "./SpeedtestWorkspace";
 import {
   DeliverySidebar,
   EditorActions,
@@ -45,6 +46,7 @@ import { useDeliveryPolling } from "./useDeliveryPolling";
 import { useDiscovery } from "./useDiscovery";
 import { useOperations } from "./useOperations";
 import { useYamlEditor } from "./useYamlEditor";
+import { speedtestAvailability } from "./speedtestAvailability";
 import { RequiredFieldGuide } from "./RequiredFieldGuide";
 import {
   nextRequiredTarget,
@@ -84,7 +86,7 @@ const EMPTY_STATE: EditorState = {
 
 type PostYamlIntent =
   | { kind: "validate" }
-  | { kind: "reveal"; scope: "source" | "all" };
+  | { kind: "reveal"; scope: "source" | "endpoints" | "all" };
 
 interface PendingYamlIntent {
   intent: PostYamlIntent;
@@ -100,7 +102,7 @@ export function DeliveryApplication() {
   const [catalog, setCatalog] = useState<UiCatalog>();
   const [deliveries, setDeliveries] = useState<DeliverySummary[]>([]);
   const [requiredErrorScope, setRequiredErrorScope] = useState<
-    "none" | "source" | "all"
+    "none" | "source" | "endpoints" | "all"
   >("none");
   const [pendingYamlIntent, setPendingYamlIntent] =
     useState<PendingYamlIntent>();
@@ -226,6 +228,16 @@ export function DeliveryApplication() {
   const structurallyComplete = readiness?.complete ?? false;
   const requiredFieldsComplete =
     structurallyComplete && editor.name.trim() !== "";
+  const speedtest = useMemo(
+    () =>
+      catalog === undefined
+        ? {
+            available: false,
+            reason: "Loading the connector catalog…",
+          }
+        : speedtestAvailability(catalog, editor.config, widgets),
+    [catalog, editor.config, widgets],
+  );
   const {
     discovery,
     setDiscovery,
@@ -332,16 +344,19 @@ export function DeliveryApplication() {
     showYaml,
     applyYamlAndShowUi,
     showDataSchema,
+    showSpeedtest,
     showPerformanceAdvice,
     showLogs,
   } = yamlEditor;
 
   const revealRequiredNow = useCallback(
-    (scope: "source" | "all") => {
+    (scope: "source" | "endpoints" | "all") => {
       const reportUnrenderableIssue = () => {
         const issue =
           scope === "source"
             ? (readiness?.commonIssue ?? readiness?.sourceIssue)
+            : scope === "endpoints"
+              ? (readiness?.sourceIssue ?? readiness?.sinkIssue)
             : (readiness?.commonIssue ??
               readiness?.sourceIssue ??
               readiness?.sinkIssue);
@@ -365,8 +380,10 @@ export function DeliveryApplication() {
         if (container === null) return;
         const excluded =
           scope === "source"
-            ? ".endpoint-card-sink, .serializer-details-card"
-            : undefined;
+            ? ".identity-card, .endpoint-card-sink, .serializer-details-card"
+            : scope === "endpoints"
+              ? ".identity-card, .pipeline-section"
+              : undefined;
         requestRequiredGuidance(container, excluded);
         const missing = nextRequiredTarget(container, excluded);
         if (missing === undefined) {
@@ -482,6 +499,17 @@ export function DeliveryApplication() {
   const activatePending = operationPending("action");
   const revealMissingRequiredFields = (scope: "source" | "all" = "all") =>
     runAfterYaml({ kind: "reveal", scope });
+  const openSpeedtest = () => {
+    void showSpeedtest(
+      (config) => speedtestAvailability(catalog, config, widgets).available,
+    ).then((result) => {
+      if (result.status !== "unavailable") return;
+      setPendingYamlIntent({
+        intent: { kind: "reveal", scope: "endpoints" },
+        context: result.context,
+      });
+    });
+  };
   const actionButtons = (
     <EditorActions
       editor={editor}
@@ -630,10 +658,14 @@ export function DeliveryApplication() {
           disabled={blockingOperation}
           dataSchemaAvailable={dataSchemaAvailable}
           dataSchemaUnavailableReason={dataSchemaUnavailableReason}
+          speedtestAvailable={speedtest.available}
+          speedtestUnavailableReason={speedtest.reason}
           onUi={() => void applyYamlAndShowUi()}
           onYaml={() => void showYaml()}
           onDataSchema={() => void showDataSchema()}
           onDataSchemaUnavailable={() => revealMissingRequiredFields("source")}
+          onSpeedtest={openSpeedtest}
+          onSpeedtestUnavailable={openSpeedtest}
           onPerformanceAdvice={() => void showPerformanceAdvice()}
           onLogs={() => void showLogs()}
         />
@@ -664,6 +696,16 @@ export function DeliveryApplication() {
           />
         ) : activeView === "data_schema" && discovery !== undefined ? (
           <DataSchemaWorkspace result={discovery} />
+        ) : activeView === "speedtest" ? (
+          <SpeedtestWorkspace
+            config={editor.config}
+            estimate={(config, options, signal) =>
+              api.speedtestEstimate({ config, ...options }, signal)
+            }
+            tune={(config, budget, options, signal) =>
+              api.speedtestTune({ config, budget, ...options }, signal)
+            }
+          />
         ) : activeView === "performance_advice" ? (
           <PerformanceAdviceWorkspace result={discovery} />
         ) : activeView === "logs" ? (

@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 futures-util.workspace = true
+jsonschema.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -14,6 +15,7 @@ serde_yaml.workspace = true
 sha2.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+thiserror.workspace = true
 transferia-core = { path = "../transferia-core" }
 transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
 

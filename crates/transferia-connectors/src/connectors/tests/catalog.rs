@@ -1,5 +1,7 @@
 use super::*;
 use transferia_delivery_contracts::semantics::RecordSemantics;
+use transferia_registry::tuning::TuningParameter;
+use transferia_registry::EndpointRole;
 
 #[test]
 fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
@@ -182,6 +184,124 @@ fn every_endpoint_has_a_schema_and_object_initial_value() -> anyhow::Result<()> 
         if let Some(sink) = &definition.sink {
             assert!(sink.schema.is_object());
             assert!(sink.initial.is_object());
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn high_throughput_connectors_expose_only_explicit_safe_tuning_parameters(
+) -> anyhow::Result<()> {
+    let catalog = build_connector_catalog(&Arc::new(MetricsRegistry::new()))?;
+    let cases: [(&str, EndpointRole, &[&str]); 8] = [
+        (
+            "clickhouse",
+            EndpointRole::Source,
+            &[
+                "/batch_rows",
+                "/snapshot_reader/compression",
+                "/snapshot_reader/row_group_rows",
+                "/snapshot_reader/decode_threads",
+            ],
+        ),
+        (
+            "clickhouse",
+            EndpointRole::Sink,
+            &[
+                "/insert_target_rows",
+                "/insert_target_bytes",
+                "/insert_concurrency",
+                "/compression",
+            ],
+        ),
+        (
+            "iceberg",
+            EndpointRole::Source,
+            &[
+                "/read_batch_rows",
+                "/read_data_file_concurrency",
+                "/read_manifest_concurrency",
+                "/parquet_metadata_size_hint_bytes",
+                "/parquet_range_coalesce_bytes",
+                "/parquet_range_fetch_concurrency",
+            ],
+        ),
+        (
+            "iceberg",
+            EndpointRole::Sink,
+            &[
+                "/target_file_size_bytes",
+                "/commit_target_size_bytes",
+                "/parquet_compression",
+                "/parquet_row_group_rows",
+                "/write_concurrency",
+            ],
+        ),
+        ("s3", EndpointRole::Source, &["/parser/batch_rows"]),
+        (
+            "s3",
+            EndpointRole::Sink,
+            &[
+                "/format/compression",
+                "/format/row_group/max_rows",
+                "/rotation/max_rows",
+                "/upload/parallel_parts",
+                "/upload/max_in_flight_objects",
+            ],
+        ),
+        ("ytsaurus", EndpointRole::Source, &["/batch_rows"]),
+        (
+            "ytsaurus",
+            EndpointRole::Sink,
+            &[
+                "/write_target_bytes",
+                "/write_concurrency",
+                "/write_flush_interval_ms",
+                "/write_row_buffer_bytes",
+            ],
+        ),
+    ];
+
+    for (connector, role, expected) in cases {
+        let parameters = catalog.tuning_parameters(connector, role)?;
+        assert_eq!(
+            parameters
+                .iter()
+                .map(TuningParameter::pointer)
+                .collect::<Vec<_>>(),
+            expected,
+            "unexpected {connector} {role:?} tuning surface"
+        );
+        for parameter in parameters {
+            let pointer = parameter.pointer();
+            for forbidden in [
+                "auth",
+                "credential",
+                "identifier",
+                "ordering",
+                "password",
+                "recovery",
+                "retry",
+                "secret",
+                "timeout",
+            ] {
+                assert!(
+                    !pointer.contains(forbidden),
+                    "unsafe tuning pointer {connector} {role:?} {pointer}"
+                );
+            }
+            match parameter {
+                TuningParameter::SignedInteger { candidates, .. } => {
+                    assert!(!candidates.is_empty())
+                }
+                TuningParameter::UnsignedInteger { candidates, .. } => {
+                    assert!(!candidates.is_empty())
+                }
+                TuningParameter::Number { candidates, .. } => {
+                    assert!(!candidates.is_empty())
+                }
+                TuningParameter::Choice { values, .. } => assert!(!values.is_empty()),
+            }
         }
     }
     Ok(())

@@ -936,6 +936,145 @@ describe("App request orchestration", () => {
     expect(api.validate).not.toHaveBeenCalled();
   });
 
+  it("enables Speedtest from endpoint readiness alone and sends the current config", async () => {
+    const existing = {
+      ...delivery("speedtest-ready", "Speedtest ready"),
+      config: {
+        delivery_id: "speedtest-ready",
+        delivery_type: null,
+        source: { source: { host: "source.example" } },
+        sink: { sink: { database: "benchmark" } },
+      },
+    } satisfies DeliveryRecord;
+    installApiMocks([existing]);
+    vi.mocked(api.catalog).mockResolvedValue(speedtestCatalog());
+    vi.mocked(api.delivery).mockResolvedValue(existing);
+    vi.mocked(api.speedtestEstimate).mockResolvedValue({
+      logical_streams: 1,
+      source: speedtestMeasurement(1_000),
+      destination: speedtestMeasurement(900),
+      profile: {
+        sampled_rows: 1,
+        sampled_arrow_bytes: 8,
+        sampled_deliveries: 1,
+        sample_limit_bytes: 16_777_216,
+        truncated: false,
+        datasets: [],
+      },
+    });
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("Speedtest ready");
+    fireEvent.click(app.getByText("Speedtest ready").closest("button")!);
+    await app.findByRole("heading", { name: "Speedtest ready" });
+
+    const tab = app.getByRole("tab", { name: "Speedtest" });
+    expect(tab.getAttribute("aria-disabled")).toBe("false");
+    fireEvent.click(tab);
+    fireEvent.click(await app.findByRole("button", { name: "Test" }));
+
+    await waitFor(() => expect(api.speedtestEstimate).toHaveBeenCalledOnce());
+    expect(api.speedtestEstimate).toHaveBeenCalledWith(
+      {
+        config: existing.config,
+        duration_seconds: 10,
+        cleanup_timeout_seconds: 60,
+      },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("guides an unavailable Speedtest only to missing endpoint fields", async () => {
+    const existing = {
+      ...delivery("speedtest-incomplete", "Speedtest incomplete"),
+      config: {
+        delivery_id: "speedtest-incomplete",
+        delivery_type: "batch",
+        source: { source: { host: "source.example" } },
+        sink: { sink: { database: "" } },
+      },
+    } satisfies DeliveryRecord;
+    installApiMocks([existing]);
+    vi.mocked(api.catalog).mockResolvedValue(speedtestCatalog());
+    vi.mocked(api.delivery).mockResolvedValue(existing);
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("Speedtest incomplete");
+    fireEvent.click(app.getByText("Speedtest incomplete").closest("button")!);
+    await app.findByRole("heading", { name: "Speedtest incomplete" });
+    fireEvent.click(app.getByRole("button", { name: "Edit" }));
+
+    fireEvent.click(app.getByRole("tab", { name: "Speedtest" }));
+
+    await waitFor(() =>
+      expect(
+        app
+          .getByText("Database")
+          .closest(".form-row")
+          ?.classList.contains("required-missing"),
+      ).toBe(true),
+    );
+    expect(
+      app
+        .getByText("Delivery type")
+        .closest("label")
+        ?.classList.contains("required-missing"),
+    ).toBe(false);
+    expect(
+      app
+        .getByText("Host")
+        .closest(".form-row")
+        ?.classList.contains("required-missing"),
+    ).toBe(false);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(app.getByLabelText("Database")),
+    );
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(api.speedtestEstimate).not.toHaveBeenCalled();
+  });
+
+  it("applies edited YAML before deciding whether Speedtest is available", async () => {
+    const incomplete = {
+      ...delivery("speedtest-yaml", "Speedtest YAML"),
+      config: {
+        delivery_id: "speedtest-yaml",
+        delivery_type: "batch",
+        source: { source: { host: "" } },
+        sink: { sink: { database: "benchmark" } },
+      },
+    } satisfies DeliveryRecord;
+    const complete = {
+      ...incomplete.config,
+      source: { source: { host: "source.example" } },
+    };
+    installApiMocks([incomplete]);
+    vi.mocked(api.catalog).mockResolvedValue(speedtestCatalog());
+    vi.mocked(api.delivery).mockResolvedValue(incomplete);
+    vi.mocked(api.yaml).mockResolvedValue({ yaml: "source: incomplete" });
+    vi.mocked(api.parseYaml).mockResolvedValue({ config: complete });
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("Speedtest YAML");
+    fireEvent.click(app.getByText("Speedtest YAML").closest("button")!);
+    await app.findByRole("heading", { name: "Speedtest YAML" });
+    fireEvent.click(app.getByRole("button", { name: "Edit" }));
+    fireEvent.click(app.getByRole("tab", { name: "YAML" }));
+    fireEvent.input(await app.findByLabelText("YAML configuration"), {
+      target: { value: "source: complete" },
+    });
+
+    fireEvent.click(app.getByRole("tab", { name: "Speedtest" }));
+
+    expect(await app.findByRole("heading", { name: "Speedtest" })).toBeTruthy();
+    expect(api.parseYaml).toHaveBeenCalledWith("source: complete");
+    expect(api.speedtestEstimate).not.toHaveBeenCalled();
+  });
+
   it("validates the committed save even when sidebar refresh fails", async () => {
     installApiMocks([]);
     vi.mocked(api.catalog).mockResolvedValue({
@@ -1061,6 +1200,12 @@ function installApiMocks(deliveries: DeliverySummary[]) {
   vi.spyOn(api, "yaml").mockResolvedValue({ yaml: "{}" });
   vi.spyOn(api, "parseYaml").mockResolvedValue({ config: {} });
   vi.spyOn(api, "discover").mockResolvedValue(discovery());
+  vi.spyOn(api, "speedtestEstimate").mockRejectedValue(
+    new Error("unexpected speedtest estimate"),
+  );
+  vi.spyOn(api, "speedtestTune").mockRejectedValue(
+    new Error("unexpected speedtest tune"),
+  );
   vi.spyOn(api, "validate").mockResolvedValue({
     delivery: delivery("validated", "Validated", true),
     discovery: discovery(),
@@ -1101,6 +1246,53 @@ function discovery(): DiscoveryResult {
       sink: "sink",
       supported_arrow_types: [],
     },
+  };
+}
+
+function speedtestCatalog(): UiCatalog {
+  return {
+    ...CATALOG,
+    connectors: [
+      {
+        key: "source",
+        title: "Test source",
+        source: {
+          ...endpoint(["batch"], ["append_only"]),
+          schema: {
+            type: "object",
+            properties: { host: { type: "string", title: "Host" } },
+            required: ["host"],
+          },
+          initial: { host: "" },
+        },
+      },
+      {
+        key: "sink",
+        title: "Test destination",
+        sink: {
+          ...endpoint([], ["append_only"]),
+          schema: {
+            type: "object",
+            properties: {
+              database: { type: "string", title: "Database" },
+            },
+            required: ["database"],
+          },
+          initial: { database: "" },
+        },
+      },
+    ],
+  };
+}
+
+function speedtestMeasurement(rowsPerSecond: number) {
+  return {
+    rows: "1000",
+    arrow_bytes: "8000",
+    duration_ms: 1_000,
+    rows_per_second: rowsPerSecond,
+    bytes_per_second: rowsPerSecond * 8,
+    completed: false,
   };
 }
 

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use arrow::array::{ArrayRef, Int64Array, StringArray, UInt64Array};
 use arrow::datatypes::{Field, Schema};
@@ -11,7 +12,7 @@ use ydb_grpc::ydb_proto::status_ids::StatusCode;
 use ydb_grpc::ydb_proto::table::{ReadTableRequest, ReadTableResponse};
 
 use super::config::{YdbSourceConfig, YdbTableConfig};
-use super::transport::YdbClient;
+use super::transport::{is_not_found_error, YdbClient};
 use super::types::{column_plans, dataset_schema, result_set_to_batch, ColumnPlan};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
@@ -192,11 +193,20 @@ impl SourceConnector for YdbSourceConnector {
                     table,
                     partition_id,
                     self.config.batch_rows,
+                    self.config.session_shutdown_timeout(),
+                    self.config.session_shutdown_retry_initial(),
                     counters,
                 )
                 .await?,
             ) as Box<dyn Source>)
         })
+    }
+
+    fn build_speedtest_source(
+        &self,
+        context: SourceBuildContext,
+    ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
+        self.build_source(context)
     }
 
     fn parser(&self) -> Arc<dyn transferia_delivery_contracts::parser::ParserFactory> {
@@ -210,12 +220,14 @@ impl SourceConnector for YdbSourceConnector {
 
 struct YdbSource {
     client: YdbClient,
-    session_id: String,
+    session_id: Option<String>,
     stream: Streaming<ReadTableResponse>,
     table: DiscoveredTable,
     partition_id: i64,
     offset: i64,
     finished: bool,
+    session_shutdown_timeout: Duration,
+    session_shutdown_retry_initial: Duration,
     counters: Arc<SourceCounters>,
 }
 
@@ -225,11 +237,14 @@ impl YdbSource {
         table: DiscoveredTable,
         partition_id: i64,
         batch_rows: usize,
+        session_shutdown_timeout: Duration,
+        session_shutdown_retry_initial: Duration,
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
-        let session_id = client.create_session().await?;
+        let active_session_id = client.create_session().await?;
+        let mut session_id = Some(active_session_id.clone());
         let request = client.request(ReadTableRequest {
-            session_id: session_id.clone(),
+            session_id: active_session_id,
             path: table.config.path.clone(),
             key_range: None,
             columns: table
@@ -249,7 +264,27 @@ impl YdbSource {
             client.service().stream_read_table(request),
         )
         .await
-        .map_err(|_| anyhow::anyhow!("YDB StreamReadTable timed out while opening"))??;
+        .map_err(|_| anyhow::anyhow!("YDB StreamReadTable timed out while opening"))
+        .and_then(|response| response.map_err(anyhow::Error::new));
+        let response = match response {
+            Ok(response) => response,
+            Err(open_error) => {
+                if close_ydb_session(
+                    &mut client,
+                    &mut session_id,
+                    session_shutdown_timeout,
+                    session_shutdown_retry_initial,
+                )
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!(
+                        "YDB session cleanup failed after StreamReadTable could not be opened"
+                    );
+                }
+                return Err(open_error);
+            }
+        };
         Ok(Self {
             client,
             session_id,
@@ -258,6 +293,8 @@ impl YdbSource {
             partition_id,
             offset: 0,
             finished: false,
+            session_shutdown_timeout,
+            session_shutdown_retry_initial,
             counters,
         })
     }
@@ -312,16 +349,6 @@ impl YdbSource {
     async fn finish(&mut self) -> transferia_core::failure::DataPlaneResult<SourceBatch> {
         if !self.finished {
             self.finished = true;
-            if let Err(error) = self.client.delete_session(self.session_id.clone()).await {
-                // Session cleanup has no durability semantics and YDB expires
-                // abandoned sessions. Replaying a completed snapshot merely
-                // because cleanup failed would duplicate every emitted row.
-                tracing::warn!(
-                    table = %self.table.config.path,
-                    error = %error,
-                    "YDB snapshot completed but session cleanup failed"
-                );
-            }
             tracing::info!(
                 table = %self.table.config.path,
                 emitted_rows = self.offset,
@@ -389,6 +416,97 @@ impl Source for YdbSource {
         _markers: &'a [CommitMarker],
     ) -> BoxFuture<'a, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async { Ok(()) })
+    }
+
+    fn shutdown(&mut self) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<()>> {
+        Box::pin(async move {
+            close_ydb_session(
+                &mut self.client,
+                &mut self.session_id,
+                self.session_shutdown_timeout,
+                self.session_shutdown_retry_initial,
+            )
+                .await
+                .map_err(|error| {
+                    tracing::error!(
+                        table = %self.table.config.path,
+                        timeout_ms = self.session_shutdown_timeout.as_millis(),
+                        "YDB snapshot session cleanup exhausted its configured retry deadline"
+                    );
+                    DataPlaneFailure::fatal(error.context(format!(
+                        "failed to close YDB snapshot session for table '{}'",
+                        self.table.config.path
+                    )))
+                })
+        })
+    }
+}
+
+pub(super) trait YdbSessionClient {
+    fn delete_session(&mut self, session_id: String) -> BoxFuture<'_, anyhow::Result<()>>;
+
+    fn is_session_absent(&self, _error: &anyhow::Error) -> bool {
+        false
+    }
+}
+
+impl YdbSessionClient for YdbClient {
+    fn delete_session(&mut self, session_id: String) -> BoxFuture<'_, anyhow::Result<()>> {
+        Box::pin(YdbClient::delete_session(self, session_id))
+    }
+
+    fn is_session_absent(&self, error: &anyhow::Error) -> bool {
+        is_not_found_error(error)
+            || error
+                .downcast_ref::<tonic::Status>()
+                .is_some_and(|status| status.code() == tonic::Code::NotFound)
+    }
+}
+
+pub(super) async fn close_ydb_session(
+    client: &mut impl YdbSessionClient,
+    session_id: &mut Option<String>,
+    timeout: Duration,
+    retry_initial: Duration,
+) -> anyhow::Result<()> {
+    let Some(active_session_id) = session_id.as_ref().cloned() else {
+        return Ok(());
+    };
+    let deadline = tokio::time::Instant::now()
+        .checked_add(timeout)
+        .ok_or_else(|| anyhow::anyhow!("YDB session shutdown timeout exceeds clock range"))?;
+    let mut attempts = 0_u64;
+    let mut retry_delay = retry_initial;
+    loop {
+        attempts = attempts.saturating_add(1);
+        let result = tokio::time::timeout_at(
+            deadline,
+            client.delete_session(active_session_id.clone()),
+        )
+        .await;
+        match result {
+            Ok(Ok(())) => {
+                *session_id = None;
+                return Ok(());
+            }
+            Ok(Err(error)) if client.is_session_absent(&error) => {
+                *session_id = None;
+                return Ok(());
+            }
+            Ok(Err(_)) | Err(_) => {}
+        }
+
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            return Err(anyhow::anyhow!(
+                "YDB DeleteSession did not complete within the configured {} ms after {} attempts",
+                timeout.as_millis(),
+                attempts
+            ));
+        }
+        let retry_at = now.checked_add(retry_delay).unwrap_or(deadline);
+        tokio::time::sleep_until(deadline.min(retry_at)).await;
+        retry_delay = retry_delay.saturating_mul(2);
     }
 }
 

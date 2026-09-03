@@ -63,6 +63,176 @@ pub struct SqlPlaygroundRequest {
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct SpeedtestEstimateRequest {
+    #[schemars(
+        with = "BTreeMap<String, Value>",
+        extend("x-typescript-type" = "JsonObject")
+    )]
+    pub config: Value,
+
+    pub duration_seconds: u64,
+
+    pub cleanup_timeout_seconds: u64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SpeedtestTuningBudgetView {
+    Automatic { max_trials: usize },
+
+    Time { seconds: u64 },
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SpeedtestTuneRequest {
+    #[schemars(
+        with = "BTreeMap<String, Value>",
+        extend("x-typescript-type" = "JsonObject")
+    )]
+    pub config: Value,
+
+    pub budget: SpeedtestTuningBudgetView,
+
+    pub trial_duration_seconds: u64,
+
+    pub cleanup_timeout_seconds: u64,
+}
+
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpeedtestTuningTrialView {
+    pub rows_per_second: f64,
+
+    pub parameters: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpeedtestTuningResultView {
+    pub baseline_rows_per_second: f64,
+
+    pub optimized_rows_per_second: f64,
+
+    pub gain_percent: f64,
+
+    pub trials: usize,
+
+    pub parameters: BTreeMap<String, Value>,
+
+    pub trial_history: Vec<SpeedtestTuningTrialView>,
+}
+
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpeedtestTuneResult {
+    pub source: SpeedtestTuningResultView,
+
+    pub destination: SpeedtestTuningResultView,
+}
+
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpeedtestEstimateResult {
+    pub logical_streams: u32,
+
+    pub source: SpeedtestMeasurementView,
+
+    pub destination: SpeedtestMeasurementView,
+
+    pub profile: SpeedtestProfileView,
+}
+
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpeedtestMeasurementView {
+    #[serde(with = "crate::decimal_u64")]
+    #[schemars(with = "String", extend("pattern" = "^(?:0|[1-9][0-9]*)$"))]
+    pub rows: u64,
+
+    #[serde(with = "crate::decimal_u64")]
+    #[schemars(with = "String", extend("pattern" = "^(?:0|[1-9][0-9]*)$"))]
+    pub arrow_bytes: u64,
+
+    pub duration_ms: f64,
+
+    pub rows_per_second: f64,
+
+    pub bytes_per_second: f64,
+
+    pub completed: bool,
+}
+
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpeedtestProfileView {
+    pub sampled_rows: usize,
+
+    pub sampled_arrow_bytes: usize,
+
+    pub sampled_deliveries: usize,
+
+    pub sample_limit_bytes: usize,
+
+    pub truncated: bool,
+
+    pub datasets: Vec<SpeedtestDatasetProfileView>,
+}
+
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpeedtestDatasetProfileView {
+    pub dataset: String,
+
+    pub is_dlq: bool,
+
+    pub sampled_rows: usize,
+
+    pub sampled_arrow_bytes: usize,
+
+    pub columns: Vec<SpeedtestColumnProfileView>,
+}
+
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpeedtestColumnProfileView {
+    pub name: String,
+
+    pub arrow_type: String,
+
+    pub null_count: usize,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
+    pub cardinality: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
+    pub numeric_min: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
+    pub numeric_max: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
+    pub temporal_min: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
+    pub temporal_max: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
+    pub min_length: Option<usize>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
+    pub max_length: Option<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct YamlRequest {
     pub yaml: String,
 }
@@ -201,6 +371,7 @@ pub enum ApiErrorCode {
     NotFound,
     Conflict,
     ValidationFailed,
+    OperationFailed,
     InternalError,
 }
 
@@ -430,6 +601,10 @@ struct ServerApiContract {
     message_preview_response: MessagePreviewResult,
     sql_playground_request: SqlPlaygroundRequest,
     sql_playground_response: SqlPlaygroundResult,
+    speedtest_estimate_request: SpeedtestEstimateRequest,
+    speedtest_estimate_response: SpeedtestEstimateResult,
+    speedtest_tune_request: SpeedtestTuneRequest,
+    speedtest_tune_response: SpeedtestTuneResult,
     yaml_response: YamlResponse,
     config_response: ConfigResponse,
     health_response: HealthResponse,

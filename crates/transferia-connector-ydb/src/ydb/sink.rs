@@ -1,5 +1,5 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 use arrow::array::{
     Array, BinaryArray, BooleanArray, Date32Array, Decimal128Array, DurationMicrosecondArray,
@@ -14,25 +14,30 @@ use arrow::ipc::writer::{
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 
-use super::config::YdbSinkConfig;
-use super::transport::{is_retryable_error, YdbClient};
+use super::config::{YdbSinkConfig, YdbTableConfig};
+use super::transport::{is_not_found_error, is_retryable_error, YdbClient};
 use super::types::{
     column_plans, ColumnKind, ARROW_UUID_EXTENSION, YDB_DYNUMBER_EXTENSION,
     YDB_TZ_DATETIME_EXTENSION, YDB_TZ_DATE_EXTENSION, YDB_TZ_TIMESTAMP_EXTENSION,
     YDB_YSON_EXTENSION,
 };
 use transferia_core::data::changelog::{project_sink_batch, ProjectedSinkBatch};
-use transferia_core::data::schema::{SchemaColumn, ARROW_JSON_EXTENSION_NAME};
+use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 use transferia_core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
     SinkLimitsDescription, TextLimit,
 };
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
+use transferia_connector_support::external_request::observe_external_request;
 use transferia_delivery_contracts::metrics::SinkCounters;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
-use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
+use transferia_registry::{
+    SinkBuildContext, SinkConnector, SinkPrepare, SinkSpeedtestIsolation,
+    SinkSpeedtestIsolationSafety, SpeedtestPhysicalTarget,
+};
 use ydb_grpc::ydb_proto::r#type::{PrimitiveTypeId, Type as TypeVariant};
+use ydb_grpc::ydb_proto::table::{ColumnMeta, CreateTableRequest, DescribeTableResult};
 use ydb_grpc::ydb_proto::value::Value as ValueVariant;
 use ydb_grpc::ydb_proto::{
     DecimalType, ListType, OptionalType, StructMember, StructType, Type, TypedValue, Value,
@@ -40,6 +45,90 @@ use ydb_grpc::ydb_proto::{
 
 pub struct YdbSinkConnector {
     config: Arc<YdbSinkConfig>,
+    speedtest_scope: Option<Arc<YdbSpeedtestScope>>,
+}
+
+pub(super) struct YdbSpeedtestScope {
+    pub(super) tables: BTreeMap<Arc<str>, Arc<str>>,
+    pub(super) schemas: BTreeMap<Arc<str>, DatasetSchema>,
+    pub(super) owner: Arc<str>,
+    pub(super) physical_targets: BTreeSet<(Arc<str>, Arc<str>)>,
+    pub(super) attempted: Mutex<BTreeSet<Arc<str>>>,
+}
+
+pub(super) trait YdbSpeedtestTableClient {
+    fn create_owned<'a>(
+        &'a mut self,
+        request: CreateTableRequest,
+    ) -> BoxFuture<'a, anyhow::Result<()>>;
+
+    fn describe_owned<'a>(
+        &'a mut self,
+        path: &'a str,
+    ) -> BoxFuture<'a, anyhow::Result<DescribeTableResult>>;
+
+    fn drop_owned<'a>(&'a mut self, path: &'a str) -> BoxFuture<'a, anyhow::Result<()>>;
+
+    fn is_not_found(&self, error: &anyhow::Error) -> bool;
+}
+
+impl YdbSpeedtestTableClient for YdbClient {
+    fn create_owned<'a>(
+        &'a mut self,
+        request: CreateTableRequest,
+    ) -> BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(self.create_table(request))
+    }
+
+    fn describe_owned<'a>(
+        &'a mut self,
+        path: &'a str,
+    ) -> BoxFuture<'a, anyhow::Result<DescribeTableResult>> {
+        Box::pin(self.describe_table(path.to_owned()))
+    }
+
+    fn drop_owned<'a>(&'a mut self, path: &'a str) -> BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(self.drop_table(path.to_owned()))
+    }
+
+    fn is_not_found(&self, error: &anyhow::Error) -> bool {
+        is_not_found_error(error)
+    }
+}
+
+impl YdbSpeedtestScope {
+    fn record_attempted(&self, path: &str) -> anyhow::Result<()> {
+        let path = self
+            .tables
+            .values()
+            .find(|owned| owned.as_ref() == path)
+            .cloned()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "refusing to record a YDB speedtest table outside the owned scratch set"
+                )
+            })?;
+        self.attempted
+            .lock()
+            .map_err(|_| anyhow::anyhow!("YDB speedtest ownership state is poisoned"))?
+            .insert(path);
+        Ok(())
+    }
+
+    fn attempted_paths(&self) -> anyhow::Result<BTreeSet<Arc<str>>> {
+        self.attempted
+            .lock()
+            .map(|attempted| attempted.clone())
+            .map_err(|_| anyhow::anyhow!("YDB speedtest ownership state is poisoned"))
+    }
+
+    fn record_cleaned(&self, path: &str) -> anyhow::Result<()> {
+        self.attempted
+            .lock()
+            .map_err(|_| anyhow::anyhow!("YDB speedtest ownership state is poisoned"))?
+            .remove(path);
+        Ok(())
+    }
 }
 
 impl YdbSinkConnector {
@@ -47,6 +136,7 @@ impl YdbSinkConnector {
         config.validate()?;
         Ok(Self {
             config: Arc::new(config),
+            speedtest_scope: None,
         })
     }
 }
@@ -146,13 +236,26 @@ impl SinkConnector for YdbSinkConnector {
 
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
+            if let Some(scope) = &self.speedtest_scope {
+                validate_ydb_connector_scope(&self.config, scope)?;
+            }
             let mut client = YdbClient::connect(&self.config.connection).await?;
             for dataset in request.datasets {
                 let path = self.config.table_path(&dataset.table)?;
-                if self.config.create_tables {
+                if let Some(scope) = &self.speedtest_scope {
+                    scope.record_attempted(path)?;
+                    prepare_ydb_speedtest_table(
+                        &mut client,
+                        path,
+                        &dataset.schema,
+                        &scope.owner,
+                    )
+                    .await?;
+                } else if self.config.create_tables {
+                    let query = create_table_query(path, &dataset.schema)?;
                     execute_scheme_query_with_retry(
                         &mut client,
-                        create_table_query(path, &dataset.schema)?,
+                        query,
                         self.config.retry_max_ms,
                     )
                     .await?;
@@ -171,9 +274,16 @@ impl SinkConnector for YdbSinkConnector {
         context: SinkBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
         Box::pin(async move {
+            if let Some(scope) = &self.speedtest_scope {
+                validate_ydb_connector_scope(&self.config, scope)?;
+            }
             let limits: Arc<dyn SinkLimits> = Arc::clone(&self.config) as Arc<dyn SinkLimits>;
+            let mut client = YdbClient::connect(&self.config.connection).await?;
+            if let Some(scope) = &self.speedtest_scope {
+                verify_ydb_speedtest_scope(&mut client, scope).await?;
+            }
             Ok(Box::new(YdbSink {
-                client: YdbClient::connect(&self.config.connection).await?,
+                client,
                 table_paths: self
                     .config
                     .tables
@@ -183,9 +293,491 @@ impl SinkConnector for YdbSinkConnector {
                 counters: context.counters,
                 discovery: context.discovery,
                 limits,
+                speedtest_scope: self.speedtest_scope.clone(),
             }) as Box<dyn Sink>)
         })
     }
+
+    fn isolate_speedtest(
+        self: Arc<Self>,
+        discovery: Arc<DeliveryDiscovery>,
+        isolation_id: String,
+    ) -> BoxFuture<'static, anyhow::Result<SinkSpeedtestIsolation>> {
+        Box::pin(async move {
+            let (isolated_discovery, table_names, tables, physical_targets) =
+                isolate_ydb_discovery(&self.config, discovery.as_ref(), &isolation_id)?;
+            let isolated_config = isolated_ydb_config(&self.config, &tables)?;
+            let schemas = isolated_discovery
+                .datasets
+                .iter()
+                .map(|dataset| {
+                    Ok((
+                        Arc::from(isolated_config.table_path(&dataset.name)?),
+                        dataset.stored_schema.clone(),
+                    ))
+                })
+                .collect::<anyhow::Result<BTreeMap<_, _>>>()?;
+            let scope = Arc::new(YdbSpeedtestScope {
+                tables,
+                schemas,
+                owner: Arc::from(uuid::Uuid::new_v4().simple().to_string()),
+                physical_targets: physical_target_set(&physical_targets),
+                attempted: Mutex::new(BTreeSet::new()),
+            });
+            let connector: Arc<dyn SinkConnector> = Arc::new(Self {
+                config: Arc::new(isolated_config),
+                speedtest_scope: Some(scope),
+            });
+            SinkSpeedtestIsolation::scratch(
+                connector,
+                discovery.as_ref(),
+                isolated_discovery,
+                table_names,
+                physical_targets,
+            )
+        })
+    }
+
+    fn cleanup_speedtest<'a>(
+        &'a self,
+        isolation: &'a SinkSpeedtestIsolation,
+    ) -> BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(async move {
+            let scope = self.speedtest_scope.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("refusing to clean YDB speedtest tables with a production connector")
+            })?;
+            validate_ydb_cleanup_scope(&self.config, isolation, scope)?;
+
+            let paths = scope.attempted_paths()?;
+            if paths.is_empty() {
+                return Ok(());
+            }
+            let mut client = observe_external_request(
+                "ydb",
+                "speedtest_cleanup_connect",
+                YdbClient::connect(&self.config.connection),
+            )
+            .await?;
+            cleanup_ydb_speedtest_scope(&mut client, scope).await
+        })
+    }
+}
+
+const SPEEDTEST_TABLE_PREFIX: &str = "_transferia_st_";
+const YDB_PATH_SEGMENT_MAX_BYTES: usize = 255;
+
+type YdbIsolationPlan = (
+    DeliveryDiscovery,
+    BTreeMap<Arc<str>, Arc<str>>,
+    BTreeMap<Arc<str>, Arc<str>>,
+    Vec<SpeedtestPhysicalTarget>,
+);
+
+pub(super) fn isolated_ydb_config(
+    production: &YdbSinkConfig,
+    tables: &BTreeMap<Arc<str>, Arc<str>>,
+) -> anyhow::Result<YdbSinkConfig> {
+    let mut isolated = production.clone();
+    isolated.tables = tables
+        .values()
+        .map(|path| YdbTableConfig {
+            path: path.to_string(),
+        })
+        .collect();
+    isolated.create_tables = true;
+    isolated.validate()?;
+    Ok(isolated)
+}
+
+pub(super) fn isolate_ydb_discovery(
+    config: &YdbSinkConfig,
+    original: &DeliveryDiscovery,
+    isolation_id: &str,
+) -> anyhow::Result<YdbIsolationPlan> {
+    validate_speedtest_isolation_id(isolation_id)?;
+    let mut discovery = original.clone();
+    let mut table_names = BTreeMap::new();
+    let mut tables = BTreeMap::new();
+    let mut physical_targets = Vec::with_capacity(discovery.datasets.len());
+    for (index, dataset) in discovery.datasets.iter_mut().enumerate() {
+        let original_name = Arc::clone(&dataset.name);
+        let production_path = config.table_path(&original_name)?;
+        let (scratch_name, scratch_path) =
+            ydb_speedtest_table(production_path, isolation_id, index)?;
+        let scratch_name: Arc<str> = Arc::from(scratch_name);
+        let scratch_path: Arc<str> = Arc::from(scratch_path);
+        anyhow::ensure!(
+            table_names
+                .insert(Arc::clone(&original_name), Arc::clone(&scratch_name))
+                .is_none(),
+            "YDB speedtest discovery repeats dataset '{}'",
+            original_name
+        );
+        anyhow::ensure!(
+            tables
+                .insert(Arc::clone(&scratch_name), Arc::clone(&scratch_path))
+                .is_none(),
+            "YDB speedtest generated a duplicate scratch table"
+        );
+        physical_targets.push(SpeedtestPhysicalTarget {
+            production: ydb_physical_target(&config.connection.database, production_path)?,
+            scratch: ydb_physical_target(&config.connection.database, &scratch_path)?,
+        });
+        dataset.name = scratch_name;
+    }
+    Ok((discovery, table_names, tables, physical_targets))
+}
+
+pub(super) fn validate_speedtest_isolation_id(value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        value.len() == 32
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+        "YDB speedtest isolation ID must contain exactly 32 lowercase hexadecimal characters"
+    );
+    Ok(())
+}
+
+pub(super) fn ydb_speedtest_table(
+    production_path: &str,
+    isolation_id: &str,
+    index: usize,
+) -> anyhow::Result<(String, String)> {
+    validate_speedtest_isolation_id(isolation_id)?;
+    let (parent, production_name) = production_path.rsplit_once('/').ok_or_else(|| {
+        anyhow::anyhow!("YDB production table path '{production_path}' has no parent")
+    })?;
+    anyhow::ensure!(
+        production_path.starts_with('/'),
+        "YDB production table path '{production_path}' must be absolute"
+    );
+    anyhow::ensure!(
+        !production_name.is_empty(),
+        "YDB production table path '{production_path}' has no table name"
+    );
+    let scratch_name = format!("{SPEEDTEST_TABLE_PREFIX}{isolation_id}_{index:x}");
+    anyhow::ensure!(
+        scratch_name.len() <= YDB_PATH_SEGMENT_MAX_BYTES,
+        "YDB speedtest table name exceeds {YDB_PATH_SEGMENT_MAX_BYTES} bytes"
+    );
+    let scratch_path = format!("{parent}/{scratch_name}");
+    anyhow::ensure!(
+        scratch_path != production_path,
+        "YDB speedtest table must not alias the production table"
+    );
+    Ok((scratch_name, scratch_path))
+}
+
+pub(super) fn is_ydb_speedtest_table_name(value: &str) -> bool {
+    let Some((id, index)) = value
+        .strip_prefix(SPEEDTEST_TABLE_PREFIX)
+        .and_then(|suffix| suffix.split_once('_'))
+    else {
+        return false;
+    };
+    validate_speedtest_isolation_id(id).is_ok()
+        && !index.is_empty()
+        && index.len() <= 16
+        && index
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+pub(super) fn ydb_physical_target(database: &str, path: &str) -> anyhow::Result<Arc<str>> {
+    Ok(Arc::from(serde_json::to_string(&(database, path))?))
+}
+
+pub(super) fn physical_target_set(
+    targets: &[SpeedtestPhysicalTarget],
+) -> BTreeSet<(Arc<str>, Arc<str>)> {
+    targets
+        .iter()
+        .map(|target| (Arc::clone(&target.production), Arc::clone(&target.scratch)))
+        .collect()
+}
+
+pub(super) fn validate_ydb_cleanup_scope(
+    config: &YdbSinkConfig,
+    isolation: &SinkSpeedtestIsolation,
+    scope: &YdbSpeedtestScope,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        isolation.safety() == SinkSpeedtestIsolationSafety::Scratch,
+        "refusing to clean a YDB speedtest isolation without scratch safety"
+    );
+    let discovered = isolation
+        .discovery
+        .datasets
+        .iter()
+        .map(|dataset| Arc::clone(&dataset.name))
+        .collect::<BTreeSet<_>>();
+    let owned = scope.tables.keys().cloned().collect::<BTreeSet<_>>();
+    anyhow::ensure!(
+        discovered == owned,
+        "refusing to clean YDB speedtest tables: isolated discovery does not match the connector-owned table set"
+    );
+    validate_ydb_connector_scope(config, scope)?;
+    let declared_paths = scope.tables.values().cloned().collect::<BTreeSet<_>>();
+    anyhow::ensure!(
+        scope.attempted_paths()?.is_subset(&declared_paths),
+        "refusing to clean YDB speedtest tables: ownership state contains an undeclared path"
+    );
+    anyhow::ensure!(
+        physical_target_set(isolation.physical_targets()) == scope.physical_targets,
+        "refusing to clean YDB speedtest tables: physical target proof does not match the connector-owned scratch set"
+    );
+    let expected_scratch = scope
+        .tables
+        .values()
+        .map(|path| ydb_physical_target(&config.connection.database, path))
+        .collect::<anyhow::Result<BTreeSet<_>>>()?;
+    let actual_scratch = scope
+        .physical_targets
+        .iter()
+        .map(|(_, scratch)| Arc::clone(scratch))
+        .collect::<BTreeSet<_>>();
+    anyhow::ensure!(
+        actual_scratch == expected_scratch,
+        "refusing to clean YDB speedtest tables: scratch physical targets do not match the connector-owned paths"
+    );
+    Ok(())
+}
+
+fn validate_ydb_connector_scope(
+    config: &YdbSinkConfig,
+    scope: &YdbSpeedtestScope,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        config.create_tables,
+        "refusing to use YDB speedtest tables from a connector without isolated create semantics"
+    );
+    let configured = config
+        .tables
+        .iter()
+        .map(|table| (Arc::from(table.name()), Arc::from(table.path.as_str())))
+        .collect::<BTreeMap<Arc<str>, Arc<str>>>();
+    anyhow::ensure!(
+        configured == scope.tables,
+        "refusing to use YDB speedtest tables: connector config does not match its owned table set"
+    );
+    let declared_paths = scope.tables.values().cloned().collect::<BTreeSet<_>>();
+    anyhow::ensure!(
+        scope.schemas.keys().cloned().collect::<BTreeSet<_>>() == declared_paths,
+        "refusing to use YDB speedtest tables: schema proofs do not exactly match the owned table set"
+    );
+    anyhow::ensure!(
+        scope.tables.iter().all(|(name, path)| {
+            is_ydb_speedtest_table_name(name)
+                && path.rsplit('/').next() == Some(name.as_ref())
+        }),
+        "refusing to use a YDB table outside the speedtest namespace"
+    );
+    Ok(())
+}
+
+const YDB_SPEEDTEST_OWNER_ATTRIBUTE: &str = "transferia.speedtest.owner";
+
+pub(super) fn create_speedtest_table_request(
+    path: &str,
+    schema: &DatasetSchema,
+    owner: &str,
+) -> anyhow::Result<CreateTableRequest> {
+    let name = path.rsplit('/').next().unwrap_or_default();
+    anyhow::ensure!(
+        is_ydb_speedtest_table_name(name),
+        "refusing to create YDB table outside the speedtest namespace"
+    );
+    let columns = schema
+        .columns
+        .iter()
+        .map(|column| {
+            Ok(ColumnMeta {
+                name: column.name.clone(),
+                r#type: Some(ydb_type(column)?),
+                family: String::new(),
+                not_null: Some(!column.nullable),
+                default_value: None,
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let primary_key = schema
+        .columns
+        .iter()
+        .filter(|column| column.primary_key)
+        .map(|column| column.name.clone())
+        .collect();
+    Ok(CreateTableRequest {
+        session_id: String::new(),
+        path: path.to_owned(),
+        columns,
+        primary_key,
+        profile: None,
+        operation_params: None,
+        indexes: Vec::new(),
+        ttl_settings: None,
+        storage_settings: None,
+        column_families: Vec::new(),
+        attributes: HashMap::from([(YDB_SPEEDTEST_OWNER_ATTRIBUTE.to_owned(), owner.to_owned())]),
+        compaction_policy: String::new(),
+        partitioning_settings: None,
+        key_bloom_filter: 0,
+        read_replicas_settings: None,
+        tiering: String::new(),
+        temporary: false,
+        store_type: 0,
+        partitions: None,
+    })
+}
+
+pub(super) fn verify_ydb_speedtest_description(
+    path: &str,
+    schema: &DatasetSchema,
+    expected_owner: &str,
+    description: &DescribeTableResult,
+) -> anyhow::Result<()> {
+    let owner = description
+        .attributes
+        .get(YDB_SPEEDTEST_OWNER_ATTRIBUTE)
+        .ok_or_else(|| anyhow::anyhow!("YDB speedtest owner marker is missing"))?;
+    anyhow::ensure!(
+        owner == expected_owner,
+        "YDB speedtest table is owned by a different operation"
+    );
+    let actual = column_plans(description.columns.clone(), &description.primary_key)?;
+    ensure_table_schema(path, schema, &actual)
+}
+
+pub(super) async fn prepare_ydb_speedtest_table<C: YdbSpeedtestTableClient>(
+    client: &mut C,
+    path: &str,
+    schema: &DatasetSchema,
+    owner: &str,
+) -> anyhow::Result<()> {
+    let request = create_speedtest_table_request(path, schema, owner)?;
+    let create_error = observe_external_request(
+        "ydb",
+        "speedtest_create_table",
+        client.create_owned(request),
+    )
+    .await
+    .err();
+    let description = observe_external_request(
+        "ydb",
+        "speedtest_describe_table",
+        client.describe_owned(path),
+    )
+    .await
+    .map_err(|proof_error| match create_error {
+        Some(create_error) => anyhow::anyhow!(
+            "YDB speedtest table creation failed and ownership could not be proven: create={create_error:#}; proof={proof_error:#}"
+        ),
+        None => proof_error,
+    })?;
+    verify_ydb_speedtest_description(path, schema, owner, &description)
+}
+
+async fn verify_ydb_speedtest_scope<C: YdbSpeedtestTableClient>(
+    client: &mut C,
+    scope: &YdbSpeedtestScope,
+) -> anyhow::Result<()> {
+    for (path, schema) in &scope.schemas {
+        let description = observe_external_request(
+            "ydb",
+            "speedtest_describe_table",
+            client.describe_owned(path),
+        )
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "refusing to use YDB speedtest table '{path}' because ownership could not be read: {error:#}"
+            )
+        })?;
+        verify_ydb_speedtest_description(path, schema, &scope.owner, &description).map_err(
+            |error| anyhow::anyhow!("refusing to use YDB speedtest table '{path}': {error:#}"),
+        )?;
+    }
+    Ok(())
+}
+
+pub(super) async fn cleanup_ydb_speedtest_table<C: YdbSpeedtestTableClient>(
+    client: &mut C,
+    path: &str,
+    schema: &DatasetSchema,
+    owner: &str,
+) -> anyhow::Result<()> {
+    let description = match observe_external_request(
+        "ydb",
+        "speedtest_describe_table",
+        client.describe_owned(path),
+    )
+    .await
+    {
+        Ok(description) => description,
+        Err(error) if client.is_not_found(&error) => return Ok(()),
+        Err(error) => {
+            anyhow::bail!(
+                "refusing to drop because current ownership could not be read: {error:#}"
+            )
+        }
+    };
+    verify_ydb_speedtest_description(path, schema, owner, &description)
+        .map_err(|error| anyhow::anyhow!("refusing to drop: {error:#}"))?;
+
+    let drop_error = observe_external_request(
+        "ydb",
+        "speedtest_drop_table",
+        client.drop_owned(path),
+    )
+    .await
+    .err();
+    let Some(drop_error) = drop_error else {
+        return Ok(());
+    };
+    match observe_external_request(
+        "ydb",
+        "speedtest_describe_table_after_drop",
+        client.describe_owned(path),
+    )
+    .await
+    {
+        Err(probe_error) if client.is_not_found(&probe_error) => Ok(()),
+        Err(probe_error) => Err(anyhow::anyhow!(
+            "drop failed and absence could not be proven: drop={drop_error:#}; probe={probe_error:#}"
+        )),
+        Ok(current) => {
+            let current_proof = verify_ydb_speedtest_description(path, schema, owner, &current);
+            Err(match current_proof {
+                Ok(()) => anyhow::anyhow!("drop failed and the owned table is still present: {drop_error:#}"),
+                Err(error) => anyhow::anyhow!(
+                    "drop result was ambiguous and the path now has different ownership/schema; preserving it: drop={drop_error:#}; current={error:#}"
+                ),
+            })
+        }
+    }
+}
+
+pub(super) async fn cleanup_ydb_speedtest_scope<C: YdbSpeedtestTableClient>(
+    client: &mut C,
+    scope: &YdbSpeedtestScope,
+) -> anyhow::Result<()> {
+    let mut failures = Vec::new();
+    for path in scope.attempted_paths()? {
+        let Some(schema) = scope.schemas.get(&path) else {
+            failures.push(format!("'{path}': owned schema proof is missing"));
+            continue;
+        };
+        match cleanup_ydb_speedtest_table(client, &path, schema, &scope.owner).await {
+            Ok(()) => scope.record_cleaned(&path)?,
+            Err(error) => failures.push(format!("'{path}': {error:#}")),
+        }
+    }
+    anyhow::ensure!(
+        failures.is_empty(),
+        "failed to remove YDB speedtest tables: {}",
+        failures.join("; ")
+    );
+    Ok(())
 }
 
 async fn execute_scheme_query_with_retry(
@@ -240,6 +832,7 @@ struct YdbSink {
     counters: Arc<SinkCounters>,
     discovery: Arc<DeliveryDiscovery>,
     limits: Arc<dyn SinkLimits>,
+    speedtest_scope: Option<Arc<YdbSpeedtestScope>>,
 }
 
 struct EncodedBatch {
@@ -270,6 +863,9 @@ enum EncodedAction {
 
 impl YdbSink {
     async fn write_delivery(&mut self, delivery: &Delivery) -> anyhow::Result<()> {
+        if let Some(scope) = &self.speedtest_scope {
+            verify_ydb_speedtest_scope(&mut self.client, scope).await?;
+        }
         for batch in &delivery.outputs {
             self.limits.validate_batch(&self.discovery, batch)?;
         }

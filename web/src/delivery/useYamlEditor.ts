@@ -12,11 +12,13 @@ export type EditorView =
   | "ui"
   | "yaml"
   | "data_schema"
+  | "speedtest"
   | "performance_advice"
   | "logs";
 export type ApplyYamlResult =
   | { status: "current" }
   | { status: "applied"; context: EditorRequestContext }
+  | { status: "unavailable"; context: EditorRequestContext }
   | { status: "failed" };
 
 export function useYamlEditor({
@@ -118,9 +120,20 @@ export function useYamlEditor({
 
   const applyYamlAndShow = async (
     target: Exclude<EditorView, "yaml">,
+    isAvailable: (config: JsonObject) => boolean = () => true,
   ): Promise<ApplyYamlResult> => {
     if (activeView === target) return { status: "current" };
     if (activeView !== "yaml") {
+      if (!isAvailable(editor.config)) {
+        setActiveView("ui");
+        return {
+          status: "unavailable",
+          context: {
+            sessionId: editor.sessionId,
+            localRevision: editor.localRevision,
+          },
+        };
+      }
       setActiveView(target);
       return { status: "current" };
     }
@@ -144,14 +157,20 @@ export function useYamlEditor({
       }
       applyConfig(result.value.config);
       yamlEditing.current = false;
+      const contextAfterApply = {
+        sessionId: result.context.sessionId,
+        localRevision: result.context.localRevision + 1,
+      };
+      if (!isAvailable(result.value.config)) {
+        setActiveView("ui");
+        operations.finishOperation("parseYaml", requestId);
+        return { status: "unavailable", context: contextAfterApply };
+      }
       setActiveView(target);
       operations.finishOperation("parseYaml", requestId);
       return {
         status: "applied",
-        context: {
-          sessionId: result.context.sessionId,
-          localRevision: result.context.localRevision + 1,
-        },
+        context: contextAfterApply,
       };
     } catch (reason) {
       operations.finishOperation("parseYaml", requestId, errorMessage(reason));
@@ -176,6 +195,8 @@ export function useYamlEditor({
     showYaml,
     applyYamlAndShowUi: () => applyYamlAndShow("ui"),
     showDataSchema: () => applyYamlAndShow("data_schema"),
+    showSpeedtest: (isAvailable: (config: JsonObject) => boolean) =>
+      applyYamlAndShow("speedtest", isAvailable),
     showPerformanceAdvice: () => applyYamlAndShow("performance_advice"),
     showLogs: () => applyYamlAndShow("logs"),
     reset,

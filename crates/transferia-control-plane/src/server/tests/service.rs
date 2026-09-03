@@ -21,6 +21,179 @@ fn connection_check_timeout_explains_the_likely_network_cause() {
     assert_eq!(CONNECTION_CHECK_TIMEOUT, std::time::Duration::from_secs(3));
 }
 
+#[test]
+fn speedtest_runtime_failure_is_not_mislabeled_as_validation() {
+    assert!(matches!(
+        speedtest_service_error(anyhow::anyhow!("transient transport failure")),
+        ServiceError::Internal(_)
+    ));
+
+    let source_cleanup = speedtest_service_error(
+        transferia_delivery::delivery::speedtest::SpeedtestSourceCleanupFailure.into(),
+    );
+    assert!(matches!(source_cleanup, ServiceError::OperationFailed(_)));
+}
+
+#[test]
+fn tuning_defaults_replace_only_active_declared_fields() -> anyhow::Result<()> {
+    let current = serde_json::json!({
+        "auth": { "password": "configured-secret" },
+        "threads": 99,
+        "mode": { "type": "active", "batch_rows": 1_000 },
+    });
+    let initial = serde_json::json!({
+        "auth": { "password": "must-not-be-copied" },
+        "threads": 4,
+        "mode": { "type": "inactive", "batch_rows": 250, "queue_depth": 8 },
+    });
+    let parameters = vec![
+        TuningParameter::UnsignedInteger {
+            pointer: "/threads".to_owned(),
+            label: "Threads".to_owned(),
+            baseline: 4,
+            minimum: 1,
+            maximum: 32,
+            candidates: vec![1, 4, 8, 16, 32],
+            scale: transferia_registry::tuning::NumericScale::Linear,
+        },
+        TuningParameter::UnsignedInteger {
+            pointer: "/mode/batch_rows".to_owned(),
+            label: "Batch rows".to_owned(),
+            baseline: 250,
+            minimum: 1,
+            maximum: 10_000,
+            candidates: vec![1, 250, 1_000, 10_000],
+            scale: transferia_registry::tuning::NumericScale::Linear,
+        },
+        TuningParameter::UnsignedInteger {
+            pointer: "/mode/queue_depth".to_owned(),
+            label: "Inactive branch queue depth".to_owned(),
+            baseline: 8,
+            minimum: 1,
+            maximum: 64,
+            candidates: vec![1, 8, 16, 32, 64],
+            scale: transferia_registry::tuning::NumericScale::Linear,
+        },
+    ];
+
+    let result = tuning_default_configuration(&current, &initial, &parameters)?;
+
+    assert_eq!(result["threads"], 4);
+    assert_eq!(result["mode"]["batch_rows"], 250);
+    assert!(result["mode"].get("queue_depth").is_none());
+    assert_eq!(result["mode"]["type"], "active");
+    assert_eq!(result["auth"]["password"], "configured-secret");
+    assert_eq!(
+        declared_parameter_values(&result, &parameters),
+        BTreeMap::from([
+            ("/mode/batch_rows".to_owned(), serde_json::json!(250)),
+            ("/threads".to_owned(), serde_json::json!(4)),
+        ])
+    );
+    Ok(())
+}
+
+#[test]
+fn tuning_budget_is_explicit_and_checked() {
+    assert!(tuning_budget(
+        SpeedtestTuningBudgetView::Automatic { max_trials: 0 },
+        1,
+    )
+    .is_err());
+    assert!(tuning_budget(
+        SpeedtestTuningBudgetView::Automatic { max_trials: 1 },
+        0,
+    )
+    .is_err());
+    assert!(tuning_budget(
+        SpeedtestTuningBudgetView::Time { seconds: 2 },
+        3,
+    )
+    .is_err());
+    assert!(tuning_budget(
+        SpeedtestTuningBudgetView::Time { seconds: u64::MAX },
+        1,
+    )
+    .is_err());
+
+    let budget = tuning_budget(
+        SpeedtestTuningBudgetView::Automatic { max_trials: 3 },
+        2,
+    )
+    .expect("bounded automatic budget");
+    assert_eq!(budget.max_trials, 3);
+    assert_eq!(budget.max_duration_ms, None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn tuning_time_budget_bounds_optimizer_trials_after_baseline() -> anyhow::Result<()> {
+    let deadline = tuning_request_deadline(SpeedtestTuningBudgetView::Time { seconds: 10 })?
+        .expect("time budget has a deadline");
+    let cancellation = CancellationToken::new();
+    let _guard = DeadlineCancellationGuard::new(Some(deadline), cancellation.clone());
+
+    tokio::time::advance(Duration::from_secs(3)).await;
+    let remaining = remaining_tuning_budget(
+        TuningBudget {
+            max_trials: 10,
+            max_duration_ms: Some(10_000),
+        },
+        Some(deadline),
+        &cancellation,
+    )?;
+
+    assert_eq!(remaining.max_duration_ms, Some(7_000));
+    tokio::time::advance(Duration::from_secs(7)).await;
+    tokio::task::yield_now().await;
+    assert!(cancellation.is_cancelled());
+    assert!(remaining_tuning_budget(remaining, Some(deadline), &cancellation).is_err());
+    Ok(())
+}
+
+#[test]
+fn tuning_response_never_contains_endpoint_configuration() -> anyhow::Result<()> {
+    let response = speedtest_tuning_result_view(TuningResult {
+        baseline_rows_per_second: 1.0,
+        optimized_rows_per_second: 2.0,
+        gain_percent: 100.0,
+        trials: 1,
+        parameters: BTreeMap::from([("/batch_rows".to_owned(), serde_json::json!(1024))]),
+        trial_history: vec![],
+    });
+
+    let serialized = serde_json::to_value(response)?;
+    assert!(serialized.get("configuration").is_none());
+    assert!(!serialized.to_string().contains("credential"));
+    Ok(())
+}
+
+#[test]
+fn speedtest_never_infers_combined_delivery_for_a_dual_mode_source() -> anyhow::Result<()> {
+    let descriptor =
+        transferia_delivery_contracts::semantics::EndpointDescriptor::DataGenerator(
+            transferia_delivery_contracts::semantics::SourceDescriptor {
+                behavior:
+                    transferia_delivery_contracts::semantics::SourceBehavior::FiniteAppendOnlyRows,
+                delivery_modes:
+                    transferia_delivery_contracts::semantics::SourceDeliveryModes::BATCH_AND_STREAM,
+            },
+        );
+
+    assert_eq!(
+        speedtest_delivery_type(&serde_json::json!({}), "dual", &descriptor)?,
+        DeliveryType::Batch
+    );
+    assert_eq!(
+        speedtest_delivery_type(
+            &serde_json::json!({ "delivery_type": "stream" }),
+            "dual",
+            &descriptor,
+        )?,
+        DeliveryType::Stream
+    );
+    Ok(())
+}
+
 struct TestSupervisor {
     events: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<WorkerEvent>>>,
     shutdown: Arc<AtomicBool>,

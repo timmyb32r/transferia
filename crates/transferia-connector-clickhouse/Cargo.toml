@@ -13,6 +13,7 @@ bytes.workspace = true
 chrono.workspace = true
 clickhouse-arrow.workspace = true
 futures-util.workspace = true
+getrandom.workspace = true
 parquet.workspace = true
 reqwest.workspace = true
 rustls.workspace = true

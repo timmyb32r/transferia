@@ -60,6 +60,7 @@ describe("editor chrome", () => {
 
   it("exposes Data schema as a peer configuration view", () => {
     const onDataSchema = vi.fn();
+    const onSpeedtest = vi.fn();
     const onPerformanceAdvice = vi.fn();
     const onLogs = vi.fn();
     const view = render(
@@ -67,9 +68,11 @@ describe("editor chrome", () => {
         active="ui"
         disabled={false}
         dataSchemaAvailable
+        speedtestAvailable
         onUi={() => undefined}
         onYaml={() => undefined}
         onDataSchema={onDataSchema}
+        onSpeedtest={onSpeedtest}
         onPerformanceAdvice={onPerformanceAdvice}
         onLogs={onLogs}
       />,
@@ -78,10 +81,39 @@ describe("editor chrome", () => {
     fireEvent.click(view.getByRole("tab", { name: "Data schema" }));
 
     expect(onDataSchema).toHaveBeenCalledOnce();
+    fireEvent.click(view.getByRole("tab", { name: "Speedtest" }));
+    expect(onSpeedtest).toHaveBeenCalledOnce();
     fireEvent.click(view.getByRole("tab", { name: "Performance advice" }));
     expect(onPerformanceAdvice).toHaveBeenCalledOnce();
     fireEvent.click(view.getByRole("tab", { name: "Logs" }));
     expect(onLogs).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Speedtest diagnostic until both endpoint configurations are complete", () => {
+    const onSpeedtestUnavailable = vi.fn();
+    const view = render(
+      <EditorTabs
+        active="ui"
+        disabled={false}
+        dataSchemaAvailable={false}
+        speedtestAvailable={false}
+        speedtestUnavailableReason="Fill required destination field: Database"
+        onUi={() => undefined}
+        onYaml={() => undefined}
+        onDataSchema={() => undefined}
+        onSpeedtest={() => undefined}
+        onSpeedtestUnavailable={onSpeedtestUnavailable}
+        onPerformanceAdvice={() => undefined}
+      />,
+    );
+    const tab = view.getByRole("tab", { name: "Speedtest" });
+
+    expect(tab.getAttribute("aria-disabled")).toBe("true");
+    expect(tab.parentElement?.title).toBe(
+      "Fill required destination field: Database",
+    );
+    fireEvent.click(tab);
+    expect(onSpeedtestUnavailable).toHaveBeenCalledOnce();
   });
 
   it("lets unavailable Data schema reveal missing source fields", () => {

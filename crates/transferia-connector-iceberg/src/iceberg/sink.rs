@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use anyhow::Context as _;
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
@@ -20,6 +19,7 @@ use iceberg::{Catalog, TableCreation};
 use parquet::basic::{Compression as ParquetCompression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use sha2::{Digest as _, Sha256};
+use tokio::task::JoinSet;
 use transferia_connector_support::external_request::elapsed_millis;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::delivery::{
@@ -30,7 +30,9 @@ use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
 use transferia_registry::durable::{CompareExchangeResult, DurableContext};
-use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
+use transferia_registry::{
+    SinkBuildContext, SinkConnector, SinkPrepare, SinkSpeedtestIsolation,
+};
 
 use super::catalog::{build_catalog, table_ident};
 use super::config::{IcebergParquetCompression, IcebergSinkConfig, IcebergTableRef};
@@ -191,6 +193,19 @@ impl SinkConnector for IcebergSinkConnector {
             }) as Box<dyn Sink>)
         })
     }
+
+    fn isolate_speedtest(
+        self: Arc<Self>,
+        _discovery: Arc<DeliveryDiscovery>,
+        _isolation_id: String,
+    ) -> BoxFuture<'static, anyhow::Result<SinkSpeedtestIsolation>> {
+        Box::pin(async move {
+            drop(self);
+            anyhow::bail!(
+                "Iceberg sink speedtests are disabled because the supported storage APIs cannot prove connector-exclusive scratch ownership and complete physical cleanup before external I/O"
+            )
+        })
+    }
 }
 
 struct IcebergSink {
@@ -306,7 +321,7 @@ impl IcebergSink {
         let parquet =
             ParquetWriterBuilder::new(properties, table.metadata().current_schema().clone());
         let shards = distribute_batches(batches, self.config.write_concurrency);
-        let mut tasks = tokio::task::JoinSet::new();
+        let mut writers = JoinSet::new();
         for shard in shards {
             let parquet = parquet.clone();
             let file_io = table.file_io().clone();
@@ -314,7 +329,7 @@ impl IcebergSink {
             let names = names.clone();
             let arrow_schema = Arc::clone(&arrow_schema);
             let target_file_size_bytes = self.config.target_file_size_bytes;
-            tasks.spawn(async move {
+            writers.spawn(async move {
                 let rolling = RollingFileWriterBuilder::new(
                     parquet,
                     target_file_size_bytes,
@@ -331,10 +346,7 @@ impl IcebergSink {
                 Ok::<_, anyhow::Error>(writer.close().await?)
             });
         }
-        let mut files = Vec::new();
-        while let Some(result) = tasks.join_next().await {
-            files.extend(result.context("Iceberg file writer task failed")??);
-        }
+        let files = collect_writer_results(writers).await?;
         let transaction = Transaction::new(&table);
         let mut append = transaction.fast_append().add_data_files(files);
         if let Some(commit) = &commit {
@@ -415,6 +427,38 @@ impl IcebergSink {
             ),
         }
     }
+}
+
+pub(super) async fn collect_writer_results<T>(
+    mut writers: JoinSet<anyhow::Result<Vec<T>>>,
+) -> anyhow::Result<Vec<T>>
+where
+    T: Send + 'static,
+{
+    let mut output = Vec::new();
+    let mut first_error = None;
+    while let Some(result) = writers.join_next().await {
+        match result {
+            Ok(Ok(files)) if first_error.is_none() => output.extend(files),
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => {
+                if first_error.is_none() {
+                    first_error = Some(error.context("Iceberg file writer failed"));
+                }
+            }
+            Err(error) => {
+                if first_error.is_none() {
+                    first_error = Some(
+                        anyhow::Error::new(error).context("Iceberg file writer task failed"),
+                    );
+                }
+            }
+        }
+    }
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+    Ok(output)
 }
 
 const ICEBERG_COMMIT_TOKEN_PROPERTY: &str = "transferia.commit-token";

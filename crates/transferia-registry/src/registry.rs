@@ -13,6 +13,7 @@ use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_delivery_contracts::middleware::Middleware;
 use transferia_delivery_contracts::semantics::RecordSemantics;
 
+use crate::tuning::{validate_tuning_parameters_against_schema, TuningParameter};
 use crate::ui_contract::validate_ui_dialect;
 use crate::{
     ConnectionCheckResult, ConnectorDefinition, DeliveryMode, EndpointDefinition, EndpointRole,
@@ -129,6 +130,8 @@ pub struct ComponentRegistration {
     sink_checker: Option<ConnectionChecker>,
     source_previewer: Option<SourcePreviewer>,
     source_schema_previewer: Option<SourceSchemaPreviewer>,
+    source_tuning_parameters: Vec<TuningParameter>,
+    sink_tuning_parameters: Vec<TuningParameter>,
 }
 
 pub struct MiddlewareRegistration {
@@ -221,6 +224,8 @@ impl ComponentRegistration {
             sink_checker: None,
             source_previewer: None,
             source_schema_previewer: None,
+            source_tuning_parameters: Vec::new(),
+            sink_tuning_parameters: Vec::new(),
         }
     }
 
@@ -412,6 +417,47 @@ impl ComponentRegistration {
         Ok(self)
     }
 
+    /// Declares the only source configuration fields an automatic speed test
+    /// may mutate. Every pointer and domain is validated against the authored
+    /// JSON Schema; active-branch values are validated again before tuning.
+    pub fn source_tuning_parameters(
+        mut self,
+        parameters: Vec<TuningParameter>,
+    ) -> anyhow::Result<Self> {
+        let definition = &self
+            .source
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("component '{}' has no source", self.key))?
+            .0;
+        validate_tuning_parameters_against_schema(
+            &definition.schema,
+            &definition.initial,
+            &parameters,
+        )?;
+        self.source_tuning_parameters = parameters;
+        Ok(self)
+    }
+
+    /// Declares the only sink configuration fields an automatic speed test may
+    /// mutate. Undeclared configuration is immutable during tuning.
+    pub fn sink_tuning_parameters(
+        mut self,
+        parameters: Vec<TuningParameter>,
+    ) -> anyhow::Result<Self> {
+        let definition = &self
+            .sink
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("component '{}' has no sink", self.key))?
+            .0;
+        validate_tuning_parameters_against_schema(
+            &definition.schema,
+            &definition.initial,
+            &parameters,
+        )?;
+        self.sink_tuning_parameters = parameters;
+        Ok(self)
+    }
+
     #[must_use]
     pub fn source_checker<C, F, Fut>(mut self, checker: F) -> Self
     where
@@ -549,6 +595,7 @@ impl RegistryBuilder {
         let mut sink_checkers = BTreeMap::new();
         let mut source_previewers = BTreeMap::new();
         let mut source_schema_previewers = BTreeMap::new();
+        let mut tuning_parameters = BTreeMap::new();
         for registration in self.registrations {
             let source = registration.source.map(|(mut definition, factory)| {
                 definition.connection_check = registration.source_checker.is_some();
@@ -572,6 +619,18 @@ impl RegistryBuilder {
             }
             if let Some(previewer) = registration.source_schema_previewer {
                 source_schema_previewers.insert(registration.key, previewer);
+            }
+            if !registration.source_tuning_parameters.is_empty() {
+                tuning_parameters.insert(
+                    (registration.key, EndpointRole::Source),
+                    registration.source_tuning_parameters,
+                );
+            }
+            if !registration.sink_tuning_parameters.is_empty() {
+                tuning_parameters.insert(
+                    (registration.key, EndpointRole::Sink),
+                    registration.sink_tuning_parameters,
+                );
             }
             definitions.push(ConnectorDefinition {
                 key: registration.key,
@@ -598,6 +657,7 @@ impl RegistryBuilder {
             sink_checkers,
             source_previewers,
             source_schema_previewers,
+            tuning_parameters,
             middleware_definitions,
             middlewares,
             middleware_previewers,
@@ -619,6 +679,7 @@ pub struct Registry {
     sink_checkers: BTreeMap<&'static str, ConnectionChecker>,
     source_previewers: BTreeMap<&'static str, SourcePreviewer>,
     source_schema_previewers: BTreeMap<&'static str, SourceSchemaPreviewer>,
+    tuning_parameters: BTreeMap<(&'static str, EndpointRole), Vec<TuningParameter>>,
     middleware_definitions: Vec<MiddlewareDefinition>,
     middlewares: BTreeMap<&'static str, MiddlewareFactory>,
     middleware_previewers: BTreeMap<&'static str, MiddlewarePreviewer>,
@@ -638,6 +699,30 @@ impl Registry {
     #[must_use]
     pub fn supports_source_schema_preview(&self, kind: &str) -> bool {
         self.source_schema_previewers.contains_key(kind)
+    }
+
+    /// Returns connector-authored tuning metadata. An empty slice means the
+    /// endpoint deliberately exposes no safe automatic tuning parameters.
+    pub fn tuning_parameters(
+        &self,
+        kind: &str,
+        role: EndpointRole,
+    ) -> anyhow::Result<&[TuningParameter]> {
+        let definition = self
+            .definitions
+            .iter()
+            .find(|definition| definition.key == kind)
+            .ok_or_else(|| anyhow::anyhow!("unknown connector component '{kind}'"))?;
+        let has_role = match role {
+            EndpointRole::Source => definition.source.is_some(),
+            EndpointRole::Sink => definition.sink.is_some(),
+        };
+        anyhow::ensure!(has_role, "component '{kind}' has no {role:?} endpoint");
+        Ok(self
+            .tuning_parameters
+            .get(&(definition.key, role))
+            .map(Vec::as_slice)
+            .unwrap_or_default())
     }
 
     pub fn edit_definitions(

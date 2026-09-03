@@ -63,12 +63,21 @@ impl core::fmt::Debug for CommitMarker {
 
 pub trait Source: Send {
     fn read_batch(&mut self) -> BoxFuture<'_, DataPlaneResult<SourceBatch>>;
+
     /// Commit one durability group. Implementations must submit every marker
     /// in the slice as one source-side commit operation.
     fn commit_offsets<'ctx>(
         &'ctx mut self,
         markers: &'ctx [CommitMarker],
     ) -> BoxFuture<'ctx, DataPlaneResult<()>>;
+
+    /// Release source-owned remote resources before the pipeline returns.
+    ///
+    /// Implementations must make this operation idempotent. The pipeline awaits
+    /// it after normal completion, source failure, and cancellation.
+    fn shutdown(&mut self) -> BoxFuture<'_, DataPlaneResult<()>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 /// Delegating impl: `Box<dyn Source>` is itself a `Source`.
@@ -76,11 +85,16 @@ impl Source for Box<dyn Source> {
     fn read_batch(&mut self) -> BoxFuture<'_, DataPlaneResult<SourceBatch>> {
         (**self).read_batch()
     }
+
     fn commit_offsets<'ctx>(
         &'ctx mut self,
         markers: &'ctx [CommitMarker],
     ) -> BoxFuture<'ctx, DataPlaneResult<()>> {
         (**self).commit_offsets(markers)
+    }
+
+    fn shutdown(&mut self) -> BoxFuture<'_, DataPlaneResult<()>> {
+        (**self).shutdown()
     }
 }
 

@@ -1,5 +1,10 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
+use serde_json::Value as JsonValue;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 use transferia_delivery_contracts::semantics::RecordSemantics;
 
 use super::*;
@@ -14,6 +19,49 @@ struct TestSourceConfig {
 #[serde(deny_unknown_fields)]
 struct TestMiddlewareConfig {
     label: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct TunableSourceConfig {
+    #[schemars(range(min = 1, max = 8))]
+    workers: u64,
+
+    mode: TunableMode,
+
+    fixed: String,
+
+    #[serde(default)]
+    optional: Option<u64>,
+
+    #[serde(default)]
+    #[schemars(extend("multipleOf" = 2))]
+    even_workers: u64,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum TunableMode {
+    Safe,
+
+    Fast,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+enum BranchedTunableReader {
+    Safe,
+
+    Parallel {
+        #[schemars(range(min = 1, max = 16))]
+        concurrency: u64,
+    },
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct BranchedTunableSourceConfig {
+    reader: BranchedTunableReader,
 }
 
 fn source_registration(key: &'static str) -> anyhow::Result<ComponentRegistration> {
@@ -637,4 +685,744 @@ fn failed_definition_edit_is_transactional() -> anyhow::Result<()> {
     assert_eq!(error.to_string(), "extension edit failed");
     assert_eq!(registry.definitions()[0].title, original_title);
     Ok(())
+}
+
+fn tuning_parameters() -> Vec<tuning::TuningParameter> {
+    vec![
+        tuning::TuningParameter::UnsignedInteger {
+            pointer: "/workers".to_owned(),
+            label: "Workers".to_owned(),
+            baseline: 1,
+            minimum: 1,
+            maximum: 8,
+            candidates: vec![1, 2, 4, 8],
+            scale: tuning::NumericScale::Logarithmic,
+        },
+        tuning::TuningParameter::Choice {
+            pointer: "/mode".to_owned(),
+            label: "Mode".to_owned(),
+            baseline: JsonValue::from("safe"),
+            values: vec![JsonValue::from("safe"), JsonValue::from("fast")],
+        },
+    ]
+}
+
+fn tunable_registration(key: &'static str) -> anyhow::Result<ComponentRegistration> {
+    ComponentRegistration::new(key, "Tunable source")
+        .source::<TunableSourceConfig, _, _>(
+            vec![DeliveryMode::Batch],
+            false,
+            || serde_json::json!({ "workers": 1, "mode": "safe", "fixed": "untouched" }),
+            |config| {
+                drop((
+                    config.workers,
+                    config.mode,
+                    config.fixed,
+                    config.optional,
+                    config.even_workers,
+                ));
+                anyhow::bail!("test factory intentionally has no runtime connector")
+            },
+        )?
+        .source_tuning_parameters(tuning_parameters())
+}
+
+#[test]
+fn registry_keeps_only_explicit_connector_tuning_metadata() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register(tunable_registration("source")?)?;
+    let registry = builder.build();
+
+    assert_eq!(
+        registry.tuning_parameters("source", EndpointRole::Source)?,
+        tuning_parameters()
+    );
+    assert!(registry
+        .tuning_parameters("source", EndpointRole::Sink)
+        .unwrap_err()
+        .to_string()
+        .contains("has no Sink endpoint"));
+    assert!(registry
+        .tuning_parameters("missing", EndpointRole::Source)
+        .unwrap_err()
+        .to_string()
+        .contains("unknown connector"));
+    Ok(())
+}
+
+#[test]
+fn tuning_metadata_rejects_missing_duplicate_and_out_of_range_values() {
+    let initial = serde_json::json!({ "workers": 2, "mode": "safe" });
+    let missing = vec![tuning::TuningParameter::UnsignedInteger {
+        pointer: "/missing".to_owned(),
+        label: "Missing".to_owned(),
+        baseline: 1,
+        minimum: 1,
+        maximum: 8,
+        candidates: vec![1],
+        scale: tuning::NumericScale::Linear,
+    }];
+    assert!(tuning::validate_tuning_parameters(&initial, &missing)
+        .unwrap_err()
+        .to_string()
+        .contains("missing configuration value"));
+
+    let unbounded = vec![tuning::TuningParameter::UnsignedInteger {
+        pointer: "/workers".to_owned(),
+        label: "Workers".to_owned(),
+        baseline: 2,
+        minimum: 1,
+        maximum: 8,
+        candidates: Vec::new(),
+        scale: tuning::NumericScale::Linear,
+    }];
+    assert!(tuning::validate_tuning_parameters(&initial, &unbounded)
+        .unwrap_err()
+        .to_string()
+        .contains("must declare finite candidates"));
+
+    let duplicate = vec![
+        tuning::TuningParameter::Choice {
+            pointer: "/mode".to_owned(),
+            label: "Mode one".to_owned(),
+            baseline: JsonValue::from("safe"),
+            values: vec![JsonValue::from("safe")],
+        },
+        tuning::TuningParameter::Choice {
+            pointer: "/mode".to_owned(),
+            label: "Mode two".to_owned(),
+            baseline: JsonValue::from("safe"),
+            values: vec![JsonValue::from("safe")],
+        },
+    ];
+    assert!(tuning::validate_tuning_parameters(&initial, &duplicate)
+        .unwrap_err()
+        .to_string()
+        .contains("registered more than once"));
+
+    let out_of_range = vec![tuning::TuningParameter::UnsignedInteger {
+        pointer: "/workers".to_owned(),
+        label: "Workers".to_owned(),
+        baseline: 1,
+        minimum: 1,
+        maximum: 8,
+        candidates: vec![1, 16],
+        scale: tuning::NumericScale::Linear,
+    }];
+    assert!(tuning::validate_tuning_parameters(&initial, &out_of_range)
+        .unwrap_err()
+        .to_string()
+        .contains("outside its tuning range"));
+}
+
+#[test]
+fn registration_rejects_tuning_metadata_outside_authored_json_schema(
+) -> anyhow::Result<()> {
+    let wrong_baseline = vec![tuning::TuningParameter::UnsignedInteger {
+        pointer: "/workers".to_owned(),
+        label: "Workers".to_owned(),
+        baseline: 2,
+        minimum: 1,
+        maximum: 8,
+        candidates: vec![1, 2, 4, 8],
+        scale: tuning::NumericScale::Logarithmic,
+    }];
+    let error = ComponentRegistration::new("baseline", "Baseline")
+        .source::<TunableSourceConfig, _, _>(
+            vec![DeliveryMode::Batch],
+            false,
+            || serde_json::json!({ "workers": 1, "mode": "safe", "fixed": "fixed" }),
+            |_| anyhow::bail!("unused"),
+        )?
+        .source_tuning_parameters(wrong_baseline)
+        .err()
+        .expect("baseline must equal the authored connector default");
+    assert!(error.to_string().contains("authored default"));
+
+    let out_of_schema_range = vec![tuning::TuningParameter::UnsignedInteger {
+        pointer: "/workers".to_owned(),
+        label: "Workers".to_owned(),
+        baseline: 1,
+        minimum: 1,
+        maximum: 16,
+        candidates: vec![1, 8, 16],
+        scale: tuning::NumericScale::Linear,
+    }];
+    let error = ComponentRegistration::new("range", "Range")
+        .source::<TunableSourceConfig, _, _>(
+            vec![DeliveryMode::Batch],
+            false,
+            || serde_json::json!({ "workers": 1, "mode": "safe", "fixed": "fixed" }),
+            |_| anyhow::bail!("unused"),
+        )?
+        .source_tuning_parameters(out_of_schema_range)
+        .err()
+        .expect("schema-incompatible range must fail");
+    assert!(error.to_string().contains("JSON Schema maximum"));
+
+    let out_of_schema_enum = vec![tuning::TuningParameter::Choice {
+        pointer: "/mode".to_owned(),
+        label: "Mode".to_owned(),
+        baseline: JsonValue::from("safe"),
+        values: vec![JsonValue::from("safe"), JsonValue::from("turbo")],
+    }];
+    let error = ComponentRegistration::new("enum", "Enum")
+        .source::<TunableSourceConfig, _, _>(
+            vec![DeliveryMode::Batch],
+            false,
+            || serde_json::json!({ "workers": 1, "mode": "safe", "fixed": "fixed" }),
+            |_| anyhow::bail!("unused"),
+        )?
+        .source_tuning_parameters(out_of_schema_enum)
+        .err()
+        .expect("schema-incompatible enum value must fail");
+    assert!(error.to_string().contains("JSON Schema enum"));
+
+    let compiled_schema_constraint = vec![tuning::TuningParameter::UnsignedInteger {
+        pointer: "/even_workers".to_owned(),
+        label: "Even workers".to_owned(),
+        baseline: 2,
+        minimum: 2,
+        maximum: 3,
+        candidates: vec![2, 3],
+        scale: tuning::NumericScale::Linear,
+    }];
+    let error = ComponentRegistration::new("compiled", "Compiled")
+        .source::<TunableSourceConfig, _, _>(
+            vec![DeliveryMode::Batch],
+            false,
+            || serde_json::json!({ "workers": 1, "mode": "safe", "fixed": "fixed" }),
+            |_| anyhow::bail!("unused"),
+        )?
+        .source_tuning_parameters(compiled_schema_constraint)
+        .err()
+        .expect("compiled schema constraint must reject a candidate");
+    assert!(error.to_string().contains("conflicts with endpoint JSON Schema"));
+
+    let missing_optional = vec![tuning::TuningParameter::UnsignedInteger {
+        pointer: "/optional".to_owned(),
+        label: "Optional".to_owned(),
+        baseline: 1,
+        minimum: 1,
+        maximum: 8,
+        candidates: vec![1, 2, 4, 8],
+        scale: tuning::NumericScale::Linear,
+    }];
+    ComponentRegistration::new("optional", "Optional")
+        .source::<TunableSourceConfig, _, _>(
+            vec![DeliveryMode::Batch],
+            false,
+            || serde_json::json!({ "workers": 1, "mode": "safe", "fixed": "fixed" }),
+            |_| anyhow::bail!("unused"),
+        )?
+        .source_tuning_parameters(missing_optional)?;
+
+    let outside_schema = vec![tuning::TuningParameter::UnsignedInteger {
+        pointer: "/not_a_field".to_owned(),
+        label: "Unknown".to_owned(),
+        baseline: 1,
+        minimum: 1,
+        maximum: 8,
+        candidates: vec![1, 2, 4, 8],
+        scale: tuning::NumericScale::Logarithmic,
+    }];
+    let error = ComponentRegistration::new("outside", "Outside")
+        .source::<TunableSourceConfig, _, _>(
+            vec![DeliveryMode::Batch],
+            false,
+            || serde_json::json!({ "workers": 1, "mode": "safe", "fixed": "fixed" }),
+            |_| anyhow::bail!("unused"),
+        )?
+        .source_tuning_parameters(outside_schema)
+        .err()
+        .expect("pointer outside every schema branch must fail");
+    assert!(error.to_string().contains("outside the endpoint JSON Schema"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn branch_specific_parameter_may_be_absent_from_initial_and_inactive_runtime_branch(
+) -> anyhow::Result<()> {
+    let parameters = vec![tuning::TuningParameter::UnsignedInteger {
+        pointer: "/reader/concurrency".to_owned(),
+        label: "Reader concurrency".to_owned(),
+        baseline: 2,
+        minimum: 1,
+        maximum: 16,
+        candidates: vec![1, 2, 4, 8, 16],
+        scale: tuning::NumericScale::Logarithmic,
+    }];
+    ComponentRegistration::new("branched", "Branched")
+        .source::<BranchedTunableSourceConfig, _, _>(
+            vec![DeliveryMode::Batch],
+            false,
+            || serde_json::json!({ "reader": { "type": "safe" } }),
+            |config| {
+                match config.reader {
+                    BranchedTunableReader::Safe => {}
+                    BranchedTunableReader::Parallel { concurrency } => {
+                        let _ = concurrency;
+                    }
+                }
+                anyhow::bail!("unused")
+            },
+        )?
+        .source_tuning_parameters(parameters.clone())?;
+
+    let inactive = tuning::tune_endpoint(
+        tuning::EndpointTuningRequest {
+            configuration: serde_json::json!({ "reader": { "type": "safe" } }),
+            parameters: parameters.clone(),
+            budget: tuning::TuningBudget {
+                max_trials: 8,
+                max_duration_ms: Some(1_000),
+            },
+        },
+        CancellationToken::new(),
+        |_, _| async { Ok(10.0) },
+    )
+    .await?;
+    assert_eq!(inactive.trials, 1);
+    assert!(inactive.parameters.is_empty());
+
+    let active = tuning::tune_endpoint(
+        tuning::EndpointTuningRequest {
+            configuration: serde_json::json!({
+                "reader": { "type": "parallel", "concurrency": 2 }
+            }),
+            parameters,
+            budget: tuning::TuningBudget {
+                max_trials: 8,
+                max_duration_ms: Some(1_000),
+            },
+        },
+        CancellationToken::new(),
+        |configuration, _| async move {
+            Ok(configuration["reader"]["concurrency"]
+                .as_u64()
+                .unwrap() as f64)
+        },
+    )
+    .await?;
+    assert_eq!(active.parameters["/reader/concurrency"], 16);
+    Ok(())
+}
+
+fn endpoint_tuning_request(max_trials: usize) -> tuning::EndpointTuningRequest {
+    tuning::EndpointTuningRequest {
+        configuration: serde_json::json!({
+            "workers": 8,
+            "mode": "fast",
+            "fixed": { "credential": "never mutate" }
+        }),
+        parameters: tuning_parameters(),
+        budget: tuning::TuningBudget {
+            max_trials,
+            max_duration_ms: Some(5_000),
+        },
+    }
+}
+
+async fn deterministic_tuning_result(max_trials: usize) -> anyhow::Result<tuning::TuningResult> {
+    tuning::tune_endpoint(
+        endpoint_tuning_request(max_trials),
+        CancellationToken::new(),
+        |configuration, _| async move {
+            anyhow::ensure!(
+                configuration.pointer("/fixed/credential")
+                    == Some(&JsonValue::from("never mutate")),
+                "optimizer mutated an undeclared field"
+            );
+            let workers = configuration["workers"].as_u64().unwrap() as f64;
+            anyhow::ensure!([1.0, 2.0, 4.0, 8.0].contains(&workers));
+            let mode_bonus = if configuration["mode"] == "fast" {
+                100.0
+            } else {
+                0.0
+            };
+            Ok(1_000.0 - (workers - 4.0).powi(2) + mode_bonus)
+        },
+    )
+    .await
+}
+
+#[tokio::test]
+async fn optimizer_is_deterministic_and_never_mutates_undeclared_configuration(
+) -> anyhow::Result<()> {
+    let first = deterministic_tuning_result(12).await?;
+    let second = deterministic_tuning_result(12).await?;
+
+    assert_eq!(first, second);
+    assert_eq!(first.baseline_rows_per_second, 991.0);
+    assert_eq!(first.trials, 8);
+    assert_eq!(first.parameters["/workers"], 4);
+    assert_eq!(first.parameters["/mode"], "fast");
+    assert!(first.optimized_rows_per_second > first.baseline_rows_per_second);
+    assert!(!serde_json::to_string(&first)?.contains("never mutate"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn optimizer_enumerates_only_the_finite_declared_product() -> anyhow::Result<()> {
+    let parameters = vec![
+        tuning::TuningParameter::Choice {
+            pointer: "/left".to_owned(),
+            label: "Left".to_owned(),
+            baseline: serde_json::json!("a"),
+            values: vec![serde_json::json!("a"), serde_json::json!("b")],
+        },
+        tuning::TuningParameter::Choice {
+            pointer: "/right".to_owned(),
+            label: "Right".to_owned(),
+            baseline: serde_json::json!(false),
+            values: vec![serde_json::json!(false), serde_json::json!(true)],
+        },
+    ];
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let result = tuning::tune_endpoint(
+        tuning::EndpointTuningRequest {
+            configuration: serde_json::json!({ "left": "a", "right": false }),
+            parameters,
+            budget: tuning::TuningBudget {
+                max_trials: usize::MAX,
+                max_duration_ms: Some(5_000),
+            },
+        },
+        CancellationToken::new(),
+        move |_, _| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            async { Ok(1.0) }
+        },
+    )
+    .await?;
+
+    assert_eq!(result.trials, 4);
+    assert_eq!(calls.load(Ordering::SeqCst), 4);
+    Ok(())
+}
+
+#[tokio::test]
+async fn optimizer_caps_an_overflowing_cartesian_product_by_the_trial_budget(
+) -> anyhow::Result<()> {
+    let configuration = serde_json::Value::Object(
+        (0..usize::BITS)
+            .map(|index| (format!("p{index}"), serde_json::json!(false)))
+            .collect(),
+    );
+    let parameters = (0..usize::BITS)
+        .map(|index| tuning::TuningParameter::Choice {
+            pointer: format!("/p{index}"),
+            label: format!("P {index}"),
+            baseline: serde_json::json!(false),
+            values: vec![serde_json::json!(false), serde_json::json!(true)],
+        })
+        .collect();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let result = tuning::tune_endpoint(
+        tuning::EndpointTuningRequest {
+            configuration,
+            parameters,
+            budget: tuning::TuningBudget {
+                max_trials: 3,
+                max_duration_ms: Some(5_000),
+            },
+        },
+        CancellationToken::new(),
+        move |_, _| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            async { Ok(1.0) }
+        },
+    )
+    .await?;
+
+    assert_eq!(result.trials, 3);
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    Ok(())
+}
+
+fn binary_parameters(names: &[&str]) -> Vec<tuning::TuningParameter> {
+    names
+        .iter()
+        .map(|name| tuning::TuningParameter::Choice {
+            pointer: format!("/{name}"),
+            label: (*name).to_owned(),
+            baseline: serde_json::json!(false),
+            values: vec![serde_json::json!(false), serde_json::json!(true)],
+        })
+        .collect()
+}
+
+async fn tune_binary_parameters(
+    parameters: Vec<tuning::TuningParameter>,
+    max_trials: usize,
+    interaction: bool,
+) -> anyhow::Result<tuning::TuningResult> {
+    tuning::tune_endpoint(
+        tuning::EndpointTuningRequest {
+            configuration: serde_json::json!({
+                "p0": false,
+                "p1": false,
+                "p2": false,
+                "p3": false,
+                "p4": false,
+                "p5": false
+            }),
+            parameters,
+            budget: tuning::TuningBudget {
+                max_trials,
+                max_duration_ms: Some(5_000),
+            },
+        },
+        CancellationToken::new(),
+        move |configuration, _| async move {
+            let optimum = if interaction {
+                configuration["p2"] == true && configuration["p3"] == true
+            } else {
+                configuration["p5"] == true
+            };
+            Ok(if optimum { 100.0 } else { 1.0 })
+        },
+    )
+    .await
+}
+
+#[tokio::test]
+async fn optimizer_covers_a_last_parameter_independently_of_registration_order(
+) -> anyhow::Result<()> {
+    let mut parameters = binary_parameters(&["p0", "p1", "p2", "p3", "p4", "p5"]);
+    let forward = tune_binary_parameters(parameters.clone(), 7, false).await?;
+    parameters.reverse();
+    let reversed = tune_binary_parameters(parameters, 7, false).await?;
+
+    assert_eq!(forward, reversed);
+    assert_eq!(forward.optimized_rows_per_second, 100.0);
+    assert_eq!(forward.parameters["/p5"], true);
+    assert_eq!(forward.trials, 7);
+    Ok(())
+}
+
+#[tokio::test]
+async fn optimizer_covers_every_pair_before_model_acquisition_independently_of_order(
+) -> anyhow::Result<()> {
+    let mut parameters = binary_parameters(&["p0", "p1", "p2", "p3"]);
+    let forward = tune_binary_parameters(parameters.clone(), 11, true).await?;
+    parameters.reverse();
+    let reversed = tune_binary_parameters(parameters, 11, true).await?;
+
+    assert_eq!(forward, reversed);
+    assert_eq!(forward.optimized_rows_per_second, 100.0);
+    assert_eq!(forward.parameters["/p2"], true);
+    assert_eq!(forward.parameters["/p3"], true);
+    assert_eq!(forward.trials, 11);
+    Ok(())
+}
+
+#[tokio::test]
+async fn optimizer_obeys_trial_and_time_budgets() -> anyhow::Result<()> {
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let error = tuning::tune_endpoint(
+        endpoint_tuning_request(3),
+        cancellation,
+        move |_, _| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            async { Ok(1.0) }
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("cancelled"));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let result = tuning::tune_endpoint(
+        endpoint_tuning_request(3),
+        CancellationToken::new(),
+        move |_, _| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            async { Ok(1.0) }
+        },
+    )
+    .await?;
+    assert_eq!(result.trials, 3);
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+
+    let mut timed = endpoint_tuning_request(3);
+    timed.budget.max_duration_ms = Some(10);
+    let started = std::time::Instant::now();
+    let error = tuning::tune_endpoint(timed, CancellationToken::new(), |_, cancellation| async move {
+        cancellation.cancelled().await;
+        Ok(1.0)
+    })
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("baseline"));
+    assert!(started.elapsed() < Duration::from_millis(500));
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let cleaned_up = Arc::new(AtomicBool::new(false));
+    let observed_cleanup = Arc::clone(&cleaned_up);
+    let mut timed_candidate = endpoint_tuning_request(3);
+    timed_candidate.budget.max_duration_ms = Some(20);
+    let result = tuning::tune_endpoint(
+        timed_candidate,
+        CancellationToken::new(),
+        move |_, cancellation| {
+            let call = observed.fetch_add(1, Ordering::SeqCst);
+            let cleaned_up = Arc::clone(&observed_cleanup);
+            async move {
+                if call > 0 {
+                    cancellation.cancelled().await;
+                    cleaned_up.store(true, Ordering::SeqCst);
+                }
+                Ok(1.0)
+            }
+        },
+    )
+    .await?;
+    assert_eq!(result.trials, 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert!(cleaned_up.load(Ordering::SeqCst));
+
+    let cancellation = CancellationToken::new();
+    let trigger = cancellation.clone();
+    let cleaned_up = Arc::new(AtomicBool::new(false));
+    let observed_cleanup = Arc::clone(&cleaned_up);
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        trigger.cancel();
+    });
+    let error = tuning::tune_endpoint(
+        endpoint_tuning_request(3),
+        cancellation,
+        move |_, trial| {
+            let cleaned_up = Arc::clone(&observed_cleanup);
+            async move {
+                trial.cancelled().await;
+                cleaned_up.store(true, Ordering::SeqCst);
+                Ok(1.0)
+            }
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("cancelled"));
+    assert!(cleaned_up.load(Ordering::SeqCst));
+    Ok(())
+}
+
+#[tokio::test]
+async fn optimizer_never_masks_cleanup_failure_at_trial_deadline() {
+    let mut request = endpoint_tuning_request(1);
+    request.budget.max_duration_ms = Some(10);
+
+    let error = tuning::tune_endpoint(
+        request,
+        CancellationToken::new(),
+        |_, cancellation| async move {
+            cancellation.cancelled().await;
+            anyhow::bail!("mandatory scratch cleanup failed")
+        },
+    )
+    .await
+    .expect_err("cleanup failure must escape the optimizer deadline");
+
+    assert!(error.to_string().contains("mandatory scratch cleanup failed"));
+}
+
+#[tokio::test]
+async fn source_and_sink_tuning_start_in_parallel() -> anyhow::Result<()> {
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let source_barrier = Arc::clone(&barrier);
+    let destination_barrier = Arc::clone(&barrier);
+    let source = tuning::EndpointTuningRequest {
+        configuration: serde_json::json!({}),
+        parameters: Vec::new(),
+        budget: tuning::TuningBudget {
+            max_trials: 1,
+            max_duration_ms: Some(1_000),
+        },
+    };
+    let destination = source.clone();
+
+    let result = tokio::time::timeout(
+        Duration::from_millis(500),
+        tuning::tune_source_and_sink(
+            source,
+            destination,
+            CancellationToken::new(),
+            move |_, _| {
+                let barrier = Arc::clone(&source_barrier);
+                async move {
+                    barrier.wait().await;
+                    Ok(10.0)
+                }
+            },
+            move |_, _| {
+                let barrier = Arc::clone(&destination_barrier);
+                async move {
+                    barrier.wait().await;
+                    Ok(20.0)
+                }
+            },
+        ),
+    )
+    .await??;
+
+    assert_eq!(result.source.baseline_rows_per_second, 10.0);
+    assert_eq!(result.destination.baseline_rows_per_second, 20.0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn source_and_sink_tuning_cancels_and_awaits_sibling_after_first_failure() {
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let source_barrier = Arc::clone(&barrier);
+    let destination_barrier = Arc::clone(&barrier);
+    let destination_calls = Arc::new(AtomicUsize::new(0));
+    let observed_calls = Arc::clone(&destination_calls);
+    let destination_cleaned_up = Arc::new(AtomicBool::new(false));
+    let observed_cleanup = Arc::clone(&destination_cleaned_up);
+    let source = endpoint_tuning_request(3);
+    let destination = endpoint_tuning_request(3);
+
+    let error = tokio::time::timeout(
+        Duration::from_millis(500),
+        tuning::tune_source_and_sink(
+            source,
+            destination,
+            CancellationToken::new(),
+            move |_, _| {
+                let barrier = Arc::clone(&source_barrier);
+                async move {
+                    barrier.wait().await;
+                    anyhow::bail!("source baseline failed")
+                }
+            },
+            move |_, cancellation| {
+                let barrier = Arc::clone(&destination_barrier);
+                let cleaned_up = Arc::clone(&observed_cleanup);
+                observed_calls.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    barrier.wait().await;
+                    cancellation.cancelled().await;
+                    cleaned_up.store(true, Ordering::SeqCst);
+                    Err(tuning::TuningEvaluationCancelled.into())
+                }
+            },
+        ),
+    )
+    .await
+    .expect("the sibling must stop promptly")
+    .expect_err("the first endpoint failure must fail the pair");
+
+    assert!(error.to_string().contains("source baseline failed"));
+    assert_eq!(destination_calls.load(Ordering::SeqCst), 1);
+    assert!(destination_cleaned_up.load(Ordering::SeqCst));
 }

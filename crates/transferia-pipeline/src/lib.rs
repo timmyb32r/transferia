@@ -24,7 +24,6 @@ use transferia_delivery_contracts::parser::{ParserFactory, ParserSession};
 const CHANNEL_CAPACITY: usize = 8;
 const INITIAL_BACKOFF_MS: u64 = 10;
 const MAX_BACKOFF_MS: u64 = 30_000;
-const SINK_SHUTDOWN_GRACE: Duration = Duration::from_secs(6);
 
 /// Monotonic source-commit progress shared across retries of one partition.
 #[derive(Default)]
@@ -255,8 +254,7 @@ async fn parser_loop(
                 .map_err(|error| {
                     anyhow::anyhow!("parser failed for delivery {}: {error}", id.get())
                 });
-            // Keep admission live with detached blocking work if pipeline
-            // shutdown times out and aborts only the async supervisor task.
+            // Keep admission live until the blocking parser work is joined.
             (parser, parse_memory, source_memory, parsed)
         });
         let (active_parser, parse_memory, source_memory, parsed) =
@@ -423,18 +421,76 @@ async fn reserve_source_memory_with_events(
     }
 }
 
+async fn reader_loop(
+    mut source: Box<dyn Source>,
+    output: mpsc::Sender<ReadEnvelope>,
+    events: mpsc::Receiver<SinkEvent>,
+    memory: PipelineMemory,
+    cancellation: CancellationToken,
+    progress: Arc<PipelineProgress>,
+) -> anyhow::Result<()> {
+    let pipeline_result = reader_loop_inner(
+        &mut source,
+        output,
+        events,
+        memory,
+        cancellation,
+        progress,
+    )
+    .await;
+    let shutdown_result = source.shutdown().await.map_err(anyhow::Error::new);
+    match (pipeline_result, shutdown_result) {
+        (Ok(_completion), Ok(())) => Ok(()),
+        (Ok(completion), Err(_shutdown_error)) => {
+            // Shutdown is a resource-release barrier, not a second durability
+            // decision. At finite EOF the ledger has already been drained and
+            // every source marker has been committed; turning a later session
+            // close failure into a retry would replay already-committed rows.
+            // Cancellation similarly remains the primary outcome. Do not log
+            // the connector error because an SDK error may contain credentials.
+            tracing::warn!(
+                completion = completion.as_str(),
+                "source shutdown failed after the pipeline outcome was decided; preserving that outcome"
+            );
+            Ok(())
+        }
+        (Err(pipeline_error), Ok(())) => Err(pipeline_error),
+        (Err(pipeline_error), Err(_shutdown_error)) => {
+            tracing::warn!(
+                "source shutdown failed while handling an earlier pipeline failure"
+            );
+            Err(pipeline_error)
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ReaderCompletion {
+    Cancelled,
+    FiniteSourceDrained,
+}
+
+impl ReaderCompletion {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Cancelled => "cancelled",
+            Self::FiniteSourceDrained => "finite_source_drained",
+        }
+    }
+}
+
 #[expect(
     clippy::unreachable,
     reason = "Finished is handled immediately before exhaustive payload extraction"
 )]
-async fn reader_loop(
-    mut source: Box<dyn Source>,
+async fn reader_loop_inner(
+    source: &mut Box<dyn Source>,
     output: mpsc::Sender<ReadEnvelope>,
     mut events: mpsc::Receiver<SinkEvent>,
     memory: PipelineMemory,
     cancellation: CancellationToken,
     progress: Arc<PipelineProgress>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ReaderCompletion> {
     let mut ledger = VecDeque::new();
     let mut next_id = DeliveryId::new(1);
     let mut backoff_ms = INITIAL_BACKOFF_MS;
@@ -446,13 +502,13 @@ async fn reader_loop(
         // pipeline cancellation may abandon an in-flight read; source progress has not
         // been committed in that case, so a later run can replay it.
         let read = tokio::select! {
-            () = cancellation.cancelled() => return Ok(()),
+            () = cancellation.cancelled() => return Ok(ReaderCompletion::Cancelled),
             read = source.read_batch() => read,
         };
 
         let batch = read?;
         while let Ok(SinkEvent::CommittedThrough(id)) = events.try_recv() {
-            commit_through(&mut source, &mut ledger, id, progress.as_ref()).await?;
+            commit_through(source, &mut ledger, id, progress.as_ref()).await?;
         }
         if matches!(batch, SourceBatch::Finished) {
             // Close the parser input before waiting for the durability ledger.
@@ -460,17 +516,20 @@ async fn reader_loop(
             // open sink buffers can be flushed and committed.
             drop(output);
             while !ledger.is_empty() {
-                let event = events.recv().await.ok_or_else(|| {
-                    anyhow::anyhow!("sink event stream closed before source completion")
-                })?;
+                let event = tokio::select! {
+                    () = cancellation.cancelled() => return Ok(ReaderCompletion::Cancelled),
+                    event = events.recv() => event.ok_or_else(|| {
+                        anyhow::anyhow!("sink event stream closed before source completion")
+                    })?,
+                };
                 let SinkEvent::CommittedThrough(id) = event;
-                commit_through(&mut source, &mut ledger, id, progress.as_ref()).await?;
+                commit_through(source, &mut ledger, id, progress.as_ref()).await?;
             }
             tracing::info!(
                 deliveries = next_id.get().saturating_sub(1),
                 "finite source durability ledger drained"
             );
-            return Ok(());
+            return Ok(ReaderCompletion::FiniteSourceDrained);
         }
         let (payload, mut batch_memory, mut marker, source_payload_bytes, source_messages) =
             match batch {
@@ -518,10 +577,10 @@ async fn reader_loop(
         };
         if payload_is_empty && marker.is_none() {
             tokio::select! {
-                () = cancellation.cancelled() => return Ok(()),
+                () = cancellation.cancelled() => return Ok(ReaderCompletion::Cancelled),
                 event = events.recv() => {
                     if let Some(SinkEvent::CommittedThrough(id)) = event {
-                        commit_through(&mut source, &mut ledger, id, progress.as_ref()).await?;
+                        commit_through(source, &mut ledger, id, progress.as_ref()).await?;
                     }
                 }
                 () = sleep(Duration::from_millis(backoff_ms)) => {}
@@ -533,7 +592,7 @@ async fn reader_loop(
         let meta = delivery_meta(source_messages);
         if batch_memory.is_empty() && source_payload_bytes > 0 {
             let Some(reservation) = reserve_source_memory_with_events(
-                &mut source,
+                source,
                 &mut ledger,
                 &mut events,
                 &memory,
@@ -543,7 +602,7 @@ async fn reader_loop(
             )
             .await?
             else {
-                return Ok(());
+                return Ok(ReaderCompletion::Cancelled);
             };
             batch_memory.push(reservation);
         }
@@ -562,11 +621,11 @@ async fn reader_loop(
         let mut pending = Some(envelope);
         while pending.is_some() {
             tokio::select! {
-                () = cancellation.cancelled() => return Ok(()),
+                () = cancellation.cancelled() => return Ok(ReaderCompletion::Cancelled),
                 event = events.recv() => {
                     let event = event.ok_or_else(|| anyhow::anyhow!("sink event stream closed"))?;
                     let SinkEvent::CommittedThrough(id) = event;
-                    commit_through(&mut source, &mut ledger, id, progress.as_ref()).await?;
+                    commit_through(source, &mut ledger, id, progress.as_ref()).await?;
                 }
                 permit = output.reserve() => {
                     let permit = permit.map_err(|_| anyhow::anyhow!("parser input closed"))?;
@@ -587,22 +646,6 @@ enum FirstComponent {
     Reader,
     Sink,
     Parser,
-}
-
-impl ComponentOutcome {
-    fn timeout(message: &'static str) -> Self {
-        Self {
-            result: Err(DataPlaneFailure::retryable(anyhow::anyhow!(message))),
-            infrastructure_failure: true,
-        }
-    }
-
-    fn fatal_timeout(message: &'static str) -> Self {
-        Self {
-            result: Err(DataPlaneFailure::fatal(anyhow::anyhow!(message))),
-            infrastructure_failure: true,
-        }
-    }
 }
 
 fn data_plane_component_outcome(
@@ -791,42 +834,22 @@ pub async fn run_partition_pipeline_with_progress(
 
     local.cancel();
     if reader_outcome.is_none() {
-        reader_outcome = Some(
-            match tokio::time::timeout(Duration::from_secs(1), &mut reader_task).await {
-                Ok(result) => anyhow_component_outcome("reader", result),
-                Err(_) => {
-                    reader_task.abort();
-                    drop(reader_task.await);
-                    ComponentOutcome::timeout("reader task did not stop within 1s")
-                }
-            },
-        );
+        // Sources own remote resources such as database sessions. Their
+        // cancellation path is required to be bounded internally, and must be
+        // awaited rather than aborted so `Source::shutdown` always completes.
+        reader_outcome = Some(anyhow_component_outcome("reader", reader_task.await));
     }
-    // Give the sink a chance to clean up owned I/O (including multipart abort)
-    // and release reservations before resorting to task abortion.
+    // Sinks own external writes and must quiesce their I/O before the caller may
+    // clean up connector-owned scratch state. Their cancellation paths are
+    // bounded by connector configuration, so forcibly aborting this task would
+    // allow accepted remote writes to race destination cleanup.
     if sink_outcome.is_none() {
-        sink_outcome = Some(
-            match tokio::time::timeout(SINK_SHUTDOWN_GRACE, &mut sink_task).await {
-                Ok(result) => data_plane_component_outcome("sink", result),
-                Err(_) => {
-                    sink_task.abort();
-                    drop(sink_task.await);
-                    ComponentOutcome::timeout("sink task did not stop within 6s")
-                }
-            },
-        );
+        sink_outcome = Some(data_plane_component_outcome("sink", sink_task.await));
     }
+    // A parser can own blocking work and its memory admission. Await it so no
+    // detached computation can outlive the delivery or mutate later state.
     if parser_outcome.is_none() {
-        parser_outcome = Some(
-            match tokio::time::timeout(Duration::from_secs(1), &mut parser_task).await {
-                Ok(result) => parser_component_outcome(result),
-                Err(_) => {
-                    parser_task.abort();
-                    drop(parser_task.await);
-                    ComponentOutcome::fatal_timeout("parser task did not stop within 1s")
-                }
-            },
-        );
+        parser_outcome = Some(parser_component_outcome(parser_task.await));
     }
 
     let missing_outcome = || ComponentOutcome {

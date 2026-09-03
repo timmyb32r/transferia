@@ -87,11 +87,42 @@ fn replicated_table_is_created_on_the_selected_cluster() -> anyhow::Result<()> {
         TableEngine::Replicated,
         Some("default"),
         false,
+        true,
+        None,
     )?;
     assert_eq!(
         ddl,
         "CREATE TABLE IF NOT EXISTS `events` ON CLUSTER `default` (`id` UInt64) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}') ORDER BY (tuple())"
     );
+    Ok(())
+}
+
+#[test]
+fn speedtest_table_create_is_exclusive_and_marks_every_cluster_replica() -> anyhow::Result<()> {
+    let config: ClickHouseSinkConfig = serde_yaml::from_str(
+        "hosts: [127.0.0.1]\nport: 9000\ntrusted_plaintext: true\ndata_host_count: 2\ndatabase: analytics\nusername: default\n",
+    )?;
+    let dataset = transferia_registry::DatasetPrepare {
+        role: transferia_core::delivery::DatasetRole::Main,
+        table: Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0"),
+        schema: schema(vec![SchemaColumn::new(
+            "id".into(),
+            DataType::UInt64,
+            false,
+        )]),
+        changelog: false,
+    };
+    let ddl = speedtest_create_table_ddl(
+        &config,
+        &dataset,
+        Some("odd`cluster"),
+        "transferia-speedtest-owner:a'b",
+    )?;
+    assert!(!ddl.contains("IF NOT EXISTS"));
+    assert!(ddl.starts_with(
+        "CREATE TABLE `_transferia_st_0123456789abcdef0123456789abcdef_0` ON CLUSTER `odd\\`cluster`"
+    ));
+    assert!(ddl.ends_with("COMMENT 'transferia-speedtest-owner:a\\'b'"));
     Ok(())
 }
 

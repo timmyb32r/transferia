@@ -9,6 +9,10 @@ import type {
   DiscoveryResult,
   SqlPlaygroundRequest,
   SqlPlaygroundResult,
+  SpeedtestEstimateRequest,
+  SpeedtestEstimateResult,
+  SpeedtestTuneRequest,
+  SpeedtestTuneResult,
   ValidationCommandResult,
   WorkerLogChunkView,
   WorkerLogsResult,
@@ -39,6 +43,14 @@ export interface ControlPlanePort {
     request: SqlPlaygroundRequest,
     signal?: AbortSignal,
   ): Promise<SqlPlaygroundResult>;
+  speedtestEstimate(
+    request: SpeedtestEstimateRequest,
+    signal?: AbortSignal,
+  ): Promise<SpeedtestEstimateResult>;
+  speedtestTune(
+    request: SpeedtestTuneRequest,
+    signal?: AbortSignal,
+  ): Promise<SpeedtestTuneResult>;
   deliveries(signal?: AbortSignal): Promise<DeliverySummary[]>;
   delivery(id: string, signal?: AbortSignal): Promise<DeliveryRecord>;
   deliveryLogs(id: string, signal?: AbortSignal): Promise<WorkerLogsResult>;

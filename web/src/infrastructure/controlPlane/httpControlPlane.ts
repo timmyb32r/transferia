@@ -13,6 +13,8 @@ import type {
   OptionsRequest,
   RevisionRequest,
   SqlPlaygroundRequest,
+  SpeedtestEstimateRequest,
+  SpeedtestTuneRequest,
   StopRequest,
   UpdateDraftRequest,
   YamlRequest,
@@ -156,6 +158,27 @@ export const httpControlPlane: ControlPlanePort = {
   sqlPlayground: (body: SqlPlaygroundRequest, signal?: AbortSignal) =>
     routeRequest(
       "sql_playground",
+      {},
+      {
+        body,
+        ...(signal === undefined ? {} : { signal }),
+      },
+    ),
+  speedtestEstimate: (
+    body: SpeedtestEstimateRequest,
+    signal?: AbortSignal,
+  ) =>
+    routeRequest(
+      "speedtest_estimate",
+      {},
+      {
+        body,
+        ...(signal === undefined ? {} : { signal }),
+      },
+    ),
+  speedtestTune: (body: SpeedtestTuneRequest, signal?: AbortSignal) =>
+    routeRequest(
+      "speedtest_tune",
       {},
       {
         body,

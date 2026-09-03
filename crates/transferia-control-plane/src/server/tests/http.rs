@@ -25,6 +25,24 @@ fn every_contract_route_has_exactly_one_registered_handler() {
     assert_eq!(mounted, contracted);
 }
 
+#[tokio::test]
+async fn operation_failure_preserves_a_safe_manual_recovery_message() -> anyhow::Result<()> {
+    let response = ApiError(ServiceError::OperationFailed(
+        "manual cleanup required for: db.__transferia_speedtest_123".to_owned(),
+    ))
+    .into_response();
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+    assert_eq!(body["error"]["code"], "operation_failed");
+    assert_eq!(
+        body["error"]["message"],
+        "manual cleanup required for: db.__transferia_speedtest_123"
+    );
+    Ok(())
+}
+
 async fn test_router() -> anyhow::Result<(Router, std::path::PathBuf)> {
     test_router_with(transferia_connectors::extension::Transferia::public()?).await
 }
@@ -101,6 +119,267 @@ async fn health_has_a_stable_json_contract() -> anyhow::Result<()> {
         to_bytes(response.into_body(), 1024).await?,
         r#"{"status":"ok"}"#
     );
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn speedtest_estimate_rejects_zero_duration_before_touching_endpoints() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/speedtest/estimate")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"config":{},"duration_seconds":0,"cleanup_timeout_seconds":60}"#,
+                ))?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+    assert_eq!(body["error"]["code"], "invalid_request");
+    assert!(body["error"]["message"]
+        .as_str()
+        .is_some_and(|message| message.contains("duration_seconds")));
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn speedtest_estimate_rejects_zero_cleanup_timeout_before_endpoint_io(
+) -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/speedtest/estimate")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"config":{},"duration_seconds":1,"cleanup_timeout_seconds":0}"#,
+                ))?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+    assert_eq!(body["error"]["code"], "invalid_request");
+    assert!(body["error"]["message"]
+        .as_str()
+        .is_some_and(|message| message.contains("cleanup_timeout_seconds")));
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn speedtest_estimate_rejects_unrepresentable_duration_before_endpoint_io(
+) -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/speedtest/estimate")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(format!(
+                    r#"{{"config":{{}},"duration_seconds":{},"cleanup_timeout_seconds":60}}"#,
+                    u64::MAX
+                )))?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+    assert_eq!(body["error"]["code"], "invalid_request");
+    assert!(body["error"]["message"]
+        .as_str()
+        .is_some_and(|message| message.contains("too large")));
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn speedtest_tune_rejects_zero_trial_duration_before_endpoint_io() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/speedtest/tune")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"config":{"source":{"test":{}},"sink":{"test":{}}},"budget":{"type":"automatic","max_trials":1},"trial_duration_seconds":0,"cleanup_timeout_seconds":60}"#,
+                ))?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+    assert_eq!(body["error"]["code"], "invalid_request");
+    assert!(body["error"]["message"]
+        .as_str()
+        .is_some_and(|message| message.contains("trial_duration_seconds")));
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn speedtest_estimate_runs_actual_generator_through_discard() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let config = serde_json::json!({
+        "delivery_type": null,
+        "source": {
+            "data_generator": {
+                "table_name": "numbers",
+                "preset": { "type": "numeric", "column_count": 2 },
+                "amount": { "type": "rows", "row_count": 100_000 },
+            },
+        },
+        "sink": { "discard": {} },
+        "middlewares": [{ "incomplete_editor_middleware": {} }],
+        "pipeline_memory_limit_bytes": 16 * 1024 * 1024,
+        "metrics": null,
+    });
+    let request = serde_json::json!({
+        "config": config,
+        "duration_seconds": 1,
+        "cleanup_timeout_seconds": 60,
+    });
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/speedtest/estimate")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&request)?))?,
+        )
+        .await?;
+
+    let status = response.status();
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    assert_eq!(status, StatusCode::OK, "unexpected response: {body}");
+    assert_eq!(body["logical_streams"], 1);
+    assert!(body["source"]["rows_per_second"].as_f64().is_some_and(|value| value > 0.0));
+    assert!(body["destination"]["rows_per_second"]
+        .as_f64()
+        .is_some_and(|value| value > 0.0));
+    assert_eq!(body["profile"]["datasets"][0]["dataset"], "numbers");
+    assert_eq!(body["profile"]["datasets"][0]["columns"][0]["arrow_type"], "UInt64");
+    assert!(
+        !root.join("configured-state").exists(),
+        "speedtest must not materialize production delivery state"
+    );
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn speedtest_estimate_rejects_a_sink_without_scratch_isolation() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let config = serde_json::json!({
+        "delivery_id": "http-speedtest-unsupported-sink",
+        "durable_storage": {
+            "type": "local_file",
+            "path": root.join("configured-state"),
+        },
+        "delivery_type": "batch",
+        "source": {
+            "data_generator": {
+                "table_name": "numbers",
+                "preset": { "type": "numeric", "column_count": 1 },
+                "amount": { "type": "rows", "row_count": 1 },
+            },
+        },
+        "sink": {
+            "kafka": {
+                "installation": {
+                    "type": "on_premise",
+                    "brokers": ["127.0.0.1:9092"],
+                    "security": { "type": "plaintext" },
+                },
+                "topic": { "type": "topic", "topic": "production-topic" },
+                "serializer": { "type": "json" },
+                "partition": null,
+                "request_timeout_ms": 30_000,
+                "max_in_flight": 16,
+            },
+        },
+        "middlewares": [],
+        "pipeline_memory_limit_bytes": 16 * 1024 * 1024,
+        "metrics": null,
+    });
+    let request = serde_json::json!({
+        "config": config,
+        "duration_seconds": 1,
+        "cleanup_timeout_seconds": 60,
+    });
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/speedtest/estimate")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&request)?))?,
+        )
+        .await?;
+
+    let status = response.status();
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 16 * 1024).await?)?;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "unexpected response: {body}"
+    );
+    assert_eq!(body["error"]["code"], "validation_failed");
+    assert!(body["error"]["message"]
+        .as_str()
+        .is_some_and(|message| message.contains("isolated speedtest target")));
+    assert!(!root.join("configured-state").exists());
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn speedtest_tune_never_echoes_full_endpoint_configuration() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let secret_marker = "must-never-appear-in-speedtest-response";
+    let request = serde_json::json!({
+        "config": {
+            "delivery_type": null,
+            "client_private_note": secret_marker,
+            "source": {
+                "data_generator": {
+                    "table_name": "numbers",
+                    "preset": { "type": "numeric", "column_count": 1 },
+                    "amount": { "type": "rows", "row_count": 10_000 },
+                },
+            },
+            "sink": { "discard": {} },
+            "pipeline_memory_limit_bytes": 16 * 1024 * 1024,
+        },
+        "budget": { "type": "automatic", "max_trials": 1 },
+        "trial_duration_seconds": 1,
+        "cleanup_timeout_seconds": 60,
+    });
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/speedtest/tune")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&request)?))?,
+        )
+        .await?;
+
+    let status = response.status();
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    let bytes = to_bytes(response.into_body(), 64 * 1024).await?;
+    let body: serde_json::Value = serde_json::from_slice(&bytes)?;
+    assert_eq!(status, StatusCode::OK, "unexpected response: {body}");
+    assert!(!String::from_utf8(bytes.to_vec())?.contains(secret_marker));
+    assert!(body["source"].get("configuration").is_none());
+    assert!(body["destination"].get("configuration").is_none());
     tokio::fs::remove_dir_all(root).await?;
     Ok(())
 }

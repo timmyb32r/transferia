@@ -73,6 +73,24 @@ routes![
         "sql_playground_response"
     ),
     (
+        SPEEDTEST_ESTIMATE,
+        "speedtest_estimate",
+        "POST",
+        "/api/v1/speedtest/estimate",
+        Some("speedtest_estimate_request"),
+        None,
+        "speedtest_estimate_response"
+    ),
+    (
+        SPEEDTEST_TUNE,
+        "speedtest_tune",
+        "POST",
+        "/api/v1/speedtest/tune",
+        Some("speedtest_tune_request"),
+        None,
+        "speedtest_tune_response"
+    ),
+    (
         RENDER_YAML,
         "render_yaml",
         "POST",
