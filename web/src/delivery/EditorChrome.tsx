@@ -265,6 +265,7 @@ export function EditorTabs({
   dataSchemaUnavailableReason,
   speedtestAvailable = false,
   speedtestUnavailableReason,
+  performanceAdviceCount,
   onUi,
   onYaml,
   onDataSchema,
@@ -280,6 +281,7 @@ export function EditorTabs({
   dataSchemaUnavailableReason?: string | undefined;
   speedtestAvailable?: boolean;
   speedtestUnavailableReason?: string | undefined;
+  performanceAdviceCount?: number | undefined;
   onUi: () => void;
   onYaml: () => void;
   onDataSchema: () => void;
@@ -289,6 +291,17 @@ export function EditorTabs({
   onPerformanceAdvice: () => void;
   onLogs?: () => void;
 }) {
+  const performanceAdviceAvailable =
+    performanceAdviceCount !== undefined && performanceAdviceCount > 0;
+  const performanceAdviceLabel = performanceAdviceAvailable
+    ? `Performance advice (${performanceAdviceCount})`
+    : "Performance advice";
+  const performanceAdviceTooltip = performanceAdviceAvailable
+    ? "Open advice from the latest successful validation"
+    : performanceAdviceCount === 0
+      ? "No performance advice for this validated configuration"
+      : "Available after successful validation";
+
   return (
     <div class="editor-tabs">
       <div
@@ -372,15 +385,34 @@ export function EditorTabs({
             Speedtest
           </Button>
         </InstantTooltip>
-        <Button
-          role="tab"
-          aria-selected={active === "performance_advice"}
-          class={active === "performance_advice" ? "active" : ""}
-          disabled={disabled}
-          onClick={onPerformanceAdvice}
+        <InstantTooltip
+          class="editor-tab-tooltip performance-advice-tab-tooltip"
+          content={performanceAdviceTooltip}
         >
-          Performance advice
-        </Button>
+          <Button
+            role="tab"
+            aria-label={performanceAdviceLabel}
+            aria-selected={active === "performance_advice"}
+            aria-disabled={!performanceAdviceAvailable}
+            class={[
+              active === "performance_advice" ? "active" : "",
+              !performanceAdviceAvailable ? "diagnostic-disabled" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            disabled={disabled}
+            onClick={
+              performanceAdviceAvailable ? onPerformanceAdvice : undefined
+            }
+          >
+            <span>Performance advice</span>
+            <span class="performance-advice-tab-count" aria-hidden="true">
+              {performanceAdviceAvailable
+                ? `(${performanceAdviceCount})`
+                : "\u00a0"}
+            </span>
+          </Button>
+        </InstantTooltip>
         <Button
           role="tab"
           aria-selected={active === "logs"}

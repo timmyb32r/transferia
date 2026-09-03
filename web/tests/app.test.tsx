@@ -936,6 +936,145 @@ describe("App request orchestration", () => {
     expect(api.validate).not.toHaveBeenCalled();
   });
 
+  it("enables Performance advice only from current successful validation", async () => {
+    const existing = adviceDelivery("advice-ready", "Advice ready");
+    installApiMocks([existing]);
+    vi.mocked(api.catalog).mockResolvedValue(speedtestCatalog());
+    vi.mocked(api.delivery).mockResolvedValue(existing);
+    vi.mocked(api.discover).mockResolvedValue(discovery(3));
+    vi.mocked(api.validate).mockResolvedValue({
+      delivery: {
+        ...existing,
+        record_version: "2",
+        validation: { state: "ready", revision: 1 },
+      },
+      discovery: discovery(3),
+    });
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("Advice ready");
+    fireEvent.click(app.getByText("Advice ready").closest("button")!);
+    await app.findByRole("heading", { name: "Advice ready" });
+    await waitFor(() => expect(api.discover).toHaveBeenCalled());
+
+    const unavailable = app.getByRole("tab", { name: "Performance advice" });
+    const host = unavailable.parentElement;
+    const logs = app.getByRole("tab", { name: "Logs" });
+    expect(unavailable.getAttribute("aria-disabled")).toBe("true");
+    expect(host?.title).toBe("Available after successful validation");
+    fireEvent.click(unavailable);
+    expect(
+      app.queryByRole("heading", { name: "Performance advice" }),
+    ).toBeNull();
+
+    fireEvent.click(app.getByRole("button", { name: "Edit" }));
+    fireEvent.click(app.getByRole("button", { name: "Validate" }));
+
+    const available = await app.findByRole("tab", {
+      name: "Performance advice (3)",
+    });
+    expect(available).toBe(unavailable);
+    expect(available.parentElement).toBe(host);
+    expect(app.getByRole("tab", { name: "Logs" })).toBe(logs);
+    expect(available.getAttribute("aria-disabled")).toBe("false");
+    fireEvent.click(available);
+    expect(
+      await app.findByRole("heading", { name: "Performance advice" }),
+    ).toBeTruthy();
+    expect(app.getByText("Performance recommendation 1")).toBeTruthy();
+
+    fireEvent.click(app.getByRole("tab", { name: "UI" }));
+    fireEvent.input(app.getByLabelText("Host"), {
+      target: { value: "changed.example" },
+    });
+
+    const invalidated = app.getByRole("tab", { name: "Performance advice" });
+    expect(invalidated).toBe(unavailable);
+    expect(invalidated.getAttribute("aria-disabled")).toBe("true");
+    await waitFor(() => expect(api.discover).toHaveBeenCalledTimes(2));
+    expect(invalidated.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("keeps Performance advice unavailable after a successful empty result", async () => {
+    const existing = adviceDelivery("advice-empty", "Advice empty");
+    installApiMocks([existing]);
+    vi.mocked(api.catalog).mockResolvedValue(speedtestCatalog());
+    vi.mocked(api.delivery).mockResolvedValue(existing);
+    vi.mocked(api.validate).mockResolvedValue({
+      delivery: {
+        ...existing,
+        validation: { state: "ready", revision: 1 },
+      },
+      discovery: discovery(),
+    });
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("Advice empty");
+    fireEvent.click(app.getByText("Advice empty").closest("button")!);
+    await app.findByRole("heading", { name: "Advice empty" });
+    fireEvent.click(app.getByRole("button", { name: "Edit" }));
+    fireEvent.click(app.getByRole("button", { name: "Validate" }));
+    await waitFor(() => expect(api.validate).toHaveBeenCalledOnce());
+
+    const tab = app.getByRole("tab", { name: "Performance advice" });
+    expect(tab.getAttribute("aria-disabled")).toBe("true");
+    expect(tab.parentElement?.title).toBe(
+      "No performance advice for this validated configuration",
+    );
+  });
+
+  it("clears validated advice when validation returns invalid", async () => {
+    const existing = adviceDelivery("advice-invalid", "Advice invalid");
+    installApiMocks([existing]);
+    vi.mocked(api.catalog).mockResolvedValue(speedtestCatalog());
+    vi.mocked(api.delivery).mockResolvedValue(existing);
+    vi.mocked(api.validate)
+      .mockResolvedValueOnce({
+        delivery: {
+          ...existing,
+          record_version: "2",
+          validation: { state: "ready", revision: 1 },
+        },
+        discovery: discovery(2),
+      })
+      .mockResolvedValueOnce({
+        delivery: {
+          ...existing,
+          record_version: "3",
+          validation: {
+            state: "invalid",
+            revision: 1,
+            message: "source schema changed",
+          },
+        },
+      });
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("Advice invalid");
+    fireEvent.click(app.getByText("Advice invalid").closest("button")!);
+    await app.findByRole("heading", { name: "Advice invalid" });
+    fireEvent.click(app.getByRole("button", { name: "Edit" }));
+
+    fireEvent.click(app.getByRole("button", { name: "Validate" }));
+    await app.findByRole("tab", { name: "Performance advice (2)" });
+    await app.findByText("Configuration is valid.");
+    await waitFor(() =>
+      expect(
+        (app.getByRole("button", { name: "Validate" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(app.getByRole("button", { name: "Validate" }));
+
+    await app.findByText("Validation failed: source schema changed");
+    const tab = app.getByRole("tab", { name: "Performance advice" });
+    expect(tab.getAttribute("aria-disabled")).toBe("true");
+    expect(tab.parentElement?.title).toBe(
+      "Available after successful validation",
+    );
+    expect(app.queryByText("Configuration is valid.")).toBeNull();
+  });
+
   it("enables Speedtest from endpoint readiness alone and sends the current config", async () => {
     const existing = {
       ...delivery("speedtest-ready", "Speedtest ready"),
@@ -1235,12 +1374,34 @@ function delivery(id: string, name: string, ready = false): DeliveryRecord {
   };
 }
 
-function discovery(): DiscoveryResult {
+function adviceDelivery(id: string, name: string): DeliveryRecord {
+  return {
+    ...delivery(id, name),
+    config: {
+      delivery_id: id,
+      delivery_type: "batch",
+      source: { source: { host: "source.example" } },
+      sink: { sink: { database: "benchmark" } },
+    },
+  };
+}
+
+function discovery(performanceAdviceCount = 0): DiscoveryResult {
   return {
     source: "source",
     sink: "sink",
     pipeline_count: 1,
-    performance_advice: [],
+    performance_advice: Array.from(
+      { length: performanceAdviceCount },
+      (_, index) => ({
+        code: `advice-${index + 1}`,
+        severity: "warning" as const,
+        summary: `Performance recommendation ${index + 1}`,
+        explanation: "The discovered source layout can be improved.",
+        remediation: "Apply the recommended source setting.",
+        config_paths: ["#/source/source"],
+      }),
+    ),
     datasets: [],
     sink_limits: {
       sink: "sink",

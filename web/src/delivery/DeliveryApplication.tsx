@@ -65,6 +65,7 @@ import type {
   DeliverySummary,
   JsonObject,
   UiCatalog,
+  ValidationCommandResult,
 } from "../types";
 import {
   applyAppearance,
@@ -93,6 +94,11 @@ interface PendingYamlIntent {
   context: EditorRequestContext;
 }
 
+interface ValidatedDiscoverySnapshot {
+  context: EditorRequestContext;
+  result: ValidationCommandResult;
+}
+
 export function DeliveryApplication() {
   const api = useControlPlane();
   const widgets = useWidgetRegistry();
@@ -106,6 +112,8 @@ export function DeliveryApplication() {
   >("none");
   const [pendingYamlIntent, setPendingYamlIntent] =
     useState<PendingYamlIntent>();
+  const [validatedDiscoverySnapshot, setValidatedDiscoverySnapshot] =
+    useState<ValidatedDiscoverySnapshot>();
   const [schemaInspectorVisible, setSchemaInspectorVisible] = useState(false);
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_STATE);
   const {
@@ -250,6 +258,24 @@ export function DeliveryApplication() {
     isCurrentContext,
   });
   const dataSchemaAvailable = (discovery?.datasets.length ?? 0) > 0;
+  const currentValidatedSnapshot =
+    validatedDiscoverySnapshot?.context.sessionId === editor.sessionId &&
+    validatedDiscoverySnapshot.context.localRevision === editor.localRevision &&
+    validatedDiscoverySnapshot.result.delivery.id === editor.id &&
+    validatedDiscoverySnapshot.result.delivery.revision ===
+      editor.persistedRevision &&
+    validatedDiscoverySnapshot.result.delivery.record_version ===
+      editor.recordVersion &&
+    validatedDiscoverySnapshot.result.delivery.validation.state === "ready" &&
+    validatedDiscoverySnapshot.result.delivery.validation.revision ===
+      editor.persistedRevision
+      ? validatedDiscoverySnapshot
+      : undefined;
+  const validatedDiscovery = currentValidatedSnapshot?.result.discovery;
+  const performanceAdviceCount =
+    currentValidatedSnapshot === undefined
+      ? undefined
+      : (validatedDiscovery?.performance_advice.length ?? 0);
   const dataSchemaUnavailableReason = (() => {
     if (dataSchemaAvailable) return undefined;
     if (isOperationPending(operations.discovery))
@@ -334,7 +360,8 @@ export function DeliveryApplication() {
     onDeliveries: setDeliveries,
     onPersisted: applyPersisted,
     onRuntime: applyMutationRuntime,
-    onDiscovery: setDiscovery,
+    onValidationResult: (context, result) =>
+      setValidatedDiscoverySnapshot({ context, result }),
     isCurrentContext,
   });
   const {
@@ -660,13 +687,19 @@ export function DeliveryApplication() {
           dataSchemaUnavailableReason={dataSchemaUnavailableReason}
           speedtestAvailable={speedtest.available}
           speedtestUnavailableReason={speedtest.reason}
+          performanceAdviceCount={performanceAdviceCount}
           onUi={() => void applyYamlAndShowUi()}
           onYaml={() => void showYaml()}
           onDataSchema={() => void showDataSchema()}
           onDataSchemaUnavailable={() => revealMissingRequiredFields("source")}
           onSpeedtest={openSpeedtest}
           onSpeedtestUnavailable={openSpeedtest}
-          onPerformanceAdvice={() => void showPerformanceAdvice()}
+          onPerformanceAdvice={() =>
+            void showPerformanceAdvice(
+              (config) =>
+                config === editor.config && validatedDiscovery !== undefined,
+            )
+          }
           onLogs={() => void showLogs()}
         />
         <OperationNotices
@@ -707,7 +740,7 @@ export function DeliveryApplication() {
             }
           />
         ) : activeView === "performance_advice" ? (
-          <PerformanceAdviceWorkspace result={discovery} />
+          <PerformanceAdviceWorkspace result={validatedDiscovery} />
         ) : activeView === "logs" ? (
           editor.id === undefined ? (
             <p class="data-schema-empty">

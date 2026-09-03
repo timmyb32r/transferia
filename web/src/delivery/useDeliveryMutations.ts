@@ -3,7 +3,7 @@ import { isDirty, type EditorState } from "../state";
 import type {
   DeliveryRecord,
   DeliverySummary,
-  DiscoveryResult,
+  ValidationCommandResult,
 } from "../types";
 import type { EditorRequestContext } from "./useDeliveryJobs";
 import type { useDeliveryJobs } from "./useDeliveryJobs";
@@ -19,7 +19,7 @@ export function useDeliveryMutations({
   onDeliveries,
   onPersisted,
   onRuntime,
-  onDiscovery,
+  onValidationResult,
   isCurrentContext,
 }: {
   editor: EditorState;
@@ -31,7 +31,10 @@ export function useDeliveryMutations({
     delivery: DeliveryRecord,
   ) => void;
   onRuntime: (context: EditorRequestContext, delivery: DeliveryRecord) => void;
-  onDiscovery: (discovery: DiscoveryResult) => void;
+  onValidationResult: (
+    context: EditorRequestContext,
+    result: ValidationCommandResult,
+  ) => void;
   isCurrentContext: (context: EditorRequestContext) => boolean;
 }) {
   const api = useControlPlane();
@@ -170,19 +173,31 @@ export function useDeliveryMutations({
         finishOperation("validate", requestId);
         return;
       }
-      if (
-        result.value.discovery !== undefined &&
-        isCurrentContext(result.context)
-      )
-        onDiscovery(result.value.discovery);
+      if (isCurrentContext(result.context))
+        onValidationResult(result.context, result.value);
       onRuntime(result.context, result.value.delivery);
       await refreshList();
-      finishOperation(
-        "validate",
-        requestId,
-        undefined,
-        "Configuration is valid.",
-      );
+      const validation = result.value.delivery.validation;
+      if (validation.state === "ready") {
+        finishOperation(
+          "validate",
+          requestId,
+          undefined,
+          "Configuration is valid.",
+        );
+      } else if (validation.state === "invalid") {
+        finishOperation(
+          "validate",
+          requestId,
+          `Validation failed: ${validation.message}`,
+        );
+      } else {
+        finishOperation(
+          "validate",
+          requestId,
+          "Validation did not produce a result for the current revision.",
+        );
+      }
     } catch (reason) {
       finishOperation("validate", requestId, errorMessage(reason));
     }

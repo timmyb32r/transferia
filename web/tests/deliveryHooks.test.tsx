@@ -17,6 +17,7 @@ import type {
   DeliveryRecord,
   DeliverySummary,
   DiscoveryResult,
+  ValidationCommandResult,
 } from "../src/types";
 import { renderHook } from "./support/render";
 
@@ -216,7 +217,7 @@ describe("delivery controllers", () => {
         onDeliveries: vi.fn(),
         onPersisted,
         onRuntime: vi.fn(),
-        onDiscovery: vi.fn(),
+        onValidationResult: vi.fn(),
         isCurrentContext: () => true,
       });
     });
@@ -231,6 +232,112 @@ describe("delivery controllers", () => {
       { sessionId: "session", localRevision: 1 },
       saved,
     );
+  });
+
+  it("publishes ready and invalid validation results for the current revision", async () => {
+    const editor = persistedEditor();
+    const ready: ValidationCommandResult = {
+      delivery: {
+        ...delivery(),
+        validation: { state: "ready", revision: 3 },
+      },
+      discovery: {
+        source: "source",
+        sink: "sink",
+        pipeline_count: 1,
+        performance_advice: [],
+        datasets: [],
+        sink_limits: { sink: "sink", supported_arrow_types: [] },
+      },
+    };
+    const invalid: ValidationCommandResult = {
+      delivery: {
+        ...delivery(),
+        validation: {
+          state: "invalid",
+          revision: 3,
+          message: "schema mismatch",
+        },
+      },
+    };
+    vi.spyOn(api, "validate")
+      .mockResolvedValueOnce(ready)
+      .mockResolvedValueOnce(invalid);
+    vi.spyOn(api, "deliveries").mockResolvedValue([]);
+    const onValidationResult = vi.fn();
+    const { result } = renderHook(() => {
+      const jobs = useDeliveryJobs();
+      const operations = useOperations();
+      const mutations = useDeliveryMutations({
+        editor,
+        jobs,
+        operations,
+        onDeliveries: vi.fn(),
+        onPersisted: vi.fn(),
+        onRuntime: vi.fn(),
+        onValidationResult,
+        isCurrentContext: () => true,
+      });
+      return { mutations, operations: operations.operations };
+    });
+
+    await act(async () => result.current.mutations.validate());
+    expect(onValidationResult).toHaveBeenLastCalledWith(
+      { sessionId: "session", localRevision: 1 },
+      ready,
+    );
+    expect(result.current.operations.validate?.success).toBe(
+      "Configuration is valid.",
+    );
+
+    await act(async () => result.current.mutations.validate());
+    expect(onValidationResult).toHaveBeenLastCalledWith(
+      { sessionId: "session", localRevision: 1 },
+      invalid,
+    );
+    expect(onValidationResult).toHaveBeenCalledTimes(2);
+    expect(result.current.operations.validate?.error).toBe(
+      "Validation failed: schema mismatch",
+    );
+  });
+
+  it("never publishes a stale validation response", async () => {
+    const editor = persistedEditor();
+    const response: ValidationCommandResult = {
+      delivery: {
+        ...delivery(),
+        validation: { state: "ready", revision: 3 },
+      },
+      discovery: {
+        source: "source",
+        sink: "sink",
+        pipeline_count: 1,
+        performance_advice: [],
+        datasets: [],
+        sink_limits: { sink: "sink", supported_arrow_types: [] },
+      },
+    };
+    vi.spyOn(api, "validate").mockResolvedValue(response);
+    vi.spyOn(api, "deliveries").mockResolvedValue([]);
+    const onValidationResult = vi.fn();
+    const { result } = renderHook(() => {
+      const jobs = useDeliveryJobs();
+      const operations = useOperations();
+      return useDeliveryMutations({
+        editor,
+        jobs,
+        operations,
+        onDeliveries: vi.fn(),
+        onPersisted: vi.fn(),
+        onRuntime: vi.fn(),
+        onValidationResult,
+        isCurrentContext: () => false,
+      });
+    });
+
+    await act(async () => result.current.validate());
+
+    expect(onValidationResult).not.toHaveBeenCalled();
   });
 
   it("publishes discovery only through the debounced controller", async () => {
@@ -520,5 +627,15 @@ function newEditor(): EditorState {
     config: {},
     validation: { state: "draft" },
     runtime: { state: "stopped" },
+  };
+}
+
+function persistedEditor(): EditorState {
+  return {
+    ...newEditor(),
+    id: "delivery",
+    persistedRevision: 3,
+    recordVersion: "4",
+    savedLocalRevision: 1,
   };
 }

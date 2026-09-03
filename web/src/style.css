@@ -878,6 +878,24 @@ h3 {
 .editor-tab-tooltip {
   display: inline-flex;
 }
+.performance-advice-tab-tooltip {
+  flex: 0 0 184px;
+  width: 184px;
+}
+.performance-advice-tab-tooltip > button {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.performance-advice-tab-count {
+  display: inline-block;
+  width: 4.5ch;
+  flex: 0 0 4.5ch;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
 .instant-tooltip-host {
   position: relative;
 }

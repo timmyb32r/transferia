@@ -197,7 +197,8 @@ export function useYamlEditor({
     showDataSchema: () => applyYamlAndShow("data_schema"),
     showSpeedtest: (isAvailable: (config: JsonObject) => boolean) =>
       applyYamlAndShow("speedtest", isAvailable),
-    showPerformanceAdvice: () => applyYamlAndShow("performance_advice"),
+    showPerformanceAdvice: (isAvailable: (config: JsonObject) => boolean) =>
+      applyYamlAndShow("performance_advice", isAvailable),
     showLogs: () => applyYamlAndShow("logs"),
     reset,
   };

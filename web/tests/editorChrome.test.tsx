@@ -69,6 +69,7 @@ describe("editor chrome", () => {
         disabled={false}
         dataSchemaAvailable
         speedtestAvailable
+        performanceAdviceCount={3}
         onUi={() => undefined}
         onYaml={() => undefined}
         onDataSchema={onDataSchema}
@@ -83,10 +84,75 @@ describe("editor chrome", () => {
     expect(onDataSchema).toHaveBeenCalledOnce();
     fireEvent.click(view.getByRole("tab", { name: "Speedtest" }));
     expect(onSpeedtest).toHaveBeenCalledOnce();
-    fireEvent.click(view.getByRole("tab", { name: "Performance advice" }));
+    fireEvent.click(
+      view.getByRole("tab", { name: "Performance advice (3)" }),
+    );
     expect(onPerformanceAdvice).toHaveBeenCalledOnce();
     fireEvent.click(view.getByRole("tab", { name: "Logs" }));
     expect(onLogs).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the Performance advice tab stable across validation states", () => {
+    const onPerformanceAdvice = vi.fn();
+    const renderTabs = (count: number | undefined, disabled = false) => (
+      <EditorTabs
+        active="ui"
+        disabled={disabled}
+        dataSchemaAvailable={false}
+        performanceAdviceCount={count}
+        onUi={() => undefined}
+        onYaml={() => undefined}
+        onDataSchema={() => undefined}
+        onPerformanceAdvice={onPerformanceAdvice}
+        onLogs={() => undefined}
+      />
+    );
+    const view = render(renderTabs(undefined));
+    const host = view.container.querySelector(
+      ".performance-advice-tab-tooltip",
+    );
+    const tab = view.getByRole("tab", { name: "Performance advice" });
+    const logs = view.getByRole("tab", { name: "Logs" });
+
+    expect(host?.classList.contains("performance-advice-tab-tooltip")).toBe(
+      true,
+    );
+    expect(host?.getAttribute("title")).toBe(
+      "Available after successful validation",
+    );
+    expect(tab.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(tab);
+    expect(onPerformanceAdvice).not.toHaveBeenCalled();
+
+    view.rerender(renderTabs(3));
+    expect(view.container.querySelector(".performance-advice-tab-tooltip")).toBe(
+      host,
+    );
+    expect(view.getByRole("tab", { name: "Logs" })).toBe(logs);
+    const available = view.getByRole("tab", {
+      name: "Performance advice (3)",
+    });
+    expect(available).toBe(tab);
+    expect(available.getAttribute("aria-disabled")).toBe("false");
+    expect(
+      available.querySelector(".performance-advice-tab-count")?.textContent,
+    ).toBe("(3)");
+    fireEvent.click(available);
+    expect(onPerformanceAdvice).toHaveBeenCalledOnce();
+
+    view.rerender(renderTabs(0));
+    expect(view.container.querySelector(".performance-advice-tab-tooltip")).toBe(
+      host,
+    );
+    expect(host?.getAttribute("title")).toBe(
+      "No performance advice for this validated configuration",
+    );
+    expect(tab.getAttribute("aria-disabled")).toBe("true");
+
+    view.rerender(renderTabs(3, true));
+    expect((tab as HTMLButtonElement).disabled).toBe(true);
+    expect(tab.getAttribute("aria-label")).toBe("Performance advice (3)");
+    expect(view.getByRole("tab", { name: "Logs" })).toBe(logs);
   });
 
   it("keeps Speedtest diagnostic until both endpoint configurations are complete", () => {
