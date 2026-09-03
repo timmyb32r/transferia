@@ -72,6 +72,18 @@ def s3_source_stats_line() -> str:
     )
 
 
+def opensearch_stats_line() -> str:
+    return (
+        "2026-09-03 INFO [stats p=2] source: 18000 records/s | network-raw 0 B/s | "
+        "network-decoded 28.0 MiB/s | response-wait 140% | network-decode 35% busy || "
+        "parse: 18000 rows/s | 29.0 MiB/s arrow | 0 dlq/s | "
+        "18000 source-msg/s | 0% busy || sink: 17500 rows/s | 26.0 MiB/s | "
+        "8 flushes/s | 17500 source-msg/s | 220% busy | 2 retries | "
+        "buffered 12 MiB | objects 0/0/0 | 15% backpressure || "
+        "guarantee: at-least-once | cpu: 310% rss: 420 MiB\n"
+    )
+
+
 class StatsAverageTest(unittest.TestCase):
     def test_aggregates_pqv1_to_clickhouse_logs(self):
         samples = STATS.read_samples(
@@ -126,6 +138,16 @@ class StatsAverageTest(unittest.TestCase):
 
         self.assertEqual(averages["source_records_per_s"], 500)
         self.assertEqual(averages["network_raw_bytes_per_s"], 8 * 1024 * 1024)
+
+    def test_aggregates_standard_opensearch_source_and_sink_counters(self):
+        averages = STATS.average_samples(STATS.read_samples([opensearch_stats_line()]))
+
+        self.assertEqual(averages["partition_ids"], [2])
+        self.assertEqual(averages["source_records_per_s"], 18000)
+        self.assertEqual(averages["network_raw_bytes_per_s"], 0)
+        self.assertEqual(averages["network_decoded_bytes_per_s"], 28 * 1024 * 1024)
+        self.assertEqual(averages["sink_rows_per_s"], 17500)
+        self.assertEqual(averages["sink_retries"], 2)
 
 
 if __name__ == "__main__":

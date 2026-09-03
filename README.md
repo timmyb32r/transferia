@@ -6,7 +6,7 @@ share expensive connection pools and upload clients:
 
 ```text
 stream: Logbroker (YDB or PQv1) | Kafka
-batch:  PostgreSQL | MySQL | YDB | ClickHouse | S3 | Iceberg | YTsaurus | data generator
+batch:  PostgreSQL | MySQL | OpenSearch | YDB | ClickHouse | S3 | Iceberg | YTsaurus | data generator
 replication: PostgreSQL (pgoutput or wal2json)
                                     |
                                     v
@@ -16,14 +16,14 @@ replication: PostgreSQL (pgoutput or wal2json)
                                middlewares
                                     |
                                     v
-Logbroker | Kafka | PostgreSQL | MySQL | YDB | ClickHouse | S3 | Iceberg | YTsaurus | discard
+Logbroker | Kafka | PostgreSQL | MySQL | OpenSearch | YDB | ClickHouse | S3 | Iceberg | YTsaurus | discard
 ```
 
 Source and sink connectors are selected from the runtime registry; parser kinds
 are validated explicitly. Logbroker and Kafka provide streaming sources and
 sinks. PostgreSQL provides finite snapshots, ordinary logical replication, and
-a sink; MySQL, YDB, ClickHouse, S3, Iceberg, and YTsaurus provide finite-snapshot
-sources and sinks. YDB writes production Arrow IPC batches with `BulkUpsert` and
+a sink; MySQL, OpenSearch, YDB, ClickHouse, S3, Iceberg, and YTsaurus provide
+finite-snapshot sources and sinks. YDB writes production Arrow IPC batches with `BulkUpsert` and
 requires an explicit logical-to-physical table mapping plus a non-null primary
 key. The batch-only data generator and non-durable `discard` sink are explicit
 benchmark components.
@@ -287,6 +287,51 @@ semantically identical. Credential files may use the connector's documented path
 handling; explicit environment references can be added later as a typed config
 feature. Byte sizes accept `B`, `KiB`, `MiB`,
 and `GiB`; durations accept `ms`, `s`, `m`, `h`, and `d`.
+
+### OpenSearch
+
+The OpenSearch source is a finite snapshot reader. Every configured name must
+identify one exact concrete index: aliases and wildcard expansion are rejected.
+It opens one non-partial point-in-time snapshot per index and assigns one
+logical slice to each discovered primary shard. Slices page concurrently with
+`_doc`/`search_after`, bounded by the configured reader limit. Retryable
+requests reuse the same PIT and exact slice cursor; the reader never silently
+opens a newer snapshot after emitting rows. Each document is represented
+losslessly as non-null `_id`, nullable `_routing`, the original `_source` JSON
+text, and a non-null `_routing_key`. The composite (`_id`, `_routing_key`)
+primary key preserves documents whose equal IDs coexist under different custom
+routing. Keeping JSON as an `arrow.json` envelope avoids guessing
+scalar-versus-array shape from an OpenSearch mapping and preserves numeric
+lexemes beyond ordinary JSON number precision.
+
+The sink accepts append-only datasets with a non-null primary key. An incoming
+OpenSearch envelope keeps its exact `_id`, `_routing`, and `_source`; other
+Arrow schemas use an injective, version-stable encoding of the complete primary
+key as the document ID. IDs over OpenSearch's 512-byte limit, unsupported Arrow
+types, non-finite floats, schema drift, and invalid index names fail before the
+corresponding bulk request. The sink never lowercases names, sanitizes fields,
+or replaces long IDs with hashes. Created indices use strict mappings and
+request-durable translog writes. Bulk concurrency, batch limits, flush timing,
+and bounded retry policy are explicit advanced settings, and progress is
+acknowledged only after every bulk item succeeds. As required by the default
+primary-key contract, the source must provide one logical record per complete
+primary key; the sink detects duplicates in its bounded buffered and in-flight
+window without carrying an unbounded all-history key set.
+
+Custom-routed OpenSearch source documents and flat rows fail by default because
+preserving their original ID against a target with different shard geometry is
+not safe.
+The explicit `routed_identity: encode_identity` mode injectively encodes the
+complete source identity into the destination ID and still preserves routing;
+the transformed ID is rejected rather than truncated or hashed if it exceeds
+OpenSearch's limit.
+
+Speedtest writes only to exclusively created random indices carrying an opaque
+owner marker. Ownership and the exact schema are revalidated before writes and
+deletion; an ambiguous or foreign index is preserved and reported instead of
+being guessed safe. Managed OpenSearch installation discovery is supplied by
+the internal extension; the public connector contains only the ordinary
+host/port/TLS/auth contract.
 
 ### YTsaurus static tables
 

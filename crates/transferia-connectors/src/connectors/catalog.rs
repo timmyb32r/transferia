@@ -338,6 +338,8 @@ fn build_base_connector_catalog(
 
     transferia_connector_mysql::register(&mut catalog, _metrics_registry)?;
 
+    transferia_connector_opensearch::register(&mut catalog, _metrics_registry)?;
+
     transferia_connector_postgres::register(&mut catalog, _metrics_registry)?;
 
     transferia_connector_clickhouse::register(&mut catalog, _metrics_registry)?;
@@ -402,6 +404,42 @@ fn component_registration(key: &'static str) -> anyhow::Result<ComponentRegistra
 }
 
 pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
+    for role in [EndpointRole::Source, EndpointRole::Sink] {
+        register_on_premise(
+            _registry,
+            "opensearch",
+            role,
+            serde_json::json!({
+                "hosts": {
+                    "type": "array",
+                    "title": "Hosts",
+                    "items": { "type": "string" },
+                    "x-ui": { "initial_items": 1 }
+                },
+                "port": {
+                    "type": "integer",
+                    "title": "HTTP port",
+                    "minimum": 1,
+                    "maximum": 65535
+                },
+                "trusted_plaintext": {
+                    "type": "boolean",
+                    "title": "Trusted plaintext"
+                },
+                "tls_ca_file": {
+                    "anyOf": [{ "type": "string" }, { "type": "null" }],
+                    "title": "TLS CA file"
+                }
+            }),
+            &["hosts", "port", "trusted_plaintext"],
+            serde_json::json!({
+                "hosts": [""],
+                "port": 9200,
+                "trusted_plaintext": false,
+                "tls_ca_file": null
+            }),
+        )?;
+    }
     register_on_premise(
         _registry,
         "mysql",

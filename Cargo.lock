@@ -6092,6 +6092,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "transferia-connector-opensearch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "base64 0.22.1",
+ "bytes",
+ "futures-util",
+ "getrandom 0.3.4",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "reqwest 0.12.28",
+ "rustls-pemfile",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "testcontainers",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "transferia-connector-support",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-registry",
+ "transferia-test-support",
+]
+
+[[package]]
 name = "transferia-connector-postgres"
 version = "0.1.0"
 dependencies = [
@@ -6280,6 +6312,7 @@ dependencies = [
  "transferia-connector-kafka",
  "transferia-connector-logbroker",
  "transferia-connector-mysql",
+ "transferia-connector-opensearch",
  "transferia-connector-postgres",
  "transferia-connector-s3",
  "transferia-connector-support",

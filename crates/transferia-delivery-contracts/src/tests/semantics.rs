@@ -70,6 +70,7 @@ fn only_operation_aware_state_sinks_accept_changelog_rows() {
         EndpointDescriptor::KafkaSink(QueueSinkDescriptor { changelog: false }),
         sink(S3Partitioning::Source, false),
         EndpointDescriptor::IcebergSink,
+        EndpointDescriptor::OpenSearchSink,
     ];
 
     for sink in append_only {
@@ -188,6 +189,24 @@ fn clickhouse_pipeline_is_supported_as_at_least_once() {
         .diagnostics
         .iter()
         .any(|diagnostic| diagnostic.code == DiagnosticCode::ClickHouseAtLeastOnce));
+}
+
+#[test]
+fn opensearch_pipeline_is_append_only_and_reports_restart_semantics() {
+    let report = validate_pipeline(
+        &source(),
+        &EndpointDescriptor::OpenSearchSink,
+        &discovery(),
+        false,
+    );
+    assert_eq!(report.guarantee, DeliveryGuarantee::AtLeastOnce);
+    assert!(report.ensure_valid().is_ok());
+    assert!(report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == DiagnosticCode::OpenSearchAtLeastOnce));
+    assert!(!EndpointDescriptor::OpenSearchSink
+        .accepts_record_semantics(RecordSemantics::Changelog));
 }
 
 #[test]

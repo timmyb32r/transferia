@@ -19,6 +19,7 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
             "logbroker",
             "kafka",
             "mysql",
+            "opensearch",
             "postgres",
             "clickhouse",
             "s3",
@@ -44,6 +45,13 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
         .iter()
         .find(|definition| definition.key == "ydb")
         .is_some_and(|definition| definition.source.is_some() && definition.sink.is_some()));
+    let opensearch = catalog
+        .definitions()
+        .iter()
+        .find(|definition| definition.key == "opensearch")
+        .ok_or_else(|| anyhow::anyhow!("missing OpenSearch definition"))?;
+    assert_eq!(opensearch.title, "OpenSearch");
+    assert!(opensearch.source.is_some() && opensearch.sink.is_some());
     assert!(catalog
         .definitions()
         .iter()
@@ -685,6 +693,50 @@ fn kafka_connection_fields_are_owned_by_its_installation() -> anyhow::Result<()>
             .schema
             .pointer("/properties/installation/oneOf/0/properties/brokers")
             .is_some());
+    }
+    Ok(())
+}
+
+#[test]
+fn opensearch_connection_fields_are_owned_by_its_installation() -> anyhow::Result<()> {
+    let catalog = build_connector_catalog(&Arc::new(MetricsRegistry::new()))?;
+    let opensearch = catalog
+        .definitions()
+        .iter()
+        .find(|definition| definition.key == "opensearch")
+        .ok_or_else(|| anyhow::anyhow!("missing OpenSearch connector"))?;
+
+    for endpoint in [opensearch.source.as_ref(), opensearch.sink.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        assert_eq!(
+            endpoint.initial.pointer("/installation/type"),
+            Some(&serde_json::json!("on_premise"))
+        );
+        assert_eq!(
+            endpoint.initial.pointer("/installation/trusted_plaintext"),
+            Some(&serde_json::json!(false)),
+            "OpenSearch must not send default Basic credentials over plaintext"
+        );
+        for field in ["hosts", "port", "trusted_plaintext", "tls_ca_file"] {
+            assert!(
+                endpoint
+                    .schema
+                    .pointer(&format!("/properties/{field}"))
+                    .is_none(),
+                "OpenSearch connection field '{field}' must not be duplicated at the endpoint root"
+            );
+            assert!(
+                endpoint
+                    .schema
+                    .pointer(&format!(
+                        "/properties/installation/oneOf/0/properties/{field}"
+                    ))
+                    .is_some(),
+                "OpenSearch installation must own '{field}'"
+            );
+        }
     }
     Ok(())
 }

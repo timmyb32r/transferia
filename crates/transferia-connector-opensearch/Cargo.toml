@@ -1,0 +1,38 @@
+[package]
+name = "transferia-connector-opensearch"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+arrow.workspace = true
+base64.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+reqwest.workspace = true
+rustls-pemfile.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+transferia-connector-support = { path = "../transferia-connector-support" }
+transferia-core = { path = "../transferia-core" }
+transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
+transferia-registry = { path = "../transferia-registry" }
+
+[dev-dependencies]
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+serde_yaml.workspace = true
+testcontainers.workspace = true
+transferia-test-support = { path = "../transferia-test-support" }
+
+[lints]
+workspace = true

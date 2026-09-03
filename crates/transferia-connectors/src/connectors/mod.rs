@@ -6,6 +6,7 @@ pub use transferia_connector_iceberg::iceberg;
 pub use transferia_connector_kafka::kafka;
 pub use transferia_connector_logbroker::logbroker;
 pub use transferia_connector_mysql::mysql;
+pub use transferia_connector_opensearch::opensearch;
 pub use transferia_connector_postgres::postgres;
 pub use transferia_connector_s3::s3;
 pub use transferia_connector_support::address;

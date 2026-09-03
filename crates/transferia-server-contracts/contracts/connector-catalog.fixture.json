@@ -4020,6 +4020,538 @@
       }
     },
     {
+      "key": "opensearch",
+      "title": "OpenSearch",
+      "source": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "OpenSearchSourceConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation",
+                "order": -80
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "hosts": {
+                      "type": "array",
+                      "title": "Hosts",
+                      "items": {
+                        "type": "string"
+                      },
+                      "x-ui": {
+                        "initial_items": 1
+                      }
+                    },
+                    "port": {
+                      "type": "integer",
+                      "title": "HTTP port",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "trusted_plaintext": {
+                      "type": "boolean",
+                      "title": "Trusted plaintext"
+                    },
+                    "tls_ca_file": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "TLS CA file"
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "hosts",
+                    "port",
+                    "trusted_plaintext",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "auth": {
+              "$ref": "#/$defs/OpenSearchAuth"
+            },
+            "request_timeout_ms": {
+              "title": "Request timeout, ms",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 1,
+              "default": 30000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "max_response_bytes": {
+              "title": "Maximum response bytes",
+              "description": "Maximum accepted uncompressed body for one OpenSearch response",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1,
+              "default": 67108864,
+              "x-ui": {
+                "section": "advanced",
+                "widget": "byte_size"
+              }
+            },
+            "indices": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/IndexConfig"
+              },
+              "x-ui": {
+                "widget": "compact_array",
+                "item_label": "index"
+              }
+            },
+            "page_rows": {
+              "title": "Rows per search page",
+              "description": "Maximum documents returned by one sliced point-in-time request",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1,
+              "default": 10000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "read_concurrency": {
+              "title": "Parallel shard readers",
+              "description": "Maximum simultaneous slice page requests per index",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1,
+              "default": 4,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "pit_keep_alive_ms": {
+              "title": "Point-in-time keep alive, ms",
+              "description": "OpenSearch renews the coherent index PIT lifetime on every snapshot page request",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 1,
+              "default": 300000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "retry_initial_ms": {
+              "title": "Retry initial delay, ms",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 1,
+              "default": 100,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "retry_max_ms": {
+              "title": "Retry maximum delay, ms",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 1,
+              "default": 10000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "retry_max_attempts": {
+              "title": "Retry maximum attempts",
+              "description": "Total attempts for one unchanged PIT operation before failing",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1,
+              "default": 10,
+              "x-ui": {
+                "section": "advanced"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "auth",
+            "indices",
+            "installation"
+          ],
+          "$defs": {
+            "OpenSearchAuth": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "basic"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "username",
+                    "password"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "anonymous"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "IndexConfig": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name"
+              ]
+            }
+          }
+        },
+        "initial": {
+          "max_response_bytes": 67108864,
+          "request_timeout_ms": 30000,
+          "retry_max_attempts": 10,
+          "auth": {
+            "type": "basic",
+            "username": "",
+            "password": ""
+          },
+          "indices": [
+            {
+              "name": "index"
+            }
+          ],
+          "page_rows": 10000,
+          "read_concurrency": 4,
+          "pit_keep_alive_ms": 300000,
+          "retry_initial_ms": 100,
+          "retry_max_ms": 10000,
+          "installation": {
+            "hosts": [
+              ""
+            ],
+            "port": 9200,
+            "trusted_plaintext": false,
+            "tls_ca_file": null,
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [
+          "batch"
+        ],
+        "record_semantics": [
+          "append_only"
+        ],
+        "partitioned": false,
+        "connection_check": true,
+        "message_preview": false
+      },
+      "sink": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "OpenSearchSinkConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation",
+                "order": -80
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "hosts": {
+                      "type": "array",
+                      "title": "Hosts",
+                      "items": {
+                        "type": "string"
+                      },
+                      "x-ui": {
+                        "initial_items": 1
+                      }
+                    },
+                    "port": {
+                      "type": "integer",
+                      "title": "HTTP port",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "trusted_plaintext": {
+                      "type": "boolean",
+                      "title": "Trusted plaintext"
+                    },
+                    "tls_ca_file": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "TLS CA file"
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "hosts",
+                    "port",
+                    "trusted_plaintext",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "auth": {
+              "$ref": "#/$defs/OpenSearchAuth"
+            },
+            "request_timeout_ms": {
+              "title": "Request timeout, ms",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 1,
+              "default": 30000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "max_response_bytes": {
+              "title": "Maximum response bytes",
+              "description": "Maximum accepted uncompressed body for one OpenSearch response",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1,
+              "default": 67108864,
+              "x-ui": {
+                "section": "advanced",
+                "widget": "byte_size"
+              }
+            },
+            "create_indices": {
+              "type": "boolean"
+            },
+            "routed_identity": {
+              "title": "Custom routing identity",
+              "description": "Controls custom-routed source documents. The default fails before any\nrequest. `encode_identity` is an explicit, injective destination `_id`\ntransformation that preserves (`_id`, effective routing key) identity.",
+              "$ref": "#/$defs/RoutedIdentity",
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "bulk_target_rows": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1,
+              "default": 10000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "bulk_target_bytes": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1,
+              "default": 16777216,
+              "x-ui": {
+                "section": "advanced",
+                "widget": "byte_size"
+              }
+            },
+            "bulk_concurrency": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1,
+              "maximum": 32,
+              "default": 4,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "flush_interval_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 1,
+              "default": 250,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "retry_initial_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 1,
+              "default": 100,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "retry_max_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 1,
+              "default": 10000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "retry_max_attempts": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 1,
+              "default": 10,
+              "x-ui": {
+                "section": "advanced"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "auth",
+            "create_indices",
+            "installation"
+          ],
+          "$defs": {
+            "OpenSearchAuth": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "basic"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "username",
+                    "password"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "anonymous"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "RoutedIdentity": {
+              "oneOf": [
+                {
+                  "title": "Fail on custom routing",
+                  "description": "Reject custom-routed source documents because OpenSearch does not make\n(`_id`, `_routing`) globally unique across shards.",
+                  "type": "string",
+                  "const": "fail"
+                },
+                {
+                  "title": "Encode the complete routed identity",
+                  "description": "Explicitly replace destination `_id` with a lossless encoding of the\ncomplete (`_id`, effective routing key) source identity.",
+                  "type": "string",
+                  "const": "encode_identity"
+                }
+              ]
+            }
+          }
+        },
+        "initial": {
+          "retry_max_attempts": 10,
+          "retry_max_ms": 10000,
+          "retry_initial_ms": 100,
+          "auth": {
+            "type": "basic",
+            "username": "",
+            "password": ""
+          },
+          "request_timeout_ms": 30000,
+          "max_response_bytes": 67108864,
+          "create_indices": true,
+          "routed_identity": "fail",
+          "bulk_target_rows": 10000,
+          "bulk_target_bytes": 16777216,
+          "bulk_concurrency": 4,
+          "flush_interval_ms": 250,
+          "installation": {
+            "hosts": [
+              ""
+            ],
+            "port": 9200,
+            "trusted_plaintext": false,
+            "tls_ca_file": null,
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [],
+        "record_semantics": [
+          "append_only"
+        ],
+        "partitioned": false,
+        "connection_check": true,
+        "message_preview": false
+      }
+    },
+    {
       "key": "postgres",
       "title": "PostgreSQL",
       "source": {
@@ -6602,10 +7134,16 @@
               "type": "none"
             }
           },
+          "parquet_range_fetch_concurrency": 10,
+          "namespace": "default",
           "table_names": [
             ""
           ],
-          "namespace": "default",
+          "read_batch_rows": 65536,
+          "read_data_file_concurrency": 32,
+          "read_manifest_concurrency": 32,
+          "parquet_metadata_size_hint_bytes": 524288,
+          "parquet_range_coalesce_bytes": 1048576,
           "installation": {
             "type": "on_premise",
             "storage": {
@@ -7310,6 +7848,26 @@
               "format": "uint",
               "minimum": 0,
               "default": 65536,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "session_shutdown_timeout_ms": {
+              "title": "Session shutdown timeout, ms",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 60000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "session_shutdown_retry_initial_ms": {
+              "title": "Session shutdown retry backoff, ms",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 50,
               "x-ui": {
                 "section": "advanced"
               }
@@ -8837,7 +9395,19 @@
             "type": "token",
             "token": ""
           },
+          "primary_key_sort_timeout_ms": 86400000,
+          "table_writer": {
+            "block_size": 16777216,
+            "max_buffer_size": 16777216,
+            "writer_window_size": 67108864,
+            "writer_group_size": 16777216,
+            "desired_chunk_size": 2147483648
+          },
+          "write_flush_interval_ms": 1000,
+          "write_row_buffer_bytes": 1048576,
           "timeout_ms": 30000,
+          "write_target_bytes": 536870912,
+          "write_concurrency": 4,
           "installation": {
             "host": "",
             "port": 8000,

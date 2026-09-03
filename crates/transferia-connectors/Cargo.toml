@@ -21,6 +21,7 @@ transferia-connector-iceberg = { path = "../transferia-connector-iceberg" }
 transferia-connector-kafka = { path = "../transferia-connector-kafka" }
 transferia-connector-logbroker = { path = "../transferia-connector-logbroker" }
 transferia-connector-mysql = { path = "../transferia-connector-mysql" }
+transferia-connector-opensearch = { path = "../transferia-connector-opensearch" }
 transferia-connector-postgres = { path = "../transferia-connector-postgres" }
 transferia-connector-s3 = { path = "../transferia-connector-s3" }
 transferia-connector-support = { path = "../transferia-connector-support" }

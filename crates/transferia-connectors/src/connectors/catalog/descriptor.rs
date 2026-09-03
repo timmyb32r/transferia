@@ -55,6 +55,14 @@ const MYSQL_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor
     networked: true,
 });
 
+const OPENSEARCH_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
+    installation: Some(InstallationContract {
+        output_fields: &["hosts", "port", "trusted_plaintext", "tls_ca_file"],
+        required_output_fields: &["hosts", "port", "trusted_plaintext"],
+    }),
+    networked: true,
+});
+
 const CLICKHOUSE_SOURCE_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
     installation: Some(InstallationContract {
         output_fields: &[
@@ -149,6 +157,12 @@ pub(super) static CONNECTORS: &[ConnectorDescriptor] = &[
         title: "MySQL",
         source: MYSQL_ROLE,
         sink: MYSQL_ROLE,
+    },
+    ConnectorDescriptor {
+        key: "opensearch",
+        title: "OpenSearch",
+        source: OPENSEARCH_ROLE,
+        sink: OPENSEARCH_ROLE,
     },
     ConnectorDescriptor {
         key: "postgres",

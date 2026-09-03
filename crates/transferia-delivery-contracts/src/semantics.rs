@@ -19,6 +19,7 @@ pub enum EndpointDescriptor {
     YdbSource(SourceDescriptor),
     YTsaurus(SourceDescriptor),
     ClickHouseSource(SourceDescriptor),
+    OpenSearchSource(SourceDescriptor),
     S3Source(SourceDescriptor),
     IcebergSource(SourceDescriptor),
     DataGenerator(SourceDescriptor),
@@ -29,6 +30,7 @@ pub enum EndpointDescriptor {
     LogbrokerSink(QueueSinkDescriptor),
     KafkaSink(QueueSinkDescriptor),
     ClickHouse,
+    OpenSearchSink,
     S3(S3Descriptor),
     IcebergSink,
     /// Benchmark-only sink which durably stores nothing.
@@ -46,6 +48,7 @@ impl EndpointDescriptor {
             | Self::YdbSource(source)
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
+            | Self::OpenSearchSource(source)
             | Self::S3Source(source)
             | Self::IcebergSource(source)
             | Self::DataGenerator(source) => Some(source.behavior),
@@ -56,6 +59,7 @@ impl EndpointDescriptor {
             | Self::LogbrokerSink(_)
             | Self::KafkaSink(_)
             | Self::ClickHouse
+            | Self::OpenSearchSink
             | Self::S3(_)
             | Self::IcebergSink
             | Self::Discard => None,
@@ -72,6 +76,7 @@ impl EndpointDescriptor {
             | Self::YdbSource(source)
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
+            | Self::OpenSearchSource(source)
             | Self::S3Source(source)
             | Self::IcebergSource(source)
             | Self::DataGenerator(source) => source.delivery_modes.supports(delivery_type),
@@ -82,6 +87,7 @@ impl EndpointDescriptor {
             | Self::LogbrokerSink(_)
             | Self::KafkaSink(_)
             | Self::ClickHouse
+            | Self::OpenSearchSink
             | Self::S3(_)
             | Self::IcebergSink
             | Self::Discard => false,
@@ -111,6 +117,7 @@ impl EndpointDescriptor {
                     | Self::LogbrokerSink(_)
                     | Self::KafkaSink(_)
                     | Self::ClickHouse
+                    | Self::OpenSearchSink
                     | Self::S3(_)
                     | Self::IcebergSink
                     | Self::Discard
@@ -245,6 +252,7 @@ pub enum DiagnosticCode {
     WallClockRotationDisablesExactlyOnce,
     DeterministicS3Commit,
     ClickHouseAtLeastOnce,
+    OpenSearchAtLeastOnce,
     MySqlAtLeastOnce,
     PostgresAtLeastOnce,
     YdbAtLeastOnce,
@@ -355,6 +363,18 @@ pub fn validate_pipeline(
                 config_paths: vec!["sink.clickhouse".into()],
                 explanation: "ClickHouse INSERT completion precedes source commit, but a retry after an ambiguous INSERT result may duplicate rows".into(),
                 remediation: Some("use a ClickHouse-side deduplication strategy if exactly-once final state is required".into()),
+            }],
+        };
+    }
+    if matches!(sink, EndpointDescriptor::OpenSearchSink) {
+        return DeliverySemanticsReport {
+            guarantee: DeliveryGuarantee::AtLeastOnce,
+            diagnostics: vec![SemanticsDiagnostic {
+                code: DiagnosticCode::OpenSearchAtLeastOnce,
+                severity: DiagnosticSeverity::Info,
+                config_paths: vec!["sink.opensearch".into()],
+                explanation: "OpenSearch bulk completion precedes source progress commit; deterministic document IDs make exact replay idempotent, but a changed snapshot can replace the same key with a newer value".into(),
+                remediation: Some("use an immutable source snapshot when exact snapshot identity across restart is required".into()),
             }],
         };
     }
