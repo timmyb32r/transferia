@@ -3,8 +3,8 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use futures_util::SinkExt as _;
 
-use super::copy_binary;
-use crate::connectors::postgres::common::quote_identifier;
+use super::{copy_binary, copy_text};
+use crate::connectors::postgres::common::{quote_identifier, PostgresCopyFormat};
 use crate::metrics::SinkCounters;
 use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
 use transferia_core::failure::DataPlaneFailure;
@@ -16,6 +16,8 @@ pub struct PostgresSink {
     counters: Arc<SinkCounters>,
     discovery: Arc<DeliveryDiscovery>,
     limits: Arc<dyn SinkLimits>,
+
+    copy_format: PostgresCopyFormat,
 }
 
 impl PostgresSink {
@@ -24,12 +26,14 @@ impl PostgresSink {
         counters: Arc<SinkCounters>,
         discovery: Arc<DeliveryDiscovery>,
         limits: Arc<dyn SinkLimits>,
+        copy_format: PostgresCopyFormat,
     ) -> Self {
         Self {
             client,
             counters,
             discovery,
             limits,
+            copy_format,
         }
     }
 
@@ -52,7 +56,13 @@ impl PostgresSink {
             match projected {
                 ProjectedSinkBatch::AppendOnly(stored) => {
                     if stored.num_rows() > 0 {
-                        copy_batch(&transaction, &batch.table, &stored).await?;
+                        copy_batch(
+                            &transaction,
+                            &batch.table,
+                            &stored,
+                            self.copy_format,
+                        )
+                        .await?;
                         flushes += 1;
                     }
                 }
@@ -75,7 +85,13 @@ impl PostgresSink {
                             &run.batch,
                         )
                         .await?;
-                        copy_batch(&transaction, &staging, &run.batch).await?;
+                        copy_batch(
+                            &transaction,
+                            &staging,
+                            &run.batch,
+                            self.copy_format,
+                        )
+                        .await?;
                         match run.operation {
                             transferia_core::ChangeOperation::Create
                             | transferia_core::ChangeOperation::SnapshotRead => {
@@ -231,6 +247,7 @@ async fn copy_batch(
     transaction: &tokio_postgres::Transaction<'_>,
     table: &str,
     batch: &arrow::record_batch::RecordBatch,
+    format: PostgresCopyFormat,
 ) -> anyhow::Result<()> {
     let columns = batch
         .schema()
@@ -239,11 +256,20 @@ async fn copy_batch(
         .map(|field| quote_identifier(field.name()))
         .collect::<Vec<_>>()
         .join(", ");
+    let (wire_format, payload) = match format {
+        PostgresCopyFormat::Binary => (
+            "BINARY",
+            copy_binary::encode(batch).map_err(DataPlaneFailure::fatal)?,
+        ),
+        PostgresCopyFormat::Text => (
+            "TEXT",
+            copy_text::encode(batch).map_err(DataPlaneFailure::fatal)?,
+        ),
+    };
     let query = format!(
-        "COPY {} ({columns}) FROM STDIN BINARY",
+        "COPY {} ({columns}) FROM STDIN (FORMAT {wire_format})",
         quote_identifier(table)
     );
-    let payload = copy_binary::encode(batch).map_err(DataPlaneFailure::fatal)?;
     let sink = transaction.copy_in(&query).await?;
     tokio::pin!(sink);
     sink.as_mut().send(payload).await?;

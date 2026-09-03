@@ -1,7 +1,9 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::connectors::postgres::common::{validate_identifier, PostgresConnectionConfig};
+use crate::connectors::postgres::common::{
+    validate_identifier, PostgresConnectionConfig, PostgresCopyFormat,
+};
 use crate::connectors::postgres::src_stream::PostgresReplicationConfig;
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -15,6 +17,14 @@ pub struct PostgresSourceConfig {
     #[serde(default = "default_batch_rows")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub batch_rows: usize,
+
+    #[serde(default)]
+    #[schemars(
+        title = "COPY TO format",
+        description = "PostgreSQL wire format used for snapshot COPY TO STDOUT",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub copy_to_format: PostgresCopyFormat,
 
     /// Enables an infinite logical-replication stream instead of a finite snapshot.
     #[serde(default)]

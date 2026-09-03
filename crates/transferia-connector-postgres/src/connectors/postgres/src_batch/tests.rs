@@ -1,8 +1,101 @@
-use super::reader::source_column_expression;
+use super::copy_out::{CopyDecoder, DecodeState};
+use super::reader::{decode_i8, source_column_expression};
+use bytes::Bytes;
 use arrow::datatypes::DataType;
 use tokio_postgres::types::{Kind, Type};
 
 use crate::connectors::postgres::common::postgres_to_arrow;
+use crate::connectors::postgres::PostgresCopyFormat;
+
+#[test]
+fn binary_copy_decoder_handles_fragmented_header_rows_nulls_and_trailer() {
+    let mut wire = Vec::new();
+    wire.extend_from_slice(b"PGCOPY\n\xFF\r\n\0");
+    wire.extend_from_slice(&0_i32.to_be_bytes());
+    wire.extend_from_slice(&0_i32.to_be_bytes());
+    wire.extend_from_slice(&2_i16.to_be_bytes());
+    wire.extend_from_slice(&4_i32.to_be_bytes());
+    wire.extend_from_slice(&7_i32.to_be_bytes());
+    wire.extend_from_slice(&(-1_i32).to_be_bytes());
+    wire.extend_from_slice(&(-1_i16).to_be_bytes());
+
+    let mut decoder = CopyDecoder::new(PostgresCopyFormat::Binary, 2);
+    for chunk in wire.chunks(3) {
+        decoder.push(chunk).unwrap();
+    }
+    let DecodeState::Row(row) = decoder.next().unwrap() else {
+        panic!("expected one decoded row");
+    };
+    assert_eq!(row.fields[0].as_deref(), Some(7_i32.to_be_bytes().as_slice()));
+    assert_eq!(row.fields[1], None);
+    assert!(matches!(decoder.next().unwrap(), DecodeState::End));
+    decoder.finish().unwrap();
+}
+
+#[test]
+fn binary_copy_decoder_rejects_partial_or_malformed_frames() {
+    let mut partial = CopyDecoder::new(PostgresCopyFormat::Binary, 1);
+    partial.push(b"PGCOPY\n\xFF\r\n\0").unwrap();
+    assert!(partial.finish().is_err());
+
+    let mut invalid = CopyDecoder::new(PostgresCopyFormat::Binary, 1);
+    let mut wire = Vec::from(b"PGCOPY\n\xFF\r\n\0".as_slice());
+    wire.extend_from_slice(&1_i32.to_be_bytes());
+    wire.extend_from_slice(&0_i32.to_be_bytes());
+    invalid.push(&wire).unwrap();
+    assert!(invalid.next().is_err());
+}
+
+#[test]
+fn text_copy_decoder_preserves_escapes_and_distinguishes_null() {
+    let mut decoder = CopyDecoder::new(PostgresCopyFormat::Text, 3);
+    decoder.push(b"hello\\tworld\t\\N\t\\\\N\\nline").unwrap();
+    assert!(matches!(decoder.next().unwrap(), DecodeState::NeedMore));
+    decoder.push(b"\\\\tail\n").unwrap();
+    let DecodeState::Row(row) = decoder.next().unwrap() else {
+        panic!("expected one decoded text row");
+    };
+    assert_eq!(row.fields[0], Some(Bytes::from_static(b"hello\tworld")));
+    assert_eq!(row.fields[1], None);
+    assert_eq!(row.fields[2], Some(Bytes::from_static(b"\\N\nline\\tail")));
+    decoder.finish().unwrap();
+    assert!(matches!(decoder.next().unwrap(), DecodeState::End));
+}
+
+#[test]
+fn text_copy_decoder_supports_octal_and_hex_and_rejects_bad_shape() {
+    let mut decoder = CopyDecoder::new(PostgresCopyFormat::Text, 1);
+    decoder.push(b"a\\101\\x42\n").unwrap();
+    let DecodeState::Row(row) = decoder.next().unwrap() else {
+        panic!("expected one decoded text row");
+    };
+    assert_eq!(row.fields[0], Some(Bytes::from_static(b"aAB")));
+
+    let mut wrong_columns = CopyDecoder::new(PostgresCopyFormat::Text, 2);
+    wrong_columns.push(b"one\n").unwrap();
+    assert!(wrong_columns.next().is_err());
+
+    let mut partial = CopyDecoder::new(PostgresCopyFormat::Text, 1);
+    partial.push(b"unterminated").unwrap();
+    assert!(partial.finish().is_err());
+}
+
+#[test]
+fn text_copy_char_decoder_covers_the_complete_postgres_internal_char_domain() {
+    for byte in u8::MIN..=u8::MAX {
+        let text = match byte {
+            0 => Vec::new(),
+            1..=127 => vec![byte],
+            _ => format!("\\{byte:03o}").into_bytes(),
+        };
+        assert_eq!(
+            decode_i8(&text, PostgresCopyFormat::Text).unwrap(),
+            i8::from_ne_bytes([byte])
+        );
+    }
+    assert!(decode_i8(b"128", PostgresCopyFormat::Text).is_err());
+    assert!(decode_i8(b"\\400", PostgresCopyFormat::Text).is_err());
+}
 
 #[test]
 fn postgres_types_use_native_arrow_where_lossless_and_canonical_text_otherwise() {

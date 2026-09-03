@@ -4,6 +4,7 @@ use arrow::datatypes::DataType;
 
 use super::config::PostgresSourceConfig;
 use super::connector::{incoming_user_schema, PostgresSourceConnector};
+use crate::connectors::postgres::PostgresCopyFormat;
 use crate::metrics::MetricsRegistry;
 use transferia_delivery_contracts::semantics::{RecordSemantics, SourceBehavior};
 use transferia_registry::SourceConnector;
@@ -27,6 +28,21 @@ fn source_config_requires_explicit_plaintext_trust_and_tables() {
     let config: PostgresSourceConfig =
         serde_yaml::from_str("host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: false\ntables: []\n").unwrap();
     assert!(config.validate().is_err());
+}
+
+#[test]
+fn snapshot_copy_to_format_defaults_to_binary_and_accepts_explicit_text() {
+    let binary: PostgresSourceConfig = serde_yaml::from_str(
+        "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - name: events\n",
+    )
+    .unwrap();
+    let text: PostgresSourceConfig = serde_yaml::from_str(
+        "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ncopy_to_format: text\ntables:\n  - name: events\n",
+    )
+    .unwrap();
+
+    assert_eq!(binary.copy_to_format, PostgresCopyFormat::Binary);
+    assert_eq!(text.copy_to_format, PostgresCopyFormat::Text);
 }
 
 #[test]

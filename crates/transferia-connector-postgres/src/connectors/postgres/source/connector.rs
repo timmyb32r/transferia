@@ -338,6 +338,7 @@ impl SourceConnector for PostgresSourceConnector {
                     incoming_user_schema(&table.schema),
                     self.config.connection.database.clone(),
                     self.config.batch_rows,
+                    self.config.copy_to_format,
                     counters,
                 )
                 .await?,

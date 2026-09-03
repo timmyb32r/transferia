@@ -7,13 +7,14 @@ use arrow::array::{
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
-use tokio_postgres::{Client, Column, Row, Statement};
+use tokio_postgres::{Client, Column, Statement};
 
 use crate::connectors::postgres::common::{
-    postgres_requires_text_projection, postgres_to_arrow, quote_identifier,
+    postgres_requires_text_projection, postgres_to_arrow, quote_identifier, PostgresCopyFormat,
 };
 use crate::connectors::postgres::source::{TableConfig, POSTGRES_SOURCE_METADATA_COLUMNS};
 use crate::metrics::SourceCounters;
+use super::copy_out::{CopyOutReader, RawCopyRow};
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::DatasetSchema;
 use transferia_core::data::schema::SchemaColumn;
@@ -25,14 +26,31 @@ use transferia_core::source::{CommitMarker, Source};
 pub struct PostgresSource {
     client: Client,
     table: TableConfig,
+
     statement: Statement,
+
+    copy: Option<CopyOutReader>,
+
     schema: DatasetSchema,
+
     database: String,
+
+    batch_rows: usize,
+
+    copy_format: PostgresCopyFormat,
+
     snapshot_lsn: i64,
+
     snapshot_transaction_id: u64,
+
     snapshot_timestamp_ns: i64,
+
     offset: i64,
+
+    copy_done: bool,
+
     finished: bool,
+
     counters: Arc<SourceCounters>,
 }
 
@@ -43,6 +61,7 @@ impl PostgresSource {
         schema: DatasetSchema,
         database: String,
         batch_rows: usize,
+        copy_format: PostgresCopyFormat,
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
         let metadata = client
@@ -53,13 +72,23 @@ impl PostgresSource {
             ))
             .await?;
         let projection = source_select_projection(metadata.columns())?;
-        let query = format!(
-            "DECLARE transferia_source_cursor NO SCROLL CURSOR FOR SELECT {projection} FROM {}.{}",
+        let select = format!(
+            "SELECT {projection} FROM {}.{}",
             quote_identifier(&table.schema),
             quote_identifier(&table.name)
         );
+        let statement = client.prepare(&format!("{select} LIMIT 0")).await?;
         client
             .batch_execute("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await?;
+        client
+            .batch_execute(
+                "SET LOCAL DateStyle = 'ISO, YMD';\
+                 SET LOCAL IntervalStyle = 'postgres';\
+                 SET LOCAL TimeZone = 'UTC';\
+                 SET LOCAL bytea_output = 'hex';\
+                 SET LOCAL extra_float_digits = 3;",
+            )
             .await?;
         let snapshot = client
             .query_one(
@@ -70,22 +99,28 @@ impl PostgresSource {
         let snapshot_lsn = snapshot.try_get::<_, i64>(0)?;
         let snapshot_transaction_id = snapshot.try_get::<_, &str>(1)?.parse::<u64>()?;
         let snapshot_timestamp_ns = snapshot.try_get::<_, i64>(2)?;
-        client.batch_execute(&query).await?;
-        let statement = client
-            .prepare(&format!(
-                "FETCH FORWARD {batch_rows} FROM transferia_source_cursor"
-            ))
+        let format = match copy_format {
+            PostgresCopyFormat::Binary => "BINARY",
+            PostgresCopyFormat::Text => "TEXT",
+        };
+        let stream = client
+            .copy_out(&format!("COPY ({select}) TO STDOUT (FORMAT {format})"))
             .await?;
+        let copy = CopyOutReader::new(stream, copy_format, statement.columns().len());
         Ok(Self {
             client,
             table,
             statement,
+            copy: Some(copy),
             schema,
             database,
+            batch_rows,
+            copy_format,
             snapshot_lsn,
             snapshot_transaction_id,
             snapshot_timestamp_ns,
             offset: 0,
+            copy_done: false,
             finished: false,
             counters,
         })
@@ -121,11 +156,21 @@ impl Source for PostgresSource {
             if self.finished {
                 return Ok(SourceBatch::Finished);
             }
-            let rows = self
-                .client
-                .query(&self.statement, &[])
-                .await
-                .map_err(|error| DataPlaneFailure::retryable(error.into()))?;
+            let mut rows = Vec::with_capacity(self.batch_rows);
+            while rows.len() < self.batch_rows && !self.copy_done {
+                let copy = self.copy.as_mut().ok_or_else(|| {
+                    DataPlaneFailure::fatal(anyhow::anyhow!(
+                        "PostgreSQL COPY reader is unavailable before snapshot completion"
+                    ))
+                })?;
+                match copy.next_row(&self.counters).await? {
+                    Some(row) => rows.push(row),
+                    None => {
+                        self.copy_done = true;
+                        self.copy = None;
+                    }
+                }
+            }
             if rows.is_empty() {
                 self.client
                     .batch_execute("COMMIT")
@@ -139,6 +184,7 @@ impl Source for PostgresSource {
                 &self.schema,
                 &self.statement,
                 &rows,
+                self.copy_format,
                 self.offset,
                 SnapshotMetadata {
                     database: &self.database,
@@ -160,8 +206,6 @@ impl Source for PostgresSource {
                     DataPlaneFailure::fatal(anyhow::anyhow!("PostgreSQL source offset overflow"))
                 })?;
             self.counters.add_records(source_rows);
-            self.counters
-                .add_network_decoded_bytes(batch.get_array_memory_size() as u64);
             Ok(SourceBatch::Typed {
                 tables: vec![TableData::new(
                     Arc::from(self.table.name.as_str()),
@@ -183,6 +227,21 @@ impl Source for PostgresSource {
         _markers: &'a [CommitMarker],
     ) -> BoxFuture<'a, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async { Ok(()) })
+    }
+
+    fn shutdown(&mut self) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<()>> {
+        Box::pin(async move {
+            self.copy = None;
+            if self.finished {
+                return Ok(());
+            }
+            self.client
+                .batch_execute("ROLLBACK")
+                .await
+                .map_err(|error| DataPlaneFailure::retryable(error.into()))?;
+            self.finished = true;
+            Ok(())
+        })
     }
 }
 
@@ -214,7 +273,8 @@ fn routing_system_columns(base: usize) -> SystemColumns {
 fn rows_to_batch(
     discovered_schema: &DatasetSchema,
     statement: &Statement,
-    rows: &[Row],
+    rows: &[RawCopyRow],
+    copy_format: PostgresCopyFormat,
     start_offset: i64,
     snapshot: SnapshotMetadata<'_>,
 ) -> anyhow::Result<RecordBatch> {
@@ -246,7 +306,7 @@ fn rows_to_batch(
             data_type
         );
         fields.push(Field::new(column.name(), data_type, discovered.nullable));
-        arrays.push(column_array(rows, index, column.type_())?);
+        arrays.push(column_array(rows, index, column.type_(), copy_format)?);
     }
     let len = rows.len();
     let len_i64 = i64::try_from(len)?;
@@ -331,41 +391,184 @@ fn snapshot_metadata_arrays(snapshot: SnapshotMetadata<'_>, len: usize) -> Vec<A
 }
 
 fn column_array(
-    rows: &[Row],
+    rows: &[RawCopyRow],
     index: usize,
     data_type: &tokio_postgres::types::Type,
+    copy_format: PostgresCopyFormat,
 ) -> anyhow::Result<ArrayRef> {
     macro_rules! primitive {
-        ($ty:ty, $array:ty) => {
+        ($ty:ty, $array:ty, $decode:ident) => {
             Arc::new(<$array>::from(
                 rows.iter()
-                    .map(|row| row.get::<_, Option<$ty>>(index))
-                    .collect::<Vec<_>>(),
+                    .map(|row| {
+                        row.fields[index]
+                            .as_deref()
+                            .map(|value| $decode(value, copy_format))
+                            .transpose()
+                    })
+                    .collect::<anyhow::Result<Vec<Option<$ty>>>>()?,
             )) as ArrayRef
         };
     }
     Ok(match *data_type {
-        tokio_postgres::types::Type::BOOL => primitive!(bool, BooleanArray),
-        tokio_postgres::types::Type::CHAR => primitive!(i8, Int8Array),
-        tokio_postgres::types::Type::INT2 => primitive!(i16, Int16Array),
-        tokio_postgres::types::Type::INT4 => primitive!(i32, Int32Array),
-        tokio_postgres::types::Type::INT8 => primitive!(i64, Int64Array),
-        tokio_postgres::types::Type::OID => primitive!(u32, UInt32Array),
-        tokio_postgres::types::Type::FLOAT4 => primitive!(f32, Float32Array),
-        tokio_postgres::types::Type::FLOAT8 => primitive!(f64, Float64Array),
-        tokio_postgres::types::Type::BYTEA => Arc::new(BinaryArray::from(
-            rows.iter()
-                .map(|row| row.get::<_, Option<&[u8]>>(index))
-                .collect::<Vec<_>>(),
-        )) as ArrayRef,
+        tokio_postgres::types::Type::BOOL => primitive!(bool, BooleanArray, decode_bool),
+        tokio_postgres::types::Type::CHAR => primitive!(i8, Int8Array, decode_i8),
+        tokio_postgres::types::Type::INT2 => primitive!(i16, Int16Array, decode_i16),
+        tokio_postgres::types::Type::INT4 => primitive!(i32, Int32Array, decode_i32),
+        tokio_postgres::types::Type::INT8 => primitive!(i64, Int64Array, decode_i64),
+        tokio_postgres::types::Type::OID => primitive!(u32, UInt32Array, decode_u32),
+        tokio_postgres::types::Type::FLOAT4 => primitive!(f32, Float32Array, decode_f32),
+        tokio_postgres::types::Type::FLOAT8 => primitive!(f64, Float64Array, decode_f64),
+        tokio_postgres::types::Type::BYTEA => {
+            let values = rows
+                .iter()
+                .map(|row| {
+                    row.fields[index]
+                        .as_deref()
+                        .map(|value| decode_binary(value, copy_format))
+                        .transpose()
+                })
+                .collect::<anyhow::Result<Vec<Option<Vec<u8>>>>>()?;
+            Arc::new(BinaryArray::from(
+                values.iter().map(Option::as_deref).collect::<Vec<_>>(),
+            )) as ArrayRef
+        }
         tokio_postgres::types::Type::TEXT
         | tokio_postgres::types::Type::VARCHAR
         | tokio_postgres::types::Type::BPCHAR
         | tokio_postgres::types::Type::NAME => Arc::new(StringArray::from(
             rows.iter()
-                .map(|row| row.get::<_, Option<&str>>(index))
-                .collect::<Vec<_>>(),
+                .map(|row| {
+                    row.fields[index]
+                        .as_deref()
+                        .map(decode_string)
+                        .transpose()
+                })
+                .collect::<anyhow::Result<Vec<Option<&str>>>>()?,
         )) as ArrayRef,
         _ => anyhow::bail!("unsupported PostgreSQL type '{}'", data_type.name()),
     })
+}
+
+fn decode_bool(value: &[u8], format: PostgresCopyFormat) -> anyhow::Result<bool> {
+    match format {
+        PostgresCopyFormat::Binary => {
+            anyhow::ensure!(value.len() == 1, "invalid PostgreSQL binary boolean length");
+            match value[0] {
+                0 => Ok(false),
+                1 => Ok(true),
+                other => anyhow::bail!("invalid PostgreSQL binary boolean value {other}"),
+            }
+        }
+        PostgresCopyFormat::Text => match value {
+            b"t" => Ok(true),
+            b"f" => Ok(false),
+            _ => anyhow::bail!("invalid PostgreSQL text boolean value"),
+        },
+    }
+}
+
+pub(super) fn decode_i8(value: &[u8], format: PostgresCopyFormat) -> anyhow::Result<i8> {
+    match format {
+        PostgresCopyFormat::Binary => {
+            anyhow::ensure!(value.len() == 1, "invalid PostgreSQL binary char length");
+            Ok(i8::from_be_bytes([value[0]]))
+        }
+        PostgresCopyFormat::Text if value.is_empty() => Ok(0),
+        PostgresCopyFormat::Text if value.len() == 1 => Ok(i8::from_ne_bytes([value[0]])),
+        PostgresCopyFormat::Text
+            if value.len() == 4
+                && value[0] == b'\\'
+                && value[1..].iter().all(|byte| matches!(byte, b'0'..=b'7')) =>
+        {
+            let decoded = value[1..].iter().fold(0_u16, |decoded, byte| {
+                decoded * 8 + u16::from(*byte - b'0')
+            });
+            anyhow::ensure!(decoded <= u16::from(u8::MAX), "invalid PostgreSQL text char octal value");
+            Ok(i8::from_ne_bytes([u8::try_from(decoded)?]))
+        }
+        PostgresCopyFormat::Text => anyhow::bail!("invalid PostgreSQL text char value"),
+    }
+}
+
+macro_rules! fixed_number_decoder {
+    ($name:ident, $ty:ty, $length:literal) => {
+        fn $name(value: &[u8], format: PostgresCopyFormat) -> anyhow::Result<$ty> {
+            match format {
+                PostgresCopyFormat::Binary => {
+                    let bytes: [u8; $length] = value.try_into().map_err(|_| {
+                        anyhow::anyhow!(
+                            "invalid PostgreSQL binary {} length {}",
+                            stringify!($ty),
+                            value.len()
+                        )
+                    })?;
+                    Ok(<$ty>::from_be_bytes(bytes))
+                }
+                PostgresCopyFormat::Text => Ok(decode_string(value)?.parse::<$ty>()?),
+            }
+        }
+    };
+}
+
+fixed_number_decoder!(decode_i16, i16, 2);
+fixed_number_decoder!(decode_i32, i32, 4);
+fixed_number_decoder!(decode_i64, i64, 8);
+fixed_number_decoder!(decode_u32, u32, 4);
+
+fn decode_f32(value: &[u8], format: PostgresCopyFormat) -> anyhow::Result<f32> {
+    match format {
+        PostgresCopyFormat::Binary => Ok(f32::from_bits(decode_u32(
+            value,
+            PostgresCopyFormat::Binary,
+        )?)),
+        PostgresCopyFormat::Text => parse_float(decode_string(value)?),
+    }
+}
+
+fn decode_f64(value: &[u8], format: PostgresCopyFormat) -> anyhow::Result<f64> {
+    match format {
+        PostgresCopyFormat::Binary => {
+            let bytes: [u8; 8] = value.try_into().map_err(|_| {
+                anyhow::anyhow!("invalid PostgreSQL binary f64 length {}", value.len())
+            })?;
+            Ok(f64::from_bits(u64::from_be_bytes(bytes)))
+        }
+        PostgresCopyFormat::Text => parse_float(decode_string(value)?),
+    }
+}
+
+fn parse_float<T>(value: &str) -> anyhow::Result<T>
+where
+    T: std::str::FromStr,
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    match value {
+        "Infinity" => "inf".parse::<T>().map_err(Into::into),
+        "-Infinity" => "-inf".parse::<T>().map_err(Into::into),
+        other => other.parse::<T>().map_err(Into::into),
+    }
+}
+
+fn decode_binary(value: &[u8], format: PostgresCopyFormat) -> anyhow::Result<Vec<u8>> {
+    if format == PostgresCopyFormat::Binary {
+        return Ok(value.to_vec());
+    }
+    let hex = value
+        .strip_prefix(b"\\x")
+        .ok_or_else(|| anyhow::anyhow!("PostgreSQL text bytea is not in forced hex format"))?;
+    anyhow::ensure!(
+        hex.len() % 2 == 0,
+        "PostgreSQL text bytea has an odd number of hex digits"
+    );
+    hex.chunks_exact(2)
+        .map(|pair| {
+            let text = std::str::from_utf8(pair)?;
+            Ok(u8::from_str_radix(text, 16)?)
+        })
+        .collect()
+}
+
+fn decode_string(value: &[u8]) -> anyhow::Result<&str> {
+    Ok(std::str::from_utf8(value)?)
 }

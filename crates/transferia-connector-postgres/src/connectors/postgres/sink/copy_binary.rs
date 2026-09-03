@@ -1,7 +1,7 @@
 use arrow::array::{
-    Array, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array, Int32Array,
-    Int64Array, StringArray, TimestampMicrosecondArray, TimestampMillisecondArray,
-    TimestampNanosecondArray, TimestampSecondArray,
+    Array, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array,
+    Int32Array, Int64Array, Int8Array, StringArray, TimestampMicrosecondArray,
+    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt32Array,
 };
 use arrow::datatypes::{DataType, TimeUnit};
 use arrow::record_batch::RecordBatch;
@@ -54,6 +54,10 @@ fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow
             output,
             [u8::from(downcast::<BooleanArray>(column)?.value(row))],
         ),
+        DataType::Int8 => fixed(
+            output,
+            downcast::<Int8Array>(column)?.value(row).to_be_bytes(),
+        ),
         DataType::Int16 => fixed(
             output,
             downcast::<Int16Array>(column)?.value(row).to_be_bytes(),
@@ -65,6 +69,10 @@ fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow
         DataType::Int64 => fixed(
             output,
             downcast::<Int64Array>(column)?.value(row).to_be_bytes(),
+        ),
+        DataType::UInt32 => fixed(
+            output,
+            downcast::<UInt32Array>(column)?.value(row).to_be_bytes(),
         ),
         DataType::Float32 => fixed(
             output,
@@ -80,10 +88,12 @@ fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow
                 .to_bits()
                 .to_be_bytes(),
         ),
-        DataType::Utf8 => field(
-            output,
-            downcast::<StringArray>(column)?.value(row).as_bytes(),
-        ),
+        DataType::Utf8 => {
+            let value = downcast::<StringArray>(column)?.value(row).as_bytes();
+            anyhow::ensure!(!value.contains(&0), "PostgreSQL text cannot store a NUL byte");
+            field(output, value)
+        }
+        DataType::Binary => field(output, downcast::<BinaryArray>(column)?.value(row)),
         DataType::Date32 => fixed(
             output,
             downcast::<Date32Array>(column)?
@@ -104,7 +114,12 @@ fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow
                     Some(downcast::<TimestampMicrosecondArray>(column)?.value(row))
                 }
                 TimeUnit::Nanosecond => {
-                    Some(downcast::<TimestampNanosecondArray>(column)?.value(row) / 1_000)
+                    let nanos = downcast::<TimestampNanosecondArray>(column)?.value(row);
+                    anyhow::ensure!(
+                        nanos.rem_euclid(1_000) == 0,
+                        "PostgreSQL timestamp has microsecond precision; nanosecond value {nanos} is not lossless"
+                    );
+                    Some(nanos / 1_000)
                 }
             }
             .and_then(|value| value.checked_sub(POSTGRES_EPOCH_MICROS))

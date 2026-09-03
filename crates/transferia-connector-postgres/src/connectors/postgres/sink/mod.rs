@@ -1,6 +1,7 @@
 mod config;
 mod connector;
 mod copy_binary;
+mod copy_text;
 mod writer;
 
 pub use config::PostgresSinkConfig;

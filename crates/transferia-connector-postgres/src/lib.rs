@@ -29,6 +29,7 @@ pub fn register(
                         "host": "", "port": 5432, "database": "", "username": "",
                         "password": "", "trusted_plaintext": true,
                         "tables": [{ "schema": "", "name": "" }], "batch_rows": 65536,
+                        "copy_to_format": "binary",
                         "replication": null
                     })
                 },
@@ -53,7 +54,8 @@ pub fn register(
                 || {
                     serde_json::json!({
                         "host": "", "port": 5432, "database": "", "username": "",
-                        "password": "", "trusted_plaintext": true, "create_tables": true
+                        "password": "", "trusted_plaintext": true, "create_tables": true,
+                        "copy_from_format": "binary"
                     })
                 },
                 |config| {

@@ -4637,6 +4637,14 @@
                 "widget": "hidden"
               }
             },
+            "copy_to_format": {
+              "title": "COPY TO format",
+              "description": "PostgreSQL wire format used for snapshot COPY TO STDOUT",
+              "$ref": "#/$defs/PostgresCopyFormat",
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
             "replication": {
               "description": "Enables an infinite logical-replication stream instead of a finite snapshot.",
               "anyOf": [
@@ -4672,6 +4680,13 @@
               "additionalProperties": false,
               "required": [
                 "name"
+              ]
+            },
+            "PostgresCopyFormat": {
+              "type": "string",
+              "enum": [
+                "binary",
+                "text"
               ]
             },
             "PostgresReplicationConfig": {
@@ -4746,10 +4761,11 @@
         },
         "initial": {
           "replication": null,
-          "batch_rows": 65536,
+          "copy_to_format": "binary",
           "database": "",
           "username": "",
           "password": "",
+          "batch_rows": 65536,
           "tables": [
             {
               "schema": "",
@@ -4846,6 +4862,14 @@
             },
             "create_tables": {
               "type": "boolean"
+            },
+            "copy_from_format": {
+              "title": "COPY FROM format",
+              "description": "PostgreSQL wire format used for COPY FROM STDIN",
+              "$ref": "#/$defs/PostgresCopyFormat",
+              "x-ui": {
+                "section": "advanced"
+              }
             }
           },
           "additionalProperties": false,
@@ -4855,13 +4879,23 @@
             "password",
             "create_tables",
             "installation"
-          ]
+          ],
+          "$defs": {
+            "PostgresCopyFormat": {
+              "type": "string",
+              "enum": [
+                "binary",
+                "text"
+              ]
+            }
+          }
         },
         "initial": {
+          "copy_from_format": "binary",
           "create_tables": true,
-          "password": "",
           "database": "",
           "username": "",
+          "password": "",
           "installation": {
             "host": "",
             "port": 5432,

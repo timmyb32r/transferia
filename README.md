@@ -46,6 +46,14 @@ source position, changed-column presence, and old values for
 `REPLICA IDENTITY FULL`. Connector-wide transport and credentials remain at the
 connector root, while each mode owns only its specific settings and reader.
 
+PostgreSQL snapshots use real `COPY TO STDOUT`, and the sink uses real
+`COPY FROM STDIN`. Both expose an advanced `binary`/`text` wire-format choice;
+`binary` is the lossless high-throughput default. The two implementations share
+the same Arrow contract, including PostgreSQL internal `"char"`, `oid`, `bytea`,
+dates, microsecond timestamps, nulls, and COPY escaping. Values PostgreSQL cannot
+store losslessly, such as a nanosecond timestamp outside microsecond precision,
+fail before a COPY request is sent.
+
 For the demonstration control plane, run:
 
 ```bash

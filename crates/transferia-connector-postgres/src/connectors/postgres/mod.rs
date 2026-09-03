@@ -6,7 +6,7 @@ pub mod src_stream;
 
 pub use common::{
     check_connection, check_network_connection, PostgresConnectionCheckConfig,
-    PostgresConnectionConfig,
+    PostgresConnectionConfig, PostgresCopyFormat,
 };
 pub use sink::PostgresSinkConnector;
 pub use source::PostgresSourceConnector;

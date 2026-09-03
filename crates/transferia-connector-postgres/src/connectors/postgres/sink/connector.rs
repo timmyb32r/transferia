@@ -315,6 +315,7 @@ impl SinkConnector for PostgresSinkConnector {
                 context.counters,
                 context.discovery,
                 limits,
+                self.config.copy_from_format,
             )) as Box<dyn Sink>)
         })
     }
@@ -962,15 +963,18 @@ async fn validate_changelog_primary_key(
     clippy::unreachable,
     reason = "arrow_to_postgres rejects every type outside this exhaustive supported subset"
 )]
-fn postgres_sql_type(data_type: &DataType) -> anyhow::Result<&'static str> {
+pub(super) fn postgres_sql_type(data_type: &DataType) -> anyhow::Result<&'static str> {
     arrow_to_postgres(data_type)?;
     Ok(match data_type {
         DataType::Boolean => "boolean",
+        DataType::Int8 => "\"char\"",
         DataType::Int16 => "smallint",
         DataType::Int32 => "integer",
         DataType::Int64 => "bigint",
+        DataType::UInt32 => "oid",
         DataType::Float32 => "real",
         DataType::Float64 => "double precision",
+        DataType::Binary => "bytea",
         DataType::Utf8 => "text",
         DataType::Date32 => "date",
         DataType::Timestamp(_, None) => "timestamp",

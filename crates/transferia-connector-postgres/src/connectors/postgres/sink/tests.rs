@@ -1,4 +1,7 @@
-use arrow::array::{ArrayRef, Int64Array, StringArray};
+use arrow::array::{
+    ArrayRef, BinaryArray, Date32Array, Int64Array, Int8Array, StringArray,
+    TimestampNanosecondArray,
+};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use std::collections::{BTreeMap, BTreeSet};
@@ -9,7 +12,7 @@ use super::connector::{
     ambiguous_drop_is_complete, classify_owner_marker, cleanup_ownership_action,
     isolate_discovery, owner_marker_allows_side_effect, physical_target_set,
     postgres_cleanup_ddl, postgres_owned_create_ddl, postgres_physical_target,
-    validate_cleanup_scope, CleanupOwnershipAction, OwnerMarkerEvidence,
+    postgres_sql_type, validate_cleanup_scope, CleanupOwnershipAction, OwnerMarkerEvidence,
     PostgresSinkConnector, PostgresSpeedtestScope,
 };
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
@@ -19,6 +22,7 @@ use transferia_core::delivery::{
 use transferia_registry::{
     DatasetPrepare, SinkConnector, SinkSpeedtestIsolation, SpeedtestPhysicalTarget,
 };
+use crate::connectors::postgres::PostgresCopyFormat;
 
 fn discovery(table: &str) -> DeliveryDiscovery {
     let schema = DatasetSchema::new(vec![SchemaColumn::new(
@@ -59,6 +63,41 @@ fn config() -> PostgresSinkConfig {
 }
 
 #[test]
+fn sink_copy_from_format_defaults_to_binary_and_accepts_explicit_text() {
+    let binary = config();
+    let text: PostgresSinkConfig = serde_yaml::from_str(
+        "host: 127.0.0.1\nport: 1\ndatabase: analytics\nusername: test\npassword: ''\ntrusted_plaintext: true\ncreate_tables: true\ncopy_from_format: text\n",
+    )
+    .unwrap();
+
+    assert_eq!(binary.copy_from_format, PostgresCopyFormat::Binary);
+    assert_eq!(text.copy_from_format, PostgresCopyFormat::Text);
+}
+
+#[test]
+fn postgres_sink_ddl_covers_every_copy_encoder_type() {
+    for (data_type, sql) in [
+        (DataType::Boolean, "boolean"),
+        (DataType::Int8, "\"char\""),
+        (DataType::Int16, "smallint"),
+        (DataType::Int32, "integer"),
+        (DataType::Int64, "bigint"),
+        (DataType::UInt32, "oid"),
+        (DataType::Float32, "real"),
+        (DataType::Float64, "double precision"),
+        (DataType::Binary, "bytea"),
+        (DataType::Utf8, "text"),
+        (DataType::Date32, "date"),
+        (
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
+            "timestamp",
+        ),
+    ] {
+        assert_eq!(postgres_sql_type(&data_type).unwrap(), sql);
+    }
+}
+
+#[test]
 fn sink_rejects_the_old_connection_string() {
     assert!(serde_yaml::from_str::<PostgresSinkConfig>(
         "connection: host=localhost port=5432\ntrusted_plaintext: true\ncreate_tables: true\n"
@@ -82,6 +121,77 @@ fn binary_copy_encoder_writes_header_rows_null_and_trailer() {
     let encoded = super::copy_binary::encode(&batch).unwrap();
     assert!(encoded.starts_with(b"PGCOPY\n\xFF\r\n\0"));
     assert_eq!(&encoded[encoded.len() - 2..], &(-1_i16).to_be_bytes());
+}
+
+#[test]
+fn text_copy_encoder_escapes_values_and_preserves_binary_date_and_timestamp() {
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("name", DataType::Utf8, true),
+            Field::new("payload", DataType::Binary, false),
+            Field::new("day", DataType::Date32, false),
+            Field::new(
+                "created_at",
+                DataType::Timestamp(arrow::datatypes::TimeUnit::Nanosecond, None),
+                false,
+            ),
+        ])),
+        vec![
+            Arc::new(StringArray::from(vec![Some("a\tb\\c\n"), None])) as ArrayRef,
+            Arc::new(BinaryArray::from(vec![b"\0\xff".as_slice(), b"".as_slice()])) as ArrayRef,
+            Arc::new(Date32Array::from(vec![19_723, 0])) as ArrayRef,
+            Arc::new(TimestampNanosecondArray::from(vec![
+                1_704_067_200_123_456_000,
+                -1_000,
+            ])) as ArrayRef,
+        ],
+    )
+    .unwrap();
+
+    let encoded = super::copy_text::encode(&batch).unwrap();
+    assert_eq!(
+        encoded.as_ref(),
+        b"a\\tb\\\\c\\n\t\\\\x00ff\t2024-01-01\t2024-01-01 00:00:00.123456\n\\N\t\\\\x\t1970-01-01\t1969-12-31 23:59:59.999999\n"
+    );
+}
+
+#[test]
+fn text_copy_encoder_preserves_the_complete_postgres_internal_char_domain() {
+    let values = (u8::MIN..=u8::MAX)
+        .map(|byte| i8::from_ne_bytes([byte]))
+        .collect::<Vec<_>>();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new("value", DataType::Int8, false)])),
+        vec![Arc::new(Int8Array::from(values)) as ArrayRef],
+    )
+    .unwrap();
+    let encoded = super::copy_text::encode(&batch).unwrap();
+    let lines = encoded.split(|byte| *byte == b'\n').collect::<Vec<_>>();
+    assert_eq!(lines.len(), 257);
+    assert_eq!(lines[0], b"");
+    assert_eq!(lines[9], b"\\t");
+    assert_eq!(lines[10], b"\\n");
+    assert_eq!(lines[92], b"\\\\");
+    assert_eq!(lines[127], b"\x7f");
+    assert_eq!(lines[128], b"\\\\200");
+    assert_eq!(lines[255], b"\\\\377");
+    assert_eq!(lines[256], b"");
+}
+
+#[test]
+fn both_copy_encoders_reject_nanosecond_values_postgres_cannot_store_losslessly() {
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "created_at",
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Nanosecond, None),
+            false,
+        )])),
+        vec![Arc::new(TimestampNanosecondArray::from(vec![1])) as ArrayRef],
+    )
+    .unwrap();
+
+    assert!(super::copy_binary::encode(&batch).is_err());
+    assert!(super::copy_text::encode(&batch).is_err());
 }
 
 #[test]

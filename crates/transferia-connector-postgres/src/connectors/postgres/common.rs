@@ -3,6 +3,14 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio_postgres::types::{Kind, Type};
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PostgresCopyFormat {
+    #[default]
+    Binary,
+    Text,
+}
+
 #[derive(Clone, Deserialize)]
 pub struct PostgresConnectionCheckConfig {
     #[serde(default)]
@@ -226,14 +234,17 @@ pub const fn postgres_requires_text_projection(data_type: &Type) -> bool {
 pub fn arrow_to_postgres(data_type: &DataType) -> anyhow::Result<Type> {
     Ok(match data_type {
         DataType::Boolean => Type::BOOL,
+        DataType::Int8 => Type::CHAR,
         DataType::Int16 => Type::INT2,
         DataType::Int32 => Type::INT4,
         DataType::Int64 => Type::INT8,
+        DataType::UInt32 => Type::OID,
         DataType::Float32 => Type::FLOAT4,
         DataType::Float64 => Type::FLOAT8,
+        DataType::Binary => Type::BYTEA,
         DataType::Utf8 => Type::TEXT,
         DataType::Date32 => Type::DATE,
         DataType::Timestamp(_, None) => Type::TIMESTAMP,
-        _ => anyhow::bail!("unsupported Arrow type {data_type:?} for PostgreSQL binary COPY"),
+        _ => anyhow::bail!("unsupported Arrow type {data_type:?} for PostgreSQL COPY"),
     })
 }
