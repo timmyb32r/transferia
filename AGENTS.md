@@ -75,6 +75,20 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 - When requirements call for a new transformation but the user has not selected
   its semantics, stop and ask rather than choosing a policy in code.
 
+## Primary-key identity semantics
+
+- When a dataset declares a primary key, the default record model has exactly
+  one current logical row for each distinct complete primary-key value. Updates
+  and deletes address that row identity; they must not create an implicit
+  append-only history.
+- Duplicate snapshot rows for one primary key, ambiguous change events, and
+  other violations of that identity model must fail closed before destination
+  commit or source acknowledgement. Never silently deduplicate them or choose a
+  winner through last-write-wins behavior.
+- Semantics that intentionally retain multiple rows, versions, or history
+  entries for one primary key are allowed only through an explicit, documented,
+  non-default configuration choice with startup and runtime validation.
+
 ## Frontend interaction stability: zero unexpected layout shift
 
 - In every selectable `oneOf`/`anyOf`, place the authored default branch first so
