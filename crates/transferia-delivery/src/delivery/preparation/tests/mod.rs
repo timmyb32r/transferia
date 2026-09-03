@@ -87,6 +87,26 @@ fn semantic_errors_short_circuit_sink_limit_validation() {
     assert!(!limits.called.load(Ordering::SeqCst));
 }
 
+#[test]
+fn resolved_worker_document_preserves_the_exact_replay_identity() -> anyhow::Result<()> {
+    let config = Config::from_yaml(
+        "delivery_id: replay-test\ndurable_storage: { type: local_file, path: /tmp/replay-test }\ndelivery_type: batch\nsource: { test: {} }\nsink: { test: {} }\n",
+    )?;
+    let document = ResolvedConfigDocument {
+        replay_identity: Some("control-plane-delivery:dtt-example:revision:7".to_owned()),
+        pipelines: vec![config],
+    };
+
+    let yaml = serde_yaml::to_string(&document)?;
+    let decoded: ResolvedConfigDocument = serde_yaml::from_str(&yaml)?;
+
+    assert_eq!(
+        decoded.replay_identity.as_deref(),
+        Some("control-plane-delivery:dtt-example:revision:7")
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn plan_rejects_zero_pipeline_memory_before_discovery() -> anyhow::Result<()> {
     let yaml = r"

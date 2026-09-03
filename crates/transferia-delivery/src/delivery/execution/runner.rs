@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use anyhow::Context as _;
@@ -8,20 +8,25 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use super::PipelineProgress;
-use crate::delivery::preparation::{DeliveryPlan, PipelinePlan};
-use transferia_core::delivery::{DatasetRole, DeliveryDiscovery};
+use crate::delivery::preparation::{
+    validate_discovered_pipeline, validate_middlewares, DeliveryPlan, PipelinePlan,
+};
+use transferia_core::delivery::{DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest};
 use transferia_core::failure::{DataPlaneFailure, DataPlaneResult};
 use transferia_core::memory::PipelineMemory;
-use transferia_delivery_contracts::metrics::{spawn_stats_reporter, ParseCounters, SinkCounters};
+use transferia_delivery_contracts::metrics::{
+    spawn_stats_reporter, MetricsRegistry, ParseCounters, SinkCounters,
+};
 use transferia_delivery_contracts::middleware::Middleware;
 use transferia_delivery_contracts::parser::ParserFactory;
 use transferia_delivery_contracts::retry::{jittered_retry_delay, stable_retry_seed};
+use transferia_pipeline::{OutputDatasetRowCount, OutputRowCounts};
 use transferia_registry::durable::{CompareExchangeResult, DurableContext};
 use transferia_registry::{
-    SinkBuildContext, SinkConnector, SinkPrepare, SnapshotDatasetRowCount,
-    SnapshotRowCountStrategy, SourceBuildContext, SourceConnector,
+    PreparedSourceExecution, SinkBuildContext, SinkConnector, SinkPrepare, SnapshotDatasetRowCount,
+    SnapshotRowCountStrategy, SourceBuildContext, SourceConnector, SourceExecutionContext,
+    SourceExecutionPhase, SourcePhase,
 };
-use transferia_pipeline::{OutputDatasetRowCount, OutputRowCounts};
 
 const SNAPSHOT_ROW_COUNT_BASELINE_KEY: &str = "snapshot-row-count/baseline";
 const SNAPSHOT_ROW_COUNT_BASELINE_VERSION: u8 = 1;
@@ -207,7 +212,11 @@ async fn load_or_capture_snapshot_baseline(
     discovery: &DeliveryDiscovery,
     durable: &DurableContext,
 ) -> anyhow::Result<Vec<SnapshotDatasetRowCount>> {
-    if let Some(value) = durable.storage.read(SNAPSHOT_ROW_COUNT_BASELINE_KEY).await? {
+    if let Some(value) = durable
+        .storage
+        .read(SNAPSHOT_ROW_COUNT_BASELINE_KEY)
+        .await?
+    {
         let baseline = decode_snapshot_baseline(&value.payload, discovery)?;
         let current = normalize_destination_counts(
             discovery,
@@ -236,9 +245,9 @@ async fn load_or_capture_snapshot_baseline(
             ensure_same_destination_targets(&persisted, &captured)?;
             Ok(persisted)
         }
-        CompareExchangeResult::Conflict(None) => anyhow::bail!(
-            "snapshot row-count baseline disappeared during compare-exchange"
-        ),
+        CompareExchangeResult::Conflict(None) => {
+            anyhow::bail!("snapshot row-count baseline disappeared during compare-exchange")
+        }
     }
 }
 
@@ -291,8 +300,8 @@ fn decode_snapshot_baseline(
     payload: &[u8],
     discovery: &DeliveryDiscovery,
 ) -> anyhow::Result<Vec<SnapshotDatasetRowCount>> {
-    let baseline: PersistedSnapshotBaseline = serde_json::from_slice(payload)
-        .context("snapshot row-count baseline is corrupt")?;
+    let baseline: PersistedSnapshotBaseline =
+        serde_json::from_slice(payload).context("snapshot row-count baseline is corrupt")?;
     anyhow::ensure!(
         baseline.version == SNAPSHOT_ROW_COUNT_BASELINE_VERSION,
         "snapshot row-count baseline version {} is unsupported",
@@ -348,7 +357,11 @@ fn normalize_destination_counts(
         );
     }
     anyhow::ensure!(
-        actual.keys().cloned().collect::<std::collections::BTreeSet<_>>() == expected,
+        actual
+            .keys()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>()
+            == expected,
         "destination row-count probe returned a different dataset set than discovery"
     );
     Ok(actual.into_values().collect())
@@ -401,55 +414,122 @@ struct PipelineDependencies {
     middlewares: Arc<Vec<Box<dyn Middleware>>>,
     source_connector: Arc<dyn SourceConnector>,
     sink_connector: Arc<dyn SinkConnector>,
+    delivery_type: transferia_delivery_contracts::DeliveryType,
+    replay_identity: Option<Arc<str>>,
+    phase: SourcePhase,
     discovery: Arc<DeliveryDiscovery>,
     memory_limit: usize,
     cancellation: CancellationToken,
     keep_system_columns: bool,
-    finite_source: bool,
+    delivery_finite: bool,
+    phase_finite: bool,
     durable: DurableContext,
     completed_snapshot_rows: Option<Arc<OutputRowCounts>>,
 }
 
 struct PipelineExecution {
-    tasks: JoinSet<DataPlaneResult<()>>,
+    tasks: JoinSet<DataPlaneResult<PartitionTaskCompletion>>,
     cancellation: CancellationToken,
-    finite_source: bool,
+    current_phase: SourcePhase,
+    current_phase_finite: bool,
     snapshot_reconciliation: Option<SnapshotReconciliation>,
+    remaining_phases: VecDeque<SourceExecutionPhase>,
+    dependencies: PipelineDependencies,
+    metrics_registry: Arc<MetricsRegistry>,
+    parses_rows: bool,
+    guarantee: transferia_delivery_contracts::semantics::DeliveryGuarantee,
+    total_workers: u32,
+    worker_index: u32,
+}
+
+struct StartedExecutionPhase {
+    tasks: JoinSet<DataPlaneResult<PartitionTaskCompletion>>,
+    snapshot_reconciliation: Option<SnapshotReconciliation>,
+    dependencies: PipelineDependencies,
 }
 
 impl PipelineExecution {
     pub async fn wait(mut self) -> anyhow::Result<()> {
-        while !self.tasks.is_empty() {
-            let result = tokio::select! {
-                () = self.cancellation.cancelled() => {
-                    stop_partition_tasks(&mut self.tasks, &self.cancellation).await;
-                    return Ok(());
-                }
-                result = self.tasks.join_next() => result,
-            };
-            let Some(result) = result else {
-                break;
-            };
-            match result {
-                Ok(Ok(())) if self.cancellation.is_cancelled() || self.finite_source => {}
-                Ok(Ok(())) => {
-                    self.shutdown().await;
-                    anyhow::bail!("partition task stopped while the service was still running");
-                }
-                Ok(Err(error)) => {
-                    self.shutdown().await;
-                    return Err(anyhow::Error::new(error)).context("partition task failed");
-                }
-                Err(error) => {
-                    self.shutdown().await;
-                    return Err(anyhow::Error::new(error)).context("partition task panicked");
+        loop {
+            while !self.tasks.is_empty() {
+                let result = tokio::select! {
+                    biased;
+                    result = self.tasks.join_next() => result,
+                    () = self.cancellation.cancelled() => {
+                        stop_partition_tasks(&mut self.tasks, &self.cancellation).await;
+                        return Ok(());
+                    }
+                };
+                let Some(result) = result else {
+                    break;
+                };
+                match result {
+                    Ok(Ok(PartitionTaskCompletion::FiniteSourceDrained))
+                        if self.current_phase_finite => {}
+                    Ok(Ok(PartitionTaskCompletion::Cancelled))
+                        if self.cancellation.is_cancelled() =>
+                    {
+                        stop_partition_tasks(&mut self.tasks, &self.cancellation).await;
+                        return Ok(());
+                    }
+                    Ok(Ok(completion)) => {
+                        self.shutdown().await;
+                        anyhow::bail!(
+                            "partition task returned incompatible completion {completion:?}"
+                        );
+                    }
+                    Ok(Err(error)) => {
+                        self.shutdown().await;
+                        return Err(anyhow::Error::new(error)).context("partition task failed");
+                    }
+                    Err(error) => {
+                        self.shutdown().await;
+                        return Err(anyhow::Error::new(error)).context("partition task panicked");
+                    }
                 }
             }
+            if let Some(reconciliation) = self.snapshot_reconciliation.take() {
+                reconciliation.verify().await?;
+            }
+            self.dependencies
+                .source_connector
+                .complete_execution_phase(
+                    self.current_phase,
+                    self.dependencies.durable.clone(),
+                    CancellationToken::new(),
+                )
+                .await?;
+
+            // Once every finite partition has explicitly reported a drained
+            // durability ledger, reconciliation and the source phase CAS form
+            // one non-cancellable durability barrier. Cancellation is observed
+            // immediately after that barrier and before the next phase starts.
+            if self.cancellation.is_cancelled() {
+                return Ok(());
+            }
+
+            let Some(phase) = self.remaining_phases.pop_front() else {
+                return Ok(());
+            };
+            let phase_kind = phase.phase;
+            let phase_finite = phase.finite;
+            let started = start_execution_phase(
+                phase,
+                &self.dependencies,
+                &self.metrics_registry,
+                self.parses_rows,
+                self.guarantee,
+                self.total_workers,
+                self.worker_index,
+            )
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("assigned source phase has no partitions"))?;
+            self.tasks = started.tasks;
+            self.current_phase = phase_kind;
+            self.current_phase_finite = phase_finite;
+            self.snapshot_reconciliation = started.snapshot_reconciliation;
+            self.dependencies = started.dependencies;
         }
-        if let Some(reconciliation) = self.snapshot_reconciliation {
-            reconciliation.verify().await?;
-        }
-        Ok(())
     }
 
     pub async fn shutdown(&mut self) {
@@ -531,48 +611,75 @@ async fn start_pipeline(
 ) -> anyhow::Result<Option<PipelineExecution>> {
     let PipelinePlan {
         config,
+        replay_identity,
         durable,
         metrics_registry,
         source_connector,
         sink_connector,
-        discovery,
+        mut discovery,
         middlewares,
-        semantics,
+        mut semantics,
         finite_source,
         ..
     } = plan;
-    tracing::info!(report = %serde_json::to_string(&semantics)?, "delivery semantics inferred from configuration");
-    tracing::info!(limits = %serde_json::to_string(&sink_connector.limits().description())?, "sink limits validated against delivery discovery");
-
     let parses_rows = source_connector.parses_rows();
     let parser = source_connector.parser();
-    let partitions = discovery
-        .source_topology
-        .partitions_for_worker(total_workers, worker_index)?;
-    if partitions.is_empty() {
+    let preview_phases = source_connector.execution_phases(config.delivery_type, &discovery)?;
+    validate_execution_phases(&preview_phases, total_workers, worker_index)?;
+    if !worker_runs_phases(&preview_phases, total_workers, worker_index)? {
         tracing::warn!("No source partitions assigned");
         return Ok(None);
     }
 
-    let completed_snapshot_rows = finite_source
-        .then(|| output_row_counts(&discovery))
-        .transpose()?
-        .map(Arc::new);
-    let snapshot_reconciliation = if let Some(rows) = completed_snapshot_rows.as_ref() {
-        Some(
-            SnapshotReconciliation::prepare(
-                Arc::clone(rows),
-                Arc::clone(&sink_connector),
-                Arc::clone(&discovery),
-                durable.clone(),
-                total_workers,
-                worker_index,
-            )
-            .await?,
-        )
+    let phases = if let Some(prepared) = source_connector
+        .prepare_execution(SourceExecutionContext {
+            request: DeliveryDiscoveryRequest {
+                keep_system_columns: true,
+            },
+            cancellation: cancellation.child_token(),
+            delivery_type: config.delivery_type,
+            replay_identity: replay_identity.clone(),
+            durable: durable.clone(),
+        })
+        .await?
+    {
+        let PreparedSourceExecution {
+            discovery: authoritative,
+            remaining_phases,
+        } = prepared;
+        validate_prepared_phase_suffix(&preview_phases, &remaining_phases)?;
+        validate_execution_phases(&remaining_phases, total_workers, worker_index)?;
+        let mut authoritative = validate_middlewares(&middlewares, authoritative).await?;
+        authoritative
+            .performance_advice
+            .extend(sink_connector.performance_advice());
+        semantics = validate_discovered_pipeline(
+            &source_connector.compatibility(),
+            &sink_connector.compatibility(),
+            sink_connector.limits(),
+            &authoritative,
+            true,
+        )?;
+        discovery = Arc::new(authoritative);
+        remaining_phases
     } else {
-        None
+        preview_phases
     };
+    let mut assigned_phases = phases
+        .into_iter()
+        .filter(|phase| {
+            phase
+                .topology
+                .partitions_for_worker(total_workers, worker_index)
+                .is_ok_and(|partitions| !partitions.is_empty())
+        })
+        .collect::<VecDeque<_>>();
+    let first_phase = assigned_phases
+        .pop_front()
+        .ok_or_else(|| anyhow::anyhow!("assigned source execution has no phases"))?;
+
+    tracing::info!(report = %serde_json::to_string(&semantics)?, "delivery semantics inferred from configuration");
+    tracing::info!(limits = %serde_json::to_string(&sink_connector.limits().description())?, "sink limits validated against delivery discovery");
 
     if let Some(request) =
         SinkPrepare::from_discovery(&discovery, finite_source, config.delivery_id.clone())?
@@ -592,14 +699,154 @@ async fn start_pipeline(
         middlewares: Arc::new(middlewares),
         source_connector,
         sink_connector,
+        delivery_type: config.delivery_type,
+        replay_identity,
+        phase: first_phase.phase,
         discovery,
         memory_limit: config.pipeline_memory_limit_bytes,
         cancellation: cancellation.clone(),
         keep_system_columns: true,
-        finite_source,
+        delivery_finite: finite_source,
+        phase_finite: first_phase.finite,
         durable,
-        completed_snapshot_rows,
+        completed_snapshot_rows: None,
     };
+    let started = start_execution_phase(
+        first_phase.clone(),
+        &dependencies,
+        &metrics_registry,
+        parses_rows,
+        semantics.guarantee,
+        total_workers,
+        worker_index,
+    )
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("first assigned source phase has no partitions"))?;
+    Ok(Some(PipelineExecution {
+        tasks: started.tasks,
+        cancellation,
+        current_phase: first_phase.phase,
+        current_phase_finite: first_phase.finite,
+        snapshot_reconciliation: started.snapshot_reconciliation,
+        remaining_phases: assigned_phases,
+        dependencies: started.dependencies,
+        metrics_registry,
+        parses_rows,
+        guarantee: semantics.guarantee,
+        total_workers,
+        worker_index,
+    }))
+}
+
+fn validate_execution_phases(
+    phases: &[SourceExecutionPhase],
+    total_workers: u32,
+    worker_index: u32,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(!phases.is_empty(), "source execution plan has no phases");
+    if phases.len() > 1 {
+        anyhow::ensure!(
+            phases.iter().all(|phase| matches!(
+                &phase.topology,
+                transferia_core::delivery::SourceTopology::CoLocatedStaticPartitions(_)
+            )),
+            "multi-phase source execution requires CoLocatedStaticPartitions so one worker owns every phase until a distributed phase barrier exists"
+        );
+    }
+    let mut seen = Vec::with_capacity(phases.len());
+    let mut assigned = None;
+    for phase in phases {
+        phase.topology.validate()?;
+        anyhow::ensure!(
+            !seen.contains(&phase.phase),
+            "source execution plan repeats {:?} phase",
+            phase.phase
+        );
+        seen.push(phase.phase);
+        let current = !phase
+            .topology
+            .partitions_for_worker(total_workers, worker_index)?
+            .is_empty();
+        if let Some(previous) = assigned {
+            anyhow::ensure!(
+                previous == current,
+                "source execution phases are assigned to different workers"
+            );
+        } else {
+            assigned = Some(current);
+        }
+    }
+    Ok(())
+}
+
+fn validate_prepared_phase_suffix(
+    preview: &[SourceExecutionPhase],
+    remaining: &[SourceExecutionPhase],
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !remaining.is_empty() && remaining.len() <= preview.len(),
+        "prepared source execution must retain a non-empty suffix of the validated preview phase plan"
+    );
+    let suffix = &preview[preview.len() - remaining.len()..];
+    anyhow::ensure!(
+        suffix == remaining,
+        "prepared source execution phases are not an exact suffix of the validated preview phase plan"
+    );
+    Ok(())
+}
+
+fn worker_runs_phases(
+    phases: &[SourceExecutionPhase],
+    total_workers: u32,
+    worker_index: u32,
+) -> anyhow::Result<bool> {
+    phases
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("source execution plan has no phases"))?
+        .topology
+        .partitions_for_worker(total_workers, worker_index)
+        .map(|partitions| !partitions.is_empty())
+}
+
+async fn start_execution_phase(
+    phase: SourceExecutionPhase,
+    base: &PipelineDependencies,
+    metrics_registry: &Arc<MetricsRegistry>,
+    parses_rows: bool,
+    guarantee: transferia_delivery_contracts::semantics::DeliveryGuarantee,
+    total_workers: u32,
+    worker_index: u32,
+) -> anyhow::Result<Option<StartedExecutionPhase>> {
+    let partitions = phase
+        .topology
+        .partitions_for_worker(total_workers, worker_index)?;
+    if partitions.is_empty() {
+        return Ok(None);
+    }
+    let completed_snapshot_rows = phase
+        .finite
+        .then(|| output_row_counts(&base.discovery))
+        .transpose()?
+        .map(Arc::new);
+    let snapshot_reconciliation = if let Some(rows) = completed_snapshot_rows.as_ref() {
+        Some(
+            SnapshotReconciliation::prepare(
+                Arc::clone(rows),
+                Arc::clone(&base.sink_connector),
+                Arc::clone(&base.discovery),
+                base.durable.clone(),
+                total_workers,
+                worker_index,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+    let mut dependencies = base.clone();
+    dependencies.phase = phase.phase;
+    dependencies.phase_finite = phase.finite;
+    dependencies.completed_snapshot_rows = completed_snapshot_rows;
     let mut tasks = JoinSet::new();
     let mut startup_receivers = Vec::new();
     for partition_id in partitions {
@@ -607,7 +854,7 @@ async fn start_pipeline(
         let sink_counters = Arc::new(SinkCounters::new());
         metrics_registry.register_parse(partition_id, parses_rows, Arc::clone(&parse_counters));
         metrics_registry.register_sink(partition_id, Arc::clone(&sink_counters));
-        metrics_registry.set_delivery_guarantee(partition_id, semantics.guarantee);
+        metrics_registry.set_delivery_guarantee(partition_id, guarantee);
         let (startup, startup_receiver) = oneshot::channel();
         startup_receivers.push((partition_id, startup_receiver));
         tasks.spawn(run_partition_task(
@@ -618,15 +865,14 @@ async fn start_pipeline(
             startup,
         ));
     }
-    if let Err(error) = wait_for_partition_startup(startup_receivers, &cancellation).await {
-        stop_partition_tasks(&mut tasks, &cancellation).await;
+    if let Err(error) = wait_for_partition_startup(startup_receivers, &base.cancellation).await {
+        stop_partition_tasks(&mut tasks, &base.cancellation).await;
         return Err(error);
     }
-    Ok(Some(PipelineExecution {
+    Ok(Some(StartedExecutionPhase {
         tasks,
-        cancellation,
-        finite_source,
         snapshot_reconciliation,
+        dependencies,
     }))
 }
 
@@ -645,6 +891,9 @@ async fn run_partition_attempt(
         .source_connector
         .build_source(SourceBuildContext {
             partition_id,
+            delivery_type: dependencies.delivery_type,
+            phase: dependencies.phase,
+            replay_identity: dependencies.replay_identity.clone(),
             cancellation: attempt_token.clone(),
             memory: memory.clone(),
             durable: dependencies.durable.clone(),
@@ -655,7 +904,7 @@ async fn run_partition_attempt(
         .sink_connector
         .build_sink(SinkBuildContext {
             partition_id,
-            finite_source: dependencies.finite_source,
+            finite_source: dependencies.delivery_finite,
             counters: sink_counters,
             keep_system_columns: dependencies.keep_system_columns,
             discovery: Arc::clone(&dependencies.discovery),
@@ -723,7 +972,7 @@ async fn run_partition_task(
     parse_counters: Arc<ParseCounters>,
     sink_counters: Arc<SinkCounters>,
     startup: oneshot::Sender<()>,
-) -> DataPlaneResult<()> {
+) -> DataPlaneResult<PartitionTaskCompletion> {
     let mut restart_policy = PartitionRestartPolicy::new();
     let retry_seed = stable_retry_seed(&partition_id.to_le_bytes());
     let progress = Arc::new(PipelineProgress::new());
@@ -731,7 +980,7 @@ async fn run_partition_task(
 
     loop {
         if dependencies.cancellation.is_cancelled() {
-            return Ok(());
+            return Ok(PartitionTaskCompletion::Cancelled);
         }
         let attempt_token = dependencies.cancellation.child_token();
         let progress_checkpoint = progress.checkpoint();
@@ -765,9 +1014,22 @@ async fn run_partition_task(
         let Some(error) = classify_partition_completion(
             result,
             dependencies.cancellation.is_cancelled(),
-            dependencies.finite_source,
+            dependencies.phase_finite,
         ) else {
-            return Ok(());
+            if progress.finite_source_drained() {
+                if dependencies.phase_finite {
+                    return Ok(PartitionTaskCompletion::FiniteSourceDrained);
+                }
+                return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
+                    "non-finite partition reported a drained finite source"
+                )));
+            }
+            if dependencies.cancellation.is_cancelled() {
+                return Ok(PartitionTaskCompletion::Cancelled);
+            }
+            return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
+                "finite partition stopped without draining its source durability ledger"
+            )));
         };
         if !error.is_retryable() {
             return Err(error.context("non-retryable partition failure"));
@@ -788,10 +1050,18 @@ async fn run_partition_task(
             "pipeline failed, restarting"
         );
         tokio::select! {
-            () = dependencies.cancellation.cancelled() => return Ok(()),
+            () = dependencies.cancellation.cancelled() => {
+                return Ok(PartitionTaskCompletion::Cancelled)
+            },
             () = tokio::time::sleep(restart_delay) => {}
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PartitionTaskCompletion {
+    FiniteSourceDrained,
+    Cancelled,
 }
 
 async fn wait_for_partition_startup(
@@ -824,18 +1094,11 @@ fn classify_partition_completion(
 }
 
 async fn stop_partition_tasks(
-    tasks: &mut JoinSet<DataPlaneResult<()>>,
+    tasks: &mut JoinSet<DataPlaneResult<PartitionTaskCompletion>>,
     cancellation: &CancellationToken,
 ) {
     cancellation.cancel();
-    let stopped = tokio::time::timeout(core::time::Duration::from_secs(10), async {
-        while tasks.join_next().await.is_some() {}
-    })
-    .await;
-    if stopped.is_err() {
-        tracing::warn!("partition shutdown grace period expired; aborting remaining tasks");
-        tasks.shutdown().await;
-    }
+    while tasks.join_next().await.is_some() {}
 }
 
 #[cfg(test)]

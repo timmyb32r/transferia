@@ -78,11 +78,15 @@ async fn read_mysql_snapshot(
                 keep_system_columns: false,
             },
             cancellation: CancellationToken::new(),
+            delivery_type: transferia::delivery::config::yaml::DeliveryType::Batch,
         })
         .await?;
     let mut actor = source
         .build_source(SourceBuildContext {
             partition_id: 0,
+            delivery_type: transferia::delivery::config::yaml::DeliveryType::Batch,
+            phase: transferia::registry::SourcePhase::Snapshot,
+            replay_identity: None,
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(64 * 1024 * 1024),
             durable: support::durable_context(),

@@ -14,12 +14,13 @@ pub use registry::{
     Registry, RegistryBuilder, SourcePreview, SourcePreviewMetadata, SourcePreviewMetadataItem,
 };
 pub use traits::{
-    ConnectionCheckResult, ConnectionCheckStatus, DatasetPrepare, DynamicOption, DynamicOptions,
-    EndpointRole, OptionsRequest, SinkBuildContext, SinkConnector, SinkPrepare,
-    SinkSpeedtestIsolation, SinkSpeedtestIsolationSafety, SnapshotDatasetRowCount,
-    SnapshotRowCountStrategy, SourceBuildContext, SourceConnector, SourceDiscoveryContext,
-    SpeedtestPhysicalTarget, SpeedtestUnsupported,
     validate_speedtest_build_context, validate_speedtest_discovery, validate_speedtest_prepare,
+    ConnectionCheckResult, ConnectionCheckStatus, DatasetPrepare, DynamicOption, DynamicOptions,
+    EndpointRole, OptionsRequest, PreparedSourceExecution, SinkBuildContext, SinkConnector,
+    SinkPrepare, SinkSpeedtestIsolation, SinkSpeedtestIsolationSafety, SnapshotDatasetRowCount,
+    SnapshotRowCountStrategy, SourceBuildContext, SourceConnector, SourceDiscoveryContext,
+    SourceExecutionContext, SourceExecutionPhase, SourcePhase, SpeedtestPhysicalTarget,
+    SpeedtestUnsupported,
 };
 
 #[cfg(test)]

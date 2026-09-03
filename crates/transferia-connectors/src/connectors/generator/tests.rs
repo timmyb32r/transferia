@@ -96,6 +96,7 @@ async fn discovery_matches_generated_table_and_columns() -> anyhow::Result<()> {
                 keep_system_columns: false,
             },
             cancellation: tokio_util::sync::CancellationToken::new(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
         })
         .await?;
     assert_eq!(discovery.datasets[0].name.as_ref(), "my_table");
@@ -128,6 +129,7 @@ async fn transfer_logs_preset_matches_the_declared_schema_and_primary_key() -> a
                 keep_system_columns: false,
             },
             cancellation: tokio_util::sync::CancellationToken::new(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
         })
         .await?;
     let primary_keys = discovery.datasets[0]
@@ -189,6 +191,7 @@ async fn clickbench_preset_preserves_the_official_schema_and_primary_key() -> an
                 keep_system_columns: false,
             },
             cancellation: tokio_util::sync::CancellationToken::new(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
         })
         .await?;
     let schema = &discovery.datasets[0].stored_schema;

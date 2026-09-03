@@ -21,6 +21,26 @@ fn source_delivery_modes_are_explicit() {
     assert!(source().supports_delivery_type(crate::DeliveryType::Stream));
     assert!(!source().supports_delivery_type(crate::DeliveryType::Batch));
     assert!(!source().supports_delivery_type(crate::DeliveryType::BatchAndStream));
+
+    let cases = [
+        (SourceDeliveryModes::BATCH, [true, false, false]),
+        (SourceDeliveryModes::STREAM, [false, true, false]),
+        (SourceDeliveryModes::BATCH_AND_STREAM, [true, true, true]),
+        (
+            SourceDeliveryModes::STREAM_AND_BATCH_AND_STREAM,
+            [false, true, true],
+        ),
+    ];
+    let delivery_types = [
+        crate::DeliveryType::Batch,
+        crate::DeliveryType::Stream,
+        crate::DeliveryType::BatchAndStream,
+    ];
+    for (modes, expected) in cases {
+        for (delivery_type, supported) in delivery_types.into_iter().zip(expected) {
+            assert_eq!(modes.supports(delivery_type), supported);
+        }
+    }
 }
 
 #[test]
@@ -205,8 +225,9 @@ fn opensearch_pipeline_is_append_only_and_reports_restart_semantics() {
         .diagnostics
         .iter()
         .any(|diagnostic| diagnostic.code == DiagnosticCode::OpenSearchAtLeastOnce));
-    assert!(!EndpointDescriptor::OpenSearchSink
-        .accepts_record_semantics(RecordSemantics::Changelog));
+    assert!(
+        !EndpointDescriptor::OpenSearchSink.accepts_record_semantics(RecordSemantics::Changelog)
+    );
 }
 
 #[test]

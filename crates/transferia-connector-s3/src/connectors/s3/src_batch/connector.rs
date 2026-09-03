@@ -149,6 +149,7 @@ impl SourceConnector for S3SourceConnector {
             let SourceDiscoveryContext {
                 request,
                 cancellation,
+                delivery_type: _,
             } = context;
             drop(self.snapshot(&cancellation).await?);
             if self.config.parser.parquet_batch_rows().is_some() {
@@ -201,6 +202,8 @@ impl SourceConnector for S3SourceConnector {
                 partition_id,
                 cancellation,
                 memory,
+                delivery_type: _,
+                phase: _,
                 ..
             } = context;
             anyhow::ensure!(partition_id == 0, "S3 source has only partition 0");

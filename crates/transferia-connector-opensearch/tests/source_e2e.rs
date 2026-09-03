@@ -69,7 +69,9 @@ async fn opensearch_source_reads_one_coherent_index_pit_without_loss() -> anyhow
         if id == 0 {
             bulk.push_str(&format!("{{\"index\":{{\"_index\":\"events\",\"_id\":\"doc-{id}\",\"routing\":\"tenant-a\"}}}}\n"));
         } else {
-            bulk.push_str(&format!("{{\"index\":{{\"_index\":\"events\",\"_id\":\"doc-{id}\"}}}}\n"));
+            bulk.push_str(&format!(
+                "{{\"index\":{{\"_index\":\"events\",\"_id\":\"doc-{id}\"}}}}\n"
+            ));
         }
         bulk.push_str(&format!("{{\"number\":{id},\"text\":\"event-{id}\"}}\n"));
     }
@@ -95,91 +97,126 @@ async fn opensearch_source_reads_one_coherent_index_pit_without_loss() -> anyhow
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
-    let discovery = connector
-        .delivery_discovery(SourceDiscoveryContext {
-            request: DeliveryDiscoveryRequest {
-                keep_system_columns: false,
-            },
-            cancellation: CancellationToken::new(),
-        })
-        .await?;
-    assert_eq!(discovery.schema_origin, SchemaOrigin::SourceNative);
-    assert_eq!(discovery.datasets.len(), 1);
-    assert_eq!(discovery.datasets[0].stored_schema.columns.len(), 4);
-    assert!(discovery.datasets[0].stored_schema.columns[0].primary_key);
-    assert!(discovery.datasets[0].stored_schema.columns[3].primary_key);
+        let discovery = connector
+            .delivery_discovery(SourceDiscoveryContext {
+                request: DeliveryDiscoveryRequest {
+                    keep_system_columns: false,
+                },
+                cancellation: CancellationToken::new(),
+                delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
+            })
+            .await?;
+        assert_eq!(discovery.schema_origin, SchemaOrigin::SourceNative);
+        assert_eq!(discovery.datasets.len(), 1);
+        assert_eq!(discovery.datasets[0].stored_schema.columns.len(), 4);
+        assert!(discovery.datasets[0].stored_schema.columns[0].primary_key);
+        assert!(discovery.datasets[0].stored_schema.columns[3].primary_key);
 
-    let mut source = connector
-        .build_source(SourceBuildContext {
-            partition_id: 0,
-            cancellation: CancellationToken::new(),
-            memory: PipelineMemory::new(64 * 1024 * 1024),
-            durable: transferia_test_support::durable_context(),
-        })
-        .await?;
-    let late_id = format!("late-after-pit-{read_concurrency}");
-    http.put(format!("{base}/events/_doc/{late_id}?refresh=wait_for"))
-        .json(&serde_json::json!({"late": true}))
-        .send()
-        .await?
-        .error_for_status()?;
-    let mut identities = HashSet::new();
-    let mut offsets = HashSet::new();
-    let mut routed = false;
-    let mut shared_id_routes = HashSet::new();
-    loop {
-        match source.read_batch().await? {
-            SourceBatch::Typed {
-                tables,
-                source_rows,
-                ..
-            } => {
-                let table = tables.into_iter().next().expect("one table");
-                assert_eq!(table.table.as_ref(), "events");
-                assert_eq!(source_rows as usize, table.batch.num_rows());
-                let id = table.batch.column(0).as_any().downcast_ref::<StringArray>().unwrap();
-                let routing = table.batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-                let source_json = table.batch.column(2).as_any().downcast_ref::<StringArray>().unwrap();
-                let routing_key = table.batch.column(3).as_any().downcast_ref::<StringArray>().unwrap();
-                let offset_column = table
-                    .system_columns
-                    .get(SystemColumnKind::Offset)
-                    .expect("offset column");
-                let offset = table.batch.column(offset_column.index).as_any().downcast_ref::<Int64Array>().unwrap();
-                for row in 0..table.batch.num_rows() {
-                    assert_ne!(id.value(row), late_id);
-                    let routing_value = (!routing.is_null(row)).then(|| routing.value(row).to_owned());
-                    assert_eq!(
-                        routing_key.value(row),
-                        routing_value.as_deref().unwrap_or(id.value(row))
-                    );
-                    identities.insert((id.value(row).to_owned(), routing_value.clone()));
-                    if id.value(row) == "doc-0" {
-                        assert_eq!(routing.value(row), "tenant-a");
-                        routed = true;
-                    } else if id.value(row) != "shared-id" {
-                        assert!(routing.is_null(row));
+        let mut source = connector
+            .build_source(SourceBuildContext {
+                partition_id: 0,
+                delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
+                phase: transferia_registry::SourcePhase::Snapshot,
+                replay_identity: None,
+                cancellation: CancellationToken::new(),
+                memory: PipelineMemory::new(64 * 1024 * 1024),
+                durable: transferia_test_support::durable_context(),
+            })
+            .await?;
+        let late_id = format!("late-after-pit-{read_concurrency}");
+        http.put(format!("{base}/events/_doc/{late_id}?refresh=wait_for"))
+            .json(&serde_json::json!({"late": true}))
+            .send()
+            .await?
+            .error_for_status()?;
+        let mut identities = HashSet::new();
+        let mut offsets = HashSet::new();
+        let mut routed = false;
+        let mut shared_id_routes = HashSet::new();
+        loop {
+            match source.read_batch().await? {
+                SourceBatch::Typed {
+                    tables,
+                    source_rows,
+                    ..
+                } => {
+                    let table = tables.into_iter().next().expect("one table");
+                    assert_eq!(table.table.as_ref(), "events");
+                    assert_eq!(source_rows as usize, table.batch.num_rows());
+                    let id = table
+                        .batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .unwrap();
+                    let routing = table
+                        .batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .unwrap();
+                    let source_json = table
+                        .batch
+                        .column(2)
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .unwrap();
+                    let routing_key = table
+                        .batch
+                        .column(3)
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .unwrap();
+                    let offset_column = table
+                        .system_columns
+                        .get(SystemColumnKind::Offset)
+                        .expect("offset column");
+                    let offset = table
+                        .batch
+                        .column(offset_column.index)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap();
+                    for row in 0..table.batch.num_rows() {
+                        assert_ne!(id.value(row), late_id);
+                        let routing_value =
+                            (!routing.is_null(row)).then(|| routing.value(row).to_owned());
+                        assert_eq!(
+                            routing_key.value(row),
+                            routing_value.as_deref().unwrap_or(id.value(row))
+                        );
+                        identities.insert((id.value(row).to_owned(), routing_value.clone()));
+                        if id.value(row) == "doc-0" {
+                            assert_eq!(routing.value(row), "tenant-a");
+                            routed = true;
+                        } else if id.value(row) != "shared-id" {
+                            assert!(routing.is_null(row));
+                        }
+                        if id.value(row) == "shared-id" {
+                            shared_id_routes.insert(routing_value.expect("shared id is routed"));
+                        }
+                        offsets.insert(offset.value(row));
+                        assert!(
+                            serde_json::from_str::<serde_json::Value>(source_json.value(row))?
+                                .is_object()
+                        );
                     }
-                    if id.value(row) == "shared-id" {
-                        shared_id_routes.insert(routing_value.expect("shared id is routed"));
-                    }
-                    offsets.insert(offset.value(row));
-                    assert!(serde_json::from_str::<serde_json::Value>(source_json.value(row))?.is_object());
                 }
+                SourceBatch::Finished => break,
+                SourceBatch::Raw { .. } => anyhow::bail!("expected typed OpenSearch rows"),
             }
-            SourceBatch::Finished => break,
-            SourceBatch::Raw { .. } => anyhow::bail!("expected typed OpenSearch rows"),
         }
-    }
-    assert_eq!(identities.len(), expected_count);
-    assert_eq!(offsets, (0_i64..i64::try_from(expected_count)?).collect());
-    assert!(routed);
-    assert_eq!(
-        shared_id_routes,
-        [first_route.clone(), second_route.clone()].into_iter().collect()
-    );
-    source.shutdown().await?;
-    source.shutdown().await?;
+        assert_eq!(identities.len(), expected_count);
+        assert_eq!(offsets, (0_i64..i64::try_from(expected_count)?).collect());
+        assert!(routed);
+        assert_eq!(
+            shared_id_routes,
+            [first_route.clone(), second_route.clone()]
+                .into_iter()
+                .collect()
+        );
+        source.shutdown().await?;
+        source.shutdown().await?;
     }
 
     let alias = http
@@ -200,6 +237,7 @@ async fn opensearch_source_reads_one_coherent_index_pit_without_loss() -> anyhow
                 keep_system_columns: false,
             },
             cancellation: CancellationToken::new(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
         })
         .await
         .is_err());
@@ -214,11 +252,9 @@ async fn document_count(http: &reqwest::Client, base: &str) -> anyhow::Result<us
         .error_for_status()?
         .json::<serde_json::Value>()
         .await?;
-    Ok(usize::try_from(
-        response["count"]
-            .as_u64()
-            .ok_or_else(|| anyhow::anyhow!("OpenSearch count response omitted count"))?,
-    )?)
+    Ok(usize::try_from(response["count"].as_u64().ok_or_else(
+        || anyhow::anyhow!("OpenSearch count response omitted count"),
+    )?)?)
 }
 
 async fn routes_on_distinct_shards(

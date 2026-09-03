@@ -1,14 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use futures_util::future::BoxFuture;
 use transferia_registry::durable::{
-    CompareExchangeResult, DurableContext, DurableStorage, DurableValue,
+    CompareExchangeResult, DurableContext, DurableLease, DurableStorage, DurableValue,
 };
 
 #[derive(Default)]
 struct MemoryDurableStorage {
     values: Mutex<HashMap<String, DurableValue>>,
+    leases: Arc<Mutex<HashSet<String>>>,
 }
 
 impl DurableStorage for MemoryDurableStorage {
@@ -38,14 +39,55 @@ impl DurableStorage for MemoryDurableStorage {
             if current.as_ref().map(|value| value.revision) != expected_revision {
                 return Ok(CompareExchangeResult::Conflict(current));
             }
+            let revision = match expected_revision {
+                Some(revision) => revision
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow::anyhow!("durable revision overflow"))?,
+                None => 0,
+            };
             let value = DurableValue {
-                revision: expected_revision.map_or(0, |revision| revision.saturating_add(1)),
+                revision,
                 payload: payload.to_vec(),
             };
             values.insert(key.to_owned(), value.clone());
             drop(values);
             Ok(CompareExchangeResult::Applied(value))
         })
+    }
+
+    fn acquire_execution_lease<'a>(
+        &'a self,
+        key: &'a str,
+    ) -> BoxFuture<'a, anyhow::Result<DurableLease>> {
+        Box::pin(async move {
+            let mut leases = self
+                .leases
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            anyhow::ensure!(
+                leases.insert(key.to_owned()),
+                "another execution already owns durable lease '{key}'"
+            );
+            drop(leases);
+            Ok(DurableLease::new(MemoryDurableLease {
+                key: key.to_owned(),
+                leases: Arc::clone(&self.leases),
+            }))
+        })
+    }
+}
+
+struct MemoryDurableLease {
+    key: String,
+    leases: Arc<Mutex<HashSet<String>>>,
+}
+
+impl Drop for MemoryDurableLease {
+    fn drop(&mut self) {
+        self.leases
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.key);
     }
 }
 
@@ -54,5 +96,19 @@ pub fn durable_context() -> DurableContext {
     DurableContext {
         delivery_id: Arc::from("integration-test"),
         storage: Arc::new(MemoryDurableStorage::default()),
+        resource_storage: Arc::new(MemoryDurableStorage::default()),
     }
+}
+
+#[must_use]
+pub fn durable_contexts(delivery_ids: &[&str]) -> Vec<DurableContext> {
+    let resource_storage: Arc<dyn DurableStorage> = Arc::new(MemoryDurableStorage::default());
+    delivery_ids
+        .iter()
+        .map(|delivery_id| DurableContext {
+            delivery_id: Arc::from(*delivery_id),
+            storage: Arc::new(MemoryDurableStorage::default()),
+            resource_storage: Arc::clone(&resource_storage),
+        })
+        .collect()
 }

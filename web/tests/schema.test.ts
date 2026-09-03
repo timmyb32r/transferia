@@ -786,6 +786,52 @@ describe("schema compiler", () => {
     ).toThrow(/does not support string/);
   });
 
+  it("decodes endpoint capability overrides and rejects ambiguous declarations", () => {
+    const node = compileSchema({
+      type: "object",
+      "x-ui": {
+        capabilities: {
+          component: "source",
+          key: "replication",
+          delivery_modes: ["stream", "batch_and_stream"],
+          record_semantics: ["changelog"],
+        },
+      },
+    });
+    expect(node.xUi.capabilities).toEqual({
+      component: "source",
+      key: "replication",
+      delivery_modes: ["stream", "batch_and_stream"],
+      record_semantics: ["changelog"],
+    });
+    expect(() =>
+      compileSchema({
+        type: "object",
+        "x-ui": {
+          capabilities: {
+            component: "destination",
+            key: "invalid",
+            delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
+          },
+        },
+      }),
+    ).toThrow(/only source capabilities/);
+    expect(() =>
+      compileSchema({
+        type: "object",
+        "x-ui": {
+          capabilities: {
+            component: "source",
+            key: "ambiguous",
+            delivery_modes: ["stream", "stream"],
+            record_semantics: ["append_only"],
+          },
+        },
+      }),
+    ).toThrow(/non-empty and unique/);
+  });
+
   it("validates draft seeds without requiring deliberately unselected fields", () => {
     const node = compileSchema({
       type: "object",

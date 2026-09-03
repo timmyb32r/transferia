@@ -8,6 +8,7 @@ share expensive connection pools and upload clients:
 stream: Logbroker (YDB or PQv1) | Kafka
 batch:  PostgreSQL | MySQL | OpenSearch | YDB | ClickHouse | S3 | Iceberg | YTsaurus | data generator
 replication: PostgreSQL (pgoutput or wal2json)
+batch + stream: PostgreSQL (one exact replication-slot snapshot boundary)
                                     |
                                     v
                          parser or native Arrow
@@ -38,9 +39,10 @@ the binary.
 
 Shared source configuration, discovery, and mode dispatch live in `source`.
 `src_batch` contains finite snapshot readers, while `src_stream` contains live
-queue streams and ordinary database replication. `src_dblog` is reserved for
-incremental snapshots coordinated with a replication log and has not been
-implemented yet. PostgreSQL replication supports both `pgoutput` and `wal2json`;
+queue streams and ordinary database replication. `src_batch_and_stream` owns
+only the coordination that hands PostgreSQL's exact batch snapshot to logical
+replication.
+PostgreSQL replication supports both `pgoutput` and `wal2json`;
 both decoders emit the same Arrow changelog contract, including operation,
 source position, changed-column presence, and old values for
 `REPLICA IDENTITY FULL`. Connector-wide transport and credentials remain at the
@@ -61,6 +63,45 @@ concurrently, but they are deliberately co-located on worker zero so a
 process-local transaction can own the snapshot for their complete lifetime;
 distributing those partitions across workers would create inconsistent
 snapshots and is therefore not attempted.
+
+Select `delivery_type: batch_and_stream` explicitly to run a PostgreSQL snapshot
+followed by logical replication; merely configuring `source.postgres.replication`
+does not silently change the delivery mode. Before destination preparation, the
+assigned worker issues `CREATE_REPLICATION_SLOT ... LOGICAL ... EXPORT_SNAPSHOT`.
+PostgreSQL atomically returns the slot's consistent WAL position `P` and exported
+MVCC snapshot `S`. Every table reader imports `S` in one co-located finite
+snapshot phase. Only after that phase has committed and its completion checks
+have succeeded does the source durably record the handoff, release the snapshot
+owner, and start the stream at `P`.
+
+This protocol provides a source boundary with no gap or overlap between snapshot
+rows and later WAL changes. It does not upgrade the destination's delivery
+guarantee: the standard per-partition stats still report the separately inferred
+sink guarantee, including at-least-once where applicable. An exported snapshot
+cannot be recovered after its owning replication session ends. On restart, the
+durable phase and replication offset are accepted only for the exact non-secret
+delivery/configuration revision that created them. Restarting an unchanged
+revision resumes it, while editing a stopped delivery fails closed instead of
+reusing source progress under different parser, middleware, or destination
+semantics. Such an edit requires a deliberate reset of the affected destination
+attempt and durable state before starting a new snapshot boundary. The connector
+may bootstrap again from a pre-snapshot `claimed` state only after
+proving that its slot is absent on the same PostgreSQL cluster. Once the durable
+state reached `snapshot`, destination rows may already exist: startup therefore
+fails closed even if the slot was removed, and requires a deliberate reset of
+that destination snapshot attempt and its durable state. Transferia never drops
+or replaces the slot and never replays an indeterminate snapshot automatically.
+
+For `pgoutput`, the configured publication must contain every configured table
+as the exact discovered relation, publish all columns and only `INSERT`,
+`UPDATE`, and `DELETE`, and have neither row filters nor
+`publish_via_partition_root`. `TRUNCATE` is intentionally rejected because the
+row-change contract cannot represent a table-level truncation. A compatible
+publication can be created with
+`CREATE PUBLICATION transferia_publication FOR TABLE ... WITH (publish = 'insert, update, delete')`.
+The connector validates this contract before claiming or creating the slot,
+again inside the exported snapshot, at stream startup, and in the same
+transaction immediately before every logical peek.
 
 MySQL snapshots expose the text and prepared-statement binary result protocols.
 Both feed the same lossless row-to-Arrow conversion; binary with 16,384 rows per

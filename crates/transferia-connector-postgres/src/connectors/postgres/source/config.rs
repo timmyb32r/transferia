@@ -8,6 +8,7 @@ use crate::connectors::postgres::src_stream::PostgresReplicationConfig;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "snapshot", "delivery_modes": ["batch"], "record_semantics": ["append_only"] } }))]
 pub struct PostgresSourceConfig {
     #[serde(flatten)]
     pub connection: PostgresConnectionConfig,
@@ -26,7 +27,7 @@ pub struct PostgresSourceConfig {
     )]
     pub copy_to_format: PostgresCopyFormat,
 
-    /// Enables an infinite logical-replication stream instead of a finite snapshot.
+    /// Configures logical replication for stream and batch_and_stream deliveries.
     #[serde(default)]
     pub replication: Option<PostgresReplicationConfig>,
 }

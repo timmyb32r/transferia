@@ -414,6 +414,7 @@ impl SourceConnector for YTsaurusSourceConnector {
             let SourceDiscoveryContext {
                 request,
                 cancellation,
+                delivery_type: _,
             } = context;
             let tables = tokio::select! {
                 biased;
@@ -518,6 +519,8 @@ impl SourceConnector for YTsaurusSourceConnector {
                 partition_id,
                 cancellation,
                 memory,
+                delivery_type: _,
+                phase: _,
                 ..
             } = context;
             let tables = self.discover_tables().await?;

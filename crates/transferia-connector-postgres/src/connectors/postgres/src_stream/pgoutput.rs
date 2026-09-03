@@ -124,6 +124,7 @@ impl PgOutputDecoder {
         self.relations.insert(
             relation_id,
             Arc::new(Relation {
+                oid: relation_id,
                 schema,
                 table,
                 replica_identity,

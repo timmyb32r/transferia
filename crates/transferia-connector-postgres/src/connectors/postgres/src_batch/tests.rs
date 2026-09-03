@@ -1,9 +1,13 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
 use super::copy_out::{CopyDecoder, DecodeState};
 use super::reader::{
     decode_date, decode_i8, decode_timestamp, decode_timestamptz, discovered_schema_matches,
     source_column_expression, source_user_field,
 };
-use super::snapshot::set_snapshot_sql;
+use super::snapshot::{close_owner_with_timeout, set_snapshot_sql};
 use arrow::datatypes::{DataType, TimeUnit};
 use bytes::Bytes;
 use tokio_postgres::types::{Kind, Type};
@@ -13,9 +17,9 @@ use crate::connectors::postgres::source::POSTGRES_SOURCE_METADATA_COLUMNS;
 use crate::connectors::postgres::PostgresCopyFormat;
 use transferia_core::data::schema::{
     SchemaColumn, META_LOW_CARDINALITY, META_MAX_LENGTH, META_PRIMARY_KEY,
-    SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
-    SYSTEM_ROLE_EVENT_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA,
-    SYSTEM_ROLE_SOURCE_TABLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+    SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
     SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 
@@ -45,6 +49,34 @@ fn imported_snapshot_sql_rejects_every_non_literal_identifier_shape() {
             "unsafe snapshot identifier was accepted: {invalid:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn hung_snapshot_owner_cleanup_is_bounded_and_force_drops_the_owner() {
+    struct DropProbe(Arc<AtomicBool>);
+
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    let dropped = Arc::new(AtomicBool::new(false));
+    let cleanup = close_owner_with_timeout(
+        DropProbe(Arc::clone(&dropped)),
+        |_| Box::pin(std::future::pending()),
+        Duration::from_millis(1),
+    );
+    let error = tokio::time::timeout(Duration::from_secs(1), cleanup)
+        .await
+        .expect("snapshot owner cleanup must return within its deadline")
+        .expect_err("a hung rollback must fail explicitly");
+
+    assert!(error.to_string().contains("cleanup timed out"));
+    assert!(
+        dropped.load(Ordering::Acquire),
+        "the connection owner must be force-dropped after the cleanup deadline"
+    );
 }
 
 #[test]
@@ -150,7 +182,10 @@ fn binary_copy_decoder_handles_fragmented_header_rows_nulls_and_trailer() {
     let DecodeState::Row(row) = decoder.next().unwrap() else {
         panic!("expected one decoded row");
     };
-    assert_eq!(row.fields[0].as_deref(), Some(7_i32.to_be_bytes().as_slice()));
+    assert_eq!(
+        row.fields[0].as_deref(),
+        Some(7_i32.to_be_bytes().as_slice())
+    );
     assert_eq!(row.fields[1], None);
     assert!(matches!(decoder.next().unwrap(), DecodeState::End));
     decoder.finish().unwrap();
@@ -309,11 +344,7 @@ fn temporal_copy_decoders_preserve_types_epochs_offsets_and_microseconds() {
     let expected = 1_704_067_200_123_456_i64;
     let postgres = expected - 946_684_800_000_000;
     assert_eq!(
-        decode_timestamp(
-            b"2024-01-01 00:00:00.123456",
-            PostgresCopyFormat::Text,
-        )
-        .unwrap(),
+        decode_timestamp(b"2024-01-01 00:00:00.123456", PostgresCopyFormat::Text,).unwrap(),
         expected
     );
     assert_eq!(
@@ -321,11 +352,7 @@ fn temporal_copy_decoders_preserve_types_epochs_offsets_and_microseconds() {
         expected
     );
     assert_eq!(
-        decode_timestamptz(
-            b"2024-01-01 03:00:00.123456+03",
-            PostgresCopyFormat::Text,
-        )
-        .unwrap(),
+        decode_timestamptz(b"2024-01-01 03:00:00.123456+03", PostgresCopyFormat::Text,).unwrap(),
         expected
     );
     assert_eq!(
@@ -343,31 +370,38 @@ fn temporal_copy_decoders_fail_closed_on_infinity_precision_and_bad_offsets() {
         assert!(decode_timestamp(&value.to_be_bytes(), PostgresCopyFormat::Binary).is_err());
     }
     assert!(decode_date(b"infinity", PostgresCopyFormat::Text).is_err());
-    assert!(decode_timestamp(
-        b"2024-01-01 00:00:00.1234567",
-        PostgresCopyFormat::Text,
-    )
-    .is_err());
-    assert!(decode_timestamptz(
-        b"2024-01-01 00:00:00",
-        PostgresCopyFormat::Text,
-    )
-    .is_err());
+    assert!(decode_timestamp(b"2024-01-01 00:00:00.1234567", PostgresCopyFormat::Text,).is_err());
+    assert!(decode_timestamptz(b"2024-01-01 00:00:00", PostgresCopyFormat::Text,).is_err());
 }
 
 #[test]
 fn snapshot_arrow_fields_preserve_discovered_column_constraints() {
-    let discovered = SchemaColumn::new("id".to_owned(), DataType::Int64, true)
-        .with_constraints(true, true, Some(64));
+    let discovered = SchemaColumn::new("id".to_owned(), DataType::Int64, true).with_constraints(
+        true,
+        true,
+        Some(64),
+    );
 
-    let field = source_user_field(&discovered);
+    let field = source_user_field(&discovered, false);
 
     assert_eq!(field.name(), "id");
     assert_eq!(field.data_type(), &DataType::Int64);
     assert!(field.is_nullable());
-    assert_eq!(field.metadata().get(META_PRIMARY_KEY).map(String::as_str), Some("true"));
-    assert_eq!(field.metadata().get(META_LOW_CARDINALITY).map(String::as_str), Some("true"));
-    assert_eq!(field.metadata().get(META_MAX_LENGTH).map(String::as_str), Some("64"));
+    assert_eq!(
+        field.metadata().get(META_PRIMARY_KEY).map(String::as_str),
+        Some("true")
+    );
+    assert_eq!(
+        field
+            .metadata()
+            .get(META_LOW_CARDINALITY)
+            .map(String::as_str),
+        Some("true")
+    );
+    assert_eq!(
+        field.metadata().get(META_MAX_LENGTH).map(String::as_str),
+        Some("64")
+    );
 }
 
 #[test]

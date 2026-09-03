@@ -204,11 +204,15 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
                 keep_system_columns: false,
             },
             cancellation: CancellationToken::new(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
         })
         .await?;
     let mut source = source_connector
         .build_source(SourceBuildContext {
             partition_id: 0,
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
+            phase: transferia_registry::SourcePhase::Snapshot,
+            replay_identity: None,
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(16 * 1024 * 1024),
             durable: transferia_test_support::durable_context(),

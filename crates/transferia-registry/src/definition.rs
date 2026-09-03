@@ -10,7 +10,10 @@ use transferia_delivery_contracts::semantics::RecordSemantics;
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryMode {
     Batch,
+
     Stream,
+
+    BatchAndStream,
 }
 
 #[derive(Clone, Debug, JsonSchema, Serialize)]

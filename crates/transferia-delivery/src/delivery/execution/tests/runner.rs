@@ -1,20 +1,325 @@
 use super::*;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use futures_util::future::BoxFuture;
+use tokio::sync::Notify;
+use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::delivery::{
     DiscoveredDataset, SchemaOrigin, SinkLimits, SourceTopology, NO_LIMITS,
 };
-use transferia_core::sink::Sink;
-use transferia_delivery_contracts::semantics::EndpointDescriptor;
+use transferia_core::failure::{DataPlaneFailure, DataPlaneResult};
+use transferia_core::sink::{Sink, SinkEvent, SinkIo};
+use transferia_core::source::{CommitMarker, Source};
+use transferia_delivery_contracts::parser::{ParserFactory, ParserSession};
+use transferia_delivery_contracts::semantics::{
+    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
+use transferia_delivery_contracts::DeliveryType;
+use transferia_registry::SourceDiscoveryContext;
 
 struct RowCountSink {
     strategy: SnapshotRowCountStrategy,
     responses: Mutex<VecDeque<Vec<SnapshotDatasetRowCount>>>,
     probes: AtomicU64,
+}
+
+#[derive(Default)]
+struct PhaseEvents {
+    entries: Mutex<Vec<String>>,
+    changed: Notify,
+    completion_gate: Mutex<Option<Arc<Notify>>>,
+}
+
+impl PhaseEvents {
+    fn push(&self, event: impl Into<String>) {
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(event.into());
+        self.changed.notify_waiters();
+    }
+
+    fn snapshot(&self) -> Vec<String> {
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    async fn wait_for(&self, expected: &str) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let changed = self.changed.notified();
+                if self
+                    .entries
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .iter()
+                    .any(|entry| entry == expected)
+                {
+                    return;
+                }
+                changed.await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("timed out waiting for phase event '{expected}'"));
+    }
+
+    fn hold_phase_completion(&self, gate: Arc<Notify>) {
+        *self
+            .completion_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(gate);
+    }
+
+    fn phase_completion_gate(&self) -> Option<Arc<Notify>> {
+        self.completion_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+}
+
+#[derive(Clone)]
+enum SnapshotRead {
+    Finish,
+    Wait(Arc<BTreeMap<i64, Arc<Notify>>>),
+    Fatal,
+}
+
+struct PhaseSourceConnector {
+    phases: Vec<SourceExecutionPhase>,
+    prepared: Option<PreparedSourceExecution>,
+    snapshot_read: SnapshotRead,
+    events: Arc<PhaseEvents>,
+}
+
+impl SourceConnector for PhaseSourceConnector {
+    fn compatibility(&self) -> EndpointDescriptor {
+        EndpointDescriptor::DataGenerator(SourceDescriptor {
+            behavior: SourceBehavior::ChangelogRows,
+            delivery_modes: SourceDeliveryModes::BATCH_AND_STREAM,
+        })
+    }
+
+    fn delivery_discovery(
+        &self,
+        _context: SourceDiscoveryContext,
+    ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
+        Box::pin(async { anyhow::bail!("unused discovery") })
+    }
+
+    fn prepare_execution(
+        &self,
+        context: SourceExecutionContext,
+    ) -> BoxFuture<'_, anyhow::Result<Option<PreparedSourceExecution>>> {
+        let prepared = self.prepared.clone();
+        self.events.push("prepare_execution");
+        Box::pin(async move {
+            anyhow::ensure!(
+                context.replay_identity.as_deref() == Some("phase-runner-test-revision-1"),
+                "runner did not pass the plan replay identity to source preparation"
+            );
+            Ok(prepared)
+        })
+    }
+
+    fn execution_phases(
+        &self,
+        _delivery_type: DeliveryType,
+        _discovery: &DeliveryDiscovery,
+    ) -> anyhow::Result<Vec<SourceExecutionPhase>> {
+        Ok(self.phases.clone())
+    }
+
+    fn complete_execution_phase(
+        &self,
+        phase: SourcePhase,
+        _durable: DurableContext,
+        cancellation: CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<()>> {
+        let gate = self.events.phase_completion_gate();
+        self.events.push(format!("complete:{phase:?}"));
+        Box::pin(async move {
+            anyhow::ensure!(
+                !cancellation.is_cancelled(),
+                "phase completion barrier received a cancelled token"
+            );
+            if let Some(gate) = gate {
+                gate.notified().await;
+            }
+            Ok(())
+        })
+    }
+
+    fn build_source(
+        &self,
+        context: SourceBuildContext,
+    ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
+        let replay_identity = context.replay_identity.clone();
+        self.events.push(format!(
+            "build:{:?}:{}",
+            context.phase, context.partition_id
+        ));
+        let read = match context.phase {
+            SourcePhase::Snapshot => match &self.snapshot_read {
+                SnapshotRead::Finish => PhaseSourceRead::Finish,
+                SnapshotRead::Wait(gates) => PhaseSourceRead::Wait(Arc::clone(
+                    gates
+                        .get(&context.partition_id)
+                        .expect("test snapshot partition must have a gate"),
+                )),
+                SnapshotRead::Fatal => PhaseSourceRead::Fatal,
+            },
+            SourcePhase::Stream => PhaseSourceRead::Stream,
+        };
+        let source = PhaseSource {
+            phase: context.phase,
+            partition_id: context.partition_id,
+            read,
+            events: Arc::clone(&self.events),
+        };
+        Box::pin(async move {
+            anyhow::ensure!(
+                replay_identity.as_deref() == Some("phase-runner-test-revision-1"),
+                "runner did not pass the plan replay identity to source construction"
+            );
+            Ok(Box::new(source) as Box<dyn Source>)
+        })
+    }
+
+    fn parser(&self) -> Arc<dyn ParserFactory> {
+        Arc::new(UnusedParserFactory)
+    }
+
+    fn parses_rows(&self) -> bool {
+        true
+    }
+}
+
+enum PhaseSourceRead {
+    Finish,
+    Wait(Arc<Notify>),
+    Fatal,
+    Stream,
+}
+
+struct PhaseSource {
+    phase: SourcePhase,
+    partition_id: i64,
+    read: PhaseSourceRead,
+    events: Arc<PhaseEvents>,
+}
+
+impl Source for PhaseSource {
+    fn read_batch(&mut self) -> BoxFuture<'_, DataPlaneResult<SourceBatch>> {
+        Box::pin(async move {
+            match &self.read {
+                PhaseSourceRead::Finish => {}
+                PhaseSourceRead::Wait(gate) => gate.notified().await,
+                PhaseSourceRead::Fatal => {
+                    return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
+                        "injected snapshot failure"
+                    )));
+                }
+                PhaseSourceRead::Stream => {
+                    std::future::pending::<()>().await;
+                }
+            }
+            self.events
+                .push(format!("finish:{:?}:{}", self.phase, self.partition_id));
+            Ok(SourceBatch::Finished)
+        })
+    }
+
+    fn commit_offsets<'ctx>(
+        &'ctx mut self,
+        _markers: &'ctx [CommitMarker],
+    ) -> BoxFuture<'ctx, DataPlaneResult<()>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+struct UnusedParserFactory;
+
+impl ParserFactory for UnusedParserFactory {
+    fn create_session(self: Arc<Self>, _memory_limit_bytes: usize) -> Box<dyn ParserSession> {
+        panic!("phase lifecycle tests emit no parser input")
+    }
+}
+
+struct PhaseSinkConnector {
+    prepare_calls: AtomicU64,
+    events: Arc<PhaseEvents>,
+}
+
+impl PhaseSinkConnector {
+    fn new(events: Arc<PhaseEvents>) -> Self {
+        Self {
+            prepare_calls: AtomicU64::new(0),
+            events,
+        }
+    }
+}
+
+impl SinkConnector for PhaseSinkConnector {
+    fn compatibility(&self) -> EndpointDescriptor {
+        EndpointDescriptor::Discard
+    }
+
+    fn limits(&self) -> &dyn SinkLimits {
+        &NO_LIMITS
+    }
+
+    fn destination_type(&self, _column: &SchemaColumn) -> anyhow::Result<String> {
+        Ok("discard".to_owned())
+    }
+
+    fn prepare(&self, _request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
+        self.prepare_calls.fetch_add(1, Ordering::Relaxed);
+        self.events.push("sink_prepare");
+        Box::pin(async { Ok(()) })
+    }
+
+    fn build_sink(
+        &self,
+        _context: SinkBuildContext,
+    ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
+        Box::pin(async { Ok(Box::new(PhaseSink) as Box<dyn Sink>) })
+    }
+}
+
+struct PhaseSink;
+
+impl Sink for PhaseSink {
+    fn run(self: Box<Self>, mut io: SinkIo) -> BoxFuture<'static, DataPlaneResult<()>> {
+        Box::pin(async move {
+            loop {
+                let delivery = tokio::select! {
+                    () = io.cancellation.cancelled() => return Ok(()),
+                    delivery = io.deliveries.recv() => delivery,
+                };
+                let Some(delivery) = delivery else {
+                    return Ok(());
+                };
+                let id = delivery.id;
+                drop(delivery);
+                io.events
+                    .send(SinkEvent::CommittedThrough(id))
+                    .await
+                    .map_err(|_| {
+                        DataPlaneFailure::retryable(anyhow::anyhow!(
+                            "phase test sink event receiver closed"
+                        ))
+                    })?;
+            }
+        })
+    }
 }
 
 impl RowCountSink {
@@ -121,6 +426,400 @@ fn output_count(role: DatasetRole, table: &str, rows: u64) -> OutputDatasetRowCo
         table: Arc::from(table),
         is_dlq: role == DatasetRole::DeadLetterQueue,
         rows,
+    }
+}
+
+fn phase_discovery(topology: SourceTopology) -> DeliveryDiscovery {
+    let schema = DatasetSchema::new(Vec::new());
+    DeliveryDiscovery {
+        source_name: Arc::from("phase-source"),
+        source_topology: topology,
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: true,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: Arc::from("events"),
+            incoming_schema: schema.clone(),
+            stored_schema: schema,
+            system_columns: Vec::new(),
+        }],
+        performance_advice: Vec::new(),
+    }
+}
+
+fn phase_plan(phase: SourcePhase, topology: SourceTopology, finite: bool) -> SourceExecutionPhase {
+    SourceExecutionPhase {
+        phase,
+        topology,
+        finite,
+    }
+}
+
+fn phase_pipeline_plan(
+    source: Arc<PhaseSourceConnector>,
+    sink: Arc<PhaseSinkConnector>,
+    discovery: DeliveryDiscovery,
+) -> PipelinePlan {
+    let config = serde_yaml::from_str(
+        r#"
+delivery_id: phase-runner-test
+durable_storage:
+  type: local_file
+  path: /tmp/phase-runner-test-unused
+delivery_type: batch_and_stream
+source:
+  test: {}
+sink:
+  test: {}
+pipeline_memory_limit_bytes: 1048576
+"#,
+    )
+    .expect("phase runner test config");
+    let semantics = transferia_delivery_contracts::semantics::validate_pipeline(
+        &source.compatibility(),
+        &sink.compatibility(),
+        &discovery,
+        true,
+    );
+    PipelinePlan {
+        config,
+        replay_identity: Some(Arc::from("phase-runner-test-revision-1")),
+        durable: transferia_test_support::durable_context(),
+        metrics_registry: Arc::new(MetricsRegistry::new()),
+        source_kind: "test".to_owned(),
+        sink_kind: "test".to_owned(),
+        source_connector: source,
+        sink_connector: sink,
+        discovery: Arc::new(discovery),
+        middlewares: Vec::new(),
+        semantics,
+        finite_source: false,
+    }
+}
+
+#[tokio::test]
+async fn authoritative_discovery_is_revalidated_before_sink_prepare() {
+    let events = Arc::new(PhaseEvents::default());
+    let topology = SourceTopology::StaticPartitions(vec![0]);
+    let mut invalid_authoritative = phase_discovery(topology.clone());
+    invalid_authoritative.keep_system_columns = false;
+    let snapshot = phase_plan(SourcePhase::Snapshot, topology.clone(), true);
+    let source = Arc::new(PhaseSourceConnector {
+        phases: vec![snapshot.clone()],
+        prepared: Some(PreparedSourceExecution {
+            discovery: invalid_authoritative,
+            remaining_phases: vec![snapshot],
+        }),
+        snapshot_read: SnapshotRead::Finish,
+        events: Arc::clone(&events),
+    });
+    let sink = Arc::new(PhaseSinkConnector::new(Arc::clone(&events)));
+    let error = start_pipeline(
+        phase_pipeline_plan(source, Arc::clone(&sink), phase_discovery(topology)),
+        1,
+        0,
+        CancellationToken::new(),
+    )
+    .await
+    .err()
+    .expect("authoritative discovery must be rejected before sink preparation");
+
+    assert!(error.to_string().contains("system-column policy"));
+    assert_eq!(sink.prepare_calls.load(Ordering::Relaxed), 0);
+    assert_eq!(events.snapshot(), vec!["prepare_execution".to_owned()]);
+}
+
+#[tokio::test]
+async fn prepared_execution_may_resume_from_an_exact_phase_suffix() {
+    let events = Arc::new(PhaseEvents::default());
+    let topology = SourceTopology::CoLocatedStaticPartitions(vec![0]);
+    let discovery = phase_discovery(topology.clone());
+    let snapshot = phase_plan(SourcePhase::Snapshot, topology.clone(), true);
+    let stream = phase_plan(SourcePhase::Stream, topology.clone(), false);
+    let source = Arc::new(PhaseSourceConnector {
+        phases: vec![snapshot, stream.clone()],
+        prepared: Some(PreparedSourceExecution {
+            discovery: discovery.clone(),
+            remaining_phases: vec![stream],
+        }),
+        snapshot_read: SnapshotRead::Finish,
+        events: Arc::clone(&events),
+    });
+    let sink = Arc::new(PhaseSinkConnector::new(Arc::clone(&events)));
+    let cancellation = CancellationToken::new();
+    let execution = start_pipeline(
+        phase_pipeline_plan(source, sink, discovery),
+        2,
+        0,
+        cancellation.clone(),
+    )
+    .await
+    .expect("exact stream-only suffix must resume")
+    .expect("co-located worker owns the remaining phase");
+
+    let started = events.snapshot();
+    assert!(started.iter().any(|event| event == "build:Stream:0"));
+    assert!(!started
+        .iter()
+        .any(|event| event.starts_with("build:Snapshot")));
+
+    cancellation.cancel();
+    execution
+        .wait()
+        .await
+        .expect("resumed stream cancellation must stop cleanly");
+}
+
+#[tokio::test]
+async fn prepared_execution_rejects_a_non_suffix_before_sink_prepare() {
+    let events = Arc::new(PhaseEvents::default());
+    let topology = SourceTopology::CoLocatedStaticPartitions(vec![0]);
+    let discovery = phase_discovery(topology.clone());
+    let snapshot = phase_plan(SourcePhase::Snapshot, topology.clone(), true);
+    let stream = phase_plan(SourcePhase::Stream, topology, false);
+    let source = Arc::new(PhaseSourceConnector {
+        phases: vec![snapshot.clone(), stream],
+        prepared: Some(PreparedSourceExecution {
+            discovery: discovery.clone(),
+            remaining_phases: vec![snapshot],
+        }),
+        snapshot_read: SnapshotRead::Finish,
+        events: Arc::clone(&events),
+    });
+    let sink = Arc::new(PhaseSinkConnector::new(Arc::clone(&events)));
+    let error = start_pipeline(
+        phase_pipeline_plan(source, Arc::clone(&sink), discovery),
+        1,
+        0,
+        CancellationToken::new(),
+    )
+    .await
+    .err()
+    .expect("a phase prefix must not be accepted as resumable state");
+
+    assert!(error.to_string().contains("not an exact suffix"));
+    assert_eq!(sink.prepare_calls.load(Ordering::Relaxed), 0);
+    assert_eq!(events.snapshot(), vec!["prepare_execution".to_owned()]);
+}
+
+#[tokio::test]
+async fn every_snapshot_partition_finishes_before_phase_completion_and_stream_build() {
+    let events = Arc::new(PhaseEvents::default());
+    let first_gate = Arc::new(Notify::new());
+    let second_gate = Arc::new(Notify::new());
+    let gates = Arc::new(BTreeMap::from([
+        (0, Arc::clone(&first_gate)),
+        (1, Arc::clone(&second_gate)),
+    ]));
+    let topology = SourceTopology::CoLocatedStaticPartitions(vec![0, 1]);
+    let source = Arc::new(PhaseSourceConnector {
+        phases: vec![
+            phase_plan(SourcePhase::Snapshot, topology.clone(), true),
+            phase_plan(SourcePhase::Stream, topology.clone(), false),
+        ],
+        prepared: None,
+        snapshot_read: SnapshotRead::Wait(gates),
+        events: Arc::clone(&events),
+    });
+    let sink = Arc::new(PhaseSinkConnector::new(Arc::clone(&events)));
+    let cancellation = CancellationToken::new();
+    let execution = start_pipeline(
+        phase_pipeline_plan(source, sink, phase_discovery(topology)),
+        1,
+        0,
+        cancellation.clone(),
+    )
+    .await
+    .expect("snapshot phase startup")
+    .expect("worker owns both phases");
+    let wait = tokio::spawn(execution.wait());
+
+    first_gate.notify_one();
+    events.wait_for("finish:Snapshot:0").await;
+    let halfway = events.snapshot();
+    assert!(!halfway.iter().any(|event| event == "complete:Snapshot"));
+    assert!(!halfway.iter().any(|event| event == "build:Stream:0"));
+
+    second_gate.notify_one();
+    events.wait_for("build:Stream:0").await;
+    let completed = events.snapshot();
+    let first_finished = completed
+        .iter()
+        .position(|event| event == "finish:Snapshot:0")
+        .expect("first snapshot partition completion");
+    let second_finished = completed
+        .iter()
+        .position(|event| event == "finish:Snapshot:1")
+        .expect("second snapshot partition completion");
+    let phase_completed = completed
+        .iter()
+        .position(|event| event == "complete:Snapshot")
+        .expect("snapshot phase completion");
+    let stream_built = completed
+        .iter()
+        .position(|event| event == "build:Stream:0")
+        .expect("stream construction");
+    assert!(first_finished < phase_completed);
+    assert!(second_finished < phase_completed);
+    assert!(phase_completed < stream_built);
+
+    cancellation.cancel();
+    wait.await
+        .expect("phase wait task")
+        .expect("phase execution cancellation");
+}
+
+#[tokio::test]
+async fn snapshot_failure_never_completes_the_phase_or_starts_stream() {
+    let events = Arc::new(PhaseEvents::default());
+    let topology = SourceTopology::CoLocatedStaticPartitions(vec![0]);
+    let source = Arc::new(PhaseSourceConnector {
+        phases: vec![
+            phase_plan(SourcePhase::Snapshot, topology.clone(), true),
+            phase_plan(SourcePhase::Stream, topology.clone(), false),
+        ],
+        prepared: None,
+        snapshot_read: SnapshotRead::Fatal,
+        events: Arc::clone(&events),
+    });
+    let sink = Arc::new(PhaseSinkConnector::new(Arc::clone(&events)));
+    let execution = start_pipeline(
+        phase_pipeline_plan(source, sink, phase_discovery(topology)),
+        1,
+        0,
+        CancellationToken::new(),
+    )
+    .await
+    .expect("snapshot phase startup")
+    .expect("worker owns both phases");
+    let error = execution
+        .wait()
+        .await
+        .expect_err("fatal snapshot read must fail the phase");
+
+    assert!(format!("{error:#}").contains("injected snapshot failure"));
+    let events = events.snapshot();
+    assert!(!events.iter().any(|event| event == "complete:Snapshot"));
+    assert!(!events.iter().any(|event| event.starts_with("build:Stream")));
+}
+
+#[tokio::test]
+async fn snapshot_cancellation_never_completes_the_phase_or_starts_stream() {
+    let events = Arc::new(PhaseEvents::default());
+    let gate = Arc::new(Notify::new());
+    let topology = SourceTopology::CoLocatedStaticPartitions(vec![0]);
+    let source = Arc::new(PhaseSourceConnector {
+        phases: vec![
+            phase_plan(SourcePhase::Snapshot, topology.clone(), true),
+            phase_plan(SourcePhase::Stream, topology.clone(), false),
+        ],
+        prepared: None,
+        snapshot_read: SnapshotRead::Wait(Arc::new(BTreeMap::from([(0, gate)]))),
+        events: Arc::clone(&events),
+    });
+    let sink = Arc::new(PhaseSinkConnector::new(Arc::clone(&events)));
+    let cancellation = CancellationToken::new();
+    let execution = start_pipeline(
+        phase_pipeline_plan(source, sink, phase_discovery(topology)),
+        1,
+        0,
+        cancellation.clone(),
+    )
+    .await
+    .expect("snapshot phase startup")
+    .expect("worker owns both phases");
+
+    cancellation.cancel();
+    execution
+        .wait()
+        .await
+        .expect("cancellation must stop the current phase cleanly");
+    let events = events.snapshot();
+    assert!(!events.iter().any(|event| event == "complete:Snapshot"));
+    assert!(!events.iter().any(|event| event.starts_with("build:Stream")));
+}
+
+#[tokio::test]
+async fn cancellation_after_snapshot_drain_waits_for_phase_barrier_and_skips_stream() {
+    let events = Arc::new(PhaseEvents::default());
+    let completion_gate = Arc::new(Notify::new());
+    events.hold_phase_completion(Arc::clone(&completion_gate));
+    let topology = SourceTopology::CoLocatedStaticPartitions(vec![0]);
+    let source = Arc::new(PhaseSourceConnector {
+        phases: vec![
+            phase_plan(SourcePhase::Snapshot, topology.clone(), true),
+            phase_plan(SourcePhase::Stream, topology.clone(), false),
+        ],
+        prepared: None,
+        snapshot_read: SnapshotRead::Finish,
+        events: Arc::clone(&events),
+    });
+    let sink = Arc::new(PhaseSinkConnector::new(Arc::clone(&events)));
+    let cancellation = CancellationToken::new();
+    let execution = start_pipeline(
+        phase_pipeline_plan(source, sink, phase_discovery(topology)),
+        1,
+        0,
+        cancellation.clone(),
+    )
+    .await
+    .expect("snapshot phase startup")
+    .expect("worker owns both phases");
+    let wait = tokio::spawn(execution.wait());
+
+    events.wait_for("complete:Snapshot").await;
+    cancellation.cancel();
+    completion_gate.notify_one();
+    wait.await
+        .expect("phase wait task")
+        .expect("completed snapshot barrier must survive cancellation");
+
+    let events = events.snapshot();
+    assert!(events.iter().any(|event| event == "complete:Snapshot"));
+    assert!(!events.iter().any(|event| event.starts_with("build:Stream")));
+}
+
+#[tokio::test]
+async fn multi_phase_static_partitions_fail_before_external_side_effects() {
+    for worker_index in 0..2 {
+        let events = Arc::new(PhaseEvents::default());
+        let source = Arc::new(PhaseSourceConnector {
+            phases: vec![
+                phase_plan(
+                    SourcePhase::Snapshot,
+                    SourceTopology::StaticPartitions(vec![0, 1]),
+                    true,
+                ),
+                phase_plan(
+                    SourcePhase::Stream,
+                    SourceTopology::StaticPartitions(vec![0, 1]),
+                    false,
+                ),
+            ],
+            prepared: None,
+            snapshot_read: SnapshotRead::Finish,
+            events: Arc::clone(&events),
+        });
+        let sink = Arc::new(PhaseSinkConnector::new(Arc::clone(&events)));
+        let error = start_pipeline(
+            phase_pipeline_plan(
+                source,
+                Arc::clone(&sink),
+                phase_discovery(SourceTopology::StaticPartitions(vec![0])),
+            ),
+            2,
+            worker_index,
+            CancellationToken::new(),
+        )
+        .await
+        .err()
+        .expect("multi-worker phases require a real distributed barrier");
+
+        assert!(error
+            .to_string()
+            .contains("requires CoLocatedStaticPartitions"));
+        assert_eq!(sink.prepare_calls.load(Ordering::Relaxed), 0);
+        assert!(events.snapshot().is_empty());
     }
 }
 

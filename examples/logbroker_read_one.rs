@@ -46,6 +46,7 @@ async fn main() -> anyhow::Result<()> {
                 keep_system_columns: true,
             },
             cancellation: cancellation.clone(),
+            delivery_type: transferia::delivery::config::yaml::DeliveryType::Stream,
         })
         .await?;
     let reader_lane = discovery
@@ -57,6 +58,9 @@ async fn main() -> anyhow::Result<()> {
     let mut source = connector
         .build_source(SourceBuildContext {
             partition_id: reader_lane,
+            delivery_type: transferia::delivery::config::yaml::DeliveryType::Stream,
+            phase: transferia::registry::SourcePhase::Stream,
+            replay_identity: None,
             cancellation: cancellation.child_token(),
             memory: PipelineMemory::new(config.pipeline_memory_limit_bytes),
             durable,

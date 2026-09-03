@@ -20,10 +20,13 @@ pub struct DeliveryPlan {
     pub pipelines: Vec<PipelinePlan>,
 
     composition_fingerprint: String,
+
+    replay_identity: Option<Arc<str>>,
 }
 
 pub struct PipelinePlan {
     pub config: Config,
+    pub replay_identity: Option<Arc<str>>,
     pub durable: DurableContext,
     pub metrics_registry: Arc<MetricsRegistry>,
     pub source_kind: String,
@@ -45,6 +48,7 @@ pub struct ResolvedDeliveryConfig {
 impl DeliveryPlan {
     pub fn resolved_config(&self) -> anyhow::Result<ResolvedDeliveryConfig> {
         let document = ResolvedConfigDocument {
+            replay_identity: self.replay_identity.as_deref().map(str::to_owned),
             pipelines: self
                 .pipelines
                 .iter()
@@ -67,6 +71,9 @@ impl DeliveryPlan {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResolvedConfigDocument {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay_identity: Option<String>,
+
     pub pipelines: Vec<Config>,
 }
 
@@ -102,7 +109,28 @@ pub async fn build_delivery_plan_with(
     cancellation: CancellationToken,
     composition: &dyn Composition,
 ) -> anyhow::Result<DeliveryPlan> {
-    build_delivery_plan_internal(config, cancellation, composition, true).await
+    build_delivery_plan_internal(config, None, cancellation, composition, true).await
+}
+
+pub async fn build_delivery_plan_with_replay_identity(
+    config: Config,
+    replay_identity: impl Into<Arc<str>>,
+    cancellation: CancellationToken,
+    composition: &dyn Composition,
+) -> anyhow::Result<DeliveryPlan> {
+    let replay_identity = replay_identity.into();
+    anyhow::ensure!(
+        !replay_identity.is_empty(),
+        "delivery replay identity must not be empty"
+    );
+    build_delivery_plan_internal(
+        config,
+        Some(replay_identity),
+        cancellation,
+        composition,
+        true,
+    )
+    .await
 }
 
 pub async fn build_resolved_delivery_document_with(
@@ -110,11 +138,23 @@ pub async fn build_resolved_delivery_document_with(
     cancellation: CancellationToken,
     composition: &dyn Composition,
 ) -> anyhow::Result<DeliveryPlan> {
+    let replay_identity = document.replay_identity.map(Arc::<str>::from);
+    if let Some(identity) = &replay_identity {
+        anyhow::ensure!(
+            !identity.is_empty(),
+            "delivery replay identity must not be empty"
+        );
+    }
     let mut pipelines = Vec::new();
     for config in document.pipelines {
-        let mut plan =
-            build_delivery_plan_internal(config, cancellation.child_token(), composition, false)
-                .await?;
+        let mut plan = build_delivery_plan_internal(
+            config,
+            replay_identity.clone(),
+            cancellation.child_token(),
+            composition,
+            false,
+        )
+        .await?;
         pipelines.append(&mut plan.pipelines);
     }
     anyhow::ensure!(
@@ -124,11 +164,13 @@ pub async fn build_resolved_delivery_document_with(
     Ok(DeliveryPlan {
         pipelines,
         composition_fingerprint: composition.fingerprint().to_owned(),
+        replay_identity,
     })
 }
 
 async fn build_delivery_plan_internal(
     config: Config,
+    replay_identity: Option<Arc<str>>,
     cancellation: CancellationToken,
     composition: &dyn Composition,
     resolve_installations: bool,
@@ -178,6 +220,7 @@ async fn build_delivery_plan_internal(
             pipelines.push(
                 build_pipeline_plan(
                     pipeline_config,
+                    replay_identity.clone(),
                     &source_kind,
                     &sink_kind,
                     cancellation.child_token(),
@@ -192,11 +235,13 @@ async fn build_delivery_plan_internal(
     Ok(DeliveryPlan {
         pipelines,
         composition_fingerprint: composition.fingerprint().to_owned(),
+        replay_identity,
     })
 }
 
 async fn build_pipeline_plan(
     config: Config,
+    replay_identity: Option<Arc<str>>,
     source_kind: &str,
     sink_kind: &str,
     cancellation: CancellationToken,
@@ -234,6 +279,7 @@ async fn build_pipeline_plan(
                 keep_system_columns: true,
             },
             cancellation,
+            delivery_type: config.delivery_type,
         })
         .await?;
     anyhow::ensure!(
@@ -260,6 +306,7 @@ async fn build_pipeline_plan(
 
     Ok(PipelinePlan {
         config,
+        replay_identity,
         durable,
         metrics_registry,
         source_kind: source_kind.to_owned(),
@@ -296,7 +343,7 @@ pub fn validate_discovered_pipeline(
     Ok(semantics)
 }
 
-async fn validate_middlewares(
+pub(crate) async fn validate_middlewares(
     middlewares: &[Box<dyn Middleware>],
     mut discovery: DeliveryDiscovery,
 ) -> anyhow::Result<DeliveryDiscovery> {

@@ -40,6 +40,7 @@ pub(super) struct RelationColumn {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Relation {
+    pub oid: u32,
     pub schema: Arc<str>,
     pub table: Arc<str>,
     pub replica_identity: u8,

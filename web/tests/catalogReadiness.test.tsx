@@ -9,6 +9,7 @@ import {
   completionIssueLabel,
   configurationReadiness,
   orderedEndpointConnectors,
+  selectedEndpoints,
   validateCatalogSchemas,
 } from "../src/delivery/editorConfig";
 import { productionWidgetRegistry } from "../src/features/formWidgetRegistry";
@@ -32,6 +33,191 @@ import { render } from "./support/render";
 afterEach(cleanup);
 
 describe("connector catalog readiness", () => {
+  it("validates the selected delivery type as an exact source capability", () => {
+    const catalog: UiCatalog = {
+      common_schema: { type: "object" },
+      initial: {},
+      connectors: [
+        {
+          key: "legacy",
+          title: "Legacy separate modes",
+          source: {
+            schema: {},
+            initial: {},
+            delivery_modes: ["batch", "stream"],
+            record_semantics: ["append_only"],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+        {
+          key: "combined",
+          title: "Combined",
+          source: {
+            schema: {},
+            initial: {},
+            delivery_modes: ["batch_and_stream"],
+            record_semantics: ["append_only", "changelog"],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+      ],
+    };
+
+    expect(
+      selectedEndpoints(
+        catalog,
+        {
+          delivery_type: "batch_and_stream",
+          source: { legacy: {} },
+        },
+        productionWidgetRegistry,
+      ).error,
+    ).toBe(
+      "Legacy separate modes does not support batch and stream delivery.",
+    );
+    expect(
+      selectedEndpoints(
+        catalog,
+        {
+          delivery_type: "batch_and_stream",
+          source: { combined: {} },
+        },
+        productionWidgetRegistry,
+      ).error,
+    ).toBeUndefined();
+  });
+
+  it("uses active endpoint branches for readiness while retaining aggregate modes", () => {
+    const catalog: UiCatalog = {
+      common_schema: { type: "object" },
+      initial: {},
+      connectors: [
+        {
+          key: "database",
+          title: "Database",
+          source: {
+            schema: conditionalEndpointSchema("source"),
+            initial: { replication: null },
+            delivery_modes: ["batch", "stream", "batch_and_stream"],
+            record_semantics: ["append_only", "changelog"],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+        {
+          key: "destination",
+          title: "Destination",
+          sink: {
+            schema: conditionalEndpointSchema("destination"),
+            initial: { replication: null },
+            delivery_modes: [],
+            record_semantics: ["append_only", "changelog"],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+      ],
+    };
+
+    expect(() =>
+      validateCatalogSchemas(catalog, productionWidgetRegistry),
+    ).not.toThrow();
+
+    expect(
+      selectedEndpoints(
+        catalog,
+        {
+          delivery_type: "batch",
+          source: { database: { replication: null } },
+          sink: { destination: { replication: null } },
+        },
+        productionWidgetRegistry,
+      ).error,
+    ).toBeUndefined();
+    expect(
+      selectedEndpoints(
+        catalog,
+        {
+          delivery_type: "stream",
+          source: { database: { replication: null } },
+          sink: { destination: { replication: null } },
+        },
+        productionWidgetRegistry,
+      ).error,
+    ).toBe("Database does not support stream delivery.");
+    expect(
+      selectedEndpoints(
+        catalog,
+        {
+          delivery_type: "stream",
+          source: { database: { replication: {} } },
+          sink: { destination: { replication: null } },
+        },
+        productionWidgetRegistry,
+      ).error,
+    ).toBe(
+      "Destination cannot accept the records produced by Database for stream delivery.",
+    );
+    expect(
+      selectedEndpoints(
+        catalog,
+        {
+          delivery_type: "stream",
+          source: { database: { replication: {} } },
+          sink: { destination: { replication: {} } },
+        },
+        productionWidgetRegistry,
+      ).error,
+    ).toBeUndefined();
+  });
+
+  it("derives PostgreSQL delivery modes from the selected source configuration", () => {
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
+    const postgres = catalog.connectors.find(
+      (connector) => connector.key === "postgres",
+    )!.source!;
+
+    expect(postgres.delivery_modes).toEqual([
+      "batch",
+      "stream",
+      "batch_and_stream",
+    ]);
+    expect(
+      selectedEndpoints(
+        catalog,
+        {
+          delivery_type: "stream",
+          source: { postgres: postgres.initial },
+        },
+        productionWidgetRegistry,
+      ).error,
+    ).toBe("PostgreSQL does not support stream delivery.");
+    expect(
+      selectedEndpoints(
+        catalog,
+        {
+          delivery_type: "stream",
+          source: {
+            postgres: {
+              ...postgres.initial,
+              replication: {
+                slot: "transferia",
+                decoder: { type: "wal2_json" },
+              },
+            },
+          },
+        },
+        productionWidgetRegistry,
+      ).error,
+    ).toBeUndefined();
+  });
+
   it("allows parser-defined schema preview before source connectivity is configured", () => {
     const catalog: UiCatalog = {
       common_schema: { type: "object" },
@@ -121,6 +307,7 @@ describe("connector catalog readiness", () => {
       "Kafka",
       "Logbroker",
       "MySQL",
+      "OpenSearch",
       "PostgreSQL",
       "S3",
       "YDB",
@@ -137,6 +324,7 @@ describe("connector catalog readiness", () => {
       "Kafka",
       "Logbroker",
       "MySQL",
+      "OpenSearch",
       "PostgreSQL",
       "S3",
       "YDB",
@@ -538,6 +726,43 @@ function containsForcedUnion(
   if (node.kind === "array") return containsForcedUnion(node.item, forces);
   if (node.kind === "nullable") return containsForcedUnion(node.inner, forces);
   return false;
+}
+
+function conditionalEndpointSchema(component: "source" | "destination") {
+  const capability = (
+    key: string,
+    recordSemantics: ("append_only" | "changelog")[],
+    deliveryModes: ("batch" | "stream" | "batch_and_stream")[],
+  ) => ({
+    component,
+    key,
+    ...(component === "source" ? { delivery_modes: deliveryModes } : {}),
+    record_semantics: recordSemantics,
+  });
+  return {
+    type: "object" as const,
+    properties: {
+      replication: {
+        anyOf: [
+          {
+            type: "object" as const,
+            properties: {},
+            "x-ui": {
+              capabilities: capability(
+                "replication",
+                ["changelog"],
+                ["stream", "batch_and_stream"],
+              ),
+            },
+          },
+          { type: "null" as const },
+        ],
+      },
+    },
+    "x-ui": {
+      capabilities: capability("snapshot", ["append_only"], ["batch"]),
+    },
+  };
 }
 
 function isObject(value: JsonValue | undefined): value is JsonObject {

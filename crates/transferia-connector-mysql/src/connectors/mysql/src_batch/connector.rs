@@ -59,9 +59,7 @@ impl MySqlColumnKind {
             Self::Utf8 | Self::Json => DataType::Utf8,
             Self::Date => DataType::Date32,
             Self::DateTime => DataType::Timestamp(TimeUnit::Microsecond, None),
-            Self::TimestampUtc => {
-                DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into()))
-            }
+            Self::TimestampUtc => DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
         }
     }
 }
@@ -155,6 +153,7 @@ impl SourceConnector for MySqlSourceConnector {
             let SourceDiscoveryContext {
                 request,
                 cancellation,
+                delivery_type: _,
             } = context;
             let tables = tokio::select! {
                 biased;
@@ -340,10 +339,7 @@ fn column_plan(row: &Row) -> anyhow::Result<ColumnPlan> {
         ),
     };
     let quoted = quote_identifier(&name);
-    let canonical_text = matches!(
-        data_type.as_str(),
-        "decimal" | "numeric" | "time" | "year"
-    );
+    let canonical_text = matches!(data_type.as_str(), "decimal" | "numeric" | "time" | "year");
     let expression = if canonical_text {
         format!("CAST({quoted} AS CHAR) AS {quoted}")
     } else {

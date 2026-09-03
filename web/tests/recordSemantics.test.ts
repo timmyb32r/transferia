@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import { compileSchema } from "../src/schema/compiler";
 import { productionWidgetRegistry } from "../src/features/formWidgetRegistry";
 import {
+  configuredEndpointCapabilities,
+  configuredSourceSupportsDeliveryType,
   routeSupportsDeliveryType,
   sourceRecordSemantics,
+  sourceSupportsDeliveryType,
 } from "../src/recordSemantics";
 import type { EndpointDefinition } from "../src/types";
 
@@ -58,7 +61,7 @@ describe("record semantic selection", () => {
     const databaseSource: EndpointDefinition = {
       ...queueSource,
       schema: { type: "object", properties: {} },
-      delivery_modes: ["batch", "stream"],
+      delivery_modes: ["batch", "stream", "batch_and_stream"],
     };
     const schema = compileSchema(databaseSource.schema);
     expect(sourceRecordSemantics(databaseSource, schema, {}, "batch")).toEqual([
@@ -72,11 +75,29 @@ describe("record semantic selection", () => {
     ).toEqual(["append_only", "changelog"]);
   });
 
+  it("requires the explicit combined source capability", () => {
+    const legacySeparateModes: EndpointDefinition = {
+      ...queueSource,
+      delivery_modes: ["batch", "stream"],
+    };
+    const combinedOnly: EndpointDefinition = {
+      ...queueSource,
+      delivery_modes: ["batch_and_stream"],
+    };
+
+    expect(
+      sourceSupportsDeliveryType(legacySeparateModes, "batch_and_stream"),
+    ).toBe(false);
+    expect(sourceSupportsDeliveryType(combinedOnly, "batch_and_stream")).toBe(
+      true,
+    );
+  });
+
   it("requires a compatible sink semantic for every delivery phase", () => {
     const source: EndpointDefinition = {
       ...queueSource,
       schema: { type: "object", properties: {} },
-      delivery_modes: ["batch", "stream"],
+      delivery_modes: ["batch", "stream", "batch_and_stream"],
     };
     const appendSink: EndpointDefinition = {
       ...source,
@@ -102,10 +123,151 @@ describe("record semantic selection", () => {
       routeSupportsDeliveryType(source, appendSink, "batch_and_stream"),
     ).toBe(false);
     expect(
+      routeSupportsDeliveryType(source, changelogSink, "batch_and_stream"),
+    ).toBe(false);
+    expect(
       routeSupportsDeliveryType(source, bothSink, "batch_and_stream"),
     ).toBe(true);
   });
+
+  it("uses the deepest active endpoint capability override", () => {
+    const source: EndpointDefinition = {
+      ...queueSource,
+      schema: conditionalSourceSchema(),
+      initial: { replication: null },
+      delivery_modes: ["batch", "stream", "batch_and_stream"],
+    };
+    const schema = compileSchema(source.schema);
+
+    expect(
+      configuredEndpointCapabilities(source, schema, {}, "source"),
+    ).toEqual({
+      delivery_modes: ["batch"],
+      record_semantics: ["append_only"],
+    });
+    expect(
+      configuredEndpointCapabilities(
+        source,
+        schema,
+        { replication: null },
+        "source",
+      ),
+    ).toEqual({
+      delivery_modes: ["batch"],
+      record_semantics: ["append_only"],
+    });
+    expect(
+      configuredEndpointCapabilities(
+        source,
+        schema,
+        { replication: { slot: "events" } },
+        "source",
+      ),
+    ).toEqual({
+      delivery_modes: ["stream", "batch_and_stream"],
+      record_semantics: ["changelog"],
+    });
+    expect(
+      configuredSourceSupportsDeliveryType(
+        source,
+        schema,
+        { replication: { slot: "events" } },
+        "batch",
+      ),
+    ).toBe(false);
+    expect(
+      sourceRecordSemantics(
+        source,
+        schema,
+        { replication: { slot: "events" } },
+        "batch_and_stream",
+      ),
+    ).toEqual(["append_only", "changelog"]);
+  });
+
+  it("fails closed for conflicting active endpoint capability overrides", () => {
+    const source: EndpointDefinition = {
+      ...queueSource,
+      schema: {
+        type: "object",
+        properties: {
+          left: endpointCapabilitySchema("left", ["stream"]),
+          right: endpointCapabilitySchema("right", ["batch"]),
+        },
+      },
+      delivery_modes: ["batch", "stream"],
+    };
+    const schema = compileSchema(source.schema);
+
+    expect(() =>
+      configuredEndpointCapabilities(
+        source,
+        schema,
+        { left: {}, right: {} },
+        "source",
+      ),
+    ).toThrow(/conflicting source capabilities/);
+  });
+
+  it("fails closed when a configured override exceeds the catalog aggregate", () => {
+    const source: EndpointDefinition = {
+      ...queueSource,
+      schema: endpointCapabilitySchema("invalid", ["batch"]),
+      delivery_modes: ["stream"],
+    };
+
+    expect(() =>
+      configuredEndpointCapabilities(
+        source,
+        compileSchema(source.schema),
+        {},
+        "source",
+      ),
+    ).toThrow(/subset of the catalog aggregate/);
+  });
 });
+
+function conditionalSourceSchema() {
+  return {
+    type: "object" as const,
+    properties: {
+      replication: {
+        anyOf: [
+          endpointCapabilitySchema("replication", [
+            "stream",
+            "batch_and_stream",
+          ]),
+          { type: "null" as const },
+        ],
+      },
+    },
+    "x-ui": {
+      capabilities: {
+        component: "source",
+        key: "snapshot",
+        delivery_modes: ["batch"],
+        record_semantics: ["append_only"],
+      },
+    },
+  };
+}
+
+function endpointCapabilitySchema(key: string, deliveryModes: string[]) {
+  return {
+    type: "object" as const,
+    properties: {
+      ...(key === "replication" ? { slot: { type: "string" as const } } : {}),
+    },
+    "x-ui": {
+      capabilities: {
+        component: "source",
+        key,
+        delivery_modes: deliveryModes,
+        record_semantics: [key === "replication" ? "changelog" : "append_only"],
+      },
+    },
+  };
+}
 
 function parser(type: string, title: string, semantics: string) {
   return {

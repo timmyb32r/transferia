@@ -604,6 +604,7 @@ impl SourceConnector for YdbDriverSourceConnector {
             let SourceDiscoveryContext {
                 request,
                 cancellation,
+                delivery_type: _,
             } = context;
             anyhow::ensure!(
                 !cancellation.is_cancelled(),
@@ -622,6 +623,8 @@ impl SourceConnector for YdbDriverSourceConnector {
                 partition_id,
                 cancellation,
                 memory,
+                delivery_type: _,
+                phase: _,
                 ..
             } = context;
             anyhow::ensure!(

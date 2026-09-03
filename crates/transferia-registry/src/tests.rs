@@ -1,3 +1,4 @@
+use futures_util::future::BoxFuture;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -5,13 +6,24 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
-use transferia_delivery_contracts::semantics::RecordSemantics;
+use transferia_core::delivery::{DeliveryDiscovery, SchemaOrigin, SourceTopology};
+use transferia_core::source::Source;
+use transferia_delivery_contracts::semantics::{
+    EndpointDescriptor, RecordSemantics, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
+use transferia_delivery_contracts::DeliveryType;
 
 use super::*;
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct TestSourceConfig {
+    enabled: bool,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct TestSinkConfig {
     enabled: bool,
 }
 
@@ -64,10 +76,104 @@ struct BranchedTunableSourceConfig {
     reader: BranchedTunableReader,
 }
 
+struct DefaultExecutionPhaseSource;
+
+impl SourceConnector for DefaultExecutionPhaseSource {
+    fn compatibility(&self) -> EndpointDescriptor {
+        EndpointDescriptor::DataGenerator(SourceDescriptor {
+            behavior: SourceBehavior::FiniteAppendOnlyRows,
+            delivery_modes: SourceDeliveryModes::BATCH_AND_STREAM,
+        })
+    }
+
+    fn delivery_discovery(
+        &self,
+        _context: SourceDiscoveryContext,
+    ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
+        Box::pin(async { anyhow::bail!("unused discovery") })
+    }
+
+    fn build_source(
+        &self,
+        _context: SourceBuildContext,
+    ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
+        Box::pin(async { anyhow::bail!("unused source") })
+    }
+
+    fn parser(&self) -> Arc<dyn transferia_delivery_contracts::parser::ParserFactory> {
+        panic!("unused parser")
+    }
+
+    fn parses_rows(&self) -> bool {
+        true
+    }
+}
+
+fn empty_discovery(topology: SourceTopology) -> DeliveryDiscovery {
+    DeliveryDiscovery {
+        source_name: "source".into(),
+        source_topology: topology,
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: Vec::new(),
+        performance_advice: Vec::new(),
+    }
+}
+
+#[test]
+fn default_execution_phases_are_exact_for_single_mode_delivery() -> anyhow::Result<()> {
+    let connector = DefaultExecutionPhaseSource;
+    let topology = SourceTopology::StaticPartitions(vec![2, 7]);
+    let discovery = empty_discovery(topology.clone());
+
+    assert_eq!(
+        connector.execution_phases(DeliveryType::Batch, &discovery)?,
+        vec![SourceExecutionPhase {
+            phase: SourcePhase::Snapshot,
+            topology: topology.clone(),
+            finite: true,
+        }]
+    );
+    assert_eq!(
+        connector.execution_phases(DeliveryType::Stream, &discovery)?,
+        vec![SourceExecutionPhase {
+            phase: SourcePhase::Stream,
+            topology,
+            finite: false,
+        }]
+    );
+    let error = connector
+        .execution_phases(DeliveryType::BatchAndStream, &discovery)
+        .expect_err("combined delivery must require a connector-owned phase plan");
+    assert!(error
+        .to_string()
+        .contains("explicit connector execution phase plan"));
+    Ok(())
+}
+
+#[test]
+fn combined_delivery_mode_has_stable_catalog_encoding() -> anyhow::Result<()> {
+    assert_eq!(
+        serde_json::to_value(DeliveryMode::BatchAndStream)?,
+        serde_json::json!("batch_and_stream")
+    );
+    Ok(())
+}
+
 fn source_registration(key: &'static str) -> anyhow::Result<ComponentRegistration> {
     ComponentRegistration::new(key, "Test source").source::<TestSourceConfig, _, _>(
         vec![DeliveryMode::Stream],
         true,
+        || serde_json::json!({ "enabled": false }),
+        |config| {
+            anyhow::ensure!(config.enabled, "factory received the decoded configuration");
+            anyhow::bail!("test factory intentionally has no runtime connector")
+        },
+    )
+}
+
+fn sink_registration(key: &'static str) -> anyhow::Result<ComponentRegistration> {
+    ComponentRegistration::new(key, "Test sink").sink::<TestSinkConfig, _, _>(
         || serde_json::json!({ "enabled": false }),
         |config| {
             anyhow::ensure!(config.enabled, "factory received the decoded configuration");
@@ -276,6 +382,108 @@ fn registry_accepts_component_capability_ui_hints() -> anyhow::Result<()> {
     });
 
     registry.replace_definitions(definitions)?;
+    Ok(())
+}
+
+#[test]
+fn registry_accepts_endpoint_capabilities_within_registered_aggregates() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register(source_registration("source")?.source_record_semantics(vec![
+        RecordSemantics::AppendOnly,
+        RecordSemantics::Changelog,
+    ])?)?;
+    let mut registry = builder.build();
+    let mut definitions = registry.definitions().to_vec();
+    definitions[0].source.as_mut().unwrap().schema = serde_json::json!({
+        "type": "object",
+        "x-ui": {
+            "capabilities": {
+                "component": "source",
+                "key": "replication",
+                "delivery_modes": ["stream"],
+                "record_semantics": ["changelog"]
+            }
+        }
+    });
+
+    registry.replace_definitions(definitions)?;
+
+    let mut builder = RegistryBuilder::new();
+    builder.register(sink_registration("sink")?.sink_record_semantics(vec![
+        RecordSemantics::AppendOnly,
+        RecordSemantics::Changelog,
+    ])?)?;
+    let mut registry = builder.build();
+    let mut definitions = registry.definitions().to_vec();
+    definitions[0].sink.as_mut().unwrap().schema = serde_json::json!({
+        "type": "object",
+        "x-ui": {
+            "capabilities": {
+                "component": "destination",
+                "key": "upsert",
+                "record_semantics": ["changelog"]
+            }
+        }
+    });
+    registry.replace_definitions(definitions)?;
+    Ok(())
+}
+
+#[test]
+fn registry_rejects_invalid_endpoint_capability_contracts() -> anyhow::Result<()> {
+    for (capabilities, expected) in [
+        (
+            serde_json::json!({
+                "component": "destination",
+                "key": "wrong_role",
+                "record_semantics": ["append_only"]
+            }),
+            "registered role",
+        ),
+        (
+            serde_json::json!({
+                "component": "source",
+                "key": "unsupported_mode",
+                "delivery_modes": ["batch"],
+                "record_semantics": ["append_only"]
+            }),
+            "subset of the registered aggregate",
+        ),
+        (
+            serde_json::json!({
+                "component": "source",
+                "key": "duplicate",
+                "delivery_modes": ["stream", "stream"],
+                "record_semantics": ["append_only"]
+            }),
+            "non-empty and unique",
+        ),
+        (
+            serde_json::json!({
+                "component": "parser",
+                "key": "not_an_endpoint",
+                "delivery_modes": ["stream"],
+                "record_semantics": ["append_only"]
+            }),
+            "cannot declare endpoint delivery_modes",
+        ),
+    ] {
+        let mut builder = RegistryBuilder::new();
+        builder.register(source_registration("source")?.source_record_semantics(vec![
+            RecordSemantics::AppendOnly,
+            RecordSemantics::Changelog,
+        ])?)?;
+        let mut registry = builder.build();
+        let mut definitions = registry.definitions().to_vec();
+        definitions[0].source.as_mut().unwrap().schema = serde_json::json!({
+            "type": "object",
+            "x-ui": { "capabilities": capabilities }
+        });
+        let error = registry
+            .replace_definitions(definitions)
+            .expect_err("invalid endpoint capabilities must fail closed");
+        assert!(error.to_string().contains(expected), "{error}");
+    }
     Ok(())
 }
 
@@ -816,8 +1024,7 @@ fn tuning_metadata_rejects_missing_duplicate_and_out_of_range_values() {
 }
 
 #[test]
-fn registration_rejects_tuning_metadata_outside_authored_json_schema(
-) -> anyhow::Result<()> {
+fn registration_rejects_tuning_metadata_outside_authored_json_schema() -> anyhow::Result<()> {
     let wrong_baseline = vec![tuning::TuningParameter::UnsignedInteger {
         pointer: "/workers".to_owned(),
         label: "Workers".to_owned(),
@@ -897,7 +1104,9 @@ fn registration_rejects_tuning_metadata_outside_authored_json_schema(
         .source_tuning_parameters(compiled_schema_constraint)
         .err()
         .expect("compiled schema constraint must reject a candidate");
-    assert!(error.to_string().contains("conflicts with endpoint JSON Schema"));
+    assert!(error
+        .to_string()
+        .contains("conflicts with endpoint JSON Schema"));
 
     let missing_optional = vec![tuning::TuningParameter::UnsignedInteger {
         pointer: "/optional".to_owned(),
@@ -936,7 +1145,9 @@ fn registration_rejects_tuning_metadata_outside_authored_json_schema(
         .source_tuning_parameters(outside_schema)
         .err()
         .expect("pointer outside every schema branch must fail");
-    assert!(error.to_string().contains("outside the endpoint JSON Schema"));
+    assert!(error
+        .to_string()
+        .contains("outside the endpoint JSON Schema"));
     Ok(())
 }
 
@@ -998,9 +1209,7 @@ async fn branch_specific_parameter_may_be_absent_from_initial_and_inactive_runti
         },
         CancellationToken::new(),
         |configuration, _| async move {
-            Ok(configuration["reader"]["concurrency"]
-                .as_u64()
-                .unwrap() as f64)
+            Ok(configuration["reader"]["concurrency"].as_u64().unwrap() as f64)
         },
     )
     .await?;
@@ -1103,8 +1312,8 @@ async fn optimizer_enumerates_only_the_finite_declared_product() -> anyhow::Resu
 }
 
 #[tokio::test]
-async fn optimizer_caps_an_overflowing_cartesian_product_by_the_trial_budget(
-) -> anyhow::Result<()> {
+async fn optimizer_caps_an_overflowing_cartesian_product_by_the_trial_budget() -> anyhow::Result<()>
+{
     let configuration = serde_json::Value::Object(
         (0..usize::BITS)
             .map(|index| (format!("p{index}"), serde_json::json!(false)))
@@ -1225,14 +1434,10 @@ async fn optimizer_obeys_trial_and_time_budgets() -> anyhow::Result<()> {
     cancellation.cancel();
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = Arc::clone(&calls);
-    let error = tuning::tune_endpoint(
-        endpoint_tuning_request(3),
-        cancellation,
-        move |_, _| {
-            observed.fetch_add(1, Ordering::SeqCst);
-            async { Ok(1.0) }
-        },
-    )
+    let error = tuning::tune_endpoint(endpoint_tuning_request(3), cancellation, move |_, _| {
+        observed.fetch_add(1, Ordering::SeqCst);
+        async { Ok(1.0) }
+    })
     .await
     .unwrap_err();
     assert!(error.to_string().contains("cancelled"));
@@ -1255,10 +1460,14 @@ async fn optimizer_obeys_trial_and_time_budgets() -> anyhow::Result<()> {
     let mut timed = endpoint_tuning_request(3);
     timed.budget.max_duration_ms = Some(10);
     let started = std::time::Instant::now();
-    let error = tuning::tune_endpoint(timed, CancellationToken::new(), |_, cancellation| async move {
-        cancellation.cancelled().await;
-        Ok(1.0)
-    })
+    let error = tuning::tune_endpoint(
+        timed,
+        CancellationToken::new(),
+        |_, cancellation| async move {
+            cancellation.cancelled().await;
+            Ok(1.0)
+        },
+    )
     .await
     .unwrap_err();
     assert!(error.to_string().contains("baseline"));
@@ -1298,18 +1507,14 @@ async fn optimizer_obeys_trial_and_time_budgets() -> anyhow::Result<()> {
         tokio::time::sleep(Duration::from_millis(10)).await;
         trigger.cancel();
     });
-    let error = tuning::tune_endpoint(
-        endpoint_tuning_request(3),
-        cancellation,
-        move |_, trial| {
-            let cleaned_up = Arc::clone(&observed_cleanup);
-            async move {
-                trial.cancelled().await;
-                cleaned_up.store(true, Ordering::SeqCst);
-                Ok(1.0)
-            }
-        },
-    )
+    let error = tuning::tune_endpoint(endpoint_tuning_request(3), cancellation, move |_, trial| {
+        let cleaned_up = Arc::clone(&observed_cleanup);
+        async move {
+            trial.cancelled().await;
+            cleaned_up.store(true, Ordering::SeqCst);
+            Ok(1.0)
+        }
+    })
     .await
     .unwrap_err();
     assert!(error.to_string().contains("cancelled"));
@@ -1333,7 +1538,9 @@ async fn optimizer_never_masks_cleanup_failure_at_trial_deadline() {
     .await
     .expect_err("cleanup failure must escape the optimizer deadline");
 
-    assert!(error.to_string().contains("mandatory scratch cleanup failed"));
+    assert!(error
+        .to_string()
+        .contains("mandatory scratch cleanup failed"));
 }
 
 #[tokio::test]

@@ -15,6 +15,7 @@ import {
 const DELIVERY_MODE_LABEL: Record<DeliveryMode, string> = {
   batch: "Batch",
   stream: "Stream",
+  batch_and_stream: "Batch + stream",
 };
 
 type CapabilityKind =
@@ -34,6 +35,7 @@ interface CapabilityGroup {
 const PROPERTY_LABELS: Record<string, string> = {
   "delivery_mode.batch": "Batch delivery",
   "delivery_mode.stream": "Stream delivery",
+  "delivery_mode.batch_and_stream": "Batch + stream delivery",
   "record_semantics.append_only": "Append-only records",
   "record_semantics.only_append_only": "Only append-only records",
   "component.source": "All sources",
@@ -388,6 +390,10 @@ export function CompatibilityMatrixDialog({
             <span>Batch flow is supported</span>
             <span class="compatibility-badge stream">Stream</span>
             <span>Stream flow is supported</span>
+            <span class="compatibility-badge batch_and_stream">
+              Batch + stream
+            </span>
+            <span>Combined snapshot and stream flow is supported</span>
             <span class="compatibility-unavailable" aria-hidden="true">
               —
             </span>

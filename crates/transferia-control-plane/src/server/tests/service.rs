@@ -95,32 +95,13 @@ fn tuning_defaults_replace_only_active_declared_fields() -> anyhow::Result<()> {
 
 #[test]
 fn tuning_budget_is_explicit_and_checked() {
-    assert!(tuning_budget(
-        SpeedtestTuningBudgetView::Automatic { max_trials: 0 },
-        1,
-    )
-    .is_err());
-    assert!(tuning_budget(
-        SpeedtestTuningBudgetView::Automatic { max_trials: 1 },
-        0,
-    )
-    .is_err());
-    assert!(tuning_budget(
-        SpeedtestTuningBudgetView::Time { seconds: 2 },
-        3,
-    )
-    .is_err());
-    assert!(tuning_budget(
-        SpeedtestTuningBudgetView::Time { seconds: u64::MAX },
-        1,
-    )
-    .is_err());
+    assert!(tuning_budget(SpeedtestTuningBudgetView::Automatic { max_trials: 0 }, 1,).is_err());
+    assert!(tuning_budget(SpeedtestTuningBudgetView::Automatic { max_trials: 1 }, 0,).is_err());
+    assert!(tuning_budget(SpeedtestTuningBudgetView::Time { seconds: 2 }, 3,).is_err());
+    assert!(tuning_budget(SpeedtestTuningBudgetView::Time { seconds: u64::MAX }, 1,).is_err());
 
-    let budget = tuning_budget(
-        SpeedtestTuningBudgetView::Automatic { max_trials: 3 },
-        2,
-    )
-    .expect("bounded automatic budget");
+    let budget = tuning_budget(SpeedtestTuningBudgetView::Automatic { max_trials: 3 }, 2)
+        .expect("bounded automatic budget");
     assert_eq!(budget.max_trials, 3);
     assert_eq!(budget.max_duration_ms, None);
 }
@@ -169,22 +150,21 @@ fn tuning_response_never_contains_endpoint_configuration() -> anyhow::Result<()>
 
 #[test]
 fn speedtest_never_infers_combined_delivery_for_a_dual_mode_source() -> anyhow::Result<()> {
-    let descriptor =
-        transferia_delivery_contracts::semantics::EndpointDescriptor::DataGenerator(
-            transferia_delivery_contracts::semantics::SourceDescriptor {
-                behavior:
-                    transferia_delivery_contracts::semantics::SourceBehavior::FiniteAppendOnlyRows,
-                delivery_modes:
-                    transferia_delivery_contracts::semantics::SourceDeliveryModes::BATCH_AND_STREAM,
-            },
-        );
+    let descriptor = transferia_delivery_contracts::semantics::EndpointDescriptor::DataGenerator(
+        transferia_delivery_contracts::semantics::SourceDescriptor {
+            behavior:
+                transferia_delivery_contracts::semantics::SourceBehavior::FiniteAppendOnlyRows,
+            delivery_modes:
+                transferia_delivery_contracts::semantics::SourceDeliveryModes::BATCH_AND_STREAM,
+        },
+    );
 
     assert_eq!(
-        speedtest_delivery_type(&serde_json::json!({}), "dual", &descriptor)?,
+        resolve_delivery_type(&serde_json::json!({}), "dual", &descriptor)?,
         DeliveryType::Batch
     );
     assert_eq!(
-        speedtest_delivery_type(
+        resolve_delivery_type(
             &serde_json::json!({ "delivery_type": "stream" }),
             "dual",
             &descriptor,

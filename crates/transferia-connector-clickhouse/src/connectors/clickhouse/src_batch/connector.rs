@@ -213,6 +213,7 @@ impl SourceConnector for ClickHouseSourceConnector {
             let SourceDiscoveryContext {
                 request,
                 cancellation,
+                delivery_type: _,
             } = context;
             let tables = tokio::select! { biased; () = cancellation.cancelled() => anyhow::bail!("ClickHouse discovery cancelled"), tables = self.discovered_tables() => tables? };
             let discovered_system_columns = SYSTEM_COLUMN_KINDS
@@ -274,6 +275,8 @@ impl SourceConnector for ClickHouseSourceConnector {
             let SourceBuildContext {
                 partition_id,
                 cancellation,
+                delivery_type: _,
+                phase: _,
                 ..
             } = context;
             let tables = self.discovered_tables().await?;

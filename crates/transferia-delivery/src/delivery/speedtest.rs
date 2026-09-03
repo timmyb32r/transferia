@@ -14,10 +14,10 @@ use arrow::array::{
     Decimal128Array, Decimal256Array, DurationMicrosecondArray, DurationMillisecondArray,
     DurationNanosecondArray, DurationSecondArray, FixedSizeBinaryArray, Float16Array, Float32Array,
     Float64Array, Int16Array, Int32Array, Int64Array, Int8Array, LargeBinaryArray,
-    LargeStringArray, StringArray, StringViewArray,
-    Time32MillisecondArray, Time32SecondArray, Time64MicrosecondArray, Time64NanosecondArray,
-    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
-    TimestampSecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+    LargeStringArray, StringArray, StringViewArray, Time32MillisecondArray, Time32SecondArray,
+    Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
+    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt16Array,
+    UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow::datatypes::{DataType, SchemaRef, TimeUnit};
 use arrow::ipc::reader::FileReader;
@@ -32,15 +32,15 @@ use tokio_util::task::TaskTracker;
 
 use super::execution::run_partition_pipeline;
 use super::preparation::{DeliveryPlan, PipelinePlan};
+use transferia_core::compact_record_batch;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::data::table_data::TableData;
-use transferia_core::failure::{DataPlaneFailure, DataPlaneResult};
 use transferia_core::delivery::DatasetRole;
+use transferia_core::failure::{DataPlaneFailure, DataPlaneResult};
 use transferia_core::memory::{MemoryReservation, PipelineMemory};
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
 use transferia_core::source::{CommitMarker, Source};
-use transferia_core::compact_record_batch;
 use transferia_delivery_contracts::metrics::{ParseCounters, SinkCounters};
 use transferia_registry::durable::{
     CompareExchangeResult, DurableContext, DurableStorage, DurableValue,
@@ -237,18 +237,9 @@ pub async fn benchmark_source(
     estimate_window: Duration,
 ) -> anyhow::Result<SourceSpeedtestResult> {
     validate_speedtest_window(estimate_window)?;
-    let mut profiled = collect_source_profile(
-        plan,
-        cancellation.child_token(),
-        estimate_window,
-    )
-    .await?;
-    profiled.measurement = benchmark_source_throughput(
-        plan,
-        cancellation,
-        estimate_window,
-    )
-    .await?;
+    let mut profiled =
+        collect_source_profile(plan, cancellation.child_token(), estimate_window).await?;
+    profiled.measurement = benchmark_source_throughput(plan, cancellation, estimate_window).await?;
     Ok(profiled)
 }
 
@@ -268,6 +259,9 @@ async fn collect_source_profile(
         .source_connector
         .build_speedtest_source(SourceBuildContext {
             partition_id,
+            delivery_type: pipeline.config.delivery_type,
+            phase: transferia_registry::SourcePhase::Snapshot,
+            replay_identity: None,
             cancellation: run_token.clone(),
             memory: source_memory.clone(),
             durable: source_durable,
@@ -321,7 +315,10 @@ async fn collect_source_profile(
     let source_elapsed = nonzero_elapsed(source_started.elapsed());
     anyhow::ensure!(collected.rows > 0, "source speedtest produced no rows");
     let samples = collected.samples;
-    anyhow::ensure!(!samples.is_empty(), "source speedtest produced no sample batch");
+    anyhow::ensure!(
+        !samples.is_empty(),
+        "source speedtest produced no sample batch"
+    );
     ensure_all_main_datasets_sampled(&pipeline.discovery, &samples)?;
     let profiles = aggregate_sample_profiles(&samples)?;
     let profile = SpeedtestProfile {
@@ -361,6 +358,9 @@ pub async fn benchmark_source_throughput(
         .source_connector
         .build_speedtest_source(SourceBuildContext {
             partition_id,
+            delivery_type: pipeline.config.delivery_type,
+            phase: transferia_registry::SourcePhase::Snapshot,
+            replay_identity: None,
             cancellation: run_token.clone(),
             memory: memory.clone(),
             durable: ephemeral_durable(&pipeline.config.delivery_id, "source-throughput"),
@@ -580,17 +580,18 @@ where
         (Ok(_), Ok(()), true) => Err(SpeedtestCancelled.into()),
         (Ok(measurement), Ok(()), false) => Ok(measurement),
         (Err(error), Ok(()), _) => Err(error),
-        (Ok(_), Err(cleanup_error), _) => {
-            Err(cleanup_error.context("speedtest cleanup failed"))
+        (Ok(_), Err(cleanup_error), _) => Err(cleanup_error.context("speedtest cleanup failed")),
+        (Err(error), Err(cleanup_error), _) => {
+            Err(error.context(format!("speedtest cleanup also failed: {cleanup_error:#}")))
         }
-        (Err(error), Err(cleanup_error), _) => Err(error.context(format!(
-            "speedtest cleanup also failed: {cleanup_error:#}"
-        ))),
     }
 }
 
 fn validate_speedtest_window(duration: Duration) -> anyhow::Result<()> {
-    anyhow::ensure!(!duration.is_zero(), "speedtest duration must be greater than zero");
+    anyhow::ensure!(
+        !duration.is_zero(),
+        "speedtest duration must be greater than zero"
+    );
     anyhow::ensure!(
         tokio::time::Instant::now().checked_add(duration).is_some(),
         "speedtest duration is too large"
@@ -636,11 +637,7 @@ struct CleanupGuard {
 }
 
 impl CleanupGuard {
-    fn new(
-        isolation: SinkSpeedtestIsolation,
-        timeout: Duration,
-        tasks: TaskTracker,
-    ) -> Self {
+    fn new(isolation: SinkSpeedtestIsolation, timeout: Duration, tasks: TaskTracker) -> Self {
         let connector = (isolation.safety() == SinkSpeedtestIsolationSafety::Scratch)
             .then(|| Arc::clone(isolation.connector()));
         Self {
@@ -657,11 +654,8 @@ impl CleanupGuard {
         };
         let isolation = self.isolation.clone();
         let timeout = self.timeout;
-        self
-            .tasks
-            .spawn(async move {
-                cleanup_until_deadline(connector, isolation, timeout).await
-            })
+        self.tasks
+            .spawn(async move { cleanup_until_deadline(connector, isolation, timeout).await })
             .await
             .context("speedtest cleanup task failed")?
     }
@@ -709,8 +703,8 @@ async fn cleanup_until_deadline(
         if remaining.is_zero() {
             break;
         }
-        let attempt = std::panic::AssertUnwindSafe(connector.cleanup_speedtest(&isolation))
-            .catch_unwind();
+        let attempt =
+            std::panic::AssertUnwindSafe(connector.cleanup_speedtest(&isolation)).catch_unwind();
         match tokio::time::timeout(remaining, attempt).await {
             Ok(Ok(Ok(()))) => return Ok(()),
             Ok(Ok(Err(_))) | Ok(Err(_)) | Err(_) => {}
@@ -851,7 +845,12 @@ fn spool_record_batch(batch: &RecordBatch) -> anyhow::Result<AnonymousSampleFile
         .create_new(true)
         .mode(0o600)
         .open(&path)
-        .with_context(|| format!("create anonymous speedtest sample file '{}'", path.display()))?;
+        .with_context(|| {
+            format!(
+                "create anonymous speedtest sample file '{}'",
+                path.display()
+            )
+        })?;
     if let Err(error) = std::fs::remove_file(&path) {
         drop(std::fs::remove_file(&path));
         return Err(error).with_context(|| {
@@ -968,9 +967,7 @@ impl ProfileCollector {
             if outputs.is_empty() {
                 return Ok(());
             }
-            let Some(next_sampled_bytes) = state
-                .sampled_arrow_bytes
-                .checked_add(delivery_bytes)
+            let Some(next_sampled_bytes) = state.sampled_arrow_bytes.checked_add(delivery_bytes)
             else {
                 anyhow::bail!("speedtest sampled byte count overflow");
             };
@@ -1070,7 +1067,10 @@ fn aggregate_sample_profiles(
             }
         }
     }
-    profiles.into_values().map(ProfiledDataset::finish).collect()
+    profiles
+        .into_values()
+        .map(ProfiledDataset::finish)
+        .collect()
 }
 
 struct ProfileSink {
@@ -1095,25 +1095,36 @@ impl Sink for MeasurementDiscardSink {
                         ))
                     })?;
                     for output in &delivery.outputs {
-                        counters.0 = counters.0.checked_add(output.rows() as u64).ok_or_else(|| {
-                            DataPlaneFailure::fatal(anyhow::anyhow!(
-                                "speedtest source row count overflow"
-                            ))
-                        })?;
-                        counters.1 = counters.1.checked_add(output.bytes() as u64).ok_or_else(|| {
-                            DataPlaneFailure::fatal(anyhow::anyhow!(
-                                "speedtest source byte count overflow"
-                            ))
-                        })?;
+                        counters.0 =
+                            counters
+                                .0
+                                .checked_add(output.rows() as u64)
+                                .ok_or_else(|| {
+                                    DataPlaneFailure::fatal(anyhow::anyhow!(
+                                        "speedtest source row count overflow"
+                                    ))
+                                })?;
+                        counters.1 =
+                            counters
+                                .1
+                                .checked_add(output.bytes() as u64)
+                                .ok_or_else(|| {
+                                    DataPlaneFailure::fatal(anyhow::anyhow!(
+                                        "speedtest source byte count overflow"
+                                    ))
+                                })?;
                     }
                 }
                 let id = delivery.id;
                 drop(delivery);
-                io.events.send(SinkEvent::CommittedThrough(id)).await.map_err(|_| {
-                    DataPlaneFailure::retryable(anyhow::anyhow!(
-                        "speedtest discard sink event channel closed"
-                    ))
-                })?;
+                io.events
+                    .send(SinkEvent::CommittedThrough(id))
+                    .await
+                    .map_err(|_| {
+                        DataPlaneFailure::retryable(anyhow::anyhow!(
+                            "speedtest discard sink event channel closed"
+                        ))
+                    })?;
             }
             Ok(())
         })
@@ -1139,11 +1150,14 @@ impl Sink for ProfileSink {
                     .map_err(DataPlaneFailure::fatal)?;
                 let id = delivery.id;
                 drop(delivery);
-                io.events.send(SinkEvent::CommittedThrough(id)).await.map_err(|_| {
-                    DataPlaneFailure::retryable(anyhow::anyhow!(
-                        "speedtest profile sink event channel closed"
-                    ))
-                })?;
+                io.events
+                    .send(SinkEvent::CommittedThrough(id))
+                    .await
+                    .map_err(|_| {
+                        DataPlaneFailure::retryable(anyhow::anyhow!(
+                            "speedtest profile sink event channel closed"
+                        ))
+                    })?;
             }
             Ok(())
         })
@@ -1222,8 +1236,8 @@ async fn load_spooled_deliveries(
                 let decoded = compact_record_batch(read_spooled_batch(&file)?)?;
                 Ok::<_, anyhow::Error>(RecordBatch::try_new(schema, decoded.columns().to_vec())?)
             })
-                .await
-                .context("speedtest sample load task failed")??;
+            .await
+            .context("speedtest sample load task failed")??;
             outputs.push(LoadedOutput {
                 table: Arc::clone(&output.table),
                 is_dlq: output.is_dlq,
@@ -1313,8 +1327,12 @@ impl ProfileGeneratorSource {
             .collect::<Vec<_>>();
         anyhow::ensure!(
             outputs.iter().all(|output| {
-                !output.system_columns.contains(SystemColumnKind::ChangeOperation)
-                    && !output.system_columns.contains(SystemColumnKind::ChangedColumns)
+                !output
+                    .system_columns
+                    .contains(SystemColumnKind::ChangeOperation)
+                    && !output
+                        .system_columns
+                        .contains(SystemColumnKind::ChangedColumns)
             }),
             "destination speedtest cannot safely synthesize and replay changelog rows"
         );
@@ -1385,14 +1403,17 @@ impl Source for ProfileGeneratorSource {
                         self.iteration,
                         output.key_row_offset,
                     )
-                        .map_err(DataPlaneFailure::fatal)?,
+                    .map_err(DataPlaneFailure::fatal)?,
                     None => (output.batch.clone(), 0),
                 };
-                generated_bytes = generated_bytes.checked_add(replacement_bytes).ok_or_else(|| {
-                    DataPlaneFailure::fatal(anyhow::anyhow!(
-                        "speedtest generated byte count overflow"
-                    ))
-                })?;
+                generated_bytes =
+                    generated_bytes
+                        .checked_add(replacement_bytes)
+                        .ok_or_else(|| {
+                            DataPlaneFailure::fatal(anyhow::anyhow!(
+                                "speedtest generated byte count overflow"
+                            ))
+                        })?;
                 rows = rows.checked_add(batch.num_rows() as u64).ok_or_else(|| {
                     DataPlaneFailure::fatal(anyhow::anyhow!(
                         "speedtest generated row count overflow"
@@ -1400,13 +1421,11 @@ impl Source for ProfileGeneratorSource {
                 })?;
                 reservations.push(output.memory.clone());
                 tables.push(TableData::new(
-                    Arc::clone(
-                        self.table_names.get(&output.table).ok_or_else(|| {
-                            DataPlaneFailure::fatal(anyhow::anyhow!(
-                                "speedtest table mapping disappeared"
-                            ))
-                        })?,
-                    ),
+                    Arc::clone(self.table_names.get(&output.table).ok_or_else(|| {
+                        DataPlaneFailure::fatal(anyhow::anyhow!(
+                            "speedtest table mapping disappeared"
+                        ))
+                    })?),
                     output.is_dlq,
                     batch,
                     output.system_columns.clone(),
@@ -1484,8 +1503,7 @@ fn unique_key_strategies(
         let mut candidates = primary_keys
             .iter()
             .filter_map(|(column_index, column)| {
-                unique_key_rank(&column.data_type)
-                    .map(|rank| (rank, *column_index, *column))
+                unique_key_rank(&column.data_type).map(|rank| (rank, *column_index, *column))
             })
             .collect::<Vec<_>>();
         candidates.sort_by_key(|(rank, _, _)| *rank);
@@ -1499,12 +1517,9 @@ fn unique_key_strategies(
             match build_unique_key_kind_many(&batches, column_index, column) {
                 Ok(kind) => {
                     let capacity = unique_key_max_iteration(kind);
-                    if selected
-                        .as_ref()
-                        .is_none_or(|(_, selected_kind)| {
-                            capacity > unique_key_max_iteration(*selected_kind)
-                        })
-                    {
+                    if selected.as_ref().is_none_or(|(_, selected_kind)| {
+                        capacity > unique_key_max_iteration(*selected_kind)
+                    }) {
                         selected = Some((column_index, kind));
                     }
                 }
@@ -1534,8 +1549,7 @@ fn unique_key_strategies(
             }
             _ => namespace,
         };
-        let forbidden_iterations =
-            forbidden_replay_iterations_many(&batches, column, kind)?;
+        let forbidden_iterations = forbidden_replay_iterations_many(&batches, column, kind)?;
         let sample_rows = batches.iter().try_fold(0_u128, |total, batch| {
             total
                 .checked_add(batch.num_rows() as u128)
@@ -1608,7 +1622,10 @@ fn build_unique_key_kind_many(
             let mut min = None;
             let mut max = None;
             for batch in batches {
-                let values = batch.column(column).as_any().downcast_ref::<$array>()
+                let values = batch
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<$array>()
                     .context("sampled signed primary-key type mismatch")?;
                 for value in values.values().iter().copied() {
                     let value = value as i128;
@@ -1618,13 +1635,13 @@ fn build_unique_key_kind_many(
             }
             let min = min.context("empty primary-key sample")?;
             let max = max.context("empty primary-key sample")?;
-            let (span, direction, max_iteration) = signed_shift(
-                min,
-                max,
-                <$native>::MIN as i128,
-                <$native>::MAX as i128,
-            )?;
-            UniqueKeyKind::Signed { span, direction, max_iteration }
+            let (span, direction, max_iteration) =
+                signed_shift(min, max, <$native>::MIN as i128, <$native>::MAX as i128)?;
+            UniqueKeyKind::Signed {
+                span,
+                direction,
+                max_iteration,
+            }
         }};
     }
     macro_rules! unsigned {
@@ -1632,7 +1649,10 @@ fn build_unique_key_kind_many(
             let mut min = None;
             let mut max = None;
             for batch in batches {
-                let values = batch.column(column).as_any().downcast_ref::<$array>()
+                let values = batch
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<$array>()
                     .context("sampled unsigned primary-key type mismatch")?;
                 for value in values.values().iter().copied() {
                     let value = value as u128;
@@ -1642,12 +1662,13 @@ fn build_unique_key_kind_many(
             }
             let min = min.context("empty primary-key sample")?;
             let max = max.context("empty primary-key sample")?;
-            let (span, direction, max_iteration) = unsigned_shift(
-                min,
-                max,
-                <$native>::MAX as u128,
-            )?;
-            UniqueKeyKind::Unsigned { span, direction, max_iteration }
+            let (span, direction, max_iteration) =
+                unsigned_shift(min, max, <$native>::MAX as u128)?;
+            UniqueKeyKind::Unsigned {
+                span,
+                direction,
+                max_iteration,
+            }
         }};
     }
     Ok(match &schema.data_type {
@@ -1661,69 +1682,112 @@ fn build_unique_key_kind_many(
         DataType::UInt64 => unsigned!(UInt64Array, u64),
         DataType::Utf8 => {
             let max = batches.iter().try_fold(0, |max, batch| {
-                let values = batch.column(column).as_any().downcast_ref::<StringArray>()
+                let values = batch
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<StringArray>()
                     .context("sampled Utf8 primary-key type mismatch")?;
-                Ok::<_, anyhow::Error>(max.max(values.iter().flatten().map(str::len).max().unwrap_or(0)))
+                Ok::<_, anyhow::Error>(
+                    max.max(values.iter().flatten().map(str::len).max().unwrap_or(0)),
+                )
             })?;
             match schema.max_length {
                 Some(_) => {
-                    let (suffix_width, max_iteration) = suffix_capacity(schema.max_length, max, 36)?;
-                    UniqueKeyKind::Utf8 { suffix_width, max_iteration }
+                    let (suffix_width, max_iteration) =
+                        suffix_capacity(schema.max_length, max, 36)?;
+                    UniqueKeyKind::Utf8 {
+                        suffix_width,
+                        max_iteration,
+                    }
                 }
                 None => UniqueKeyKind::UnboundedUtf8,
             }
         }
         DataType::LargeUtf8 => {
             let max = batches.iter().try_fold(0, |max, batch| {
-                let values = batch.column(column).as_any().downcast_ref::<LargeStringArray>()
+                let values = batch
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<LargeStringArray>()
                     .context("sampled LargeUtf8 primary-key type mismatch")?;
-                Ok::<_, anyhow::Error>(max.max(values.iter().flatten().map(str::len).max().unwrap_or(0)))
+                Ok::<_, anyhow::Error>(
+                    max.max(values.iter().flatten().map(str::len).max().unwrap_or(0)),
+                )
             })?;
             match schema.max_length {
                 Some(_) => {
-                    let (suffix_width, max_iteration) = suffix_capacity(schema.max_length, max, 36)?;
-                    UniqueKeyKind::LargeUtf8 { suffix_width, max_iteration }
+                    let (suffix_width, max_iteration) =
+                        suffix_capacity(schema.max_length, max, 36)?;
+                    UniqueKeyKind::LargeUtf8 {
+                        suffix_width,
+                        max_iteration,
+                    }
                 }
                 None => UniqueKeyKind::UnboundedLargeUtf8,
             }
         }
         DataType::Binary => {
             let max = batches.iter().try_fold(0, |max, batch| {
-                let values = batch.column(column).as_any().downcast_ref::<BinaryArray>()
+                let values = batch
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<BinaryArray>()
                     .context("sampled Binary primary-key type mismatch")?;
-                Ok::<_, anyhow::Error>(max.max(values.iter().flatten().map(<[u8]>::len).max().unwrap_or(0)))
+                Ok::<_, anyhow::Error>(
+                    max.max(values.iter().flatten().map(<[u8]>::len).max().unwrap_or(0)),
+                )
             })?;
             match schema.max_length {
                 Some(_) => {
-                    let (suffix_width, max_iteration) = suffix_capacity(schema.max_length, max, 256)?;
-                    UniqueKeyKind::Binary { suffix_width, max_iteration }
+                    let (suffix_width, max_iteration) =
+                        suffix_capacity(schema.max_length, max, 256)?;
+                    UniqueKeyKind::Binary {
+                        suffix_width,
+                        max_iteration,
+                    }
                 }
                 None => UniqueKeyKind::UnboundedBinary,
             }
         }
         DataType::LargeBinary => {
             let max = batches.iter().try_fold(0, |max, batch| {
-                let values = batch.column(column).as_any().downcast_ref::<LargeBinaryArray>()
+                let values = batch
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<LargeBinaryArray>()
                     .context("sampled LargeBinary primary-key type mismatch")?;
-                Ok::<_, anyhow::Error>(max.max(values.iter().flatten().map(<[u8]>::len).max().unwrap_or(0)))
+                Ok::<_, anyhow::Error>(
+                    max.max(values.iter().flatten().map(<[u8]>::len).max().unwrap_or(0)),
+                )
             })?;
             match schema.max_length {
                 Some(_) => {
-                    let (suffix_width, max_iteration) = suffix_capacity(schema.max_length, max, 256)?;
-                    UniqueKeyKind::LargeBinary { suffix_width, max_iteration }
+                    let (suffix_width, max_iteration) =
+                        suffix_capacity(schema.max_length, max, 256)?;
+                    UniqueKeyKind::LargeBinary {
+                        suffix_width,
+                        max_iteration,
+                    }
                 }
                 None => UniqueKeyKind::UnboundedLargeBinary,
             }
         }
         DataType::FixedSizeBinary(width) if *width >= 16 => {
             let rows = batches.iter().try_fold(0_u128, |total, batch| {
-                total.checked_add(batch.num_rows() as u128)
+                total
+                    .checked_add(batch.num_rows() as u128)
                     .context("sampled primary-key row count overflow")
             })?;
             anyhow::ensure!(rows > 0, "empty primary-key sample");
             let max_iteration = (u64::MAX as u128 - (rows - 1)) / rows;
-            anyhow::ensure!(max_iteration > 0, "fixed-binary primary-key space is exhausted");
-            UniqueKeyKind::FixedSizeBinary { width: *width, max_iteration }
+            anyhow::ensure!(
+                max_iteration > 0,
+                "fixed-binary primary-key space is exhausted"
+            );
+            UniqueKeyKind::FixedSizeBinary {
+                width: *width,
+                max_iteration,
+            }
         }
         _ => anyhow::bail!("unsupported primary-key type {:?}", schema.data_type),
     })
@@ -1735,9 +1799,12 @@ fn signed_shift(
     type_min: i128,
     type_max: i128,
 ) -> anyhow::Result<(u128, ShiftDirection, u128)> {
-    let span = u128::try_from(max.checked_sub(min).context("signed primary-key range overflow")?)?
-        .checked_add(1)
-        .context("signed primary-key span overflow")?;
+    let span = u128::try_from(
+        max.checked_sub(min)
+            .context("signed primary-key range overflow")?,
+    )?
+    .checked_add(1)
+    .context("signed primary-key span overflow")?;
     let up = u128::try_from(type_max - max)? / span;
     let down = u128::try_from(min - type_min)? / span;
     let (direction, max_iteration) = if up >= down {
@@ -1745,7 +1812,10 @@ fn signed_shift(
     } else {
         (ShiftDirection::Down, down)
     };
-    anyhow::ensure!(max_iteration > 0, "integer primary-key space cannot hold a second sample batch");
+    anyhow::ensure!(
+        max_iteration > 0,
+        "integer primary-key space cannot hold a second sample batch"
+    );
     Ok((span, direction, max_iteration))
 }
 
@@ -1754,7 +1824,9 @@ fn unsigned_shift(
     max: u128,
     type_max: u128,
 ) -> anyhow::Result<(u128, ShiftDirection, u128)> {
-    let span = max.checked_sub(min).and_then(|range| range.checked_add(1))
+    let span = max
+        .checked_sub(min)
+        .and_then(|range| range.checked_add(1))
         .context("unsigned primary-key span overflow")?;
     let up = (type_max - max) / span;
     let down = min / span;
@@ -1763,7 +1835,10 @@ fn unsigned_shift(
     } else {
         (ShiftDirection::Down, down)
     };
-    anyhow::ensure!(max_iteration > 0, "integer primary-key space cannot hold a second sample batch");
+    anyhow::ensure!(
+        max_iteration > 0,
+        "integer primary-key space cannot hold a second sample batch"
+    );
     Ok((span, direction, max_iteration))
 }
 
@@ -1773,16 +1848,22 @@ fn suffix_capacity(
     radix: u128,
 ) -> anyhow::Result<(usize, u128)> {
     let max_length = max_length.context("bounded replay suffix requires max_length")?;
-    let width = max_length.checked_sub(observed_max).with_context(|| {
-        format!("sampled primary key exceeds declared max_length {max_length}")
-    })?;
-    anyhow::ensure!(width > 0, "declared max_length leaves no room for a unique replay suffix");
+    let width = max_length
+        .checked_sub(observed_max)
+        .with_context(|| format!("sampled primary key exceeds declared max_length {max_length}"))?;
+    anyhow::ensure!(
+        width > 0,
+        "declared max_length leaves no room for a unique replay suffix"
+    );
     let max_iteration = (0..width)
         .try_fold(1_u128, |value, _| value.checked_mul(radix))
         .unwrap_or(u128::MAX)
         .checked_sub(1)
         .context("primary-key replay suffix has no usable values")?;
-    anyhow::ensure!(max_iteration > 0, "primary-key replay suffix has no usable values");
+    anyhow::ensure!(
+        max_iteration > 0,
+        "primary-key replay suffix has no usable values"
+    );
     Ok((width, max_iteration))
 }
 
@@ -1796,8 +1877,12 @@ fn forbidden_replay_iterations_many(
             let mut values = Vec::new();
             for batch in batches {
                 values.extend(
-                    batch.column(column).as_any().downcast_ref::<StringArray>()
-                        .context("sampled Utf8 primary-key type mismatch")?.iter()
+                    batch
+                        .column(column)
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .context("sampled Utf8 primary-key type mismatch")?
+                        .iter()
                         .map(|value| value.expect("validated non-null primary key").as_bytes()),
                 );
             }
@@ -1807,8 +1892,12 @@ fn forbidden_replay_iterations_many(
             let mut values = Vec::new();
             for batch in batches {
                 values.extend(
-                    batch.column(column).as_any().downcast_ref::<LargeStringArray>()
-                        .context("sampled LargeUtf8 primary-key type mismatch")?.iter()
+                    batch
+                        .column(column)
+                        .as_any()
+                        .downcast_ref::<LargeStringArray>()
+                        .context("sampled LargeUtf8 primary-key type mismatch")?
+                        .iter()
                         .map(|value| value.expect("validated non-null primary key").as_bytes()),
                 );
             }
@@ -1818,8 +1907,12 @@ fn forbidden_replay_iterations_many(
             let mut values = Vec::new();
             for batch in batches {
                 values.extend(
-                    batch.column(column).as_any().downcast_ref::<BinaryArray>()
-                        .context("sampled Binary primary-key type mismatch")?.iter()
+                    batch
+                        .column(column)
+                        .as_any()
+                        .downcast_ref::<BinaryArray>()
+                        .context("sampled Binary primary-key type mismatch")?
+                        .iter()
                         .map(|value| value.expect("validated non-null primary key")),
                 );
             }
@@ -1829,8 +1922,12 @@ fn forbidden_replay_iterations_many(
             let mut values = Vec::new();
             for batch in batches {
                 values.extend(
-                    batch.column(column).as_any().downcast_ref::<LargeBinaryArray>()
-                        .context("sampled LargeBinary primary-key type mismatch")?.iter()
+                    batch
+                        .column(column)
+                        .as_any()
+                        .downcast_ref::<LargeBinaryArray>()
+                        .context("sampled LargeBinary primary-key type mismatch")?
+                        .iter()
                         .map(|value| value.expect("validated non-null primary key")),
                 );
             }
@@ -1879,11 +1976,17 @@ fn fixed_binary_namespace_many(
 ) -> anyhow::Result<u64> {
     let mut occupied = HashSet::new();
     for batch in batches {
-        let source = batch.column(column).as_any().downcast_ref::<FixedSizeBinaryArray>()
+        let source = batch
+            .column(column)
+            .as_any()
+            .downcast_ref::<FixedSizeBinaryArray>()
             .context("sampled fixed-size binary primary-key type mismatch")?;
         for value in source.iter() {
-            let prefix: [u8; 8] = value.expect("validated non-null primary key")
-                .get(..8).expect("validated fixed-size binary width").try_into()
+            let prefix: [u8; 8] = value
+                .expect("validated non-null primary key")
+                .get(..8)
+                .expect("validated fixed-size binary width")
+                .try_into()
                 .expect("fixed-size binary namespace is eight bytes");
             occupied.insert(u64::from_be_bytes(prefix));
         }
@@ -1913,18 +2016,38 @@ fn unbounded_namespace_many(
                 return Ok::<_, anyhow::Error>(true);
             }
             let found = match kind {
-                UniqueKeyKind::UnboundedUtf8 => batch.column(column).as_any()
-                    .downcast_ref::<StringArray>().context("sampled Utf8 primary-key type mismatch")?
-                    .iter().flatten().any(|value| value.starts_with(&text_prefix)),
-                UniqueKeyKind::UnboundedLargeUtf8 => batch.column(column).as_any()
-                    .downcast_ref::<LargeStringArray>().context("sampled LargeUtf8 primary-key type mismatch")?
-                    .iter().flatten().any(|value| value.starts_with(&text_prefix)),
-                UniqueKeyKind::UnboundedBinary => batch.column(column).as_any()
-                    .downcast_ref::<BinaryArray>().context("sampled Binary primary-key type mismatch")?
-                    .iter().flatten().any(|value| value.starts_with(&binary_prefix)),
-                UniqueKeyKind::UnboundedLargeBinary => batch.column(column).as_any()
-                    .downcast_ref::<LargeBinaryArray>().context("sampled LargeBinary primary-key type mismatch")?
-                    .iter().flatten().any(|value| value.starts_with(&binary_prefix)),
+                UniqueKeyKind::UnboundedUtf8 => batch
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .context("sampled Utf8 primary-key type mismatch")?
+                    .iter()
+                    .flatten()
+                    .any(|value| value.starts_with(&text_prefix)),
+                UniqueKeyKind::UnboundedLargeUtf8 => batch
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<LargeStringArray>()
+                    .context("sampled LargeUtf8 primary-key type mismatch")?
+                    .iter()
+                    .flatten()
+                    .any(|value| value.starts_with(&text_prefix)),
+                UniqueKeyKind::UnboundedBinary => batch
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<BinaryArray>()
+                    .context("sampled Binary primary-key type mismatch")?
+                    .iter()
+                    .flatten()
+                    .any(|value| value.starts_with(&binary_prefix)),
+                UniqueKeyKind::UnboundedLargeBinary => batch
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<LargeBinaryArray>()
+                    .context("sampled LargeBinary primary-key type mismatch")?
+                    .iter()
+                    .flatten()
+                    .any(|value| value.starts_with(&binary_prefix)),
                 _ => anyhow::bail!("bounded primary-key kind has no namespace prefix"),
             };
             Ok(found)
@@ -1982,51 +2105,142 @@ fn rewrite_unique_key(
         UniqueKeyKind::Utf8 { max_iteration, .. }
         | UniqueKeyKind::LargeUtf8 { max_iteration, .. }
         | UniqueKeyKind::Binary { max_iteration, .. }
-        | UniqueKeyKind::LargeBinary { max_iteration, .. } => available_replay_iteration(
-            iteration,
-            max_iteration,
-            &key.forbidden_iterations,
-        )?,
+        | UniqueKeyKind::LargeBinary { max_iteration, .. } => {
+            available_replay_iteration(iteration, max_iteration, &key.forbidden_iterations)?
+        }
         _ => iteration,
     };
     let column = key.column;
     macro_rules! signed_array {
         ($array:ty, $native:ty, $span:expr, $direction:expr, $max_iteration:expr) => {{
-            anyhow::ensure!(iteration <= $max_iteration, "integer primary-key replay space exhausted");
-            let delta = i128::try_from(iteration.checked_mul($span).context("primary-key shift overflow")?)?;
-            let source = batch.column(column).as_any().downcast_ref::<$array>()
+            anyhow::ensure!(
+                iteration <= $max_iteration,
+                "integer primary-key replay space exhausted"
+            );
+            let delta = i128::try_from(
+                iteration
+                    .checked_mul($span)
+                    .context("primary-key shift overflow")?,
+            )?;
+            let source = batch
+                .column(column)
+                .as_any()
+                .downcast_ref::<$array>()
                 .context("speedtest signed primary-key type mismatch")?;
-            Arc::new(<$array>::from_iter_values(source.values().iter().map(|value| {
-                let value = *value as i128;
-                let shifted = match $direction { ShiftDirection::Up => value + delta, ShiftDirection::Down => value - delta };
-                <$native>::try_from(shifted).expect("validated primary-key shift")
-            }))) as ArrayRef
+            Arc::new(<$array>::from_iter_values(source.values().iter().map(
+                |value| {
+                    let value = *value as i128;
+                    let shifted = match $direction {
+                        ShiftDirection::Up => value + delta,
+                        ShiftDirection::Down => value - delta,
+                    };
+                    <$native>::try_from(shifted).expect("validated primary-key shift")
+                },
+            ))) as ArrayRef
         }};
     }
     macro_rules! unsigned_array {
         ($array:ty, $native:ty, $span:expr, $direction:expr, $max_iteration:expr) => {{
-            anyhow::ensure!(iteration <= $max_iteration, "integer primary-key replay space exhausted");
-            let delta = iteration.checked_mul($span).context("primary-key shift overflow")?;
-            let source = batch.column(column).as_any().downcast_ref::<$array>()
+            anyhow::ensure!(
+                iteration <= $max_iteration,
+                "integer primary-key replay space exhausted"
+            );
+            let delta = iteration
+                .checked_mul($span)
+                .context("primary-key shift overflow")?;
+            let source = batch
+                .column(column)
+                .as_any()
+                .downcast_ref::<$array>()
                 .context("speedtest unsigned primary-key type mismatch")?;
-            Arc::new(<$array>::from_iter_values(source.values().iter().map(|value| {
-                let value = *value as u128;
-                let shifted = match $direction { ShiftDirection::Up => value + delta, ShiftDirection::Down => value - delta };
-                <$native>::try_from(shifted).expect("validated primary-key shift")
-            }))) as ArrayRef
+            Arc::new(<$array>::from_iter_values(source.values().iter().map(
+                |value| {
+                    let value = *value as u128;
+                    let shifted = match $direction {
+                        ShiftDirection::Up => value + delta,
+                        ShiftDirection::Down => value - delta,
+                    };
+                    <$native>::try_from(shifted).expect("validated primary-key shift")
+                },
+            ))) as ArrayRef
         }};
     }
     let replacement: ArrayRef = match (key.kind, batch.schema().field(column).data_type()) {
-        (UniqueKeyKind::Signed { span, direction, max_iteration }, DataType::Int8) => signed_array!(Int8Array, i8, span, direction, max_iteration),
-        (UniqueKeyKind::Signed { span, direction, max_iteration }, DataType::Int16) => signed_array!(Int16Array, i16, span, direction, max_iteration),
-        (UniqueKeyKind::Signed { span, direction, max_iteration }, DataType::Int32) => signed_array!(Int32Array, i32, span, direction, max_iteration),
-        (UniqueKeyKind::Signed { span, direction, max_iteration }, DataType::Int64) => signed_array!(Int64Array, i64, span, direction, max_iteration),
-        (UniqueKeyKind::Unsigned { span, direction, max_iteration }, DataType::UInt8) => unsigned_array!(UInt8Array, u8, span, direction, max_iteration),
-        (UniqueKeyKind::Unsigned { span, direction, max_iteration }, DataType::UInt16) => unsigned_array!(UInt16Array, u16, span, direction, max_iteration),
-        (UniqueKeyKind::Unsigned { span, direction, max_iteration }, DataType::UInt32) => unsigned_array!(UInt32Array, u32, span, direction, max_iteration),
-        (UniqueKeyKind::Unsigned { span, direction, max_iteration }, DataType::UInt64) => unsigned_array!(UInt64Array, u64, span, direction, max_iteration),
-        (UniqueKeyKind::Utf8 { suffix_width, max_iteration }, DataType::Utf8) => {
-            let source = batch.column(column).as_any().downcast_ref::<StringArray>()
+        (
+            UniqueKeyKind::Signed {
+                span,
+                direction,
+                max_iteration,
+            },
+            DataType::Int8,
+        ) => signed_array!(Int8Array, i8, span, direction, max_iteration),
+        (
+            UniqueKeyKind::Signed {
+                span,
+                direction,
+                max_iteration,
+            },
+            DataType::Int16,
+        ) => signed_array!(Int16Array, i16, span, direction, max_iteration),
+        (
+            UniqueKeyKind::Signed {
+                span,
+                direction,
+                max_iteration,
+            },
+            DataType::Int32,
+        ) => signed_array!(Int32Array, i32, span, direction, max_iteration),
+        (
+            UniqueKeyKind::Signed {
+                span,
+                direction,
+                max_iteration,
+            },
+            DataType::Int64,
+        ) => signed_array!(Int64Array, i64, span, direction, max_iteration),
+        (
+            UniqueKeyKind::Unsigned {
+                span,
+                direction,
+                max_iteration,
+            },
+            DataType::UInt8,
+        ) => unsigned_array!(UInt8Array, u8, span, direction, max_iteration),
+        (
+            UniqueKeyKind::Unsigned {
+                span,
+                direction,
+                max_iteration,
+            },
+            DataType::UInt16,
+        ) => unsigned_array!(UInt16Array, u16, span, direction, max_iteration),
+        (
+            UniqueKeyKind::Unsigned {
+                span,
+                direction,
+                max_iteration,
+            },
+            DataType::UInt32,
+        ) => unsigned_array!(UInt32Array, u32, span, direction, max_iteration),
+        (
+            UniqueKeyKind::Unsigned {
+                span,
+                direction,
+                max_iteration,
+            },
+            DataType::UInt64,
+        ) => unsigned_array!(UInt64Array, u64, span, direction, max_iteration),
+        (
+            UniqueKeyKind::Utf8 {
+                suffix_width,
+                max_iteration,
+            },
+            DataType::Utf8,
+        ) => {
+            let source = batch
+                .column(column)
+                .as_any()
+                .downcast_ref::<StringArray>()
                 .context("speedtest Utf8 primary-key type mismatch")?;
             let suffix = fixed_radix_suffix(iteration, suffix_width, 36, max_iteration)?;
             Arc::new(StringArray::from_iter_values(source.iter().map(|value| {
@@ -2036,7 +2250,10 @@ fn rewrite_unique_key(
             })))
         }
         (UniqueKeyKind::UnboundedUtf8, DataType::Utf8) => {
-            let source = batch.column(column).as_any().downcast_ref::<StringArray>()
+            let source = batch
+                .column(column)
+                .as_any()
+                .downcast_ref::<StringArray>()
                 .context("speedtest Utf8 primary-key type mismatch")?;
             Arc::new(StringArray::from_iter_values(source.iter().map(|value| {
                 unbounded_text_key(
@@ -2046,83 +2263,136 @@ fn rewrite_unique_key(
                 )
             })))
         }
-        (UniqueKeyKind::LargeUtf8 { suffix_width, max_iteration }, DataType::LargeUtf8) => {
-            let source = batch.column(column).as_any().downcast_ref::<LargeStringArray>()
+        (
+            UniqueKeyKind::LargeUtf8 {
+                suffix_width,
+                max_iteration,
+            },
+            DataType::LargeUtf8,
+        ) => {
+            let source = batch
+                .column(column)
+                .as_any()
+                .downcast_ref::<LargeStringArray>()
                 .context("speedtest LargeUtf8 primary-key type mismatch")?;
             let suffix = fixed_radix_suffix(iteration, suffix_width, 36, max_iteration)?;
-            Arc::new(LargeStringArray::from_iter_values(source.iter().map(|value| {
-                let mut value = value.expect("validated non-null primary key").to_owned();
-                value.push_str(&suffix);
-                value
-            })))
+            Arc::new(LargeStringArray::from_iter_values(source.iter().map(
+                |value| {
+                    let mut value = value.expect("validated non-null primary key").to_owned();
+                    value.push_str(&suffix);
+                    value
+                },
+            )))
         }
         (UniqueKeyKind::UnboundedLargeUtf8, DataType::LargeUtf8) => {
-            let source = batch.column(column).as_any().downcast_ref::<LargeStringArray>()
+            let source = batch
+                .column(column)
+                .as_any()
+                .downcast_ref::<LargeStringArray>()
                 .context("speedtest LargeUtf8 primary-key type mismatch")?;
-            Arc::new(LargeStringArray::from_iter_values(source.iter().map(|value| {
-                unbounded_text_key(
-                    key.namespace,
-                    value.expect("validated non-null primary key"),
-                    iteration,
-                )
-            })))
+            Arc::new(LargeStringArray::from_iter_values(source.iter().map(
+                |value| {
+                    unbounded_text_key(
+                        key.namespace,
+                        value.expect("validated non-null primary key"),
+                        iteration,
+                    )
+                },
+            )))
         }
-        (UniqueKeyKind::Binary { suffix_width, max_iteration }, DataType::Binary) => {
+        (
+            UniqueKeyKind::Binary {
+                suffix_width,
+                max_iteration,
+            },
+            DataType::Binary,
+        ) => {
             let source = batch
                 .column(column)
                 .as_any()
                 .downcast_ref::<BinaryArray>()
                 .context("speedtest Binary primary-key type mismatch")?;
             let suffix = fixed_binary_suffix(iteration, suffix_width, max_iteration)?;
-            let values = source.iter().map(|value| {
-                let mut value = value.expect("validated non-null primary key").to_vec();
-                value.extend_from_slice(&suffix);
-                value
-            }).collect::<Vec<_>>();
+            let values = source
+                .iter()
+                .map(|value| {
+                    let mut value = value.expect("validated non-null primary key").to_vec();
+                    value.extend_from_slice(&suffix);
+                    value
+                })
+                .collect::<Vec<_>>();
             Arc::new(BinaryArray::from_iter_values(values))
         }
         (UniqueKeyKind::UnboundedBinary, DataType::Binary) => {
-            let source = batch.column(column).as_any().downcast_ref::<BinaryArray>()
+            let source = batch
+                .column(column)
+                .as_any()
+                .downcast_ref::<BinaryArray>()
                 .context("speedtest Binary primary-key type mismatch")?;
-            let values = source.iter().map(|value| {
-                unbounded_binary_key(
-                    key.namespace,
-                    value.expect("validated non-null primary key"),
-                    iteration,
-                )
-            }).collect::<anyhow::Result<Vec<_>>>()?;
+            let values = source
+                .iter()
+                .map(|value| {
+                    unbounded_binary_key(
+                        key.namespace,
+                        value.expect("validated non-null primary key"),
+                        iteration,
+                    )
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
             Arc::new(BinaryArray::from_iter_values(values))
         }
-        (UniqueKeyKind::LargeBinary { suffix_width, max_iteration }, DataType::LargeBinary) => {
+        (
+            UniqueKeyKind::LargeBinary {
+                suffix_width,
+                max_iteration,
+            },
+            DataType::LargeBinary,
+        ) => {
             let source = batch
                 .column(column)
                 .as_any()
                 .downcast_ref::<LargeBinaryArray>()
                 .context("speedtest LargeBinary primary-key type mismatch")?;
             let suffix = fixed_binary_suffix(iteration, suffix_width, max_iteration)?;
-            let values = source.iter().map(|value| {
-                let mut value = value.expect("validated non-null primary key").to_vec();
-                value.extend_from_slice(&suffix);
-                value
-            }).collect::<Vec<_>>();
+            let values = source
+                .iter()
+                .map(|value| {
+                    let mut value = value.expect("validated non-null primary key").to_vec();
+                    value.extend_from_slice(&suffix);
+                    value
+                })
+                .collect::<Vec<_>>();
             Arc::new(LargeBinaryArray::from_iter_values(values))
         }
         (UniqueKeyKind::UnboundedLargeBinary, DataType::LargeBinary) => {
-            let source = batch.column(column).as_any().downcast_ref::<LargeBinaryArray>()
+            let source = batch
+                .column(column)
+                .as_any()
+                .downcast_ref::<LargeBinaryArray>()
                 .context("speedtest LargeBinary primary-key type mismatch")?;
-            let values = source.iter().map(|value| {
-                unbounded_binary_key(
-                    key.namespace,
-                    value.expect("validated non-null primary key"),
-                    iteration,
-                )
-            }).collect::<anyhow::Result<Vec<_>>>()?;
+            let values = source
+                .iter()
+                .map(|value| {
+                    unbounded_binary_key(
+                        key.namespace,
+                        value.expect("validated non-null primary key"),
+                        iteration,
+                    )
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
             Arc::new(LargeBinaryArray::from_iter_values(values))
         }
-        (UniqueKeyKind::FixedSizeBinary { width, max_iteration }, DataType::FixedSizeBinary(actual_width))
-            if width == *actual_width =>
-        {
-            anyhow::ensure!(iteration <= max_iteration, "fixed-binary primary-key replay space exhausted");
+        (
+            UniqueKeyKind::FixedSizeBinary {
+                width,
+                max_iteration,
+            },
+            DataType::FixedSizeBinary(actual_width),
+        ) if width == *actual_width => {
+            anyhow::ensure!(
+                iteration <= max_iteration,
+                "fixed-binary primary-key replay space exhausted"
+            );
             let source = batch
                 .column(column)
                 .as_any()
@@ -2130,11 +2400,13 @@ fn rewrite_unique_key(
                 .context("speedtest fixed-size binary primary-key type mismatch")?;
             let values = (0..batch.num_rows())
                 .map(|row| {
-                    let ordinal = iteration.checked_mul(key.sample_rows)
+                    let ordinal = iteration
+                        .checked_mul(key.sample_rows)
                         .and_then(|value| value.checked_add(row_offset))
                         .and_then(|value| value.checked_add(row as u128))
                         .context("fixed-binary primary-key ordinal overflow")?;
-                    let ordinal = u64::try_from(ordinal).context("fixed-binary primary-key space exhausted")?;
+                    let ordinal = u64::try_from(ordinal)
+                        .context("fixed-binary primary-key space exhausted")?;
                     let mut value = source.value(row).to_vec();
                     value[..8].copy_from_slice(&key.namespace.to_be_bytes());
                     value[8..16].copy_from_slice(&ordinal.to_be_bytes());
@@ -2150,7 +2422,10 @@ fn rewrite_unique_key(
     let mut columns = batch.columns().to_vec();
     columns[column] = replacement;
     let replacement_bytes = columns[column].get_array_memory_size();
-    Ok((RecordBatch::try_new(batch.schema(), columns)?, replacement_bytes))
+    Ok((
+        RecordBatch::try_new(batch.schema(), columns)?,
+        replacement_bytes,
+    ))
 }
 
 fn unbounded_text_key(namespace: u64, value: &str, iteration: u128) -> String {
@@ -2161,11 +2436,7 @@ fn unbounded_text_key(namespace: u64, value: &str, iteration: u128) -> String {
     )
 }
 
-fn unbounded_binary_key(
-    namespace: u64,
-    value: &[u8],
-    iteration: u128,
-) -> anyhow::Result<Vec<u8>> {
+fn unbounded_binary_key(namespace: u64, value: &[u8], iteration: u128) -> anyhow::Result<Vec<u8>> {
     let length = u64::try_from(value.len()).context("unbounded binary primary key is too long")?;
     let capacity = 10_usize
         .checked_add(8)
@@ -2190,19 +2461,22 @@ fn fixed_radix_suffix(
     let mut bytes = vec![b'0'; width];
     for byte in bytes.iter_mut().rev() {
         let digit = u8::try_from(value % radix)?;
-        *byte = if digit < 10 { b'0' + digit } else { b'a' + digit - 10 };
+        *byte = if digit < 10 {
+            b'0' + digit
+        } else {
+            b'a' + digit - 10
+        };
         value /= radix;
     }
     anyhow::ensure!(value == 0, "text primary-key replay space exhausted");
     Ok(String::from_utf8(bytes).expect("base36 suffix is ASCII"))
 }
 
-fn fixed_binary_suffix(
-    mut value: u128,
-    width: usize,
-    maximum: u128,
-) -> anyhow::Result<Vec<u8>> {
-    anyhow::ensure!(value <= maximum, "binary primary-key replay space exhausted");
+fn fixed_binary_suffix(mut value: u128, width: usize, maximum: u128) -> anyhow::Result<Vec<u8>> {
+    anyhow::ensure!(
+        value <= maximum,
+        "binary primary-key replay space exhausted"
+    );
     let mut bytes = vec![0_u8; width];
     for byte in bytes.iter_mut().rev() {
         *byte = value as u8;
@@ -2315,9 +2589,9 @@ impl ProfiledColumn {
     }
 
     fn finish(self) -> anyhow::Result<SpeedtestColumnProfile> {
-        let (min_value, max_value) = self
-            .bounds
-            .map_or((None, None), |bounds| (Some(bounds.min_value), Some(bounds.max_value)));
+        let (min_value, max_value) = self.bounds.map_or((None, None), |bounds| {
+            (Some(bounds.min_value), Some(bounds.max_value))
+        });
         Ok(SpeedtestColumnProfile {
             name: self.name,
             arrow_type: self.arrow_type,
@@ -2426,8 +2700,7 @@ impl CardinalitySketch {
         let hash = murmur3::murmur3_x64_128(&mut Cursor::new(value), 0)? as u64;
         let index = usize::try_from(hash >> (64 - CARDINALITY_PRECISION))?;
         let remainder = hash << CARDINALITY_PRECISION;
-        let rank = (remainder.leading_zeros() + 1)
-            .min(64 - CARDINALITY_PRECISION + 1) as u8;
+        let rank = (remainder.leading_zeros() + 1).min(64 - CARDINALITY_PRECISION + 1) as u8;
         self.registers[index] = self.registers[index].max(rank);
         self.observations = self
             .observations
@@ -2446,25 +2719,22 @@ impl CardinalitySketch {
             .iter()
             .map(|rank| 2_f64.powi(-i32::from(*rank)))
             .sum::<f64>();
-        let raw = 0.7213 / (1.0 + 1.079 / register_count) * register_count.powi(2)
-            / harmonic_sum;
-        let zero_registers = self
-            .registers
-            .iter()
-            .filter(|rank| **rank == 0)
-            .count();
+        let raw = 0.7213 / (1.0 + 1.079 / register_count) * register_count.powi(2) / harmonic_sum;
+        let zero_registers = self.registers.iter().filter(|rank| **rank == 0).count();
         let corrected = if zero_registers > 0 && raw <= 2.5 * register_count {
             register_count * (register_count / zero_registers as f64).ln()
         } else {
             raw
         };
-        corrected
-            .round()
-            .clamp(1.0, self.observations as f64) as u64
+        corrected.round().clamp(1.0, self.observations as f64) as u64
     }
 
     fn merge(&mut self, other: &Self) -> anyhow::Result<()> {
-        for (register, other) in self.registers.iter_mut().zip(other.registers.iter().copied()) {
+        for (register, other) in self
+            .registers
+            .iter_mut()
+            .zip(other.registers.iter().copied())
+        {
             *register = (*register).max(other);
         }
         self.observations = self
@@ -2801,6 +3071,7 @@ fn ephemeral_durable(delivery_id: &str, stage: &str) -> DurableContext {
     DurableContext {
         delivery_id: Arc::from(format!("speedtest-{stage}-{delivery_id}")),
         storage: Arc::new(EphemeralDurableStorage::default()),
+        resource_storage: Arc::new(EphemeralDurableStorage::default()),
     }
 }
 

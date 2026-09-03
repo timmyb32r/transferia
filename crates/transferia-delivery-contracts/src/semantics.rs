@@ -159,20 +159,30 @@ pub struct SourceDescriptor {
 pub struct SourceDeliveryModes {
     batch: bool,
     stream: bool,
+    batch_and_stream: bool,
 }
 
 impl SourceDeliveryModes {
     pub const BATCH: Self = Self {
         batch: true,
         stream: false,
+        batch_and_stream: false,
     };
     pub const STREAM: Self = Self {
         batch: false,
         stream: true,
+        batch_and_stream: false,
     };
     pub const BATCH_AND_STREAM: Self = Self {
         batch: true,
         stream: true,
+        batch_and_stream: true,
+    };
+    /// Streaming is available alone and after a coordinated finite snapshot.
+    pub const STREAM_AND_BATCH_AND_STREAM: Self = Self {
+        batch: false,
+        stream: true,
+        batch_and_stream: true,
     };
 
     #[must_use]
@@ -180,7 +190,7 @@ impl SourceDeliveryModes {
         match delivery_type {
             DeliveryType::Batch => self.batch,
             DeliveryType::Stream => self.stream,
-            DeliveryType::BatchAndStream => self.batch && self.stream,
+            DeliveryType::BatchAndStream => self.batch_and_stream,
         }
     }
 }

@@ -3848,9 +3848,17 @@
               "type": "integer",
               "format": "uint",
               "minimum": 0,
-              "default": 65536,
+              "default": 16384,
               "x-ui": {
                 "widget": "hidden"
+              }
+            },
+            "read_protocol": {
+              "title": "Read protocol",
+              "description": "MySQL wire protocol used for snapshot rows. Binary is the measured high-throughput default; text remains available for comparison and compatibility diagnostics.",
+              "$ref": "#/$defs/MySqlReadProtocol",
+              "x-ui": {
+                "section": "advanced"
               }
             }
           },
@@ -3874,19 +3882,27 @@
               "required": [
                 "name"
               ]
+            },
+            "MySqlReadProtocol": {
+              "type": "string",
+              "enum": [
+                "text",
+                "binary"
+              ]
             }
           }
         },
         "initial": {
-          "batch_rows": 65536,
+          "read_protocol": "binary",
+          "batch_rows": 16384,
+          "database": "",
+          "username": "",
+          "password": "",
           "tables": [
             {
               "name": ""
             }
           ],
-          "database": "",
-          "username": "",
-          "password": "",
           "installation": {
             "host": "",
             "port": 3306,
@@ -3980,7 +3996,7 @@
               "type": "integer",
               "format": "uint",
               "minimum": 0,
-              "default": 1000,
+              "default": 250,
               "x-ui": {
                 "widget": "hidden"
               }
@@ -3996,7 +4012,7 @@
           ]
         },
         "initial": {
-          "insert_rows": 1000,
+          "insert_rows": 250,
           "create_tables": true,
           "database": "",
           "username": "",
@@ -4136,7 +4152,7 @@
               "type": "integer",
               "format": "uint",
               "minimum": 1,
-              "default": 4,
+              "default": 2,
               "x-ui": {
                 "section": "advanced"
               }
@@ -4261,7 +4277,7 @@
             }
           ],
           "page_rows": 10000,
-          "read_concurrency": 4,
+          "read_concurrency": 2,
           "pit_keep_alive_ms": 300000,
           "retry_initial_ms": 100,
           "retry_max_ms": 10000,
@@ -4387,7 +4403,7 @@
               "type": "integer",
               "format": "uint",
               "minimum": 1,
-              "default": 10000,
+              "default": 20000,
               "x-ui": {
                 "section": "advanced"
               }
@@ -4528,7 +4544,7 @@
           "max_response_bytes": 67108864,
           "create_indices": true,
           "routed_identity": "fail",
-          "bulk_target_rows": 10000,
+          "bulk_target_rows": 20000,
           "bulk_target_bytes": 16777216,
           "bulk_concurrency": 4,
           "flush_interval_ms": 250,
@@ -4632,7 +4648,7 @@
               "type": "integer",
               "format": "uint",
               "minimum": 0,
-              "default": 65536,
+              "default": 16384,
               "x-ui": {
                 "widget": "hidden"
               }
@@ -4646,7 +4662,7 @@
               }
             },
             "replication": {
-              "description": "Enables an infinite logical-replication stream instead of a finite snapshot.",
+              "description": "Configures logical replication for stream and batch_and_stream deliveries.",
               "anyOf": [
                 {
                   "$ref": "#/$defs/PostgresReplicationConfig"
@@ -4665,6 +4681,18 @@
             "tables",
             "installation"
           ],
+          "x-ui": {
+            "capabilities": {
+              "component": "source",
+              "key": "snapshot",
+              "delivery_modes": [
+                "batch"
+              ],
+              "record_semantics": [
+                "append_only"
+              ]
+            }
+          },
           "$defs": {
             "TableConfig": {
               "type": "object",
@@ -4715,13 +4743,37 @@
                   "x-ui": {
                     "section": "advanced"
                   }
+                },
+                "bootstrap_timeout_ms": {
+                  "title": "Replication bootstrap timeout",
+                  "description": "Maximum time in milliseconds for opening the replication session and exporting the exact slot snapshot",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "default": 30000,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
                 }
               },
               "additionalProperties": false,
               "required": [
                 "slot",
                 "decoder"
-              ]
+              ],
+              "x-ui": {
+                "capabilities": {
+                  "component": "source",
+                  "key": "replication",
+                  "delivery_modes": [
+                    "stream",
+                    "batch_and_stream"
+                  ],
+                  "record_semantics": [
+                    "changelog"
+                  ]
+                }
+              }
             },
             "LogicalDecoder": {
               "oneOf": [
@@ -4765,7 +4817,7 @@
           "database": "",
           "username": "",
           "password": "",
-          "batch_rows": 65536,
+          "batch_rows": 16384,
           "tables": [
             {
               "schema": "",
@@ -4782,7 +4834,8 @@
         },
         "delivery_modes": [
           "batch",
-          "stream"
+          "stream",
+          "batch_and_stream"
         ],
         "record_semantics": [
           "append_only",
@@ -5047,6 +5100,15 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "primary_key": {
+                  "title": "Unique row key",
+                  "description": "Columns that the user guarantees identify one logical row uniquely.\nClickHouse sorting and primary keys do not enforce uniqueness, so the\nconnector never infers this contract from table metadata.",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": []
                 }
               },
               "additionalProperties": false,
@@ -8870,7 +8932,7 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0,
-              "default": 1048576,
+              "default": 524288,
               "x-ui": {
                 "widget": "hidden"
               }
@@ -9438,7 +9500,7 @@
             "desired_chunk_size": 2147483648
           },
           "write_flush_interval_ms": 1000,
-          "write_row_buffer_bytes": 1048576,
+          "write_row_buffer_bytes": 524288,
           "timeout_ms": 30000,
           "write_target_bytes": 536870912,
           "write_concurrency": 4,

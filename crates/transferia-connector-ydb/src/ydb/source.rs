@@ -119,6 +119,7 @@ impl SourceConnector for YdbSourceConnector {
             let SourceDiscoveryContext {
                 request,
                 cancellation,
+                delivery_type: _,
             } = context;
             let tables = tokio::select! {
                 biased;
@@ -275,8 +276,8 @@ impl YdbSource {
                     session_shutdown_timeout,
                     session_shutdown_retry_initial,
                 )
-                    .await
-                    .is_err()
+                .await
+                .is_err()
                 {
                     tracing::warn!(
                         "YDB session cleanup failed after StreamReadTable could not be opened"
@@ -426,18 +427,18 @@ impl Source for YdbSource {
                 self.session_shutdown_timeout,
                 self.session_shutdown_retry_initial,
             )
-                .await
-                .map_err(|error| {
-                    tracing::error!(
-                        table = %self.table.config.path,
-                        timeout_ms = self.session_shutdown_timeout.as_millis(),
-                        "YDB snapshot session cleanup exhausted its configured retry deadline"
-                    );
-                    DataPlaneFailure::fatal(error.context(format!(
-                        "failed to close YDB snapshot session for table '{}'",
-                        self.table.config.path
-                    )))
-                })
+            .await
+            .map_err(|error| {
+                tracing::error!(
+                    table = %self.table.config.path,
+                    timeout_ms = self.session_shutdown_timeout.as_millis(),
+                    "YDB snapshot session cleanup exhausted its configured retry deadline"
+                );
+                DataPlaneFailure::fatal(error.context(format!(
+                    "failed to close YDB snapshot session for table '{}'",
+                    self.table.config.path
+                )))
+            })
         })
     }
 }
@@ -479,11 +480,9 @@ pub(super) async fn close_ydb_session(
     let mut retry_delay = retry_initial;
     loop {
         attempts = attempts.saturating_add(1);
-        let result = tokio::time::timeout_at(
-            deadline,
-            client.delete_session(active_session_id.clone()),
-        )
-        .await;
+        let result =
+            tokio::time::timeout_at(deadline, client.delete_session(active_session_id.clone()))
+                .await;
         match result {
             Ok(Ok(())) => {
                 *session_id = None;

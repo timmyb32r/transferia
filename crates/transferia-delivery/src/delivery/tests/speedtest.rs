@@ -126,6 +126,9 @@ async fn source_without_explicit_isolation_fails_closed() {
     let error = connector
         .build_speedtest_source(SourceBuildContext {
             partition_id: 0,
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
+            phase: transferia_registry::SourcePhase::Snapshot,
+            replay_identity: None,
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(1_024),
             durable: ephemeral_durable("test", "source"),
@@ -334,11 +337,22 @@ fn generated_string_primary_keys_are_unique_across_replays() -> anyhow::Result<(
 
     let (first, first_extra_bytes) = rewrite_unique_key(&batch, &key, 0, 0)?;
     let (second, second_extra_bytes) = rewrite_unique_key(&batch, &key, 1, 0)?;
-    assert_eq!(first, batch, "the first replay must preserve the sample exactly");
+    assert_eq!(
+        first, batch,
+        "the first replay must preserve the sample exactly"
+    );
     assert_eq!(first_extra_bytes, 0);
     assert!(second_extra_bytes > 0);
-    let first = first.column(0).as_any().downcast_ref::<StringArray>().unwrap();
-    let second = second.column(0).as_any().downcast_ref::<StringArray>().unwrap();
+    let first = first
+        .column(0)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    let second = second
+        .column(0)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
 
     assert_eq!(first.value(0), "first");
     assert_eq!(first.value(1), "second");
@@ -387,8 +401,11 @@ fn bounded_string_primary_key_without_suffix_room_fails_preflight() -> anyhow::R
         "id",
         Arc::new(StringArray::from(vec!["x"])) as ArrayRef,
     )])?;
-    let column = SchemaColumn::new("id".to_owned(), DataType::Utf8, false)
-        .with_constraints(true, false, Some(1));
+    let column = SchemaColumn::new("id".to_owned(), DataType::Utf8, false).with_constraints(
+        true,
+        false,
+        Some(1),
+    );
 
     let error = build_unique_key_kind_many(&[&batch], 0, &column)
         .expect_err("replay must not exceed a declared string width");
@@ -476,8 +493,7 @@ fn fixed_binary_replay_namespace_never_aliases_sample_prefix() -> anyhow::Result
 }
 
 #[test]
-fn unbounded_string_primary_key_has_no_hidden_four_digit_iteration_limit(
-) -> anyhow::Result<()> {
+fn unbounded_string_primary_key_has_no_hidden_four_digit_iteration_limit() -> anyhow::Result<()> {
     let batch = RecordBatch::try_from_iter(vec![(
         "id",
         Arc::new(StringArray::from(vec!["source-key"])) as ArrayRef,
@@ -496,7 +512,11 @@ fn unbounded_string_primary_key_has_no_hidden_four_digit_iteration_limit(
 
     let iteration = 36_u128.pow(4) + 1;
     let (generated, _) = rewrite_unique_key(&batch, &key, iteration, 0)?;
-    let generated = generated.column(0).as_any().downcast_ref::<StringArray>().unwrap();
+    let generated = generated
+        .column(0)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
 
     assert_ne!(generated.value(0), "source-key");
     assert!(generated.value(0).ends_with(&format!("{iteration:032x}")));
@@ -509,13 +529,15 @@ fn fixed_binary_ordinals_are_disjoint_across_sampled_deliveries() -> anyhow::Res
     let second = [2_u8; 16];
     let first = RecordBatch::try_from_iter(vec![(
         "id",
-        Arc::new(FixedSizeBinaryArray::try_from_iter([first.as_slice()].into_iter())?)
-            as ArrayRef,
+        Arc::new(FixedSizeBinaryArray::try_from_iter(
+            [first.as_slice()].into_iter(),
+        )?) as ArrayRef,
     )])?;
     let second = RecordBatch::try_from_iter(vec![(
         "id",
-        Arc::new(FixedSizeBinaryArray::try_from_iter([second.as_slice()].into_iter())?)
-            as ArrayRef,
+        Arc::new(FixedSizeBinaryArray::try_from_iter(
+            [second.as_slice()].into_iter(),
+        )?) as ArrayRef,
     )])?;
     let key = UniqueKey {
         column: 0,
@@ -530,8 +552,16 @@ fn fixed_binary_ordinals_are_disjoint_across_sampled_deliveries() -> anyhow::Res
 
     let (first, _) = rewrite_unique_key(&first, &key, 1, 0)?;
     let (second, _) = rewrite_unique_key(&second, &key, 1, 1)?;
-    let first = first.column(0).as_any().downcast_ref::<FixedSizeBinaryArray>().unwrap();
-    let second = second.column(0).as_any().downcast_ref::<FixedSizeBinaryArray>().unwrap();
+    let first = first
+        .column(0)
+        .as_any()
+        .downcast_ref::<FixedSizeBinaryArray>()
+        .unwrap();
+    let second = second
+        .column(0)
+        .as_any()
+        .downcast_ref::<FixedSizeBinaryArray>()
+        .unwrap();
 
     assert_ne!(first.value(0), second.value(0));
     assert_eq!(&first.value(0)[8..], &2_u64.to_be_bytes());
@@ -550,19 +580,20 @@ async fn collector_keeps_one_accounted_sample_for_every_dataset() -> anyhow::Res
         )])?;
         let bytes = batch.get_array_memory_size();
         let reservation = memory.reserve(bytes).await;
-        collector.add(&Delivery {
-            id: DeliveryId::new(id as u64),
-            outputs: vec![SinkBatch {
-                table: Arc::from(table),
-                is_dlq: false,
-                batch,
-                byte_size: bytes,
-                memory: reservation,
-                system_columns: SystemColumns::default(),
-            }],
-            meta: DeliveryMeta::default(),
-        })
-        .await?;
+        collector
+            .add(&Delivery {
+                id: DeliveryId::new(id as u64),
+                outputs: vec![SinkBatch {
+                    table: Arc::from(table),
+                    is_dlq: false,
+                    batch,
+                    byte_size: bytes,
+                    memory: reservation,
+                    system_columns: SystemColumns::default(),
+                }],
+                meta: DeliveryMeta::default(),
+            })
+            .await?;
     }
 
     let snapshot = collector.snapshot()?;
@@ -637,10 +668,8 @@ async fn sampled_delivery_sequence_preserves_batch_sizes_dataset_mix_and_dlq_fre
         system_columns: Vec::new(),
     });
     let discovered = Arc::new(discovered);
-    let isolation = SinkSpeedtestIsolation::no_external_writes(
-        cleanup_connector(),
-        Arc::clone(&discovered),
-    );
+    let isolation =
+        SinkSpeedtestIsolation::no_external_writes(cleanup_connector(), Arc::clone(&discovered));
     let mut source = ProfileGeneratorSource::new(
         &sampled.samples,
         &discovered,
@@ -746,10 +775,8 @@ async fn destination_first_replay_does_not_double_reserve_the_sample() -> anyhow
     discovery.datasets[0].incoming_schema = schema.clone();
     discovery.datasets[0].stored_schema = schema;
     let discovery = Arc::new(discovery);
-    let isolation = SinkSpeedtestIsolation::no_external_writes(
-        cleanup_connector(),
-        Arc::clone(&discovery),
-    );
+    let isolation =
+        SinkSpeedtestIsolation::no_external_writes(cleanup_connector(), Arc::clone(&discovery));
     let memory = PipelineMemory::new(arrow_bytes);
     let mut source = ProfileGeneratorSource::new(
         &[SpooledDelivery {
@@ -961,7 +988,9 @@ fn scratch_isolation_requires_one_physical_target_per_dataset() {
     .err()
     .expect("a shared or missing physical target must fail closed");
 
-    assert!(error.to_string().contains("one physical target per dataset"));
+    assert!(error
+        .to_string()
+        .contains("one physical target per dataset"));
 }
 
 #[tokio::test]
@@ -979,8 +1008,8 @@ async fn isolated_connector_rejects_substituted_prepare_before_io() -> anyhow::R
         }],
     )?;
     let substituted = discovery("production");
-    let request = SinkPrepare::from_discovery(&substituted, true, "speedtest")?
-        .expect("one dataset");
+    let request =
+        SinkPrepare::from_discovery(&substituted, true, "speedtest")?.expect("one dataset");
 
     let error = isolation
         .connector()
@@ -1039,11 +1068,7 @@ async fn cancelled_owner_still_cleans_only_the_scratch_target() -> anyhow::Resul
     let cleanup_tasks = TaskTracker::new();
     let task_cleanup_tasks = cleanup_tasks.clone();
     let task = tokio::spawn(async move {
-        let _guard = CleanupGuard::new(
-            isolation,
-            Duration::from_secs(1),
-            task_cleanup_tasks,
-        );
+        let _guard = CleanupGuard::new(isolation, Duration::from_secs(1), task_cleanup_tasks);
         task_started.notify_one();
         std::future::pending::<()>().await;
     });
@@ -1082,11 +1107,7 @@ async fn panicking_destination_still_awaits_scratch_cleanup() -> anyhow::Result<
     )?;
 
     let error = run_with_cleanup(
-        CleanupGuard::new(
-            isolation,
-            Duration::from_secs(1),
-            TaskTracker::new(),
-        ),
+        CleanupGuard::new(isolation, Duration::from_secs(1), TaskTracker::new()),
         async {
             panic!("injected destination panic");
             #[allow(unreachable_code)]
@@ -1124,11 +1145,7 @@ async fn transient_cleanup_is_retried_in_tracked_scope_before_shutdown_completes
         }],
     )?;
     let cleanup_tasks = TaskTracker::new();
-    let mut cleanup = CleanupGuard::new(
-        isolation,
-        Duration::from_secs(1),
-        cleanup_tasks.clone(),
-    );
+    let mut cleanup = CleanupGuard::new(isolation, Duration::from_secs(1), cleanup_tasks.clone());
     cleanup.cleanup().await?;
 
     cleanup_tasks.close();
@@ -1180,7 +1197,10 @@ async fn source_and_destination_ephemeral_state_are_disjoint() -> anyhow::Result
     let source = ephemeral_durable("delivery", "source");
     let destination = ephemeral_durable("delivery", "destination");
 
-    source.storage.compare_exchange("offset", None, b"source").await?;
+    source
+        .storage
+        .compare_exchange("offset", None, b"source")
+        .await?;
 
     assert_ne!(source.delivery_id, destination.delivery_id);
     assert!(destination.storage.read("offset").await?.is_none());

@@ -16,14 +16,15 @@ use transferia_core::delivery::{
 };
 use transferia_delivery::delivery::config::yaml::{Config, DeliveryType};
 use transferia_delivery::delivery::preparation::{
-    build_delivery_plan_with, build_resolved_delivery_document_with, ResolvedConfigDocument,
+    build_delivery_plan_with, build_delivery_plan_with_replay_identity,
+    build_resolved_delivery_document_with, ResolvedConfigDocument,
+};
+use transferia_registry::tuning::{
+    tune_source_and_sink, EndpointTuningRequest, TuningBudget, TuningEvaluationCancelled,
+    TuningParameter, TuningResult,
 };
 use transferia_registry::{
     Composition, DynamicOptions, OptionsRequest, SinkConnector, SourceDiscoveryContext,
-};
-use transferia_registry::tuning::{
-    tune_source_and_sink, EndpointTuningRequest, TuningBudget, TuningParameter, TuningResult,
-    TuningEvaluationCancelled,
 };
 use transferia_runtime::{
     RunId, SupervisorError, WorkerEvent, WorkerLaunchSpec, WorkerOutcome, WorkerSupervisor,
@@ -197,10 +198,8 @@ impl ControlPlane {
         cancellation: CancellationToken,
     ) -> Result<SpeedtestEstimateResult, ServiceError> {
         let duration = validated_speedtest_duration(duration_seconds, "duration_seconds")?;
-        let cleanup_timeout = validated_speedtest_duration(
-            cleanup_timeout_seconds,
-            "cleanup_timeout_seconds",
-        )?;
+        let cleanup_timeout =
+            validated_speedtest_duration(cleanup_timeout_seconds, "cleanup_timeout_seconds")?;
         let plan = self.speedtest_plan(config, &cancellation).await?;
         let estimate = transferia_delivery::delivery::speedtest::estimate_delivery(
             plan,
@@ -224,9 +223,7 @@ impl ControlPlane {
             .try_fold(0_usize, |total, dataset| {
                 total.checked_add(dataset.arrow_bytes)
             })
-            .ok_or_else(|| {
-                ServiceError::Internal(anyhow::anyhow!("sample byte count overflow"))
-            })?;
+            .ok_or_else(|| ServiceError::Internal(anyhow::anyhow!("sample byte count overflow")))?;
         Ok(SpeedtestEstimateResult {
             logical_streams: estimate.logical_streams,
             source: speedtest_measurement_view(estimate.source),
@@ -255,10 +252,8 @@ impl ControlPlane {
         cleanup_timeout_seconds: u64,
         cancellation: CancellationToken,
     ) -> Result<SpeedtestTuneResult, ServiceError> {
-        let cleanup_timeout = validated_speedtest_duration(
-            cleanup_timeout_seconds,
-            "cleanup_timeout_seconds",
-        )?;
+        let cleanup_timeout =
+            validated_speedtest_duration(cleanup_timeout_seconds, "cleanup_timeout_seconds")?;
         let mut tuning_budget = tuning_budget(budget, trial_duration_seconds)?;
         let tuning_cancellation = cancellation.child_token();
         let (source_kind, source_configuration) = endpoint_configuration(&config, "source")?;
@@ -292,11 +287,8 @@ impl ControlPlane {
             source_initial,
             &source_parameters,
         )?;
-        let sink_baseline_configuration = tuning_default_configuration(
-            &sink_configuration,
-            sink_initial,
-            &sink_parameters,
-        )?;
+        let sink_baseline_configuration =
+            tuning_default_configuration(&sink_configuration, sink_initial, &sink_parameters)?;
 
         let trial_duration = Duration::from_secs(trial_duration_seconds);
         let baseline_config = endpoint_candidate(
@@ -326,15 +318,10 @@ impl ControlPlane {
         // one-time empirical profile and source baseline are separately bounded
         // by the user-visible trial duration and happen before this deadline.
         let request_deadline = tuning_request_deadline(budget)?;
-        let _deadline_guard = DeadlineCancellationGuard::new(
-            request_deadline,
-            tuning_cancellation.clone(),
-        );
-        tuning_budget = remaining_tuning_budget(
-            tuning_budget,
-            request_deadline,
-            &tuning_cancellation,
-        )?;
+        let _deadline_guard =
+            DeadlineCancellationGuard::new(request_deadline, tuning_cancellation.clone());
+        tuning_budget =
+            remaining_tuning_budget(tuning_budget, request_deadline, &tuning_cancellation)?;
         let sample = baseline_source.sample;
         let baseline_source_score = baseline_source.measurement.rows_per_second();
 
@@ -367,10 +354,8 @@ impl ControlPlane {
             move |candidate, trial_cancellation| {
                 let trial_index = source_trial_index;
                 source_trial_index = source_trial_index.saturating_add(1);
-                let parameters = declared_parameter_values(
-                    &candidate,
-                    &source_parameters_for_logging,
-                );
+                let parameters =
+                    declared_parameter_values(&candidate, &source_parameters_for_logging);
                 let connector = source_kind_for_trial.clone();
                 let cached = if candidate == source_baseline_configuration {
                     cached_baseline.take()
@@ -378,12 +363,8 @@ impl ControlPlane {
                     None
                 };
                 let control_plane = Arc::clone(&source_control_plane);
-                let config = endpoint_candidate(
-                    &source_base,
-                    "source",
-                    &source_kind_for_trial,
-                    candidate,
-                );
+                let config =
+                    endpoint_candidate(&source_base, "source", &source_kind_for_trial, candidate);
                 async move {
                     let started = std::time::Instant::now();
                     let result: anyhow::Result<f64> = async {
@@ -394,12 +375,13 @@ impl ControlPlane {
                         let mut plan = control_plane
                             .speedtest_plan_internal(&config, &trial_cancellation)
                             .await?;
-                        let result = transferia_delivery::delivery::speedtest::benchmark_source_throughput(
-                            &mut plan,
-                            trial_cancellation,
-                            trial_duration,
-                        )
-                        .await;
+                        let result =
+                            transferia_delivery::delivery::speedtest::benchmark_source_throughput(
+                                &mut plan,
+                                trial_cancellation,
+                                trial_duration,
+                            )
+                            .await;
                         match result {
                             Ok(result) => Ok(result.rows_per_second()),
                             Err(error)
@@ -427,10 +409,8 @@ impl ControlPlane {
             move |candidate, trial_cancellation| {
                 let trial_index = destination_trial_index;
                 destination_trial_index = destination_trial_index.saturating_add(1);
-                let parameters = declared_parameter_values(
-                    &candidate,
-                    &sink_parameters_for_logging,
-                );
+                let parameters =
+                    declared_parameter_values(&candidate, &sink_parameters_for_logging);
                 let connector = destination_kind_for_trial.clone();
                 let control_plane = Arc::clone(&destination_control_plane);
                 let config = endpoint_candidate(
@@ -520,14 +500,17 @@ impl ControlPlane {
         let config = self
             .materialize_speedtest_config(config, cancellation)
             .await?;
-        let yaml = config_yaml_from_json(&config)
-            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        let yaml =
+            config_yaml_from_json(&config).map_err(|error| anyhow::anyhow!(error.to_string()))?;
         let parsed = Config::from_yaml(&yaml)?;
         tokio::select! {
             () = self.shutdown.cancelled() => anyhow::bail!("the control plane is shutting down"),
             () = cancellation.cancelled() => anyhow::bail!("speedtest was cancelled"),
             result = build_resolved_delivery_document_with(
-                ResolvedConfigDocument { pipelines: vec![parsed] },
+                ResolvedConfigDocument {
+                    replay_identity: None,
+                    pipelines: vec![parsed],
+                },
                 cancellation.child_token(),
                 &self.transferia,
             ) => result,
@@ -602,11 +585,14 @@ impl ControlPlane {
             .next()
             .context("speedtest destination installation resolution returned no configuration")?;
         let descriptor = source.compatibility();
-        let delivery_type = speedtest_delivery_type(config, &source_kind, &descriptor)?;
+        let delivery_type = resolve_delivery_type(config, &source_kind, &descriptor)?;
 
         let speedtest_id = new_speedtest_delivery_id()?;
         let mut materialized = serde_json::Map::new();
-        materialized.insert("delivery_id".to_owned(), Value::String(speedtest_id.clone()));
+        materialized.insert(
+            "delivery_id".to_owned(),
+            Value::String(speedtest_id.clone()),
+        );
         materialized.insert(
             "durable_storage".to_owned(),
             serde_json::json!({
@@ -1131,10 +1117,14 @@ impl ControlPlane {
             let source_connector = catalog
                 .build_source(source_kind, source_config)
                 .map_err(|error| ServiceError::Validation(error.to_string()))?;
+            let delivery_type =
+                resolve_delivery_type(config, source_kind, &source_connector.compatibility())
+                    .map_err(|error| ServiceError::Validation(error.to_string()))?;
             let discovery = source_connector
                 .delivery_discovery(SourceDiscoveryContext {
                     request,
                     cancellation: cancellation.child_token(),
+                    delivery_type,
                 })
                 .await
                 .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
@@ -1282,8 +1272,9 @@ impl ControlPlane {
             () = self.shutdown.cancelled() => {
                 return Err(ServiceError::Conflict("the control plane is shutting down".to_owned()));
             }
-            result = build_delivery_plan_with(
+            result = build_delivery_plan_with_replay_identity(
                 parsed,
+                format!("control-plane-delivery:{}:revision:{expected_revision}", snapshot.id),
                 self.shutdown.child_token(),
                 &self.transferia,
             ) => result.map_err(|error| ServiceError::Validation(error.to_string()))?,
@@ -1675,16 +1666,16 @@ fn speedtest_dataset_profile_view(
             .columns
             .into_iter()
             .map(|column| {
-                let (numeric_min, numeric_max, temporal_min, temporal_max) =
-                    match column.range_kind {
-                        Some(
-                            transferia_delivery::delivery::speedtest::SpeedtestRangeKind::Numeric,
-                        ) => (column.min_value, column.max_value, None, None),
-                        Some(
-                            transferia_delivery::delivery::speedtest::SpeedtestRangeKind::Temporal,
-                        ) => (None, None, column.min_value, column.max_value),
-                        None => (None, None, None, None),
-                    };
+                let (numeric_min, numeric_max, temporal_min, temporal_max) = match column.range_kind
+                {
+                    Some(transferia_delivery::delivery::speedtest::SpeedtestRangeKind::Numeric) => {
+                        (column.min_value, column.max_value, None, None)
+                    }
+                    Some(
+                        transferia_delivery::delivery::speedtest::SpeedtestRangeKind::Temporal,
+                    ) => (None, None, column.min_value, column.max_value),
+                    None => (None, None, None, None),
+                };
                 SpeedtestColumnProfileView {
                     name: column.name,
                     arrow_type: column.arrow_type,
@@ -1702,10 +1693,7 @@ fn speedtest_dataset_profile_view(
     }
 }
 
-fn endpoint_configuration(
-    config: &Value,
-    section: &str,
-) -> Result<(String, Value), ServiceError> {
+fn endpoint_configuration(config: &Value, section: &str) -> Result<(String, Value), ServiceError> {
     let endpoints = config
         .get(section)
         .and_then(Value::as_object)
@@ -1723,7 +1711,7 @@ fn endpoint_configuration(
     Ok((kind.clone(), configuration.clone()))
 }
 
-fn speedtest_delivery_type(
+fn resolve_delivery_type(
     config: &Value,
     source_kind: &str,
     descriptor: &transferia_delivery_contracts::semantics::EndpointDescriptor,
@@ -1733,7 +1721,7 @@ fn speedtest_delivery_type(
         .filter(|value| !value.is_null())
         .map(|value| serde_json::from_value::<DeliveryType>(value.clone()))
         .transpose()
-        .context("speedtest delivery_type is invalid")?;
+        .context("delivery_type is invalid")?;
     match explicit {
         Some(delivery_type) => {
             anyhow::ensure!(
@@ -1749,9 +1737,7 @@ fn speedtest_delivery_type(
             // This must never infer a combined run and create stream identities.
             Ok(DeliveryType::Batch)
         }
-        None if descriptor.supports_delivery_type(DeliveryType::Stream) => {
-            Ok(DeliveryType::Stream)
-        }
+        None if descriptor.supports_delivery_type(DeliveryType::Stream) => Ok(DeliveryType::Stream),
         None => anyhow::bail!("source '{source_kind}' does not support a speedtest delivery mode"),
     }
 }
@@ -1952,10 +1938,7 @@ impl Drop for DeadlineCancellationGuard {
     }
 }
 
-fn validated_speedtest_duration(
-    seconds: u64,
-    field: &str,
-) -> Result<Duration, ServiceError> {
+fn validated_speedtest_duration(seconds: u64, field: &str) -> Result<Duration, ServiceError> {
     if seconds == 0 {
         return Err(ServiceError::InvalidInput(format!(
             "speedtest {field} must be greater than zero"
@@ -1980,14 +1963,14 @@ fn speedtest_service_error(error: anyhow::Error) -> ServiceError {
     {
         return ServiceError::Conflict("speedtest was cancelled".to_owned());
     }
-    if let Some(error) = error
-        .downcast_ref::<transferia_delivery::delivery::speedtest::SpeedtestCleanupFailure>()
+    if let Some(error) =
+        error.downcast_ref::<transferia_delivery::delivery::speedtest::SpeedtestCleanupFailure>()
     {
         return ServiceError::OperationFailed(error.to_string());
     }
-    if let Some(error) = error.downcast_ref::<
-        transferia_delivery::delivery::speedtest::SpeedtestSourceCleanupFailure,
-    >() {
+    if let Some(error) = error
+        .downcast_ref::<transferia_delivery::delivery::speedtest::SpeedtestSourceCleanupFailure>(
+    ) {
         return ServiceError::OperationFailed(error.to_string());
     }
     ServiceError::Internal(error)

@@ -1,32 +1,35 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow::array::{
-    ArrayRef, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array,
-    Int32Array, Int64Array, Int8Array, StringArray, TimestampMicrosecondArray, UInt32Array,
-    UInt64Array,
+    new_null_array, ArrayRef, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array,
+    Int16Array, Int32Array, Int64Array, Int8Array, StringArray, TimestampMicrosecondArray,
+    UInt32Array, UInt64Array,
 };
-use arrow::datatypes::{DataType, Field, Schema};
+use arrow::datatypes::{Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use tokio_postgres::{Client, Column, Statement};
 
+use super::copy_out::{CopyOutReader, RawCopyRow};
 use crate::connectors::postgres::common::{
     postgres_requires_text_projection, postgres_to_arrow, quote_identifier, PostgresCopyFormat,
 };
 use crate::connectors::postgres::source::{
-    discover_table, incoming_user_schema, DiscoveredTable, TableConfig,
+    discover_table, incoming_user_schema, old_key_column_name, old_value_column_name,
+    DiscoveredTable, TableConfig, POSTGRES_REPLICATION_SYSTEM_COLUMNS,
     POSTGRES_SOURCE_METADATA_COLUMNS,
 };
 use crate::connectors::postgres::src_batch::ExportedSnapshot;
 use crate::connectors::postgres::temporal::{
-    parse_date, parse_timestamp, postgres_date_to_unix_days,
-    postgres_timestamp_to_unix_micros,
+    parse_date, parse_timestamp, postgres_date_to_unix_days, postgres_timestamp_to_unix_micros,
 };
 use crate::metrics::SourceCounters;
-use super::copy_out::{CopyOutReader, RawCopyRow};
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::DatasetSchema;
-use transferia_core::data::schema::SchemaColumn;
+use transferia_core::data::schema::{
+    SchemaColumn, META_CHANGE_OPERATION, META_OLD_KEY_OF, META_OLD_VALUE_OF,
+};
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::TableData;
 use transferia_core::failure::DataPlaneFailure;
@@ -40,6 +43,8 @@ pub struct PostgresSource {
     partition_id: i64,
 
     table: TableConfig,
+
+    replica_identity_full: bool,
 
     statement: Statement,
 
@@ -66,6 +71,8 @@ pub struct PostgresSource {
     finished: bool,
 
     counters: Arc<SourceCounters>,
+
+    changelog_snapshot: bool,
 }
 
 impl PostgresSource {
@@ -78,6 +85,7 @@ impl PostgresSource {
         batch_rows: usize,
         copy_format: PostgresCopyFormat,
         counters: Arc<SourceCounters>,
+        changelog_snapshot: bool,
     ) -> anyhow::Result<Self> {
         exported_snapshot.import(&client).await?;
         let current = discover_table(&client, discovered.config.clone()).await?;
@@ -92,6 +100,7 @@ impl PostgresSource {
             ))
             .into());
         }
+        let replica_identity_full = discovered.replica_identity_full;
         let table = discovered.config;
         let schema = incoming_user_schema(&discovered.schema);
         let metadata = client
@@ -121,6 +130,7 @@ impl PostgresSource {
             _exported_snapshot: exported_snapshot.clone(),
             partition_id,
             table,
+            replica_identity_full,
             statement,
             copy: Some(copy),
             schema,
@@ -134,6 +144,7 @@ impl PostgresSource {
             copy_done: false,
             finished: false,
             counters,
+            changelog_snapshot,
         })
     }
 }
@@ -226,6 +237,8 @@ impl Source for PostgresSource {
                     transaction_id: self.snapshot_transaction_id,
                     timestamp_ns: self.snapshot_timestamp_ns,
                 },
+                self.replica_identity_full,
+                self.changelog_snapshot,
             )
             .map_err(DataPlaneFailure::fatal)?;
             self.offset = self
@@ -238,14 +251,14 @@ impl Source for PostgresSource {
                     DataPlaneFailure::fatal(anyhow::anyhow!("PostgreSQL source offset overflow"))
                 })?;
             self.counters.add_records(source_rows);
+            let system_kinds = snapshot_system_columns(self.changelog_snapshot);
+            let system_start = batch.schema().fields().len() - system_kinds.len();
             Ok(SourceBatch::Typed {
                 tables: vec![TableData::new(
                     Arc::from(self.table.name.as_str()),
                     false,
                     batch,
-                    routing_system_columns(
-                        self.statement.columns().len() + POSTGRES_SOURCE_METADATA_COLUMNS.len(),
-                    ),
+                    routing_system_columns(system_start, system_kinds),
                 )],
                 source_rows,
                 commit_marker: Some(CommitMarker::new(self.offset)),
@@ -277,29 +290,32 @@ impl Source for PostgresSource {
     }
 }
 
-fn routing_system_columns(base: usize) -> SystemColumns {
-    SystemColumns::new(vec![
-        SystemColumn {
-            kind: SystemColumnKind::Topic,
-            name: Arc::from(SystemColumnKind::Topic.default_name()),
-            index: base,
-        },
-        SystemColumn {
-            kind: SystemColumnKind::Partition,
-            name: Arc::from(SystemColumnKind::Partition.default_name()),
-            index: base + 1,
-        },
-        SystemColumn {
-            kind: SystemColumnKind::Offset,
-            name: Arc::from(SystemColumnKind::Offset.default_name()),
-            index: base + 2,
-        },
-        SystemColumn {
-            kind: SystemColumnKind::MessageIndex,
-            name: Arc::from(SystemColumnKind::MessageIndex.default_name()),
-            index: base + 3,
-        },
-    ])
+fn routing_system_columns(base: usize, kinds: &[SystemColumnKind]) -> SystemColumns {
+    SystemColumns::new(
+        kinds
+            .iter()
+            .enumerate()
+            .map(|(offset, kind)| SystemColumn {
+                kind: *kind,
+                name: Arc::from(kind.default_name()),
+                index: base + offset,
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn snapshot_system_columns(changelog: bool) -> &'static [SystemColumnKind] {
+    if changelog {
+        POSTGRES_REPLICATION_SYSTEM_COLUMNS
+    } else {
+        const SNAPSHOT: &[SystemColumnKind] = &[
+            SystemColumnKind::Topic,
+            SystemColumnKind::Partition,
+            SystemColumnKind::Offset,
+            SystemColumnKind::MessageIndex,
+        ];
+        SNAPSHOT
+    }
 }
 
 fn rows_to_batch(
@@ -310,11 +326,27 @@ fn rows_to_batch(
     start_offset: i64,
     partition_id: i64,
     snapshot: SnapshotMetadata<'_>,
+    replica_identity_full: bool,
+    changelog_snapshot: bool,
 ) -> anyhow::Result<RecordBatch> {
+    let old_columns = if !changelog_snapshot {
+        0
+    } else if replica_identity_full {
+        discovered_schema.columns.len()
+    } else {
+        discovered_schema
+            .columns
+            .iter()
+            .filter(|column| column.primary_key)
+            .count()
+    };
+    let system_columns = snapshot_system_columns(changelog_snapshot);
     let output_columns = statement
         .columns()
         .len()
-        .checked_add(POSTGRES_SOURCE_METADATA_COLUMNS.len() + 4)
+        .checked_add(old_columns)
+        .and_then(|count| count.checked_add(POSTGRES_SOURCE_METADATA_COLUMNS.len()))
+        .and_then(|count| count.checked_add(system_columns.len()))
         .ok_or_else(|| anyhow::anyhow!("PostgreSQL source column count overflow"))?;
     let mut fields = Vec::with_capacity(output_columns);
     let mut arrays = Vec::with_capacity(output_columns);
@@ -338,56 +370,94 @@ fn rows_to_batch(
             discovered.data_type,
             data_type
         );
-        fields.push(source_user_field(discovered));
+        fields.push(source_user_field(discovered, changelog_snapshot));
         arrays.push(column_array(rows, index, column.type_(), copy_format)?);
     }
     let len = rows.len();
     let len_i64 = i64::try_from(len)?;
+    if changelog_snapshot {
+        let old = discovered_schema
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(_, column)| replica_identity_full || column.primary_key);
+        for (index, column) in old {
+            let (name, metadata) = if replica_identity_full {
+                (
+                    old_value_column_name(index),
+                    HashMap::from([(META_OLD_VALUE_OF.to_owned(), column.name.clone())]),
+                )
+            } else {
+                (
+                    old_key_column_name(index),
+                    HashMap::from([(META_OLD_KEY_OF.to_owned(), column.name.clone())]),
+                )
+            };
+            fields.push(Field::new(name, column.data_type.clone(), true).with_metadata(metadata));
+            arrays.push(new_null_array(&column.data_type, len));
+        }
+    }
     fields.extend(snapshot_metadata_fields());
-    fields.extend([
-        Field::new(
-            SystemColumnKind::Topic.default_name(),
-            DataType::Utf8,
-            false,
-        ),
-        Field::new(
-            SystemColumnKind::Partition.default_name(),
-            DataType::Int64,
-            false,
-        ),
-        Field::new(
-            SystemColumnKind::Offset.default_name(),
-            DataType::Int64,
-            false,
-        ),
-        Field::new(
-            SystemColumnKind::MessageIndex.default_name(),
-            DataType::UInt64,
-            false,
-        ),
-    ]);
+    fields.extend(system_columns.iter().map(|kind| {
+        let field = Field::new(kind.default_name(), kind.data_type(), false);
+        if *kind == SystemColumnKind::ChangeOperation {
+            field.with_metadata(HashMap::from([(
+                META_CHANGE_OPERATION.to_owned(),
+                "true".to_owned(),
+            )]))
+        } else {
+            field
+        }
+    }));
     arrays.extend(snapshot_metadata_arrays(snapshot, len));
-    arrays.extend([
-        Arc::new(StringArray::from(vec!["postgres"; len])) as ArrayRef,
-        Arc::new(Int64Array::from(vec![partition_id; len])) as ArrayRef,
-        Arc::new(Int64Array::from(vec![snapshot.lsn; len])) as ArrayRef,
-        Arc::new(UInt64Array::from_iter_values(
-            u64::try_from(start_offset)?
-                ..u64::try_from(
-                    start_offset
-                        .checked_add(len_i64)
-                        .ok_or_else(|| anyhow::anyhow!("PostgreSQL source offset overflow"))?,
-                )?,
-        )) as ArrayRef,
-    ]);
+    let changed_mask = full_changed_columns_mask(discovered_schema.columns.len());
+    for kind in system_columns {
+        arrays.push(match kind {
+            SystemColumnKind::Topic => {
+                Arc::new(StringArray::from(vec!["postgres"; len])) as ArrayRef
+            }
+            SystemColumnKind::Partition => {
+                Arc::new(Int64Array::from(vec![partition_id; len])) as ArrayRef
+            }
+            SystemColumnKind::Offset => {
+                Arc::new(Int64Array::from(vec![snapshot.lsn; len])) as ArrayRef
+            }
+            SystemColumnKind::MessageIndex => {
+                Arc::new(UInt64Array::from_iter_values(
+                    u64::try_from(start_offset)?
+                        ..u64::try_from(start_offset.checked_add(len_i64).ok_or_else(|| {
+                            anyhow::anyhow!("PostgreSQL source offset overflow")
+                        })?)?,
+                )) as ArrayRef
+            }
+            SystemColumnKind::ChangeOperation => Arc::new(StringArray::from(vec![
+                transferia_core::ChangeOperation::SnapshotRead.code();
+                len
+            ])) as ArrayRef,
+            SystemColumnKind::ChangedColumns => Arc::new(BinaryArray::from_iter_values(
+                std::iter::repeat(changed_mask.as_slice()).take(len),
+            )) as ArrayRef,
+            SystemColumnKind::WriteTimestampMs => {
+                anyhow::bail!("PostgreSQL snapshot has no write timestamp")
+            }
+        });
+    }
     Ok(RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?)
 }
 
-pub(super) fn source_user_field(column: &SchemaColumn) -> Field {
+fn full_changed_columns_mask(columns: usize) -> Vec<u8> {
+    let mut mask = vec![0_u8; columns.div_ceil(8)];
+    for index in 0..columns {
+        mask[index / 8] |= 1 << (index % 8);
+    }
+    mask
+}
+
+pub(super) fn source_user_field(column: &SchemaColumn, nullable: bool) -> Field {
     Field::new(
         column.name.as_str(),
         column.data_type.clone(),
-        column.nullable,
+        nullable || column.nullable,
     )
     .with_metadata(column.arrow_metadata())
 }
@@ -480,12 +550,7 @@ fn column_array(
         | tokio_postgres::types::Type::BPCHAR
         | tokio_postgres::types::Type::NAME => Arc::new(StringArray::from(
             rows.iter()
-                .map(|row| {
-                    row.fields[index]
-                        .as_deref()
-                        .map(decode_string)
-                        .transpose()
-                })
+                .map(|row| row.fields[index].as_deref().map(decode_string).transpose())
                 .collect::<anyhow::Result<Vec<Option<&str>>>>()?,
         )) as ArrayRef,
         tokio_postgres::types::Type::DATE => primitive!(i32, Date32Array, decode_date),
@@ -566,10 +631,13 @@ pub(super) fn decode_i8(value: &[u8], format: PostgresCopyFormat) -> anyhow::Res
                 && value[0] == b'\\'
                 && value[1..].iter().all(|byte| matches!(byte, b'0'..=b'7')) =>
         {
-            let decoded = value[1..].iter().fold(0_u16, |decoded, byte| {
-                decoded * 8 + u16::from(*byte - b'0')
-            });
-            anyhow::ensure!(decoded <= u16::from(u8::MAX), "invalid PostgreSQL text char octal value");
+            let decoded = value[1..]
+                .iter()
+                .fold(0_u16, |decoded, byte| decoded * 8 + u16::from(*byte - b'0'));
+            anyhow::ensure!(
+                decoded <= u16::from(u8::MAX),
+                "invalid PostgreSQL text char octal value"
+            );
             Ok(i8::from_ne_bytes([u8::try_from(decoded)?]))
         }
         PostgresCopyFormat::Text => anyhow::bail!("invalid PostgreSQL text char value"),

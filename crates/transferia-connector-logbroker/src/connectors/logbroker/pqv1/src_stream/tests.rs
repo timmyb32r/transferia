@@ -167,6 +167,9 @@ async fn rejects_builds_for_undeclared_partitions_before_network_io() {
     let error = source
         .build_source(SourceBuildContext {
             partition_id: 1,
+            delivery_type: transferia_delivery_contracts::DeliveryType::Stream,
+            phase: transferia_registry::SourcePhase::Stream,
+            replay_identity: None,
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(1 << 20),
             durable: crate::durable::test_support::context(),

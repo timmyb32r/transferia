@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, PerformanceAdvice, SinkLimits,
+    SourceTopology,
 };
 use transferia_core::memory::PipelineMemory;
 use transferia_core::sink::Sink;
@@ -15,6 +16,7 @@ use transferia_core::source::Source;
 use transferia_delivery_contracts::metrics::SinkCounters;
 use transferia_delivery_contracts::parser::ParserFactory;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
+use transferia_delivery_contracts::DeliveryType;
 
 use crate::durable::DurableContext;
 
@@ -122,6 +124,60 @@ pub trait SourceConnector: Send + Sync {
         context: SourceDiscoveryContext,
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>>;
 
+    /// Called only by an assigned worker after preview planning and before
+    /// destination preparation or any destination side effect. A connector
+    /// may create source-side execution state and return the authoritative raw
+    /// discovery plus the phases which still need to run. Remaining phases must
+    /// be an exact, non-empty suffix of [`Self::execution_phases`], allowing a
+    /// durable connector to resume after a completed phase without replaying it.
+    /// The default does no additional I/O.
+    fn prepare_execution(
+        &self,
+        _context: SourceExecutionContext,
+    ) -> BoxFuture<'_, anyhow::Result<Option<PreparedSourceExecution>>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    /// Return the ordered execution phases for this source and delivery mode.
+    /// Combined delivery requires a connector-owned plan because a generic
+    /// runner cannot infer the snapshot/stream transition safely. Until the
+    /// runner has a distributed phase barrier, every multi-phase topology must
+    /// use `CoLocatedStaticPartitions` so one worker owns the whole transition.
+    fn execution_phases(
+        &self,
+        delivery_type: DeliveryType,
+        discovery: &DeliveryDiscovery,
+    ) -> anyhow::Result<Vec<SourceExecutionPhase>> {
+        match delivery_type {
+            DeliveryType::Batch => Ok(vec![SourceExecutionPhase {
+                phase: SourcePhase::Snapshot,
+                topology: discovery.source_topology.clone(),
+                finite: true,
+            }]),
+            DeliveryType::Stream => Ok(vec![SourceExecutionPhase {
+                phase: SourcePhase::Stream,
+                topology: discovery.source_topology.clone(),
+                finite: false,
+            }]),
+            DeliveryType::BatchAndStream => anyhow::bail!(
+                "batch_and_stream delivery requires an explicit connector execution phase plan"
+            ),
+        }
+    }
+
+    /// Finalize connector-owned state after every phase partition task in this
+    /// process has completed successfully. Multi-phase plans are currently
+    /// restricted to co-located partitions owned by one worker, so this is not
+    /// a distributed barrier.
+    fn complete_execution_phase(
+        &self,
+        _phase: SourcePhase,
+        _durable: DurableContext,
+        _cancellation: CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<()>> {
+        Box::pin(async { Ok(()) })
+    }
+
     fn build_source(
         &self,
         context: SourceBuildContext,
@@ -150,10 +206,59 @@ pub struct SourceDiscoveryContext {
     pub request: DeliveryDiscoveryRequest,
 
     pub cancellation: CancellationToken,
+
+    pub delivery_type: DeliveryType,
+}
+
+pub struct SourceExecutionContext {
+    pub request: DeliveryDiscoveryRequest,
+
+    pub cancellation: CancellationToken,
+
+    pub delivery_type: DeliveryType,
+
+    /// Exact, non-secret identity of the replay-affecting delivery
+    /// configuration. Durable sources must bind resumable state to this value
+    /// and reject a mismatch rather than replaying it under new semantics.
+    pub replay_identity: Option<Arc<str>>,
+
+    pub durable: DurableContext,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourcePhase {
+    Snapshot,
+
+    Stream,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceExecutionPhase {
+    pub phase: SourcePhase,
+
+    pub topology: SourceTopology,
+
+    pub finite: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct PreparedSourceExecution {
+    /// Discovery produced from the source-side execution state.
+    pub discovery: DeliveryDiscovery,
+
+    /// Exact non-empty suffix of the preview phase plan which still must run.
+    pub remaining_phases: Vec<SourceExecutionPhase>,
 }
 
 pub struct SourceBuildContext {
     pub partition_id: i64,
+
+    pub delivery_type: DeliveryType,
+
+    pub phase: SourcePhase,
+
+    /// See [`SourceExecutionContext::replay_identity`].
+    pub replay_identity: Option<Arc<str>>,
 
     pub cancellation: CancellationToken,
 
@@ -575,8 +680,7 @@ pub fn validate_speedtest_prepare(
     );
     for (expected, actual) in expected.datasets.iter().zip(&request.datasets) {
         let changelog = expected.system_columns.iter().any(|column| {
-            column.kind
-                == transferia_core::data::system_columns::SystemColumnKind::ChangeOperation
+            column.kind == transferia_core::data::system_columns::SystemColumnKind::ChangeOperation
         });
         anyhow::ensure!(
             expected.name == actual.table

@@ -379,12 +379,16 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
                 keep_system_columns: false,
             },
             cancellation: CancellationToken::new(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
         })
         .await?;
     assert_eq!(source_discovery.datasets[0].stored_schema.columns.len(), 2);
     let mut source = source
         .build_source(SourceBuildContext {
             partition_id: 0,
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
+            phase: transferia_registry::SourcePhase::Snapshot,
+            replay_identity: None,
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(16 * 1024 * 1024),
             durable: transferia_test_support::durable_context(),

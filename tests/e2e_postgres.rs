@@ -104,6 +104,9 @@ async fn run_pipeline(
     let source_actor = source
         .build_source(SourceBuildContext {
             partition_id: 0,
+            delivery_type: transferia::delivery::config::yaml::DeliveryType::Batch,
+            phase: transferia::registry::SourcePhase::Snapshot,
+            replay_identity: None,
             cancellation: CancellationToken::new(),
             memory: memory.clone(),
             durable: support::durable_context(),
@@ -433,6 +436,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
                     keep_system_columns: false,
                 },
                 cancellation: CancellationToken::new(),
+                delivery_type: transferia::delivery::config::yaml::DeliveryType::Batch,
             })
             .await?,
     );
@@ -730,7 +734,8 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
             domain_value transferia_positive NOT NULL,
             composite_value transferia_pair NOT NULL
         );
-        CREATE PUBLICATION transferia_all_types FOR TABLE all_types;
+        CREATE PUBLICATION transferia_all_types FOR TABLE all_types
+            WITH (publish = 'insert, update, delete');
         "#,
     )
     .await?;
@@ -772,6 +777,7 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
                 keep_system_columns: false,
             },
             cancellation: CancellationToken::new(),
+            delivery_type: transferia::delivery::config::yaml::DeliveryType::Batch,
         })
         .await?;
     let dataset = &discovery.datasets[0];
@@ -822,6 +828,9 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
     let mut actor = source
         .build_source(SourceBuildContext {
             partition_id: 0,
+            delivery_type: transferia::delivery::config::yaml::DeliveryType::Batch,
+            phase: transferia::registry::SourcePhase::Snapshot,
+            replay_identity: None,
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(256 * 1024 * 1024),
             durable: support::durable_context(),
@@ -874,11 +883,15 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
                 keep_system_columns: false,
             },
             cancellation: CancellationToken::new(),
+            delivery_type: transferia::delivery::config::yaml::DeliveryType::Stream,
         })
         .await?;
     let mut replication = replication
         .build_source(SourceBuildContext {
             partition_id: 0,
+            delivery_type: transferia::delivery::config::yaml::DeliveryType::Stream,
+            phase: transferia::registry::SourcePhase::Stream,
+            replay_identity: Some(Arc::from("postgres-all-types-revision-1")),
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(256 * 1024 * 1024),
             durable: support::durable_context(),

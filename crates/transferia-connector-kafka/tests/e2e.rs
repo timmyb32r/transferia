@@ -148,6 +148,9 @@ async fn read_after_transient_broker_startup(
 fn source_context() -> SourceBuildContext {
     SourceBuildContext {
         partition_id: 0,
+        delivery_type: transferia_delivery_contracts::DeliveryType::Stream,
+        phase: transferia_registry::SourcePhase::Stream,
+        replay_identity: None,
         cancellation: CancellationToken::new(),
         memory: PipelineMemory::new(16 * 1024 * 1024),
         durable: transferia_test_support::durable_context(),

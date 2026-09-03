@@ -42,7 +42,10 @@ const CATALOG: UiCatalog = {
     {
       key: "postgres",
       title: "PostgreSQL",
-      source: endpoint(["append_only", "changelog"], ["batch", "stream"]),
+      source: endpoint(
+        ["append_only", "changelog"],
+        ["batch", "stream", "batch_and_stream"],
+      ),
       sink: endpoint(["append_only", "changelog"]),
     },
     {
@@ -158,7 +161,7 @@ describe("appearance preferences", () => {
       ),
     ).toMatchObject({
       supported: ["batch"],
-      unsupported: ["stream"],
+      unsupported: ["stream", "batch_and_stream"],
       partial: [],
     });
     expect(
@@ -167,7 +170,7 @@ describe("appearance preferences", () => {
           route.source.key === "postgres" && route.sink.key === "postgres",
       ),
     ).toMatchObject({
-      supported: ["batch", "stream"],
+      supported: ["batch", "stream", "batch_and_stream"],
       unsupported: [],
       partial: [],
     });
@@ -220,6 +223,11 @@ describe("appearance preferences", () => {
     expect(groups.some((group) => group.key === "record_semantics.changelog")).toBe(false);
     expect(groups.some((group) => group.key === "record_semantics.only_changelog")).toBe(false);
     expect(groups.find((group) => group.key === "delivery_mode.batch")?.members.has("destination")).toBe(false);
+    const combined = groups.find(
+      (group) => group.key === "delivery_mode.batch_and_stream",
+    );
+    expect(combined).toMatchObject({ label: "Batch + stream delivery" });
+    expect([...combined!.members.get("source")!]).toEqual(["PostgreSQL"]);
     expect(groups.some((group) => group.key === "component.parser")).toBe(false);
     expect(
       [...groups.find((group) => group.key === "component.parser.queue")!.members.get("parser")!],
@@ -273,18 +281,18 @@ describe("appearance preferences", () => {
     expect(
       view
         .getByLabelText(
-          "PostgreSQL to S3: Batch supported; Stream not supported",
+          "PostgreSQL to S3: Batch supported; Stream and Batch + stream not supported",
         )
         .classList.contains("partial"),
     ).toBe(true);
     expect(
       view.getByLabelText(
-        "PostgreSQL to PostgreSQL: Batch and Stream supported",
+        "PostgreSQL to PostgreSQL: Batch and Stream and Batch + stream supported",
       ),
     ).toBeTruthy();
 
     const intersection = view.getByLabelText(
-      "PostgreSQL to S3: Batch supported; Stream not supported",
+      "PostgreSQL to S3: Batch supported; Stream and Batch + stream not supported",
     );
     fireEvent.mouseEnter(intersection);
     expect(intersection.classList.contains("active-intersection")).toBe(true);

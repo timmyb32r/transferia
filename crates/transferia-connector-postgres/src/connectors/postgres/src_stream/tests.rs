@@ -39,6 +39,7 @@ fn replication_config_requires_valid_slot_and_decoder_settings() {
         },
         max_changes: 4_096,
         poll_interval_ms: 100,
+        bootstrap_timeout_ms: 30_000,
     };
     valid.validate().unwrap();
 
@@ -57,6 +58,10 @@ fn replication_config_requires_valid_slot_and_decoder_settings() {
         },
         PostgresReplicationConfig {
             poll_interval_ms: 0,
+            ..valid.clone()
+        },
+        PostgresReplicationConfig {
+            bootstrap_timeout_ms: 0,
             ..valid.clone()
         },
         PostgresReplicationConfig {
@@ -305,6 +310,8 @@ fn cdc_temporals_match_snapshot_arrow_types_values_and_utc_semantics() {
         ]),
         type_oids: vec![1_082, 1_114, 1_184],
         replica_identity_full: false,
+        replica_identity: "d".to_owned(),
+        relation_oid: 16_385,
     };
     let events = vec![ChangeEvent {
         schema: Arc::from("public"),
@@ -313,9 +320,7 @@ fn cdc_temporals_match_snapshot_arrow_types_values_and_utc_semantics() {
         values: vec![
             LogicalValue::Text(Bytes::from_static(b"2024-01-01")),
             LogicalValue::Text(Bytes::from_static(b"2024-01-01 00:00:00.123456")),
-            LogicalValue::Text(Bytes::from_static(
-                b"2024-01-01 03:00:00.123456+03",
-            )),
+            LogicalValue::Text(Bytes::from_static(b"2024-01-01 03:00:00.123456+03")),
         ],
         old_values: None,
         old_values_kind: None,
@@ -443,6 +448,7 @@ fn pgoutput_and_wal2json_mark_the_same_unchanged_toast_columns() {
 fn replica_identity_full_emits_bijective_old_columns_and_complete_current_rows() {
     let mut table = discovered_table();
     table.replica_identity_full = true;
+    table.replica_identity = "f".to_owned();
     let mut decoder = PgOutputDecoder::default();
     for message in [
         relation_message_with_identity(b'f'),
@@ -535,6 +541,15 @@ fn pgoutput_rejects_truncation_unknown_relations_and_invalid_transaction_order()
 fn pgoutput_rejects_relation_and_tuple_shape_drift() {
     let table = discovered_table();
     let mut decoder = PgOutputDecoder::default();
+    for message in [relation_message(), begin_message(), insert_message()] {
+        decoder.decode(&message).unwrap();
+    }
+    let event = decoder.decode(&commit_message()).unwrap().remove(0);
+    let mut replaced_table = table.clone();
+    replaced_table.relation_oid += 1;
+    assert!(normalize_pgoutput_event(&replaced_table, event).is_err());
+
+    let mut decoder = PgOutputDecoder::default();
     let mut relation = relation_message();
     let type_oid_start = relation
         .windows(3)
@@ -547,6 +562,21 @@ fn pgoutput_rejects_relation_and_tuple_shape_drift() {
     decoder.decode(&insert_message()).unwrap();
     let event = decoder.decode(&commit_message()).unwrap().remove(0);
     assert!(normalize_pgoutput_event(&table, event).is_err());
+
+    let mut decoder = PgOutputDecoder::default();
+    decoder
+        .decode(&relation_message_with_identity_and_keys(
+            b'd',
+            [false, true, false],
+        ))
+        .unwrap();
+    decoder.decode(&begin_message()).unwrap();
+    decoder.decode(&insert_message()).unwrap();
+    let event = decoder.decode(&commit_message()).unwrap().remove(0);
+    let error = normalize_pgoutput_event(&table, event)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("replica-identity"), "{error}");
 
     let mut decoder = PgOutputDecoder::default();
     decoder.decode(&relation_message()).unwrap();
@@ -583,6 +613,20 @@ fn wal2json_rejects_unknown_operations_and_shape_or_type_drift() {
         .events
         .remove(0);
     assert!(normalize_wal2json_event(&table, event).is_err());
+
+    let wrong_old_key = wal2json_transaction().replacen(
+        "\"keynames\": [\"id\"], \"keytypeoids\": [23]",
+        "\"keynames\": [\"name\"], \"keytypeoids\": [25]",
+        1,
+    );
+    let event = wal2json::decode(wrong_old_key.as_bytes())
+        .unwrap()
+        .events
+        .remove(1);
+    let error = normalize_wal2json_event(&table, event)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("replica identity"), "{error}");
 }
 
 #[test]
@@ -611,6 +655,8 @@ fn discovered_table() -> DiscoveredTable {
         ]),
         type_oids: vec![23, 25, 20],
         replica_identity_full: false,
+        replica_identity: "d".to_owned(),
+        relation_oid: RELATION_ID,
     }
 }
 
@@ -619,6 +665,17 @@ fn relation_message() -> Vec<u8> {
 }
 
 fn relation_message_with_identity(identity: u8) -> Vec<u8> {
+    relation_message_with_identity_and_keys(
+        identity,
+        if identity == b'f' {
+            [true, true, true]
+        } else {
+            [true, false, false]
+        },
+    )
+}
+
+fn relation_message_with_identity_and_keys(identity: u8, keys: [bool; 3]) -> Vec<u8> {
     let mut message = BytesMut::new();
     message.put_u8(b'R');
     message.put_u32(RELATION_ID);
@@ -626,11 +683,10 @@ fn relation_message_with_identity(identity: u8) -> Vec<u8> {
     put_cstring(&mut message, "accounts");
     message.put_u8(identity);
     message.put_u16(3);
-    for (key, name, oid) in [
-        (true, "id", 23),
-        (false, "name", 25),
-        (false, "balance", 20),
-    ] {
+    for ((name, oid), key) in [("id", 23), ("name", 25), ("balance", 20)]
+        .into_iter()
+        .zip(keys)
+    {
         message.put_u8(u8::from(key));
         put_cstring(&mut message, name);
         message.put_u32(oid);

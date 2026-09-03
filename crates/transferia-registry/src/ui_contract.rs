@@ -2,6 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Deserialize;
 use serde_json::Value;
+use transferia_delivery_contracts::semantics::RecordSemantics;
+
+use crate::{DeliveryMode, EndpointRole};
 
 const EXTERNAL_LINK_VALUE_PLACEHOLDER: &str = "{value}";
 
@@ -35,19 +38,22 @@ struct UiHints {
 struct UiCapabilities {
     component: UiCapabilityComponent,
     key: String,
+    delivery_modes: Option<Vec<UiDeliveryType>>,
     record_semantics: Option<Vec<UiRecordSemantics>>,
     properties: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 enum UiCapabilityComponent {
+    Source,
+    Destination,
     Parser,
     Serializer,
     Transformer,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 enum UiRecordSemantics {
     AppendOnly,
@@ -63,7 +69,7 @@ enum UiSection {
     ShardGroup,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 enum UiDeliveryType {
     Batch,
@@ -134,7 +140,11 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
                             .is_none_or(|values| values.iter().all(|value| !value.is_empty())),
                         "{path}: capability properties must not contain empty values"
                     );
-                    let _ = (&capabilities.component, &capabilities.record_semantics);
+                    let _ = (
+                        &capabilities.component,
+                        &capabilities.delivery_modes,
+                        &capabilities.record_semantics,
+                    );
                 }
                 if let Some(dependencies) = &hints.external_link_dependencies {
                     anyhow::ensure!(
@@ -188,6 +198,146 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
         _ => {}
     }
     Ok(())
+}
+
+pub(crate) fn validate_endpoint_capabilities(
+    value: &Value,
+    role: EndpointRole,
+    delivery_modes: &[DeliveryMode],
+    record_semantics: &[RecordSemantics],
+) -> anyhow::Result<()> {
+    validate_endpoint_capability_node(value, "#", role, delivery_modes, record_semantics)
+}
+
+fn validate_endpoint_capability_node(
+    value: &Value,
+    path: &str,
+    role: EndpointRole,
+    delivery_modes: &[DeliveryMode],
+    record_semantics: &[RecordSemantics],
+) -> anyhow::Result<()> {
+    match value {
+        Value::Array(values) => {
+            for (index, value) in values.iter().enumerate() {
+                validate_endpoint_capability_node(
+                    value,
+                    &format!("{path}/{index}"),
+                    role,
+                    delivery_modes,
+                    record_semantics,
+                )?;
+            }
+        }
+        Value::Object(object) => {
+            if let Some(hints) = object.get("x-ui") {
+                let hints: UiHints = serde_json::from_value(hints.clone())
+                    .map_err(|error| anyhow::anyhow!("{path}: invalid x-ui contract: {error}"))?;
+                if let Some(capabilities) = hints.capabilities {
+                    validate_one_endpoint_capability(
+                        path,
+                        &capabilities,
+                        role,
+                        delivery_modes,
+                        record_semantics,
+                    )?;
+                }
+            }
+            for (key, value) in object {
+                validate_endpoint_capability_node(
+                    value,
+                    &format!("{path}/{key}"),
+                    role,
+                    delivery_modes,
+                    record_semantics,
+                )?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn validate_one_endpoint_capability(
+    path: &str,
+    capabilities: &UiCapabilities,
+    role: EndpointRole,
+    delivery_modes: &[DeliveryMode],
+    record_semantics: &[RecordSemantics],
+) -> anyhow::Result<()> {
+    let expected_component = match role {
+        EndpointRole::Source => UiCapabilityComponent::Source,
+        EndpointRole::Sink => UiCapabilityComponent::Destination,
+    };
+    if !matches!(
+        capabilities.component,
+        UiCapabilityComponent::Source | UiCapabilityComponent::Destination
+    ) {
+        anyhow::ensure!(
+            capabilities.delivery_modes.is_none(),
+            "{path}: component capabilities cannot declare endpoint delivery_modes"
+        );
+        return Ok(());
+    }
+    anyhow::ensure!(
+        capabilities.component == expected_component,
+        "{path}: endpoint capability component does not match its registered role"
+    );
+    anyhow::ensure!(
+        capabilities.properties.is_none(),
+        "{path}: endpoint capabilities cannot declare component properties"
+    );
+    let declared_semantics = capabilities.record_semantics.as_deref().ok_or_else(|| {
+        anyhow::anyhow!("{path}: endpoint capabilities must declare record_semantics")
+    })?;
+    anyhow::ensure!(
+        !declared_semantics.is_empty() && all_unique(declared_semantics),
+        "{path}: endpoint record_semantics must be non-empty and unique"
+    );
+    anyhow::ensure!(
+        declared_semantics
+            .iter()
+            .all(|semantics| record_semantics.contains(&match semantics {
+                UiRecordSemantics::AppendOnly => RecordSemantics::AppendOnly,
+                UiRecordSemantics::Changelog => RecordSemantics::Changelog,
+            })),
+        "{path}: endpoint record_semantics must be a subset of the registered aggregate"
+    );
+    match capabilities.component {
+        UiCapabilityComponent::Source => {
+            let declared_modes = capabilities.delivery_modes.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("{path}: source capabilities must declare delivery_modes")
+            })?;
+            anyhow::ensure!(
+                !declared_modes.is_empty() && all_unique(declared_modes),
+                "{path}: source delivery_modes must be non-empty and unique"
+            );
+            anyhow::ensure!(
+                declared_modes
+                    .iter()
+                    .all(|mode| delivery_modes.contains(&match mode {
+                        UiDeliveryType::Batch => DeliveryMode::Batch,
+                        UiDeliveryType::Stream => DeliveryMode::Stream,
+                        UiDeliveryType::BatchAndStream => DeliveryMode::BatchAndStream,
+                    })),
+                "{path}: source delivery_modes must be a subset of the registered aggregate"
+            );
+        }
+        UiCapabilityComponent::Destination => anyhow::ensure!(
+            capabilities.delivery_modes.is_none(),
+            "{path}: destination capabilities cannot declare delivery_modes"
+        ),
+        UiCapabilityComponent::Parser
+        | UiCapabilityComponent::Serializer
+        | UiCapabilityComponent::Transformer => unreachable!(),
+    }
+    Ok(())
+}
+
+fn all_unique<T: Eq>(values: &[T]) -> bool {
+    !values
+        .iter()
+        .enumerate()
+        .any(|(index, value)| values[index + 1..].contains(value))
 }
 
 fn validate_external_link_template(

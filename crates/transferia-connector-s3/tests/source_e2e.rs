@@ -101,12 +101,16 @@ async fn s3_source_snapshots_sorted_objects_and_parses_json() -> anyhow::Result<
                 keep_system_columns: false,
             },
             cancellation: CancellationToken::new(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
         })
         .await?;
 
     let mut source = connector
         .build_source(SourceBuildContext {
             partition_id: 0,
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
+            phase: transferia_registry::SourcePhase::Snapshot,
+            replay_identity: None,
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(16 * 1024 * 1024),
             durable: transferia_test_support::durable_context(),

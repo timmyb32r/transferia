@@ -24,7 +24,9 @@ use transferia_core::data::schema::{
 use transferia_core::data::system_columns::{SystemColumnKind, SystemColumns};
 use transferia_core::memory::PipelineMemory;
 use transferia_core::source::{CommitMarker, Source};
-use transferia_registry::{SourceBuildContext, SourceConnector as _, SourceDiscoveryContext};
+use transferia_registry::{
+    SourceBuildContext, SourceConnector as _, SourceDiscoveryContext, SourceExecutionContext,
+};
 
 const POSTGRES_PORT: u16 = 5_432;
 const POSTGRES_IMAGE: &str = "souravbiswassanto/postgres";
@@ -75,25 +77,12 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
              ALTER TABLE accounts ALTER COLUMN payload SET STORAGE EXTERNAL;\
              ALTER TABLE accounts REPLICA IDENTITY FULL;\
              CREATE TABLE ignored (id integer PRIMARY KEY);\
-             CREATE PUBLICATION transferia_publication FOR TABLE accounts, ignored;",
+             CREATE PUBLICATION transferia_publication FOR TABLE accounts, ignored \
+                 WITH (publish = 'insert, update, delete');",
         )
         .await
         .context("creating PostgreSQL CDC test schema and publication")?;
-    client
-        .query_one(
-            "SELECT * FROM pg_create_logical_replication_slot('transferia_pgoutput', 'pgoutput')",
-            &[],
-        )
-        .await
-        .context("creating pgoutput replication slot")?;
-    client
-        .query_one(
-            "SELECT * FROM pg_create_logical_replication_slot('transferia_wal2json', 'wal2json')",
-            &[],
-        )
-        .await
-        .context("creating wal2json replication slot")?;
-
+    assert_existing_slot_is_not_adopted(&host, port, &client).await?;
     let mut pgoutput = source(&host, port, "pgoutput").await?;
     let mut wal2json = source(&host, port, "wal2json").await?;
     let pgoutput_before = slot_lsn(&client, "transferia_pgoutput").await?;
@@ -153,6 +142,79 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
     Ok(())
 }
 
+async fn assert_existing_slot_is_not_adopted(
+    host: &str,
+    port: u16,
+    client: &tokio_postgres::Client,
+) -> anyhow::Result<()> {
+    const SLOT: &str = "foreign_existing_slot";
+    client
+        .query_one(
+            "SELECT * FROM pg_create_logical_replication_slot($1, 'pgoutput')",
+            &[&SLOT],
+        )
+        .await?;
+    let before = slot_lsn(client, SLOT).await?;
+    let connector = PostgresSourceConnector::from_config(
+        serde_yaml::from_str(&format!(
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: accounts }}\nreplication:\n  slot: {SLOT}\n  decoder: {{ type: pgoutput, publication: transferia_publication }}\n  poll_interval_ms: 10\n"
+        ))?,
+        Arc::new(MetricsRegistry::new()),
+    )?;
+    let cancellation = CancellationToken::new();
+    let durable = transferia_test_support::durable_context();
+    let replay_identity: Arc<str> = Arc::from("foreign-slot-adoption-test");
+    connector
+        .delivery_discovery(SourceDiscoveryContext {
+            request: transferia_core::delivery::DeliveryDiscoveryRequest {
+                keep_system_columns: true,
+            },
+            cancellation: cancellation.child_token(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Stream,
+        })
+        .await?;
+    connector
+        .prepare_execution(SourceExecutionContext {
+            request: transferia_core::delivery::DeliveryDiscoveryRequest {
+                keep_system_columns: true,
+            },
+            cancellation: cancellation.child_token(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Stream,
+            replay_identity: Some(Arc::clone(&replay_identity)),
+            durable: durable.clone(),
+        })
+        .await?;
+    let error = connector
+        .build_source(SourceBuildContext {
+            partition_id: 0,
+            delivery_type: transferia_delivery_contracts::DeliveryType::Stream,
+            phase: transferia_registry::SourcePhase::Stream,
+            replay_identity: Some(replay_identity),
+            cancellation,
+            memory: PipelineMemory::new(64 * 1024 * 1024),
+            durable: durable.clone(),
+        })
+        .await
+        .err()
+        .context("an existing slot without matching durable ownership was adopted")?;
+    assert!(
+        format!("{error:#}").contains("refusing to adopt an unowned slot"),
+        "unexpected existing-slot rejection: {error:#}"
+    );
+    assert_eq!(
+        durable
+            .storage
+            .read(&format!("postgres-replication-{SLOT}"))
+            .await?,
+        None
+    );
+    assert_eq!(slot_lsn(client, SLOT).await?, before);
+    client
+        .execute("SELECT pg_drop_replication_slot($1)", &[&SLOT])
+        .await?;
+    Ok(())
+}
+
 struct ChangeBatch {
     batch: RecordBatch,
     system_columns: SystemColumns,
@@ -194,14 +256,31 @@ replication:
                 keep_system_columns: true,
             },
             cancellation: CancellationToken::new(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Stream,
+        })
+        .await?;
+    let cancellation = CancellationToken::new();
+    let durable = transferia_test_support::durable_context();
+    connector
+        .prepare_execution(SourceExecutionContext {
+            request: transferia_core::delivery::DeliveryDiscoveryRequest {
+                keep_system_columns: true,
+            },
+            cancellation: cancellation.child_token(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Stream,
+            replay_identity: Some(Arc::from("postgres-replication-e2e-revision-1")),
+            durable: durable.clone(),
         })
         .await?;
     connector
         .build_source(SourceBuildContext {
             partition_id: 0,
-            cancellation: CancellationToken::new(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Stream,
+            phase: transferia_registry::SourcePhase::Stream,
+            replay_identity: Some(Arc::from("postgres-replication-e2e-revision-1")),
+            cancellation,
             memory: PipelineMemory::new(64 * 1024 * 1024),
-            durable: transferia_test_support::durable_context(),
+            durable,
         })
         .await
 }

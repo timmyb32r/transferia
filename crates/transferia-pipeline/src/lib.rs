@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::fmt;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use anyhow::Context as _;
@@ -33,6 +33,7 @@ const MAX_BACKOFF_MS: u64 = 30_000;
 #[derive(Default)]
 pub struct PipelineProgress {
     committed_groups: AtomicU64,
+    finite_source_drained: AtomicBool,
 }
 
 impl PipelineProgress {
@@ -40,6 +41,7 @@ impl PipelineProgress {
     pub const fn new() -> Self {
         Self {
             committed_groups: AtomicU64::new(0),
+            finite_source_drained: AtomicBool::new(false),
         }
     }
 
@@ -55,6 +57,16 @@ impl PipelineProgress {
 
     fn record_source_commit(&self) {
         self.committed_groups.fetch_add(1, Ordering::AcqRel);
+    }
+
+    fn record_finite_source_drained(&self) {
+        self.finite_source_drained.store(true, Ordering::Release);
+    }
+
+    /// Reports whether EOF was observed only after every emitted delivery was durably committed.
+    #[must_use]
+    pub fn finite_source_drained(&self) -> bool {
+        self.finite_source_drained.load(Ordering::Acquire)
     }
 }
 
@@ -477,9 +489,7 @@ async fn reader_loop(
         }
         (Err(pipeline_error), Ok(())) => Err(pipeline_error),
         (Err(pipeline_error), Err(_shutdown_error)) => {
-            tracing::warn!(
-                "source shutdown failed while handling an earlier pipeline failure"
-            );
+            tracing::warn!("source shutdown failed while handling an earlier pipeline failure");
             Err(pipeline_error)
         }
     }
@@ -565,6 +575,7 @@ async fn reader_loop_inner(
                 deliveries = next_id.get().saturating_sub(1),
                 "finite source durability ledger drained"
             );
+            progress.record_finite_source_drained();
             return Ok(ReaderCompletion::FiniteSourceDrained);
         }
         let (payload, mut batch_memory, mut marker, source_payload_bytes, source_messages) =

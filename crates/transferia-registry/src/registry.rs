@@ -14,7 +14,7 @@ use transferia_delivery_contracts::middleware::Middleware;
 use transferia_delivery_contracts::semantics::RecordSemantics;
 
 use crate::tuning::{validate_tuning_parameters_against_schema, TuningParameter};
-use crate::ui_contract::validate_ui_dialect;
+use crate::ui_contract::{validate_endpoint_capabilities, validate_ui_dialect};
 use crate::{
     ConnectionCheckResult, ConnectorDefinition, DeliveryMode, EndpointDefinition, EndpointRole,
     MiddlewareDefinition, SinkConnector, SourceConnector,
@@ -564,6 +564,22 @@ impl RegistryBuilder {
             "component '{}' registers a sink connection check without a sink",
             registration.key
         );
+        if let Some((source, _)) = &registration.source {
+            validate_endpoint_capabilities(
+                &source.schema,
+                EndpointRole::Source,
+                &source.delivery_modes,
+                &source.record_semantics,
+            )?;
+        }
+        if let Some((sink, _)) = &registration.sink {
+            validate_endpoint_capabilities(
+                &sink.schema,
+                EndpointRole::Sink,
+                &sink.delivery_modes,
+                &sink.record_semantics,
+            )?;
+        }
         anyhow::ensure!(
             self.keys.insert(registration.key),
             "component '{}' is registered more than once",
@@ -830,9 +846,21 @@ fn validate_definition_ui(definitions: &[ConnectorDefinition]) -> anyhow::Result
     for definition in definitions {
         if let Some(source) = &definition.source {
             validate_ui_dialect(&source.schema)?;
+            validate_endpoint_capabilities(
+                &source.schema,
+                EndpointRole::Source,
+                &source.delivery_modes,
+                &source.record_semantics,
+            )?;
         }
         if let Some(sink) = &definition.sink {
             validate_ui_dialect(&sink.schema)?;
+            validate_endpoint_capabilities(
+                &sink.schema,
+                EndpointRole::Sink,
+                &sink.delivery_modes,
+                &sink.record_semantics,
+            )?;
         }
     }
     Ok(())

@@ -428,6 +428,7 @@ impl SourceConnector for PqV1SourceConnector {
         let SourceDiscoveryContext {
             request,
             cancellation,
+            delivery_type: _,
         } = context;
         let cfg = self.cfg.clone();
         let token = Arc::clone(&self.token);
@@ -485,6 +486,8 @@ impl SourceConnector for PqV1SourceConnector {
             partition_id,
             cancellation: cancel_token,
             memory,
+            delivery_type: _,
+            phase: _,
             ..
         } = context;
         let cfg = self.cfg.clone();

@@ -395,6 +395,7 @@ parser:
                 keep_system_columns: false,
             },
             cancellation: cancellation.child_token(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Stream,
         })
         .await?;
     assert_eq!(
@@ -405,6 +406,9 @@ parser:
     let mut source = connector
         .build_source(SourceBuildContext {
             partition_id: 0,
+            delivery_type: transferia_delivery_contracts::DeliveryType::Stream,
+            phase: transferia_registry::SourcePhase::Stream,
+            replay_identity: None,
             cancellation: cancellation.child_token(),
             memory: PipelineMemory::new(16 * 1024 * 1024),
             durable: transferia_test_support::durable_context(),

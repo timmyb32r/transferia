@@ -20,9 +20,7 @@ use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use transferia_connector_postgres::metrics::{MetricsRegistry, SinkCounters};
-use transferia_connector_postgres::postgres::{
-    PostgresSinkConnector, PostgresSourceConnector,
-};
+use transferia_connector_postgres::postgres::{PostgresSinkConnector, PostgresSourceConnector};
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::SystemColumns;
@@ -179,11 +177,15 @@ async fn read_snapshot(host: &str, port: u16, format: &str) -> anyhow::Result<Ve
                 keep_system_columns: false,
             },
             cancellation: CancellationToken::new(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
         })
         .await?;
     let mut source = connector
         .build_source(SourceBuildContext {
             partition_id: 0,
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
+            phase: transferia_registry::SourcePhase::Snapshot,
+            replay_identity: None,
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(16 * 1024 * 1024),
             durable: transferia_test_support::durable_context(),
@@ -238,12 +240,7 @@ async fn read_snapshot(host: &str, port: u16, format: &str) -> anyhow::Result<Ve
     Ok(rows)
 }
 
-async fn write_sink_batch(
-    host: &str,
-    port: u16,
-    table: &str,
-    format: &str,
-) -> anyhow::Result<()> {
+async fn write_sink_batch(host: &str, port: u16, table: &str, format: &str) -> anyhow::Result<()> {
     let schema = sink_schema();
     let discovery = Arc::new(DeliveryDiscovery {
         source_name: Arc::from("copy-format-e2e"),
@@ -265,8 +262,7 @@ async fn write_sink_batch(
     connector.limits().validate_discovery(&discovery)?;
     connector
         .prepare(
-            SinkPrepare::from_discovery(&discovery, true, "copy-format-e2e")?
-                .expect("one dataset"),
+            SinkPrepare::from_discovery(&discovery, true, "copy-format-e2e")?.expect("one dataset"),
         )
         .await?;
     let memory = PipelineMemory::new(16 * 1024 * 1024);
@@ -361,7 +357,10 @@ fn sink_batch() -> anyhow::Result<RecordBatch> {
         vec![
             Arc::new(Int8Array::from(vec![0, -1])) as ArrayRef,
             Arc::new(UInt32Array::from(vec![42, 4_000_000_000])) as ArrayRef,
-            Arc::new(BinaryArray::from(vec![b"".as_slice(), b"\0\xff\t".as_slice()])) as ArrayRef,
+            Arc::new(BinaryArray::from(vec![
+                b"".as_slice(),
+                b"\0\xff\t".as_slice(),
+            ])) as ArrayRef,
             Arc::new(StringArray::from(vec![
                 None,
                 Some("literal\\N\ttab\nline\\tail"),

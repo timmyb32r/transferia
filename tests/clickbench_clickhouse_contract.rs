@@ -27,6 +27,7 @@ async fn clickbench_schema_passes_clickhouse_limits_without_network() -> anyhow:
                 keep_system_columns: false,
             },
             cancellation: tokio_util::sync::CancellationToken::new(),
+            delivery_type: transferia::delivery::config::yaml::DeliveryType::Batch,
         })
         .await?;
     let columns = &discovery.datasets[0].stored_schema.columns;

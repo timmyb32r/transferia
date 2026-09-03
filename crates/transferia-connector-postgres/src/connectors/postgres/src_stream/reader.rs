@@ -10,21 +10,28 @@ use arrow::array::{
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
-use tokio_postgres::Client;
+use tokio_postgres::{Client, IsolationLevel};
 use tokio_util::sync::CancellationToken;
 
 use super::config::{LogicalDecoder, PostgresReplicationConfig};
 use super::event::{ChangeEvent, LogicalValue, OldValuesKind};
+use super::identity::PostgresSourceIdentity;
 use super::pgoutput::{PgOutputDecoder, PgOutputEvent};
-use super::slot_recovery::{advance_slot, ReplicationSlotTracker};
+use super::publication::{
+    is_replication_contract_violation, replication_contract_violation,
+    validate_pgoutput_publication,
+};
+use super::relation_identity::{
+    lock_and_validate_relation_identities, validate_relation_identities,
+};
+use super::slot_recovery::{advance_slot, is_replication_safety_violation, ReplicationSlotTracker};
 use super::wal2json;
 use crate::connectors::postgres::source::{
     old_key_column_name, old_value_column_name, DiscoveredTable,
     POSTGRES_REPLICATION_SYSTEM_COLUMNS, POSTGRES_SOURCE_METADATA_COLUMNS,
 };
 use crate::connectors::postgres::temporal::{
-    parse_date, parse_timestamp, postgres_date_to_unix_days,
-    postgres_timestamp_to_unix_micros,
+    parse_date, parse_timestamp, postgres_date_to_unix_days, postgres_timestamp_to_unix_micros,
 };
 use crate::metrics::SourceCounters;
 use transferia_core::data::message::SourceBatch;
@@ -43,10 +50,11 @@ use transferia_core::ChangeOperation;
 use transferia_registry::durable::DurableContext;
 
 pub struct PostgresReplicationSource {
-    client: Client,
+    client: Arc<tokio::sync::Mutex<Client>>,
     config: PostgresReplicationConfig,
     database: Arc<str>,
     tables: HashMap<(Arc<str>, Arc<str>), DiscoveredTable>,
+    authoritative_tables: Vec<DiscoveredTable>,
     pgoutput: PgOutputDecoder,
     pending: VecDeque<QueuedBatch>,
     last_peek_lsn: u64,
@@ -69,16 +77,35 @@ struct ReplicationMarker {
 
 impl PostgresReplicationSource {
     pub(crate) async fn new(
-        client: Client,
+        client: Arc<tokio::sync::Mutex<Client>>,
         config: PostgresReplicationConfig,
+        source_identity: PostgresSourceIdentity,
         database: Arc<str>,
         tables: Vec<DiscoveredTable>,
         counters: Arc<SourceCounters>,
         cancellation: CancellationToken,
         durable: DurableContext,
+        exact_start_lsn: Option<u64>,
+        replay_identity: Arc<str>,
     ) -> anyhow::Result<Self> {
-        let (slot_tracker, committed_lsn) =
-            ReplicationSlotTracker::prepare(&client, &config, durable).await?;
+        let connection = client.lock().await;
+        if let LogicalDecoder::Pgoutput { publication } = &config.decoder {
+            validate_pgoutput_publication(&*connection, publication, &tables).await?;
+        } else {
+            validate_relation_identities(&*connection, &tables).await?;
+        }
+        let (slot_tracker, committed_lsn) = ReplicationSlotTracker::prepare(
+            &*connection,
+            &config,
+            &source_identity,
+            &tables,
+            durable,
+            exact_start_lsn,
+            replay_identity,
+        )
+        .await?;
+        drop(connection);
+        let authoritative_tables = tables.clone();
         let tables = tables
             .into_iter()
             .map(|table| {
@@ -96,6 +123,7 @@ impl PostgresReplicationSource {
             config,
             database,
             tables,
+            authoritative_tables,
             pgoutput: PgOutputDecoder::default(),
             pending: VecDeque::new(),
             last_peek_lsn: committed_lsn,
@@ -111,24 +139,52 @@ impl PostgresReplicationSource {
             return Ok(());
         }
         let limit = i32::try_from(self.config.max_changes)?;
+        let mut connection = self.client.lock().await;
         let rows = match &self.config.decoder {
             LogicalDecoder::Pgoutput { publication } => {
-                self.client
+                let transaction = connection
+                    .build_transaction()
+                    .isolation_level(IsolationLevel::RepeatableRead)
+                    .read_only(true)
+                    .start()
+                    .await?;
+                lock_and_validate_relation_identities(&transaction, &self.authoritative_tables)
+                    .await?;
+                validate_pgoutput_publication(
+                    &transaction,
+                    publication,
+                    &self.authoritative_tables,
+                )
+                .await?;
+                let rows = transaction
                     .query(
                         "SELECT lsn::text, xid::text, data FROM pg_logical_slot_peek_binary_changes($1, NULL, $2, 'proto_version', '1', 'publication_names', $3)",
                         &[&self.config.slot, &limit, publication],
                     )
-                    .await?
+                    .await?;
+                transaction.commit().await?;
+                rows
             }
             LogicalDecoder::Wal2Json => {
-                self.client
+                let transaction = connection
+                    .build_transaction()
+                    .isolation_level(IsolationLevel::RepeatableRead)
+                    .read_only(true)
+                    .start()
+                    .await?;
+                lock_and_validate_relation_identities(&transaction, &self.authoritative_tables)
+                    .await?;
+                let rows = transaction
                     .query(
                         "SELECT lsn::text, xid::text, data FROM pg_logical_slot_peek_binary_changes($1, NULL, $2, 'include-lsn', '1', 'include-timestamp', '1', 'include-types', '1', 'include-xids', '1', 'include-type-oids', '1')",
                         &[&self.config.slot, &limit],
                     )
-                    .await?
+                    .await?;
+                transaction.commit().await?;
+                rows
             }
         };
+        drop(connection);
         if rows.is_empty() {
             return Ok(());
         }
@@ -136,32 +192,40 @@ impl PostgresReplicationSource {
             LogicalDecoder::Pgoutput { .. } => {
                 for row in rows {
                     let data: Vec<u8> = row.get(2);
-                    let decoded = self.pgoutput.decode(&data)?;
+                    let decoded = self
+                        .pgoutput
+                        .decode(&data)
+                        .map_err(replication_contract_violation)?;
                     if let Some(end_lsn) = decoded.first().map(|event| event.event.lsn) {
                         let events = decoded
                             .into_iter()
                             .map(|event| self.normalize_pgoutput(event))
-                            .collect::<anyhow::Result<Vec<_>>>()?
+                            .collect::<anyhow::Result<Vec<_>>>()
+                            .map_err(replication_contract_violation)?
                             .into_iter()
                             .flatten()
                             .collect();
-                        self.enqueue_transaction(events, end_lsn)?;
+                        self.enqueue_transaction(events, end_lsn)
+                            .map_err(replication_contract_violation)?;
                     }
                 }
             }
             LogicalDecoder::Wal2Json => {
                 for row in rows {
                     let data: Vec<u8> = row.get(2);
-                    let transaction = wal2json::decode(&data)?;
+                    let transaction =
+                        wal2json::decode(&data).map_err(replication_contract_violation)?;
                     let events = transaction
                         .events
                         .into_iter()
                         .map(|event| self.normalize_wal2json(event))
-                        .collect::<anyhow::Result<Vec<_>>>()?
+                        .collect::<anyhow::Result<Vec<_>>>()
+                        .map_err(replication_contract_violation)?
                         .into_iter()
                         .flatten()
                         .collect();
-                    self.enqueue_transaction(events, transaction.end_lsn)?;
+                    self.enqueue_transaction(events, transaction.end_lsn)
+                        .map_err(replication_contract_violation)?;
                 }
             }
         }
@@ -235,7 +299,15 @@ pub(super) fn normalize_pgoutput_event(
     mut decoded: PgOutputEvent,
 ) -> anyhow::Result<ChangeEvent> {
     anyhow::ensure!(
-        (decoded.relation.replica_identity == b'f') == table.replica_identity_full,
+        decoded.relation.oid == table.relation_oid,
+        "pgoutput relation '{}.{}' OID changed after discovery: received {}, expected {}",
+        decoded.event.schema,
+        decoded.event.table,
+        decoded.relation.oid,
+        table.relation_oid,
+    );
+    anyhow::ensure!(
+        table.replica_identity.as_bytes() == [decoded.relation.replica_identity],
         "pgoutput relation '{}.{}' replica identity changed after discovery",
         decoded.event.schema,
         decoded.event.table,
@@ -256,15 +328,20 @@ pub(super) fn normalize_pgoutput_event(
         .zip(&table.type_oids)
         .enumerate()
     {
+        let expected_key = table.replica_identity_full || expected.primary_key;
         anyhow::ensure!(
-            actual.name.as_ref() == expected.name && actual.type_oid == *expected_oid,
-            "pgoutput relation '{}.{}' column {index} metadata changed: received '{}' OID {}, expected '{}' OID {}",
+            actual.name.as_ref() == expected.name
+                && actual.type_oid == *expected_oid
+                && actual.key == expected_key,
+            "pgoutput relation '{}.{}' column {index} metadata changed: received '{}' OID {} replica-identity {}, expected '{}' OID {} replica-identity {}",
             decoded.event.schema,
             decoded.event.table,
             actual.name,
             actual.type_oid,
+            actual.key,
             expected.name,
-            expected_oid
+            expected_oid,
+            expected_key,
         );
     }
     if decoded.event.old_values_kind == Some(OldValuesKind::Key) {
@@ -283,6 +360,14 @@ pub(super) fn normalize_wal2json_event(
     table: &DiscoveredTable,
     mut decoded: wal2json::Wal2JsonEvent,
 ) -> anyhow::Result<ChangeEvent> {
+    let expected_old_keys = table
+        .schema
+        .columns
+        .iter()
+        .zip(&table.type_oids)
+        .filter(|(column, _)| table.replica_identity_full || column.primary_key)
+        .map(|(column, oid)| (column.name.as_str(), *oid))
+        .collect::<Vec<_>>();
     let mut positions = HashMap::with_capacity(decoded.column_names.len());
     let expected = table
         .schema
@@ -326,6 +411,37 @@ pub(super) fn normalize_wal2json_event(
             )
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
+    match decoded.event.operation {
+        transferia_core::ChangeOperation::Create => anyhow::ensure!(
+            decoded.event.old_values.is_none()
+                && decoded.old_key_names.is_empty()
+                && decoded.old_key_type_oids.is_empty(),
+            "wal2json INSERT unexpectedly contains replica-identity values"
+        ),
+        transferia_core::ChangeOperation::Update | transferia_core::ChangeOperation::Delete => {
+            anyhow::ensure!(
+                decoded.event.old_values.is_some(),
+                "wal2json {} omits replica-identity values",
+                decoded.event.operation.code()
+            );
+            anyhow::ensure!(
+                decoded.old_key_names.len() == expected_old_keys.len()
+                    && decoded
+                        .old_key_names
+                        .iter()
+                        .zip(&decoded.old_key_type_oids)
+                        .zip(&expected_old_keys)
+                        .all(|((name, oid), (expected_name, expected_oid))| {
+                            name == expected_name && oid == expected_oid
+                        }),
+                "wal2json {} replica identity does not match the authoritative PostgreSQL relation identity",
+                decoded.event.operation.code()
+            );
+        }
+        transferia_core::ChangeOperation::SnapshotRead => {
+            anyhow::bail!("wal2json cannot emit snapshot-read events")
+        }
+    }
     let old_values = decoded
         .event
         .old_values
@@ -393,7 +509,13 @@ impl Source for PostgresReplicationSource {
                         memory: Vec::new(),
                     });
                 }
-                self.refill().await.map_err(DataPlaneFailure::retryable)?;
+                self.refill().await.map_err(|error| {
+                    if is_replication_contract_violation(&error) {
+                        DataPlaneFailure::fatal(error)
+                    } else {
+                        DataPlaneFailure::retryable(error)
+                    }
+                })?;
                 if !self.pending.is_empty() {
                     continue;
                 }
@@ -434,9 +556,16 @@ impl Source for PostgresReplicationSource {
                 .store(lsn)
                 .await
                 .map_err(DataPlaneFailure::fatal)?;
-            advance_slot(&self.client, &self.config.slot, lsn)
+            let connection = self.client.lock().await;
+            advance_slot(&*connection, &self.config.slot, lsn)
                 .await
-                .map_err(DataPlaneFailure::retryable)?;
+                .map_err(|error| {
+                    if is_replication_safety_violation(&error) {
+                        DataPlaneFailure::fatal(error)
+                    } else {
+                        DataPlaneFailure::retryable(error)
+                    }
+                })?;
             self.committed_lsn = lsn;
             Ok::<(), DataPlaneFailure>(())
         })
@@ -765,10 +894,7 @@ fn logical_array(
             let values = events
                 .iter()
                 .map(|event| {
-                    parse_logical_timestamp(
-                        event_value(event, index, projection),
-                        with_timezone,
-                    )
+                    parse_logical_timestamp(event_value(event, index, projection), with_timezone)
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
             let array = TimestampMicrosecondArray::from(values);

@@ -11,6 +11,12 @@ import {
   type CompiledNode,
 } from "../schema/compiler";
 import type { WidgetContracts } from "../schema/widgetDefinitions";
+import {
+  configuredEndpointCapabilities,
+  configuredSourceSupportsDeliveryType,
+  routeSupportsDeliveryType,
+  sourceRecordSemantics,
+} from "../recordSemantics";
 import type {
   ConnectorDefinition,
   EndpointDefinition,
@@ -68,6 +74,12 @@ export function validateCatalogSchemas(
       validateInitialBranchOrder(owner, node, endpoint.initial);
       validateHiddenInitialValues(owner, node, endpoint.initial);
       validateEditorMaterialization(owner, node);
+      configuredEndpointCapabilities(
+        endpoint,
+        node,
+        endpoint.initial,
+        role === "source" ? "source" : "destination",
+      );
     }
   }
 }
@@ -368,6 +380,7 @@ export function orderedEndpointConnectors(
 export function selectedEndpoints(
   catalog: UiCatalog,
   config: JsonObject,
+  widgets: WidgetContracts,
 ): {
   sourceKey: string;
   sinkKey: string;
@@ -385,20 +398,67 @@ export function selectedEndpoints(
   )?.sink;
   const deliveryType = stringValue(config.delivery_type);
   let error: string | undefined;
-  if (deliveryType !== "" && source !== undefined) {
-    const required =
-      deliveryType === "batch_and_stream"
-        ? ["batch", "stream"]
-        : [deliveryType];
-    const missing = required.filter(
-      (mode) => !source.delivery_modes.includes(mode as "batch" | "stream"),
-    );
-    if (missing.length > 0) {
-      const title =
-        catalog.connectors.find((connector) => connector.key === sourceKey)
-          ?.title ?? sourceKey;
-      error = `${title} does not support ${deliveryType.replaceAll("_", " ")} delivery.`;
+  try {
+    if (deliveryType !== "" && source !== undefined) {
+      const sourceValue = endpointValue(config, "source", sourceKey);
+      const sourceSchema = compiledSchema(source.schema, widgets);
+      const mode = deliveryType as (typeof source.delivery_modes)[number];
+      if (
+        !configuredSourceSupportsDeliveryType(
+          source,
+          sourceSchema,
+          sourceValue,
+          mode,
+        )
+      ) {
+        const title =
+          catalog.connectors.find((connector) => connector.key === sourceKey)
+            ?.title ?? sourceKey;
+        error = `${title} does not support ${deliveryType.replaceAll("_", " ")} delivery.`;
+      } else if (sink !== undefined) {
+        const sourceCapabilities = configuredEndpointCapabilities(
+          source,
+          sourceSchema,
+          sourceValue,
+          "source",
+        );
+        const sinkCapabilities = configuredEndpointCapabilities(
+          sink,
+          compiledSchema(sink.schema, widgets),
+          endpointValue(config, "sink", sinkKey),
+          "destination",
+        );
+        if (
+          !routeSupportsDeliveryType(
+            sourceCapabilities,
+            sinkCapabilities,
+            mode,
+            (phase) =>
+              sourceRecordSemantics(
+                source,
+                sourceSchema,
+                sourceValue,
+                phase,
+              ),
+          )
+        ) {
+          const sourceTitle =
+            catalog.connectors.find(
+              (connector) => connector.key === sourceKey,
+            )?.title ?? sourceKey;
+          const sinkTitle =
+            catalog.connectors.find(
+              (connector) => connector.key === sinkKey,
+            )?.title ?? sinkKey;
+          error = `${sinkTitle} cannot accept the records produced by ${sourceTitle} for ${deliveryType.replaceAll("_", " ")} delivery.`;
+        }
+      }
     }
+  } catch (caught) {
+    error =
+      caught instanceof SchemaContractError
+        ? caught.message
+        : "The selected endpoint capabilities are invalid.";
   }
   return {
     sourceKey,
@@ -426,7 +486,7 @@ export function configurationReadiness(
   sourceReady: boolean;
   complete: boolean;
 } {
-  const selection = selectedEndpoints(catalog, config);
+  const selection = selectedEndpoints(catalog, config, widgets);
   const commonIssue = firstCompletionIssue(
     compiledSchema(catalog.common_schema, widgets),
     config,

@@ -1,4 +1,9 @@
-import { branchMatches, type CompiledNode } from "./schema/compiler";
+import {
+  branchMatches,
+  SchemaContractError,
+  type CompiledNode,
+} from "./schema/compiler";
+import type { UiCapabilityHints } from "./schema/uiHints";
 import { isObject } from "./schema/value";
 import type {
   DeliveryMode,
@@ -7,7 +12,12 @@ import type {
   RecordSemantics,
 } from "./types";
 
-export type DeliveryType = DeliveryMode | "batch_and_stream";
+export type DeliveryType = DeliveryMode;
+
+export interface EndpointCapabilities {
+  delivery_modes: readonly DeliveryMode[];
+  record_semantics: readonly RecordSemantics[];
+}
 
 export const DELIVERY_TYPES: readonly DeliveryType[] = [
   "batch",
@@ -21,6 +31,12 @@ export function sourceRecordSemantics(
   value: JsonValue,
   deliveryType: DeliveryType,
 ): RecordSemantics[] {
+  const endpointCapabilities = configuredEndpointCapabilities(
+    endpoint,
+    schema,
+    value,
+    "source",
+  );
   if (deliveryType === "batch") return ["append_only"];
 
   const componentSemantics = selectedComponentRecordSemantics(
@@ -29,39 +45,44 @@ export function sourceRecordSemantics(
     "parser",
   );
   const streamSemantics =
-    componentSemantics ?? streamEndpointSemantics(endpoint);
+    componentSemantics ?? streamEndpointSemantics(endpointCapabilities);
   if (deliveryType === "stream") return streamSemantics;
   return uniqueSemantics(["append_only", ...streamSemantics]);
 }
 
-export function deliveryTypeModes(
-  deliveryType: DeliveryType,
-): readonly DeliveryMode[] {
-  return deliveryType === "batch_and_stream"
-    ? ["batch", "stream"]
-    : [deliveryType];
-}
-
 export function sourceSupportsDeliveryType(
-  endpoint: EndpointDefinition,
+  endpoint: EndpointCapabilities,
   deliveryType: DeliveryType,
 ): boolean {
-  return deliveryTypeModes(deliveryType).every((mode) =>
-    endpoint.delivery_modes.includes(mode),
+  return endpoint.delivery_modes.includes(deliveryType);
+}
+
+export function configuredSourceSupportsDeliveryType(
+  endpoint: EndpointDefinition,
+  schema: CompiledNode,
+  value: JsonValue,
+  deliveryType: DeliveryType,
+): boolean {
+  return sourceSupportsDeliveryType(
+    configuredEndpointCapabilities(endpoint, schema, value, "source"),
+    deliveryType,
   );
 }
 
 export function declaredSourceRecordSemantics(
-  endpoint: EndpointDefinition,
+  endpoint: EndpointCapabilities,
   mode: DeliveryMode,
 ): RecordSemantics[] {
   if (mode === "batch") return ["append_only"];
-  return streamEndpointSemantics(endpoint);
+  const streamSemantics = streamEndpointSemantics(endpoint);
+  return mode === "stream"
+    ? streamSemantics
+    : uniqueSemantics(["append_only", ...streamSemantics]);
 }
 
 export function routeSupportsDeliveryType(
-  source: EndpointDefinition,
-  sink: EndpointDefinition,
+  source: EndpointCapabilities,
+  sink: EndpointCapabilities,
   deliveryType: DeliveryType,
   semanticsForMode: (mode: DeliveryMode) => readonly RecordSemantics[] = (
     mode,
@@ -69,9 +90,37 @@ export function routeSupportsDeliveryType(
 ): boolean {
   if (!sourceSupportsDeliveryType(source, deliveryType)) return false;
   const accepted = new Set(sink.record_semantics);
-  return deliveryTypeModes(deliveryType).every((mode) =>
-    semanticsForMode(mode).some((semantics) => accepted.has(semantics)),
-  );
+  const produced = semanticsForMode(deliveryType);
+  return deliveryType === "batch_and_stream"
+    ? produced.length > 0 &&
+        produced.every((semantics) => accepted.has(semantics))
+    : produced.some((semantics) => accepted.has(semantics));
+}
+
+export function configuredEndpointCapabilities(
+  endpoint: EndpointDefinition,
+  schema: CompiledNode,
+  value: JsonValue,
+  component: "source" | "destination",
+): EndpointCapabilities {
+  const selected = selectedEndpointCapability(schema, value, component);
+  if (selected === undefined) return endpoint;
+  const deliveryModes =
+    component === "source" ? selected.delivery_modes! : endpoint.delivery_modes;
+  const recordSemantics = selected.record_semantics!;
+  if (
+    deliveryModes.some((mode) => !endpoint.delivery_modes.includes(mode)) ||
+    recordSemantics.some(
+      (semantics) => !endpoint.record_semantics.includes(semantics),
+    )
+  )
+    throw new SchemaContractError(
+      `configured ${component} capabilities must be a subset of the catalog aggregate`,
+    );
+  return {
+    delivery_modes: deliveryModes,
+    record_semantics: recordSemantics,
+  };
 }
 
 export function selectedComponentRecordSemantics(
@@ -122,7 +171,7 @@ export function selectedComponentRecordSemantics(
 }
 
 function streamEndpointSemantics(
-  endpoint: EndpointDefinition,
+  endpoint: EndpointCapabilities,
 ): RecordSemantics[] {
   if (!endpoint.delivery_modes.includes("batch"))
     return [...endpoint.record_semantics];
@@ -130,6 +179,97 @@ function streamEndpointSemantics(
     (semantics) => semantics !== "append_only",
   );
   return streamSemantics.length > 0 ? streamSemantics : ["append_only"];
+}
+
+interface LocatedEndpointCapability {
+  capabilities: UiCapabilityHints;
+  depth: number;
+}
+
+function selectedEndpointCapability(
+  node: CompiledNode,
+  value: JsonValue,
+  component: "source" | "destination",
+): UiCapabilityHints | undefined {
+  const candidates = activeEndpointCapabilities(node, value, component, 0);
+  if (candidates.length === 0) return undefined;
+  const deepest = Math.max(...candidates.map((candidate) => candidate.depth));
+  const selected = candidates.filter((candidate) => candidate.depth === deepest);
+  const signature = endpointCapabilitySignature(selected[0]!.capabilities);
+  if (
+    selected.some(
+      (candidate) =>
+        endpointCapabilitySignature(candidate.capabilities) !== signature,
+    )
+  )
+    throw new SchemaContractError(
+      `configuration activates conflicting ${component} capabilities`,
+    );
+  return selected[0]!.capabilities;
+}
+
+function endpointCapabilitySignature(capabilities: UiCapabilityHints): string {
+  return JSON.stringify({
+    delivery_modes: [...(capabilities.delivery_modes ?? [])].sort(),
+    record_semantics: [...(capabilities.record_semantics ?? [])].sort(),
+  });
+}
+
+function activeEndpointCapabilities(
+  node: CompiledNode,
+  value: JsonValue,
+  component: "source" | "destination",
+  depth: number,
+): LocatedEndpointCapability[] {
+  const own =
+    node.xUi.capabilities?.component === component
+      ? [{ capabilities: node.xUi.capabilities, depth }]
+      : [];
+  if (node.kind === "nullable")
+    return value === null
+      ? own
+      : [
+          ...own,
+          ...activeEndpointCapabilities(node.inner, value, component, depth + 1),
+        ];
+  if (node.kind === "union") {
+    const branch = node.branches.find((candidate) =>
+      branchMatches(candidate, value),
+    );
+    return branch === undefined
+      ? own
+      : [
+          ...own,
+          ...activeEndpointCapabilities(
+            branch.node,
+            value,
+            component,
+            depth + 1,
+          ),
+        ];
+  }
+  if (node.kind === "object" && isObject(value))
+    return [
+      ...own,
+      ...Object.entries(node.properties).flatMap(([name, child]) =>
+        Object.hasOwn(value, name)
+          ? activeEndpointCapabilities(
+              child,
+              value[name]!,
+              component,
+              depth + 1,
+            )
+          : [],
+      ),
+    ];
+  if (node.kind === "array" && Array.isArray(value))
+    return [
+      ...own,
+      ...value.flatMap((item) =>
+        activeEndpointCapabilities(node.item, item, component, depth + 1),
+      ),
+    ];
+  return own;
 }
 
 function uniqueSemantics(

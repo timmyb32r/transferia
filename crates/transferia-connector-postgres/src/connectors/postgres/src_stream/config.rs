@@ -5,6 +5,7 @@ use crate::connectors::postgres::common::validate_identifier;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "replication", "delivery_modes": ["stream", "batch_and_stream"], "record_semantics": ["changelog"] } }))]
 pub struct PostgresReplicationConfig {
     pub slot: String,
 
@@ -17,6 +18,14 @@ pub struct PostgresReplicationConfig {
     #[serde(default = "default_poll_interval_ms")]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub poll_interval_ms: u64,
+
+    #[serde(default = "default_bootstrap_timeout_ms")]
+    #[schemars(
+        title = "Replication bootstrap timeout",
+        description = "Maximum time in milliseconds for opening the replication session and exporting the exact slot snapshot",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub bootstrap_timeout_ms: u64,
 }
 
 impl PostgresReplicationConfig {
@@ -31,6 +40,10 @@ impl PostgresReplicationConfig {
         anyhow::ensure!(
             self.poll_interval_ms > 0,
             "replication.poll_interval_ms must be positive"
+        );
+        anyhow::ensure!(
+            self.bootstrap_timeout_ms > 0,
+            "replication.bootstrap_timeout_ms must be positive"
         );
         Ok(())
     }
@@ -51,7 +64,7 @@ impl LogicalDecoder {
         }
     }
 
-    pub(super) const fn plugin(&self) -> &'static str {
+    pub(crate) const fn plugin(&self) -> &'static str {
         match self {
             Self::Pgoutput { .. } => "pgoutput",
             Self::Wal2Json => "wal2json",
@@ -65,4 +78,8 @@ const fn default_max_changes() -> usize {
 
 const fn default_poll_interval_ms() -> u64 {
     100
+}
+
+const fn default_bootstrap_timeout_ms() -> u64 {
+    30_000
 }

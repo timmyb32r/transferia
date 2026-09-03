@@ -23,7 +23,11 @@ pub fn register(
     registry.register(
         ComponentRegistration::new("postgres", "PostgreSQL")
             .source::<postgres::source::PostgresSourceConfig, _, _>(
-                vec![DeliveryMode::Batch, DeliveryMode::Stream],
+                vec![
+                    DeliveryMode::Batch,
+                    DeliveryMode::Stream,
+                    DeliveryMode::BatchAndStream,
+                ],
                 false,
                 || {
                     serde_json::json!({

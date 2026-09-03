@@ -302,12 +302,22 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   connector-neutral modules.
 - Shared source configuration, discovery, and mode dispatch live in `source/`.
   Source implementations live in mode-specific `src_batch/`, `src_stream/`, or
-  `src_dblog/` modules. `src_stream/` owns live queue streams and ordinary
-  database replication. Reserve `src_dblog/` for an incremental snapshot
-  coordinated with a replication log; ordinary CDC does not belong there. Keep
+  `src_batch_and_stream/` modules. `src_stream/` owns live queue streams and
+  ordinary database replication. `src_batch_and_stream/` owns only the explicit
+  batch-and-stream coordination layer; ordinary batch and CDC implementations
+  remain in their respective modules. Keep
   connector-wide transport in the connector root; each mode owns only its
   specific settings and reader. Do not create empty mode modules before an
   implementation exists.
+- Reserve the name `src_dblog/` exclusively for a real implementation of
+  **DBLog: A Watermark Based Change-Data-Capture Framework**
+  (<https://arxiv.org/abs/2010.12597>): a watermark protocol that interleaves
+  transaction-log events with chunked, resumable table selects, comparable in
+  purpose to Debezium incremental snapshots. A one-time MVCC snapshot followed
+  by replication, an exported-slot snapshot handoff, a generic batch-and-stream
+  phase machine, ordinary CDC, or any other merely replication-adjacent code is
+  not DBLog and must never use the `dblog` name. Do not create `src_dblog/`
+  until that specific watermark-based protocol is actually implemented.
 - `crates/transferia-runtime/` defines the environment-neutral worker-runtime
   boundary. `crates/transferia-runtime-local/` owns local process supervision.
   Executable CLI/worker composition belongs to `crates/transferia-composition/`.

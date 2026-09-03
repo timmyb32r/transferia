@@ -279,7 +279,8 @@
     "DeliveryMode": {
       "enum": [
         "batch",
-        "stream"
+        "stream",
+        "batch_and_stream"
       ],
       "type": "string"
     },

@@ -1,3 +1,4 @@
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -5,11 +6,11 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest as _, Sha256};
 use tokio::sync::Mutex;
 
-const MAGIC: &[u8; 8] = b"TRFDUR01";
-const CHECKSUM_BYTES: usize = 32;
+const MAGIC: &[u8; 8] = b"TRFDUR02";
+const CHECKSUM_BYTES: usize = 16;
+const RESOURCE_NAMESPACE_DIRECTORY: &str = "@resources";
 static TEMPORARY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +25,23 @@ pub enum CompareExchangeResult {
     Conflict(Option<DurableValue>),
 }
 
+/// An exclusive, crash-released lease owned by a running connector execution.
+///
+/// The concrete guard is storage-specific. Dropping this value must release the
+/// lease before another execution can acquire the same key.
+pub struct DurableLease {
+    _guard: Box<dyn Send + Sync>,
+}
+
+impl DurableLease {
+    #[must_use]
+    pub fn new(guard: impl Send + Sync + 'static) -> Self {
+        Self {
+            _guard: Box::new(guard),
+        }
+    }
+}
+
 /// Revisioned durable key/value storage used by connectors for crash-recovery protocols.
 pub trait DurableStorage: Send + Sync {
     fn read<'a>(&'a self, key: &'a str) -> BoxFuture<'a, anyhow::Result<Option<DurableValue>>>;
@@ -34,12 +52,31 @@ pub trait DurableStorage: Send + Sync {
         expected_revision: Option<u64>,
         payload: &'a [u8],
     ) -> BoxFuture<'a, anyhow::Result<CompareExchangeResult>>;
+
+    /// Acquire an execution-scoped exclusive lease.
+    ///
+    /// Implementations must release the lease when the returned guard is
+    /// dropped, including after process termination. Connectors use this to
+    /// fence concurrent executions before either can produce sink-visible data.
+    fn acquire_execution_lease<'a>(
+        &'a self,
+        _key: &'a str,
+    ) -> BoxFuture<'a, anyhow::Result<DurableLease>> {
+        Box::pin(async {
+            anyhow::bail!("configured durable storage does not support execution leases")
+        })
+    }
 }
 
 #[derive(Clone)]
 pub struct DurableContext {
     pub delivery_id: Arc<str>,
+
+    /// Delivery-local offsets, phases, and connector state.
     pub storage: Arc<dyn DurableStorage>,
+
+    /// Resource ownership shared by every delivery using the configured durable root.
+    pub resource_storage: Arc<dyn DurableStorage>,
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema, Serialize)]
@@ -67,9 +104,15 @@ impl DurableStorageConfig {
                 Arc::new(LocalFileDurableStorage::new(path.join(delivery_id)))
             }
         };
+        let resource_storage: Arc<dyn DurableStorage> = match self {
+            Self::LocalFile { path } => Arc::new(LocalFileDurableStorage::new(
+                path.join(RESOURCE_NAMESPACE_DIRECTORY),
+            )),
+        };
         Ok(DurableContext {
             delivery_id: Arc::from(delivery_id),
             storage,
+            resource_storage,
         })
     }
 }
@@ -126,7 +169,12 @@ impl DurableStorage for LocalFileDurableStorage {
                     if current.as_ref().map(|value| value.revision) != expected_revision {
                         return Ok(CompareExchangeResult::Conflict(current));
                     }
-                    let revision = expected_revision.map_or(0, |value| value.saturating_add(1));
+                    let revision = match expected_revision {
+                        Some(revision) => revision
+                            .checked_add(1)
+                            .ok_or_else(|| anyhow::anyhow!("durable revision overflow"))?,
+                        None => 0,
+                    };
                     let value = DurableValue { revision, payload };
                     write_file(&path, &value)?;
                     Ok(CompareExchangeResult::Applied(value))
@@ -135,6 +183,35 @@ impl DurableStorage for LocalFileDurableStorage {
             .await?
         })
     }
+
+    fn acquire_execution_lease<'a>(
+        &'a self,
+        key: &'a str,
+    ) -> BoxFuture<'a, anyhow::Result<DurableLease>> {
+        Box::pin(async move {
+            validate_component("durable execution lease", key)?;
+            let root = self.root.clone();
+            let key = key.to_owned();
+            tokio::task::spawn_blocking(move || {
+                std::fs::create_dir_all(&root)?;
+                let file = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .truncate(false)
+                    .open(root.join(format!(".{key}.lease")))?;
+                file.try_lock().map_err(|error| {
+                    anyhow::anyhow!("another execution already owns durable lease '{key}': {error}")
+                })?;
+                Ok(DurableLease::new(LocalFileLease { _file: file }))
+            })
+            .await?
+        })
+    }
+}
+
+struct LocalFileLease {
+    _file: std::fs::File,
 }
 
 fn with_file_lock<T>(
@@ -189,7 +266,7 @@ fn read_file(path: &Path) -> anyhow::Result<Option<DurableValue>> {
         "durable state '{}' has an invalid payload length",
         path.display()
     );
-    let checksum = Sha256::digest(&bytes[..payload_end]);
+    let checksum = durable_checksum(&bytes[..payload_end])?;
     anyhow::ensure!(
         checksum.as_slice() == &bytes[payload_end..],
         "durable state '{}' checksum mismatch",
@@ -222,8 +299,7 @@ fn write_file(path: &Path, value: &DurableValue) -> anyhow::Result<()> {
     bytes.extend_from_slice(&value.revision.to_le_bytes());
     bytes.extend_from_slice(&u64::try_from(value.payload.len())?.to_le_bytes());
     bytes.extend_from_slice(&value.payload);
-    let checksum = Sha256::digest(&bytes);
-    bytes.extend_from_slice(&checksum);
+    bytes.extend_from_slice(&durable_checksum(&bytes)?);
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -234,6 +310,10 @@ fn write_file(path: &Path, value: &DurableValue) -> anyhow::Result<()> {
     std::fs::rename(&temporary, path)?;
     std::fs::File::open(parent)?.sync_all()?;
     Ok(())
+}
+
+fn durable_checksum(bytes: &[u8]) -> anyhow::Result<[u8; CHECKSUM_BYTES]> {
+    Ok(murmur3::murmur3_x64_128(&mut Cursor::new(bytes), 0)?.to_le_bytes())
 }
 
 #[cfg(test)]

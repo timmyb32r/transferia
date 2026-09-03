@@ -20,9 +20,7 @@ use transferia_core::data::message::SourceBatch;
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::memory::PipelineMemory;
 use transferia_core::source::Source;
-use transferia_registry::{
-    SourceBuildContext, SourceConnector as _, SourceDiscoveryContext,
-};
+use transferia_registry::{SourceBuildContext, SourceConnector as _, SourceDiscoveryContext};
 
 const POSTGRES_IMAGE: &str = "postgres";
 const POSTGRES_TAG: &str = "17.6-bookworm";
@@ -124,6 +122,7 @@ async fn terminated_snapshot_owner_is_a_non_retryable_source_build_failure() -> 
                 keep_system_columns: true,
             },
             cancellation: CancellationToken::new(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
         })
         .await?;
 
@@ -197,6 +196,7 @@ async fn run_snapshot(
                 keep_system_columns: true,
             },
             cancellation: CancellationToken::new(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
         })
         .await?;
 
@@ -218,6 +218,9 @@ async fn build_partition(
     connector
         .build_source(SourceBuildContext {
             partition_id,
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
+            phase: transferia_registry::SourcePhase::Snapshot,
+            replay_identity: None,
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(16 * 1024 * 1024),
             durable: transferia_test_support::durable_context(),
@@ -289,8 +292,12 @@ async fn drain_partition(
 
 fn batch_identity(batch: &RecordBatch) -> anyhow::Result<SnapshotIdentity> {
     let identity = SnapshotIdentity {
-        database: array_by_name::<StringArray>(batch, "_system_source_database")?.value(0).into(),
-        schema: array_by_name::<StringArray>(batch, "_system_source_schema")?.value(0).into(),
+        database: array_by_name::<StringArray>(batch, "_system_source_database")?
+            .value(0)
+            .into(),
+        schema: array_by_name::<StringArray>(batch, "_system_source_schema")?
+            .value(0)
+            .into(),
         transaction_id: array_by_name::<UInt64Array>(batch, "_system_source_transaction_id")?
             .value(0),
         source_timestamp_ms: array_by_name::<Int64Array>(batch, "_system_source_timestamp_ms")?

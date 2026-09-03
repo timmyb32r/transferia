@@ -90,7 +90,7 @@ export type DatasetView = {
   role: DatasetRoleView;
 };
 
-export type DeliveryMode = "batch" | "stream";
+export type DeliveryMode = "batch" | "stream" | "batch_and_stream";
 
 export type DeliveryRecord = {
   config: JsonObject;

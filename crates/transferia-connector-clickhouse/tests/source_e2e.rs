@@ -72,6 +72,7 @@ async fn clickhouse_source_discovers_and_streams_a_deterministic_native_snapshot
                 keep_system_columns: false,
             },
             cancellation: CancellationToken::new(),
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
         })
         .await?;
     assert_eq!(discovery.schema_origin, SchemaOrigin::SourceNative);
@@ -80,6 +81,9 @@ async fn clickhouse_source_discovers_and_streams_a_deterministic_native_snapshot
     let mut source = connector
         .build_source(SourceBuildContext {
             partition_id: 0,
+            delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
+            phase: transferia_registry::SourcePhase::Snapshot,
+            replay_identity: None,
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(256 * 1024 * 1024),
             durable: transferia_test_support::durable_context(),

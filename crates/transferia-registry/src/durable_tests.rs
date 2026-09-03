@@ -66,6 +66,37 @@ async fn corrupted_state_fails_instead_of_being_ignored() -> anyhow::Result<()> 
 }
 
 #[tokio::test]
+async fn revision_overflow_fails_without_rewriting_durable_state() -> anyhow::Result<()> {
+    let root = temporary_root();
+    let storage = LocalFileDurableStorage::new(root.clone());
+    let path = storage.path("scope/key")?;
+    write_file(
+        &path,
+        &DurableValue {
+            revision: u64::MAX,
+            payload: b"original".to_vec(),
+        },
+    )?;
+
+    let message = storage
+        .compare_exchange("scope/key", Some(u64::MAX), b"replacement")
+        .await
+        .err()
+        .expect("durable revision overflow must fail")
+        .to_string();
+    assert!(message.contains("revision overflow"), "{message}");
+    assert_eq!(
+        storage.read("scope/key").await?,
+        Some(DurableValue {
+            revision: u64::MAX,
+            payload: b"original".to_vec(),
+        })
+    );
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn independent_instances_serialize_compare_exchange_with_a_file_lock() -> anyhow::Result<()> {
     let root = temporary_root();
     let left = LocalFileDurableStorage::new(root.clone());
@@ -83,9 +114,90 @@ async fn independent_instances_serialize_compare_exchange_with_a_file_lock() -> 
     Ok(())
 }
 
+#[tokio::test]
+async fn execution_lease_fences_independent_instances_until_guard_drop() -> anyhow::Result<()> {
+    let root = temporary_root();
+    let left = LocalFileDurableStorage::new(root.clone());
+    let right = LocalFileDurableStorage::new(root.clone());
+
+    let lease = left.acquire_execution_lease("postgres-source").await?;
+    let error = right
+        .acquire_execution_lease("postgres-source")
+        .await
+        .err()
+        .expect("a live execution must fence a second process");
+    assert!(error.to_string().contains("already owns"));
+
+    drop(lease);
+    let reacquired = right.acquire_execution_lease("postgres-source").await?;
+    drop(reacquired);
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn durable_contexts_isolate_delivery_state_and_share_resource_state() -> anyhow::Result<()> {
+    let root = temporary_root();
+    let config = DurableStorageConfig::LocalFile { path: root.clone() };
+    let first = config.build("delivery-a")?;
+    let second = config.build("delivery-b")?;
+
+    first
+        .storage
+        .compare_exchange("postgres-offset", None, b"delivery-a")
+        .await?;
+    assert_eq!(second.storage.read("postgres-offset").await?, None);
+
+    first
+        .resource_storage
+        .compare_exchange("postgres-resource", None, b"shared-owner")
+        .await?;
+    assert_eq!(
+        second.resource_storage.read("postgres-resource").await?,
+        Some(DurableValue {
+            revision: 0,
+            payload: b"shared-owner".to_vec(),
+        })
+    );
+
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn resource_lease_fences_different_delivery_contexts_until_guard_drop() -> anyhow::Result<()>
+{
+    let root = temporary_root();
+    let config = DurableStorageConfig::LocalFile { path: root.clone() };
+    let first = config.build("delivery-a")?;
+    let second = config.build("delivery-b")?;
+
+    let lease = first
+        .resource_storage
+        .acquire_execution_lease("postgres-7412345678901234567-16384-shared_slot")
+        .await?;
+    let error = second
+        .resource_storage
+        .acquire_execution_lease("postgres-7412345678901234567-16384-shared_slot")
+        .await
+        .err()
+        .expect("a resource lease must be global across delivery IDs");
+    assert!(error.to_string().contains("already owns"));
+
+    drop(lease);
+    let reacquired = second
+        .resource_storage
+        .acquire_execution_lease("postgres-7412345678901234567-16384-shared_slot")
+        .await?;
+    drop(reacquired);
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
 #[test]
 fn delivery_and_key_components_are_explicit_ascii_identifiers() {
     assert!(validate_component("delivery_id", "orders.eu-1").is_ok());
+    assert!(validate_component("delivery_id", RESOURCE_NAMESPACE_DIRECTORY).is_err());
     assert!(validate_component("delivery_id", "orders/eu").is_err());
     assert!(validate_component("delivery_id", "заказы").is_err());
 }

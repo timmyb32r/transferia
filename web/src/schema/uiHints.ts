@@ -8,8 +8,14 @@ export type UiSection =
   | "shard_group";
 
 export interface UiCapabilityHints {
-  component: "parser" | "serializer" | "transformer";
+  component:
+    | "source"
+    | "destination"
+    | "parser"
+    | "serializer"
+    | "transformer";
   key: string;
+  delivery_modes?: readonly ("batch" | "stream" | "batch_and_stream")[];
   record_semantics?: readonly ("append_only" | "changelog")[];
   properties?: readonly string[];
 }
@@ -278,15 +284,25 @@ function decodeCapabilities(
     fail(`${path}: x-ui capabilities must be an object`);
   const object = value as Record<string, JsonValue>;
   const unknown = Object.keys(object).filter(
-    (key) => !["component", "key", "record_semantics", "properties"].includes(key),
+    (key) =>
+      ![
+        "component",
+        "key",
+        "delivery_modes",
+        "record_semantics",
+        "properties",
+      ].includes(key),
   );
   if (unknown.length > 0)
     fail(`${path}: unsupported x-ui capabilities: ${unknown.join(", ")}`);
   const component = object.component;
   const key = object.key;
+  const deliveryModes = object.delivery_modes;
   const recordSemantics = object.record_semantics;
   const properties = object.properties;
   if (
+    component !== "source" &&
+    component !== "destination" &&
     component !== "parser" &&
     component !== "serializer" &&
     component !== "transformer"
@@ -294,6 +310,15 @@ function decodeCapabilities(
     fail(`${path}: x-ui capabilities component is unsupported`);
   if (typeof key !== "string" || key.length === 0)
     fail(`${path}: x-ui capabilities key must be a non-empty string`);
+  if (
+    deliveryModes !== undefined &&
+    (!Array.isArray(deliveryModes) ||
+      !deliveryModes.every(
+        (mode) =>
+          mode === "batch" || mode === "stream" || mode === "batch_and_stream",
+      ))
+  )
+    fail(`${path}: x-ui capabilities delivery_modes is unsupported`);
   if (
     recordSemantics !== undefined &&
     (!Array.isArray(recordSemantics) ||
@@ -308,9 +333,38 @@ function decodeCapabilities(
       !properties.every((property) => typeof property === "string" && property.length > 0))
   )
     fail(`${path}: x-ui capabilities properties must contain non-empty strings`);
+  if (component === "source") {
+    if (
+      deliveryModes === undefined ||
+      deliveryModes.length === 0 ||
+      new Set(deliveryModes).size !== deliveryModes.length
+    )
+      fail(`${path}: source capabilities delivery_modes must be non-empty and unique`);
+  } else if (deliveryModes !== undefined) {
+    fail(`${path}: only source capabilities can declare delivery_modes`);
+  }
+  if (component === "source" || component === "destination") {
+    if (
+      recordSemantics === undefined ||
+      recordSemantics.length === 0 ||
+      new Set(recordSemantics).size !== recordSemantics.length
+    )
+      fail(`${path}: endpoint record_semantics must be non-empty and unique`);
+    if (properties !== undefined)
+      fail(`${path}: endpoint capabilities cannot declare component properties`);
+  }
   return {
     component,
     key,
+    ...(deliveryModes === undefined
+      ? {}
+      : {
+          delivery_modes: deliveryModes as (
+            | "batch"
+            | "stream"
+            | "batch_and_stream"
+          )[],
+        }),
     ...(recordSemantics === undefined
       ? {}
       : { record_semantics: recordSemantics as ("append_only" | "changelog")[] }),
