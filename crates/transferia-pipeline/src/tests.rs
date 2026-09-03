@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 use arrow::array::Int64Array;
 use arrow::datatypes::{Field, Schema};
 
@@ -367,6 +368,7 @@ async fn conservative_parser_estimate_is_not_a_correctness_rejection() {
         Arc::new(Vec::new()),
         memory,
         Arc::new(ParseCounters::new()),
+        None,
         cancellation,
     )
     .await
@@ -392,6 +394,7 @@ async fn idle_parser_task_does_not_construct_a_session_or_hold_a_worker() {
         Arc::new(Vec::new()),
         PipelineMemory::new(1024),
         Arc::new(ParseCounters::new()),
+        None,
         cancellation.clone(),
     ));
 
@@ -433,6 +436,7 @@ async fn parser_session_state_is_preserved_across_blocking_workers() {
         Arc::new(Vec::new()),
         PipelineMemory::new(1 << 20),
         Arc::new(ParseCounters::new()),
+        None,
         cancellation,
     )
     .await
@@ -475,7 +479,13 @@ async fn commit_through_submits_the_contiguous_prefix_as_one_source_group() {
     ]);
 
     let progress = PipelineProgress::new();
-    commit_through(&mut source, &mut ledger, DeliveryId::new(3), &progress)
+    commit_through(
+        &mut source,
+        &mut ledger,
+        DeliveryId::new(3),
+        &progress,
+        None,
+    )
         .await
         .unwrap();
 
@@ -507,6 +517,7 @@ async fn commit_through_rejects_an_unknown_sink_delivery_as_fatal() {
         &mut ledger,
         DeliveryId::new(2),
         &PipelineProgress::new(),
+        None,
     )
     .await
     .expect_err("sink cannot commit a delivery the source never issued");
@@ -541,6 +552,7 @@ async fn sink_commit_events_do_not_cancel_an_in_flight_source_read() {
         PipelineMemory::new(1 << 20),
         CancellationToken::new(),
         Arc::new(PipelineProgress::new()),
+        None,
     ));
 
     let first = output_rx
@@ -585,6 +597,7 @@ async fn pipeline_cancellation_awaits_source_shutdown_after_cancelling_a_read() 
         PipelineMemory::new(1 << 20),
         cancellation.clone(),
         Arc::new(PipelineProgress::new()),
+        None,
     ));
 
     output_rx
@@ -674,6 +687,7 @@ async fn finite_source_shutdown_failure_does_not_replay_committed_snapshot() {
         PipelineMemory::new(1 << 20),
         CancellationToken::new(),
         Arc::new(PipelineProgress::new()),
+        None,
     ));
 
     let delivery = output_rx
@@ -712,6 +726,7 @@ async fn source_failure_remains_primary_when_awaited_shutdown_also_fails() {
         PipelineMemory::new(1 << 20),
         CancellationToken::new(),
         Arc::new(PipelineProgress::new()),
+        None,
     )
     .await
     .expect_err("source read must fail");
@@ -743,7 +758,13 @@ async fn failed_grouped_commit_keeps_the_ledger_for_pipeline_recovery() {
     ]);
 
     let progress = PipelineProgress::new();
-    let error = commit_through(&mut source, &mut ledger, DeliveryId::new(2), &progress)
+    let error = commit_through(
+        &mut source,
+        &mut ledger,
+        DeliveryId::new(2),
+        &progress,
+        None,
+    )
         .await
         .expect_err("injected source commit failure must propagate");
 
@@ -752,4 +773,242 @@ async fn failed_grouped_commit_keeps_the_ledger_for_pipeline_recovery() {
         .contains("source commit failed through delivery 2"));
     assert_eq!(ledger.len(), 2);
     assert!(!progress.advanced_since(0));
+}
+
+fn row_count_batch(table: &str, is_dlq: bool, rows: usize) -> SinkBatch {
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "value",
+            arrow::datatypes::DataType::Int64,
+            false,
+        )])),
+        vec![Arc::new(Int64Array::from_iter_values(
+            (0..rows).map(|value| value as i64),
+        ))],
+    )
+    .expect("row-count batch");
+    SinkBatch {
+        table: Arc::from(table),
+        is_dlq,
+        byte_size: rows.saturating_mul(std::mem::size_of::<i64>()),
+        memory: PipelineMemory::new(1 << 20).reserve_transform(0),
+        system_columns: transferia_core::data::system_columns::SystemColumns::default(),
+        batch,
+    }
+}
+
+fn rows_by_dataset(counts: &OutputRowCounts) -> BTreeMap<(bool, String), u64> {
+    counts
+        .snapshot()
+        .expect("row-count snapshot")
+        .into_iter()
+        .map(|count| ((count.is_dlq, count.table.to_string()), count.rows))
+        .collect()
+}
+
+#[test]
+fn snapshot_row_counts_publish_only_committed_delivery_prefixes() {
+    let counts = OutputRowCounts::new([
+        (Arc::from("events"), false),
+        (Arc::from("events_dlq"), true),
+    ])
+    .expect("row counter");
+    counts
+        .observe_delivery(
+            DeliveryId::new(1),
+            &[row_count_batch("events", false, 2)],
+        )
+        .expect("first delivery");
+    counts
+        .observe_delivery(
+            DeliveryId::new(2),
+            &[
+                row_count_batch("events", false, 3),
+                row_count_batch("events_dlq", true, 1),
+            ],
+        )
+        .expect("second delivery");
+
+    assert_eq!(
+        rows_by_dataset(&counts),
+        BTreeMap::from([
+            ((false, "events".to_owned()), 0),
+            ((true, "events_dlq".to_owned()), 0),
+        ])
+    );
+    counts
+        .commit_through(DeliveryId::new(2))
+        .expect("group commit");
+    assert_eq!(
+        rows_by_dataset(&counts),
+        BTreeMap::from([
+            ((false, "events".to_owned()), 5),
+            ((true, "events_dlq".to_owned()), 1),
+        ])
+    );
+}
+
+#[test]
+fn snapshot_row_counts_reject_unknown_duplicate_and_out_of_order_events() {
+    let counts = OutputRowCounts::new([(Arc::from("events"), false)]).expect("row counter");
+    let unknown = counts
+        .observe_delivery(
+            DeliveryId::new(1),
+            &[row_count_batch("other", false, 1)],
+        )
+        .expect_err("unknown dataset must fail");
+    assert!(unknown.to_string().contains("undiscovered dataset 'other'"));
+    assert_eq!(rows_by_dataset(&counts)[&(false, "events".to_owned())], 0);
+
+    counts
+        .observe_delivery(
+            DeliveryId::new(1),
+            &[row_count_batch("events", false, 1)],
+        )
+        .expect("known delivery");
+    assert!(counts
+        .observe_delivery(DeliveryId::new(1), &[])
+        .expect_err("duplicate delivery must fail")
+        .to_string()
+        .contains("more than once"));
+    assert!(counts
+        .commit_through(DeliveryId::new(2))
+        .expect_err("unknown commit must fail")
+        .to_string()
+        .contains("unknown delivery 2"));
+    assert_eq!(rows_by_dataset(&counts)[&(false, "events".to_owned())], 0);
+}
+
+#[tokio::test]
+async fn failed_source_commit_does_not_publish_snapshot_rows() {
+    let counts = OutputRowCounts::new([(Arc::from("events"), false)]).expect("row counter");
+    counts
+        .observe_delivery(
+            DeliveryId::new(1),
+            &[row_count_batch("events", false, 7)],
+        )
+        .expect("observed delivery");
+    let mut source: Box<dyn Source> = Box::new(RecordingSource {
+        groups: Arc::new(std::sync::Mutex::new(Vec::new())),
+        fail_commit: true,
+        fail_shutdown: false,
+        shutdowns: Arc::new(AtomicU64::new(0)),
+    });
+    let mut ledger = VecDeque::from([CommitEntry {
+        id: DeliveryId::new(1),
+        marker: Some(CommitMarker::new(11_i64)),
+    }]);
+
+    commit_through(
+        &mut source,
+        &mut ledger,
+        DeliveryId::new(1),
+        &PipelineProgress::new(),
+        Some(&counts),
+    )
+    .await
+    .expect_err("source commit failure must keep row totals unpublished");
+
+    assert_eq!(rows_by_dataset(&counts)[&(false, "events".to_owned())], 0);
+    assert_eq!(ledger.len(), 1);
+}
+
+#[tokio::test]
+async fn invalid_row_count_commit_cannot_advance_the_source() {
+    let groups = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let counts = OutputRowCounts::new([(Arc::from("events"), false)]).expect("row counter");
+    let mut source: Box<dyn Source> = Box::new(RecordingSource {
+        groups: Arc::clone(&groups),
+        fail_commit: false,
+        fail_shutdown: false,
+        shutdowns: Arc::new(AtomicU64::new(0)),
+    });
+    let mut ledger = VecDeque::from([CommitEntry {
+        id: DeliveryId::new(1),
+        marker: Some(CommitMarker::new(11_i64)),
+    }]);
+
+    let error = commit_through(
+        &mut source,
+        &mut ledger,
+        DeliveryId::new(1),
+        &PipelineProgress::new(),
+        Some(&counts),
+    )
+    .await
+    .expect_err("unobserved delivery must fail before source commit");
+
+    assert!(error.to_string().contains("unknown delivery 1"));
+    assert!(groups
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_empty());
+    assert_eq!(ledger.len(), 1);
+}
+
+#[test]
+fn snapshot_row_count_merge_is_atomic_for_unknown_datasets() {
+    let completed = OutputRowCounts::new([(Arc::from("events"), false)]).expect("completed");
+    let attempt = OutputRowCounts::new([
+        (Arc::from("events"), false),
+        (Arc::from("unexpected"), false),
+    ])
+    .expect("attempt");
+    attempt
+        .observe_delivery(
+            DeliveryId::new(1),
+            &[
+                row_count_batch("events", false, 5),
+                row_count_batch("unexpected", false, 3),
+            ],
+        )
+        .expect("attempt delivery");
+    attempt
+        .commit_through(DeliveryId::new(1))
+        .expect("attempt commit");
+
+    let error = completed
+        .merge(&attempt)
+        .expect_err("unknown merge dataset must fail atomically");
+    assert!(error.to_string().contains("unexpected"));
+    assert_eq!(rows_by_dataset(&completed)[&(false, "events".to_owned())], 0);
+}
+
+#[test]
+fn committed_prefixes_across_retries_are_counted_once() {
+    let completed = OutputRowCounts::new([(Arc::from("events"), false)]).expect("completed");
+    let failed_attempt =
+        OutputRowCounts::new([(Arc::from("events"), false)]).expect("failed attempt");
+    failed_attempt
+        .observe_delivery(
+            DeliveryId::new(1),
+            &[row_count_batch("events", false, 5)],
+        )
+        .expect("committed prefix");
+    failed_attempt
+        .observe_delivery(
+            DeliveryId::new(2),
+            &[row_count_batch("events", false, 7)],
+        )
+        .expect("uncommitted suffix");
+    failed_attempt
+        .commit_through(DeliveryId::new(1))
+        .expect("prefix commit");
+    completed
+        .merge(&failed_attempt)
+        .expect("merge failed attempt's committed prefix");
+
+    let retry = OutputRowCounts::new([(Arc::from("events"), false)]).expect("retry");
+    retry
+        .observe_delivery(
+            DeliveryId::new(1),
+            &[row_count_batch("events", false, 7)],
+        )
+        .expect("replayed suffix");
+    retry
+        .commit_through(DeliveryId::new(1))
+        .expect("retry commit");
+    completed.merge(&retry).expect("merge retry");
+
+    assert_eq!(rows_by_dataset(&completed)[&(false, "events".to_owned())], 12);
 }

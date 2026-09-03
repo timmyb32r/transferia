@@ -1,23 +1,80 @@
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use arrow::array::{
     Array as _, Decimal128Array, TimestampMicrosecondArray, TimestampSecondArray, UInt64Array,
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
+use futures_util::future::BoxFuture;
+use iceberg::TableIdent;
 use schemars::schema_for;
 use tokio::sync::Notify;
 use tokio::task::JoinSet;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
-use transferia_core::delivery::{DeliveryDiscovery, SchemaOrigin, SourceTopology};
-use transferia_registry::SinkConnector;
+use transferia_core::delivery::{
+    DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
+};
+use transferia_registry::{SinkConnector, SnapshotRowCountStrategy};
 
 use super::config::{
     IcebergParquetCompression, IcebergSinkConfig, IcebergSourceConfig, OpenDalStorageConfig,
 };
 use super::sink::IcebergCommitIdentity;
 use super::source::{classify_scan_failure, restore_transferia_types};
+
+fn speedtest_row_count_discovery() -> DeliveryDiscovery {
+    let schema = DatasetSchema::new(vec![SchemaColumn::new(
+        "id".to_owned(),
+        DataType::Int64,
+        false,
+    )]);
+    DeliveryDiscovery {
+        source_name: Arc::from("snapshot-source"),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![
+            DiscoveredDataset {
+                role: DatasetRole::Main,
+                name: Arc::from("events"),
+                incoming_schema: schema.clone(),
+                stored_schema: schema.clone(),
+                system_columns: Vec::new(),
+            },
+            DiscoveredDataset {
+                role: DatasetRole::DeadLetterQueue,
+                name: Arc::from("events_dlq"),
+                incoming_schema: schema.clone(),
+                stored_schema: schema,
+                system_columns: Vec::new(),
+            },
+        ],
+        performance_advice: Vec::new(),
+    }
+}
+
+struct FakeIcebergRowCountCatalog {
+    rows: BTreeMap<String, Option<u64>>,
+    calls: Mutex<Vec<String>>,
+}
+
+impl super::sink::IcebergRowCountCatalog for FakeIcebergRowCountCatalog {
+    fn row_count<'a>(
+        &'a self,
+        table: &'a TableIdent,
+    ) -> BoxFuture<'a, anyhow::Result<Option<u64>>> {
+        Box::pin(async move {
+            let target = table.to_string();
+            self.calls.lock().expect("calls lock").push(target.clone());
+            self.rows
+                .get(&target)
+                .copied()
+                .ok_or_else(|| anyhow::anyhow!("unexpected table '{target}'"))
+        })
+    }
+}
 
 #[test]
 fn source_defaults_to_s3_storage() {
@@ -84,6 +141,106 @@ fn iceberg_sink_rejects_zero_write_concurrency() {
     .expect("syntactically valid config");
     let error = config.validate().expect_err("zero concurrency must fail");
     assert!(error.to_string().contains("write_concurrency"));
+}
+
+#[test]
+fn iceberg_sink_declares_exact_additive_snapshot_row_counts() {
+    let config: IcebergSinkConfig = serde_json::from_value(serde_json::json!({
+        "catalog": { "uri": "https://catalog.example", "auth": { "type": "none" } },
+        "storage": { "type": "s3", "bucket": "warehouse" },
+        "namespace": "analytics"
+    }))
+    .expect("valid sink config");
+    let connector = super::sink::IcebergSinkConnector::from_config(config).expect("connector");
+
+    assert_eq!(
+        connector.snapshot_row_count_strategy(),
+        Some(SnapshotRowCountStrategy::AdditiveBaseline)
+    );
+}
+
+#[tokio::test]
+async fn iceberg_snapshot_row_counts_cover_main_and_dlq_without_scanning_data() {
+    let config: IcebergSinkConfig = serde_json::from_value(serde_json::json!({
+        "catalog": { "uri": "https://catalog.example", "auth": { "type": "none" } },
+        "storage": { "type": "s3", "bucket": "warehouse" },
+        "namespace": "analytics"
+    }))
+    .expect("valid sink config");
+    let catalog = FakeIcebergRowCountCatalog {
+        rows: BTreeMap::from([
+            ("analytics.events".to_owned(), Some(41)),
+            ("analytics.events_dlq".to_owned(), None),
+        ]),
+        calls: Mutex::new(Vec::new()),
+    };
+
+    let counts = super::sink::snapshot_iceberg_row_counts(
+        &catalog,
+        &config,
+        &speedtest_row_count_discovery(),
+    )
+    .await
+    .expect("exact catalog metadata counts");
+
+    assert_eq!(counts.len(), 2);
+    assert_eq!(counts[0].role, DatasetRole::Main);
+    assert_eq!(counts[0].table.as_ref(), "events");
+    assert_eq!(counts[0].target.as_ref(), "analytics.events");
+    assert!(counts[0].exists);
+    assert_eq!(counts[0].rows, 41);
+    assert_eq!(counts[1].role, DatasetRole::DeadLetterQueue);
+    assert_eq!(counts[1].table.as_ref(), "events_dlq");
+    assert_eq!(counts[1].target.as_ref(), "analytics.events_dlq");
+    assert!(!counts[1].exists);
+    assert_eq!(counts[1].rows, 0);
+    assert_eq!(
+        catalog.calls.lock().expect("calls lock").as_slice(),
+        ["analytics.events", "analytics.events_dlq"]
+    );
+}
+
+#[tokio::test]
+async fn iceberg_snapshot_row_count_probe_fails_on_an_unexpected_target() {
+    let config: IcebergSinkConfig = serde_json::from_value(serde_json::json!({
+        "catalog": { "uri": "https://catalog.example", "auth": { "type": "none" } },
+        "storage": { "type": "s3", "bucket": "warehouse" },
+        "namespace": "analytics"
+    }))
+    .expect("valid sink config");
+    let catalog = FakeIcebergRowCountCatalog {
+        rows: BTreeMap::from([("analytics.events".to_owned(), Some(41))]),
+        calls: Mutex::new(Vec::new()),
+    };
+
+    let error = super::sink::snapshot_iceberg_row_counts(
+        &catalog,
+        &config,
+        &speedtest_row_count_discovery(),
+    )
+    .await
+    .expect_err("missing exact metadata must fail closed");
+
+    assert!(error.to_string().contains("analytics.events_dlq"));
+}
+
+#[test]
+fn iceberg_snapshot_row_count_requires_an_exact_unsigned_total() {
+    assert_eq!(
+        super::sink::exact_iceberg_total_records(7, Some("0")).expect("zero total"),
+        0
+    );
+    assert_eq!(
+        super::sink::exact_iceberg_total_records(7, Some("18446744073709551615"))
+            .expect("u64 total"),
+        u64::MAX
+    );
+    for value in [None, Some("-1"), Some("1.0"), Some("not-a-count")] {
+        let error = super::sink::exact_iceberg_total_records(91, value)
+            .expect_err("inexact snapshot summary must fail closed");
+        assert!(error.to_string().contains("snapshot 91"));
+        assert!(error.to_string().contains("total-records"));
+    }
 }
 
 #[test]

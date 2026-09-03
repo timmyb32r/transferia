@@ -179,6 +179,35 @@ pub trait SinkConnector: Send + Sync {
         Vec::new()
     }
 
+    /// Describe a constant-time, exact row-count check for a completed finite
+    /// snapshot. The generic delivery runner never falls back to a table scan
+    /// or an approximate catalog statistic.
+    ///
+    /// `AdditiveBaseline` is appropriate when the snapshot appends to the
+    /// destination: the runner persists the initial count before preparation
+    /// and expects `final == baseline + output`. `ReplacedTotal` is appropriate
+    /// only when completion atomically replaces the complete destination
+    /// dataset and therefore expects `final == output`.
+    fn snapshot_row_count_strategy(&self) -> Option<SnapshotRowCountStrategy> {
+        None
+    }
+
+    /// Read exact destination row totals through an O(1) metadata operation.
+    /// Implementations must return one entry for every discovered dataset,
+    /// including an explicit `exists=false` entry for an absent destination.
+    /// This method is called only when [`Self::snapshot_row_count_strategy`]
+    /// returned `Some`.
+    fn snapshot_row_counts<'a>(
+        &'a self,
+        _discovery: &'a DeliveryDiscovery,
+    ) -> BoxFuture<'a, anyhow::Result<Vec<SnapshotDatasetRowCount>>> {
+        Box::pin(async {
+            anyhow::bail!(
+                "destination declared snapshot row-count verification without implementing its metadata probe"
+            )
+        })
+    }
+
     fn build_sink(&self, context: SinkBuildContext)
         -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>>;
 
@@ -209,6 +238,30 @@ pub trait SinkConnector: Send + Sync {
     ) -> BoxFuture<'a, anyhow::Result<()>> {
         Box::pin(async { Err(SpeedtestUnsupported::DestinationCleanup.into()) })
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SnapshotRowCountStrategy {
+    /// The destination retains pre-existing rows and the snapshot adds rows.
+    AdditiveBaseline,
+
+    /// The completed snapshot replaces the destination's full contents.
+    ReplacedTotal,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SnapshotDatasetRowCount {
+    pub role: DatasetRole,
+
+    pub table: Arc<str>,
+
+    /// Credential-free physical identity used to reject a persisted baseline
+    /// after the destination configuration changes.
+    pub target: Arc<str>,
+
+    pub exists: bool,
+
+    pub rows: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

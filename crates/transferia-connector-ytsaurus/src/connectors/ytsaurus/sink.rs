@@ -40,7 +40,8 @@ use transferia_core::{project_sink_batch, ProjectedSinkBatch, SystemColumnKind};
 use transferia_delivery_contracts::semantics::{EndpointDescriptor, YTsaurusSinkMode};
 use transferia_registry::{
     SinkBuildContext, SinkConnector, SinkPrepare, SinkSpeedtestIsolation,
-    SinkSpeedtestIsolationSafety, SpeedtestPhysicalTarget,
+    SinkSpeedtestIsolationSafety, SnapshotDatasetRowCount, SnapshotRowCountStrategy,
+    SpeedtestPhysicalTarget,
 };
 
 const MAX_STATIC_ROW_WEIGHT: usize = 128 * 1024 * 1024;
@@ -88,6 +89,13 @@ pub(super) trait YTsaurusSpeedtestClient {
     fn root_exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<bool>>;
 }
 
+pub(super) trait YTsaurusRowCountClient: Sync {
+    fn node_exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<bool>>;
+
+    fn row_count<'a>(&'a self, path: &'a str)
+        -> BoxFuture<'a, anyhow::Result<serde_json::Value>>;
+}
+
 impl YTsaurusSpeedtestClient for YTsaurusClient {
     fn create_root<'a>(
         &'a self,
@@ -116,6 +124,22 @@ impl YTsaurusSpeedtestClient for YTsaurusClient {
 
     fn root_exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<bool>> {
         Box::pin(self.node_exists(path))
+    }
+}
+
+impl YTsaurusRowCountClient for YTsaurusClient {
+    fn node_exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<bool>> {
+        Box::pin(YTsaurusClient::node_exists(self, path))
+    }
+
+    fn row_count<'a>(
+        &'a self,
+        path: &'a str,
+    ) -> BoxFuture<'a, anyhow::Result<serde_json::Value>> {
+        Box::pin(async move {
+            self.get_json(&super::attribute_path(path, "row_count"))
+                .await
+        })
     }
 }
 
@@ -327,6 +351,23 @@ impl SinkConnector for YTsaurusSinkConnector {
         } else {
             data_type.to_owned()
         })
+    }
+
+    fn snapshot_row_count_strategy(&self) -> Option<SnapshotRowCountStrategy> {
+        (self.config.replace_tables()
+            && self.config.big_value_policy() == YTsaurusBigValuePolicy::Fail)
+            .then_some(SnapshotRowCountStrategy::ReplacedTotal)
+    }
+
+    fn snapshot_row_counts<'a>(
+        &'a self,
+        discovery: &'a DeliveryDiscovery,
+    ) -> BoxFuture<'a, anyhow::Result<Vec<SnapshotDatasetRowCount>>> {
+        Box::pin(snapshot_ytsaurus_row_counts(
+            &self.client,
+            &self.config,
+            discovery,
+        ))
     }
 
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
@@ -612,6 +653,44 @@ impl SinkConnector for YTsaurusSinkConnector {
             cleanup_ytsaurus_speedtest_root(&self.client, scope).await
         })
     }
+}
+
+pub(super) fn exact_ytsaurus_row_count(value: &serde_json::Value) -> anyhow::Result<u64> {
+    value.as_u64().ok_or_else(|| {
+        anyhow::anyhow!(
+            "YTsaurus row_count attribute is not a non-negative integer representable as u64"
+        )
+    })
+}
+
+pub(super) async fn snapshot_ytsaurus_row_counts(
+    client: &impl YTsaurusRowCountClient,
+    config: &YTsaurusSinkConfig,
+    discovery: &DeliveryDiscovery,
+) -> anyhow::Result<Vec<SnapshotDatasetRowCount>> {
+    let mut counts = Vec::with_capacity(discovery.datasets.len());
+    for dataset in &discovery.datasets {
+        let path = config.path_for_dataset(&dataset.name)?;
+        if !client.node_exists(&path).await? {
+            counts.push(SnapshotDatasetRowCount {
+                role: dataset.role,
+                table: Arc::clone(&dataset.name),
+                target: Arc::from(path),
+                exists: false,
+                rows: 0,
+            });
+            continue;
+        }
+        let value = client.row_count(&path).await?;
+        counts.push(SnapshotDatasetRowCount {
+            role: dataset.role,
+            table: Arc::clone(&dataset.name),
+            target: Arc::from(path),
+            exists: true,
+            rows: exact_ytsaurus_row_count(&value)?,
+        });
+    }
+    Ok(counts)
 }
 
 const SPEEDTEST_OWNER_ATTRIBUTE: &str = "transferia_speedtest_owner";

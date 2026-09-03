@@ -21,6 +21,10 @@ use transferia_delivery_contracts::metrics::ParseCounters;
 use transferia_delivery_contracts::middleware::Middleware;
 use transferia_delivery_contracts::parser::{ParserFactory, ParserSession};
 
+mod row_count;
+
+pub use row_count::{OutputDatasetRowCount, OutputRowCounts};
+
 const CHANNEL_CAPACITY: usize = 8;
 const INITIAL_BACKOFF_MS: u64 = 10;
 const MAX_BACKOFF_MS: u64 = 30_000;
@@ -125,6 +129,7 @@ async fn parser_loop(
     middlewares: Arc<Vec<Box<dyn Middleware>>>,
     memory: PipelineMemory,
     counters: Arc<ParseCounters>,
+    output_row_counts: Option<Arc<OutputRowCounts>>,
     cancellation: CancellationToken,
 ) -> anyhow::Result<()> {
     let mut parser: Option<Box<dyn ParserSession>> = None;
@@ -183,7 +188,10 @@ async fn parser_loop(
                         .as_ref()
                         .and_then(|memory| make_sink_batch(table, bytes, memory.clone()))
                 })
-                .collect();
+                .collect::<Vec<_>>();
+            if let Some(row_counts) = &output_row_counts {
+                row_counts.observe_delivery(envelope.id, &outputs)?;
+            }
             if output
                 .send(Delivery {
                     id: envelope.id,
@@ -317,6 +325,9 @@ async fn parser_loop(
             }
         }
         drop(output_memory);
+        if let Some(row_counts) = &output_row_counts {
+            row_counts.observe_delivery(id, &outputs)?;
+        }
         if output.send(Delivery { id, outputs, meta }).await.is_err() {
             return Ok(());
         }
@@ -357,6 +368,7 @@ async fn commit_through(
     ledger: &mut VecDeque<CommitEntry>,
     committed: DeliveryId,
     progress: &PipelineProgress,
+    output_row_counts: Option<&OutputRowCounts>,
 ) -> anyhow::Result<()> {
     let valid_range = ledger
         .front()
@@ -380,11 +392,17 @@ async fn commit_through(
         .take(committed_entries)
         .filter_map(|entry| entry.marker.clone())
         .collect::<Vec<_>>();
+    if let Some(row_counts) = output_row_counts {
+        row_counts.validate_commit_through(committed)?;
+    }
     if !markers.is_empty() {
         source.commit_offsets(&markers).await.with_context(|| {
             format!("source commit failed through delivery {}", committed.get())
         })?;
         progress.record_source_commit();
+    }
+    if let Some(row_counts) = output_row_counts {
+        row_counts.commit_through(committed)?;
     }
     for _ in 0..committed_entries {
         ledger
@@ -402,6 +420,7 @@ async fn reserve_source_memory_with_events(
     bytes: usize,
     cancellation: &CancellationToken,
     progress: &PipelineProgress,
+    output_row_counts: Option<&OutputRowCounts>,
 ) -> anyhow::Result<Option<MemoryReservation>> {
     let reservation = memory.reserve(bytes);
     tokio::pin!(reservation);
@@ -414,7 +433,7 @@ async fn reserve_source_memory_with_events(
                     "sink event stream closed while reserving source memory"
                 ))?;
                 let SinkEvent::CommittedThrough(id) = event;
-                commit_through(source, ledger, id, progress).await?;
+                commit_through(source, ledger, id, progress, output_row_counts).await?;
             }
             reservation = &mut reservation => return Ok(Some(reservation)),
         }
@@ -428,6 +447,7 @@ async fn reader_loop(
     memory: PipelineMemory,
     cancellation: CancellationToken,
     progress: Arc<PipelineProgress>,
+    output_row_counts: Option<Arc<OutputRowCounts>>,
 ) -> anyhow::Result<()> {
     let pipeline_result = reader_loop_inner(
         &mut source,
@@ -436,6 +456,7 @@ async fn reader_loop(
         memory,
         cancellation,
         progress,
+        output_row_counts,
     )
     .await;
     let shutdown_result = source.shutdown().await.map_err(anyhow::Error::new);
@@ -490,6 +511,7 @@ async fn reader_loop_inner(
     memory: PipelineMemory,
     cancellation: CancellationToken,
     progress: Arc<PipelineProgress>,
+    output_row_counts: Option<Arc<OutputRowCounts>>,
 ) -> anyhow::Result<ReaderCompletion> {
     let mut ledger = VecDeque::new();
     let mut next_id = DeliveryId::new(1);
@@ -508,7 +530,14 @@ async fn reader_loop_inner(
 
         let batch = read?;
         while let Ok(SinkEvent::CommittedThrough(id)) = events.try_recv() {
-            commit_through(source, &mut ledger, id, progress.as_ref()).await?;
+            commit_through(
+                source,
+                &mut ledger,
+                id,
+                progress.as_ref(),
+                output_row_counts.as_deref(),
+            )
+            .await?;
         }
         if matches!(batch, SourceBatch::Finished) {
             // Close the parser input before waiting for the durability ledger.
@@ -523,7 +552,14 @@ async fn reader_loop_inner(
                     })?,
                 };
                 let SinkEvent::CommittedThrough(id) = event;
-                commit_through(source, &mut ledger, id, progress.as_ref()).await?;
+                commit_through(
+                    source,
+                    &mut ledger,
+                    id,
+                    progress.as_ref(),
+                    output_row_counts.as_deref(),
+                )
+                .await?;
             }
             tracing::info!(
                 deliveries = next_id.get().saturating_sub(1),
@@ -580,7 +616,14 @@ async fn reader_loop_inner(
                 () = cancellation.cancelled() => return Ok(ReaderCompletion::Cancelled),
                 event = events.recv() => {
                     if let Some(SinkEvent::CommittedThrough(id)) = event {
-                        commit_through(source, &mut ledger, id, progress.as_ref()).await?;
+                        commit_through(
+                            source,
+                            &mut ledger,
+                            id,
+                            progress.as_ref(),
+                            output_row_counts.as_deref(),
+                        )
+                        .await?;
                     }
                 }
                 () = sleep(Duration::from_millis(backoff_ms)) => {}
@@ -599,6 +642,7 @@ async fn reader_loop_inner(
                 source_payload_bytes as usize,
                 &cancellation,
                 progress.as_ref(),
+                output_row_counts.as_deref(),
             )
             .await?
             else {
@@ -625,7 +669,14 @@ async fn reader_loop_inner(
                 event = events.recv() => {
                     let event = event.ok_or_else(|| anyhow::anyhow!("sink event stream closed"))?;
                     let SinkEvent::CommittedThrough(id) = event;
-                    commit_through(source, &mut ledger, id, progress.as_ref()).await?;
+                    commit_through(
+                        source,
+                        &mut ledger,
+                        id,
+                        progress.as_ref(),
+                        output_row_counts.as_deref(),
+                    )
+                    .await?;
                 }
                 permit = output.reserve() => {
                     let permit = permit.map_err(|_| anyhow::anyhow!("parser input closed"))?;
@@ -762,6 +813,37 @@ pub async fn run_partition_pipeline_with_progress(
     parse_counters: Arc<ParseCounters>,
     progress: Arc<PipelineProgress>,
 ) -> DataPlaneResult<()> {
+    run_partition_pipeline_with_progress_and_row_counts(
+        source,
+        parser,
+        middlewares,
+        sink,
+        memory,
+        cancel_token,
+        _partition_id,
+        parse_counters,
+        progress,
+        None,
+    )
+    .await
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the pipeline boundary receives independently owned runtime components and observers"
+)]
+pub async fn run_partition_pipeline_with_progress_and_row_counts(
+    source: Box<dyn Source>,
+    parser: Arc<dyn ParserFactory>,
+    middlewares: Arc<Vec<Box<dyn Middleware>>>,
+    sink: Box<dyn Sink>,
+    memory: PipelineMemory,
+    cancel_token: CancellationToken,
+    _partition_id: i64,
+    parse_counters: Arc<ParseCounters>,
+    progress: Arc<PipelineProgress>,
+    output_row_counts: Option<Arc<OutputRowCounts>>,
+) -> DataPlaneResult<()> {
     let local = cancel_token.child_token();
     let (read_tx, read_rx) = mpsc::channel(CHANNEL_CAPACITY);
     let (delivery_tx, delivery_rx) = mpsc::channel(CHANNEL_CAPACITY);
@@ -776,6 +858,7 @@ pub async fn run_partition_pipeline_with_progress(
         middlewares,
         parser_memory,
         parse_counters,
+        output_row_counts.clone(),
         parser_token,
     ));
 
@@ -789,6 +872,7 @@ pub async fn run_partition_pipeline_with_progress(
             reader_memory,
             reader_token,
             progress,
+            output_row_counts,
         )
         .await
     });

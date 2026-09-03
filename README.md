@@ -115,6 +115,28 @@ the generic object-store API cannot prove removal of historical object versions,
 while the available HDFS writer does not yet share the hardened outbound-HTTP
 boundary required for a destructive probe.
 
+Finite snapshots permanently count rows at the connector-neutral Arrow
+boundary, after parsing and middlewares and before destination-specific
+encoding. Totals are exact per main/DLQ dataset. A delivery contributes only
+after the sink acknowledgement and source commit both succeed; committed
+prefixes survive an in-process partition retry, while uncommitted replay does
+not double-count. Every finite source therefore reports its exact completed
+output totals regardless of connector.
+
+When a destination exposes an exact O(1) metadata count, the runner also
+reconciles persisted rows before declaring the snapshot complete. Iceberg uses
+the snapshot summary's `total-records` and a durable pre-write baseline, so the
+required equality is `final = baseline + output`. A lossless replacement into
+YTsaurus uses `@row_count` and requires `final = output`; verification is not
+claimed when replacement is disabled or the explicit oversized-value policy
+may drop rows. Missing targets, malformed/approximate metadata, changed
+physical destinations, overflow, and count mismatches fail explicitly. Other
+destinations still receive and log exact output totals, but do not run an
+expensive `COUNT(*)` or substitute approximate catalog statistics. Destination
+reconciliation is currently performed only by a single-worker snapshot; a
+multi-worker run reports per-worker output totals and explicitly marks the
+destination check unavailable rather than guessing a global sum.
+
 ## Quality checks
 
 ```bash

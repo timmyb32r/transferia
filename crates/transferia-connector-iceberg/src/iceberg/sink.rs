@@ -16,7 +16,7 @@ use iceberg::writer::file_writer::location_generator::{
 use iceberg::writer::file_writer::rolling_writer::RollingFileWriterBuilder;
 use iceberg::writer::file_writer::ParquetWriterBuilder;
 use iceberg::writer::{IcebergWriter, IcebergWriterBuilder};
-use iceberg::{Catalog, TableCreation};
+use iceberg::{Catalog, TableCreation, TableIdent};
 use parquet::basic::{Compression as ParquetCompression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use sha2::{Digest as _, Sha256};
@@ -33,6 +33,7 @@ use transferia_delivery_contracts::semantics::EndpointDescriptor;
 use transferia_registry::durable::{CompareExchangeResult, DurableContext};
 use transferia_registry::{
     SinkBuildContext, SinkConnector, SinkPrepare, SinkSpeedtestIsolation,
+    SnapshotDatasetRowCount, SnapshotRowCountStrategy,
 };
 
 use super::catalog::{build_catalog, table_ident};
@@ -148,6 +149,20 @@ impl SinkConnector for IcebergSinkConnector {
         Ok(converted.as_struct().fields()[0].field_type.to_string())
     }
 
+    fn snapshot_row_count_strategy(&self) -> Option<SnapshotRowCountStrategy> {
+        Some(SnapshotRowCountStrategy::AdditiveBaseline)
+    }
+
+    fn snapshot_row_counts<'a>(
+        &'a self,
+        discovery: &'a DeliveryDiscovery,
+    ) -> BoxFuture<'a, anyhow::Result<Vec<SnapshotDatasetRowCount>>> {
+        Box::pin(async move {
+            let catalog = self.catalog().await?;
+            snapshot_iceberg_row_counts(&catalog, &self.config, discovery).await
+        })
+    }
+
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
             let catalog = self.catalog().await?;
@@ -208,6 +223,88 @@ impl SinkConnector for IcebergSinkConnector {
             )
         })
     }
+}
+
+pub(super) trait IcebergRowCountCatalog: Sync {
+    fn row_count<'a>(
+        &'a self,
+        table: &'a TableIdent,
+    ) -> BoxFuture<'a, anyhow::Result<Option<u64>>>;
+}
+
+impl IcebergRowCountCatalog for Arc<dyn Catalog> {
+    fn row_count<'a>(
+        &'a self,
+        ident: &'a TableIdent,
+    ) -> BoxFuture<'a, anyhow::Result<Option<u64>>> {
+        Box::pin(async move {
+            if !self.table_exists(ident).await? {
+                return Ok(None);
+            }
+            let table = self.load_table(ident).await?;
+            Ok(Some(iceberg_table_row_count(&table)?))
+        })
+    }
+}
+
+pub(super) async fn snapshot_iceberg_row_counts(
+    catalog: &impl IcebergRowCountCatalog,
+    config: &IcebergSinkConfig,
+    discovery: &DeliveryDiscovery,
+) -> anyhow::Result<Vec<SnapshotDatasetRowCount>> {
+    let mut counts = Vec::with_capacity(discovery.datasets.len());
+    for dataset in &discovery.datasets {
+        let table_ref = config.table_for_dataset(&dataset.name)?;
+        let ident = table_ident(&table_ref)?;
+        let target: Arc<str> = Arc::from(ident.to_string());
+        match catalog.row_count(&ident).await? {
+            Some(rows) => counts.push(SnapshotDatasetRowCount {
+                role: dataset.role,
+                table: Arc::clone(&dataset.name),
+                target,
+                exists: true,
+                rows,
+            }),
+            None => counts.push(SnapshotDatasetRowCount {
+                role: dataset.role,
+                table: Arc::clone(&dataset.name),
+                target,
+                exists: false,
+                rows: 0,
+            }),
+        }
+    }
+    Ok(counts)
+}
+
+fn iceberg_table_row_count(table: &Table) -> anyhow::Result<u64> {
+    let Some(snapshot) = table.metadata().current_snapshot() else {
+        return Ok(0);
+    };
+    exact_iceberg_total_records(
+        snapshot.snapshot_id(),
+        snapshot
+            .summary()
+            .additional_properties
+            .get("total-records")
+            .map(String::as_str),
+    )
+}
+
+pub(super) fn exact_iceberg_total_records(
+    snapshot_id: i64,
+    value: Option<&str>,
+) -> anyhow::Result<u64> {
+    let value = value.ok_or_else(|| {
+        anyhow::anyhow!(
+            "Iceberg current snapshot {snapshot_id} has no exact total-records summary"
+        )
+    })?;
+    value.parse::<u64>().map_err(|_| {
+        anyhow::anyhow!(
+            "Iceberg current snapshot {snapshot_id} has invalid total-records summary"
+        )
+    })
 }
 
 struct IcebergSink {

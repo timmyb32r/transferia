@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
+use futures_util::future::BoxFuture;
 
 use super::client::{
     dynamic_conversion_attributes, dynamic_table_attributes, json_header_value,
@@ -49,11 +50,11 @@ fn dynamic_row_modification_codes_match_the_native_rpc_contract() {
 use super::schema::{parse_schema, schema_to_yt, schemas_equal, sorted_unique_schema_to_yt};
 use super::sink::{
     cleanup_ytsaurus_speedtest_root, drop_oversized_rows, dynamic_row_modification, encode_arrow,
-    encode_arrow_batches, is_speedtest_scratch_root, is_within_speedtest_root,
-    physical_target_set, prepare_ytsaurus_speedtest_root, speedtest_root_proof,
-    speedtest_scratch_root, validate_initial_tablet_count, validate_row_weight,
-    validate_speedtest_cleanup_scope, validate_speedtest_isolation_id, validate_temporal_values,
-    yt_guid,
+    encode_arrow_batches, exact_ytsaurus_row_count, is_speedtest_scratch_root,
+    is_within_speedtest_root, physical_target_set, prepare_ytsaurus_speedtest_root,
+    snapshot_ytsaurus_row_counts, speedtest_root_proof, speedtest_scratch_root,
+    validate_initial_tablet_count, validate_row_weight, validate_speedtest_cleanup_scope,
+    validate_speedtest_isolation_id, validate_temporal_values, yt_guid, YTsaurusRowCountClient,
     YTsaurusSinkConnector, YTsaurusSpeedtestClient, YTsaurusSpeedtestScope,
 };
 use super::src_batch::{
@@ -71,7 +72,8 @@ use transferia_core::delivery::{
 use transferia_core::memory::PipelineMemory;
 use transferia_core::sink::SinkBatch;
 use transferia_registry::{
-    SinkConnector as _, SinkSpeedtestIsolation, SpeedtestPhysicalTarget,
+    SinkConnector as _, SinkSpeedtestIsolation, SnapshotRowCountStrategy,
+    SpeedtestPhysicalTarget,
 };
 
 fn speedtest_sink_discovery() -> DeliveryDiscovery {
@@ -113,6 +115,132 @@ fn speedtest_static_config(replace_tables: bool) -> anyhow::Result<YTsaurusSinkC
          port: 8000\n\
          trusted_plaintext: true\n"
     ))?)
+}
+
+#[test]
+fn ytsaurus_row_count_verification_requires_lossless_replacement() -> anyhow::Result<()> {
+    let replaced = YTsaurusSinkConnector::from_config(speedtest_static_config(true)?)?;
+    assert_eq!(
+        replaced.snapshot_row_count_strategy(),
+        Some(SnapshotRowCountStrategy::ReplacedTotal)
+    );
+
+    let appended = YTsaurusSinkConnector::from_config(speedtest_static_config(false)?)?;
+    assert_eq!(appended.snapshot_row_count_strategy(), None);
+
+    let dropping: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: static_tables, replace_tables: true, path: //tmp/output, big_value_policy: drop }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n",
+    )?;
+    let dropping = YTsaurusSinkConnector::from_config(dropping)?;
+    assert_eq!(
+        dropping.snapshot_row_count_strategy(),
+        None,
+        "an explicit row-dropping policy cannot claim output-row equality"
+    );
+    Ok(())
+}
+
+#[test]
+fn ytsaurus_row_count_attribute_must_be_an_exact_non_negative_integer() {
+    for rows in [0_u64, 1, u64::MAX] {
+        assert_eq!(
+            exact_ytsaurus_row_count(&serde_json::json!(rows)).expect("exact row count"),
+            rows
+        );
+    }
+    for value in [
+        serde_json::json!(-1),
+        serde_json::json!(1.5),
+        serde_json::json!("10"),
+        serde_json::Value::Null,
+    ] {
+        assert!(exact_ytsaurus_row_count(&value).is_err());
+    }
+}
+
+struct FakeYTsaurusRowCountClient {
+    rows: BTreeMap<String, serde_json::Value>,
+    row_reads: Mutex<Vec<String>>,
+}
+
+impl YTsaurusRowCountClient for FakeYTsaurusRowCountClient {
+    fn node_exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<bool>> {
+        Box::pin(async move { Ok(self.rows.contains_key(path)) })
+    }
+
+    fn row_count<'a>(
+        &'a self,
+        path: &'a str,
+    ) -> BoxFuture<'a, anyhow::Result<serde_json::Value>> {
+        Box::pin(async move {
+            self.row_reads
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(path.to_owned());
+            self.rows
+                .get(path)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("missing fake row count"))
+        })
+    }
+}
+
+#[tokio::test]
+async fn ytsaurus_snapshot_probe_reports_every_dataset_without_scanning_missing_tables(
+) -> anyhow::Result<()> {
+    let config = speedtest_static_config(true)?;
+    let client = FakeYTsaurusRowCountClient {
+        rows: BTreeMap::from([(
+            "//tmp/production/events".to_owned(),
+            serde_json::json!(41),
+        )]),
+        row_reads: Mutex::new(Vec::new()),
+    };
+
+    let counts = snapshot_ytsaurus_row_counts(&client, &config, &speedtest_sink_discovery()).await?;
+
+    assert_eq!(counts.len(), 2);
+    assert_eq!(counts[0].role, DatasetRole::Main);
+    assert_eq!(counts[0].table.as_ref(), "events");
+    assert_eq!(counts[0].target.as_ref(), "//tmp/production/events");
+    assert!(counts[0].exists);
+    assert_eq!(counts[0].rows, 41);
+    assert_eq!(counts[1].role, DatasetRole::DeadLetterQueue);
+    assert_eq!(counts[1].target.as_ref(), "//tmp/production/events_dlq");
+    assert!(!counts[1].exists);
+    assert_eq!(counts[1].rows, 0);
+    assert_eq!(
+        *client
+            .row_reads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+        vec!["//tmp/production/events".to_owned()]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn ytsaurus_snapshot_probe_rejects_inexact_metadata() -> anyhow::Result<()> {
+    let config = speedtest_static_config(true)?;
+    let client = FakeYTsaurusRowCountClient {
+        rows: BTreeMap::from([(
+            "//tmp/production/events".to_owned(),
+            serde_json::json!("41"),
+        )]),
+        row_reads: Mutex::new(Vec::new()),
+    };
+    let mut discovery = speedtest_sink_discovery();
+    discovery.datasets.truncate(1);
+
+    let error = snapshot_ytsaurus_row_counts(&client, &config, &discovery)
+        .await
+        .expect_err("string metadata must not be coerced to an integer");
+    assert!(error.to_string().contains("not a non-negative integer"));
+    Ok(())
 }
 
 fn assert_same_speedtest_schema(left: &DatasetSchema, right: &DatasetSchema) {

@@ -24,5 +24,8 @@ transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
 transferia-pipeline = { path = "../transferia-pipeline" }
 transferia-registry = { path = "../transferia-registry" }
 
+[dev-dependencies]
+transferia-test-support = { path = "../transferia-test-support" }
+
 [lints]
 workspace = true
