@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Run and compare reproducible single-partition transferia benchmarks."""
+"""Run and compare reproducible single-partition transferia benchmarks.
+
+Every run receives a fresh 128-bit BENCHMARK_RUN_NAMESPACE. The runner never
+deletes external state because it has no persistent connector-owned ownership
+proof; the benchmark configuration must use an isolated fixture whose owner
+performs verified cleanup.
+"""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -12,6 +17,7 @@ import pathlib
 import platform
 import queue
 import re
+import secrets
 import signal
 import statistics
 import subprocess
@@ -20,9 +26,13 @@ import tempfile
 import threading
 import time
 import urllib.parse
-import urllib.request
 from datetime import datetime, timezone
 from typing import Any
+
+try:
+    from scripts.murmur3_x64_128 import murmur3_x64_128, murmur3_x64_128_file
+except ModuleNotFoundError:
+    from murmur3_x64_128 import murmur3_x64_128, murmur3_x64_128_file
 
 
 STATS_PREFIX = re.compile(r"\[stats p=(?P<partition>-?\d+)]")
@@ -81,7 +91,6 @@ REPRODUCIBILITY_ENV_KEYS = (
     "S3_REGION",
     "S3_HOST",
     "S3_PORT",
-    "S3_ACCESS_KEY",
 )
 NUMERIC_SAMPLE_KEYS = (
     "source_records_per_s",
@@ -169,137 +178,38 @@ def validate_sample(sample: dict[str, Any]) -> None:
 
 
 def reproducibility_environment(environment: dict[str, str]) -> dict[str, str]:
-    return {key: environment[key] for key in REPRODUCIBILITY_ENV_KEYS if key in environment}
-
-
-def sha256_file(path: pathlib.Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def run_namespace(output: pathlib.Path, repetition: int) -> str:
-    arm = hashlib.sha256(str(output.resolve()).encode("utf-8")).hexdigest()[:12]
-    return f"{arm}_{repetition:02d}"
-
-
-def clickhouse_identifier(value: str) -> str:
-    return "`" + value.replace("\\", "\\\\").replace("`", "\\`") + "`"
-
-
-def clickhouse_literal(value: str) -> str:
-    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
-
-
-def clickhouse_query(environment: dict[str, str], sql: str) -> str:
-    endpoint = environment.get("CLICKHOUSE_HTTP_ENDPOINT", "http://localhost:8123").rstrip("/")
-    query = urllib.parse.urlencode(
-        {
-            "database": environment.get("CLICKHOUSE_DATABASE", "default"),
-            "query": sql,
-        }
-    )
-    request = urllib.request.Request(
-        f"{endpoint}/?{query}",
-        headers={
-            "X-ClickHouse-User": environment.get("CLICKHOUSE_USERNAME", "default"),
-            "X-ClickHouse-Key": environment.get("CLICKHOUSE_PASSWORD", ""),
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        return response.read().decode("utf-8")
-
-
-def cleanup_clickhouse_run(
-    environment: dict[str, str],
-    table: str,
-    timeout_seconds: float = 30,
-    *,
-    require_existing: bool = False,
-) -> None:
-    database = environment.get("CLICKHOUSE_DATABASE", "default")
-    dlq_table = f"{table}_dlq"
-    if require_existing:
-        existing_query = (
-            "SELECT count() FROM system.tables WHERE database = "
-            f"{clickhouse_literal(database)} AND name IN "
-            f"({clickhouse_literal(table)}, {clickhouse_literal(dlq_table)})"
+    result = {key: environment[key] for key in REPRODUCIBILITY_ENV_KEYS if key in environment}
+    endpoint = result.get("CLICKHOUSE_HTTP_ENDPOINT")
+    if endpoint is not None:
+        parsed = urllib.parse.urlsplit(endpoint)
+        if parsed.hostname is None:
+            raise ValueError("CLICKHOUSE_HTTP_ENDPOINT must contain a hostname")
+        host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+        result["CLICKHOUSE_HTTP_ENDPOINT"] = urllib.parse.urlunsplit(
+            (parsed.scheme, f"{host}:{parsed.port}" if parsed.port else host, "", "", "")
         )
-        existing = int(clickhouse_query(environment, existing_query).strip())
-        if existing != 2:
-            raise RuntimeError(
-                "ClickHouse cleanup endpoint did not expose the expected both benchmark tables; "
-                "check CLICKHOUSE_HTTP_ENDPOINT"
-            )
-    for name in (table, dlq_table):
-        clickhouse_query(
-            environment,
-            f"DROP TABLE IF EXISTS {clickhouse_identifier(database)}."
-            f"{clickhouse_identifier(name)} SYNC",
-        )
-    merge_query = (
-        "SELECT count() FROM system.merges WHERE database = "
-        f"{clickhouse_literal(database)} AND table IN "
-        f"({clickhouse_literal(table)}, {clickhouse_literal(dlq_table)})"
-    )
-    deadline = time.monotonic() + timeout_seconds
-    while True:
-        active = int(clickhouse_query(environment, merge_query).strip())
-        if active == 0:
-            return
-        if time.monotonic() >= deadline:
-            raise RuntimeError(f"ClickHouse background merges did not quiesce for table {table}")
-        time.sleep(0.1)
-
-
-def cleanup_run(
-    config_text: str,
-    environment: dict[str, str],
-    namespace: str,
-    *,
-    require_existing: bool,
-) -> None:
-    if re.search(r"(?m)^\s{2}clickhouse:\s*(?:\{\})?\s*$", config_text):
-        cleanup_clickhouse_run(
-            environment,
-            f"events_{namespace}",
-            require_existing=require_existing,
-        )
-
-
-def run_repetition(
-    binary: pathlib.Path,
-    config: pathlib.Path,
-    config_text: str,
-    output: pathlib.Path,
-    repetition: int,
-    warmup_seconds: float,
-    sample_seconds: float,
-    min_samples: int,
-    environment: dict[str, str],
-) -> dict[str, Any]:
-    namespace = run_namespace(output, repetition)
-    try:
-        result = run_once(
-            binary,
-            config,
-            output,
-            repetition,
-            warmup_seconds,
-            sample_seconds,
-            min_samples,
-        )
-    except BaseException as run_error:
-        try:
-            cleanup_run(config_text, environment, namespace, require_existing=False)
-        except BaseException as cleanup_error:
-            raise run_error from cleanup_error
-        raise
-    cleanup_run(config_text, environment, namespace, require_existing=True)
     return result
+
+
+def private_text_write(path: pathlib.Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.chmod(0o700)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(descriptor, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        output.write(text)
+
+
+def private_text_output(path: pathlib.Path):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.chmod(0o700)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(descriptor, 0o600)
+    return os.fdopen(descriptor, "w", encoding="utf-8")
+
+
+def run_namespace(repetition: int) -> str:
+    return f"{secrets.token_hex(16)}_{repetition:02d}"
 
 
 def comparison_environment(document: dict[str, Any]) -> dict[str, str]:
@@ -316,7 +226,7 @@ def comparison_environment(document: dict[str, Any]) -> dict[str, str]:
 def validate_comparison_context(current: dict[str, Any], baseline: dict[str, Any]) -> None:
     if current.get("schema_version") != baseline.get("schema_version"):
         raise ValueError("baseline schema_version does not match the current result")
-    for field in ("config_sha256", "parameters", "platform"):
+    for field in ("config_murmur3_x64_128", "parameters", "platform"):
         if current.get(field) != baseline.get(field):
             raise ValueError(f"baseline {field} does not match the current result")
     if comparison_environment(current) != comparison_environment(baseline):
@@ -405,7 +315,7 @@ def stream_output(
     process: subprocess.Popen[str], lines: queue.Queue[tuple[float, str] | None], log_path: pathlib.Path
 ) -> None:
     assert process.stdout is not None
-    with log_path.open("w", encoding="utf-8") as log:
+    with private_text_output(log_path) as log:
         for line in process.stdout:
             timestamp = time.monotonic()
             log.write(line)
@@ -422,12 +332,13 @@ def run_once(
     warmup_seconds: float,
     sample_seconds: float,
     min_samples: int,
+    allow_early_completion: bool = False,
 ) -> dict[str, Any]:
     environment = os.environ.copy()
     environment.setdefault("RUST_LOG", "info")
     environment.setdefault("NO_COLOR", "1")
     environment["BENCHMARK_REPETITION"] = str(repetition)
-    environment["BENCHMARK_RUN_NAMESPACE"] = run_namespace(output, repetition)
+    environment["BENCHMARK_RUN_NAMESPACE"] = run_namespace(repetition)
     rendered = render_config_template(config.read_text(), environment)
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", prefix="transferia-benchmark-", suffix=".yaml", delete=False
@@ -464,36 +375,56 @@ def run_once(
     stop_at = sample_from + sample_seconds
     samples: list[dict[str, Any]] = []
     failures: list[str] = []
+    completed_early = False
+
+    def record(item: tuple[float, str] | None) -> None:
+        if item is None:
+            return
+        timestamp, line = item
+        lowered = line.lower()
+        if any(marker in lowered for marker in FAILURE_MARKERS):
+            failures.append("pipeline failure marker")
+        if timestamp < sample_from or timestamp > stop_at:
+            return
+        parsed = parse_stats_line(line)
+        if parsed is None:
+            return
+        if parsed["partition_id"] != 0:
+            raise RuntimeError(
+                f"unexpected partition in single-partition run: {line.rstrip()}"
+            )
+        validate_sample(parsed)
+        samples.append(parsed)
+
     try:
         while time.monotonic() < stop_at:
             if process.poll() is not None:
-                raise RuntimeError(f"benchmark process exited early with status {process.returncode}")
+                if not allow_early_completion or process.returncode != 0:
+                    raise RuntimeError(
+                        f"benchmark process exited early with status {process.returncode}"
+                    )
+                completed_early = True
+                break
             try:
                 item = lines.get(timeout=min(0.25, max(0.01, stop_at - time.monotonic())))
             except queue.Empty:
                 continue
-            if item is None:
-                continue
-            timestamp, line = item
-            lowered = line.lower()
-            if any(marker in lowered for marker in FAILURE_MARKERS):
-                failures.append(line.rstrip())
-            if timestamp < sample_from:
-                continue
-            parsed = parse_stats_line(line)
-            if parsed is not None:
-                if parsed["partition_id"] != 0:
-                    raise RuntimeError(f"unexpected partition in single-partition run: {line.rstrip()}")
-                validate_sample(parsed)
-                samples.append(parsed)
+            record(item)
     finally:
         terminate(process)
         reader.join(timeout=2)
+        while True:
+            try:
+                record(lines.get_nowait())
+            except queue.Empty:
+                break
         if process.stdout is not None and hasattr(process.stdout, "close"):
             process.stdout.close()
         rendered_path.unlink(missing_ok=True)
     if failures:
-        raise RuntimeError("pipeline failures occurred during benchmark: " + "; ".join(failures))
+        raise RuntimeError(
+            "pipeline failures occurred during benchmark; inspect the private run log"
+        )
     if len(samples) < min_samples:
         raise RuntimeError(f"only {len(samples)} stats samples captured; expected at least {min_samples}")
     nonzero = sum(sample["source_records_per_s"] > 0 for sample in samples)
@@ -505,6 +436,8 @@ def run_once(
         "repetition": repetition,
         "namespace": environment["BENCHMARK_RUN_NAMESPACE"],
         "log": str(log_path),
+        "elapsed_seconds": time.monotonic() - started,
+        "completed_naturally": completed_early,
         "sample_count": len(samples),
         "summary": summarize_samples(samples),
     }
@@ -529,6 +462,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--baseline", type=pathlib.Path)
     parser.add_argument("--regression-percent", type=float, default=5.0)
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument(
+        "--allow-early-completion",
+        action="store_true",
+        help="accept a finite source that drains after the minimum steady-state samples",
+    )
     return parser.parse_args()
 
 
@@ -550,16 +488,16 @@ def main() -> int:
         timezone.utc
     ).strftime("%Y%m%dT%H%M%SZ")
     output = output.resolve()
-    output.mkdir(parents=True, exist_ok=False)
+    output.mkdir(parents=True, exist_ok=False, mode=0o700)
+    output.chmod(0o700)
     config_bytes = config.read_bytes()
-    config_text = config_bytes.decode("utf-8")
     document: dict[str, Any] = {
-        "schema_version": 3,
+        "schema_version": 5,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "config": str(config),
-        "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
+        "config_murmur3_x64_128": murmur3_x64_128(config_bytes),
         "binary": str(binary),
-        "binary_sha256": sha256_file(binary),
+        "binary_murmur3_x64_128": murmur3_x64_128_file(binary),
         "git_commit": command_output(["git", "rev-parse", "HEAD"]),
         "git_dirty": bool(command_output(["git", "status", "--porcelain"])),
         "rustc": command_output(["rustc", "--version", "--verbose"]),
@@ -569,6 +507,7 @@ def main() -> int:
             "sample_seconds": args.sample_seconds,
             "repetitions": args.repetitions,
             "min_samples": args.min_samples,
+            "allow_early_completion": args.allow_early_completion,
         },
         "environment": reproducibility_environment(os.environ),
         "runs": [],
@@ -577,16 +516,15 @@ def main() -> int:
     try:
         for repetition in range(1, args.repetitions + 1):
             print(f"run {repetition}/{args.repetitions}", flush=True)
-            run = run_repetition(
+            run = run_once(
                 binary,
                 config,
-                config_text,
                 output,
                 repetition,
                 args.warmup_seconds,
                 args.sample_seconds,
                 args.min_samples,
-                os.environ,
+                args.allow_early_completion,
             )
             document["runs"].append(run)
         primary = load_primary_runs(document)
@@ -605,13 +543,19 @@ def main() -> int:
             document["baseline"] = str(args.baseline.resolve())
             document["comparison"] = comparison
             exit_code = 2 if comparison["regression"] else 0
-        result_path.write_text(json.dumps(document, indent=2, sort_keys=True), encoding="utf-8")
+        private_text_write(
+            result_path,
+            json.dumps(document, indent=2, sort_keys=True),
+        )
         print(json.dumps(document.get("comparison", document["primary_summary"]), indent=2))
         print(f"result: {result_path}")
         return exit_code
     except BaseException as error:
         document["error"] = str(error)
-        result_path.write_text(json.dumps(document, indent=2, sort_keys=True), encoding="utf-8")
+        private_text_write(
+            result_path,
+            json.dumps(document, indent=2, sort_keys=True),
+        )
         raise
 
 

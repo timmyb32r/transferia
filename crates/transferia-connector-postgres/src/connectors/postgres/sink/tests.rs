@@ -1,6 +1,7 @@
 use arrow::array::{
-    ArrayRef, BinaryArray, Date32Array, Int64Array, Int8Array, StringArray,
-    TimestampNanosecondArray, UInt16Array, UInt64Array, UInt8Array,
+    ArrayRef, BinaryArray, Date32Array, Int16Array, Int32Array, Int64Array, Int8Array,
+    StringArray, TimestampMicrosecondArray, TimestampNanosecondArray, TimestampSecondArray,
+    UInt16Array, UInt64Array, UInt8Array,
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
@@ -16,9 +17,13 @@ use super::connector::{
     PostgresSinkConnector, PostgresSpeedtestScope,
 };
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_core::data::system_columns::SystemColumns;
 use transferia_core::delivery::{
-    DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
+    ArrowTypeFamily, DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SinkLimits,
+    SourceTopology,
 };
+use transferia_core::memory::PipelineMemory;
+use transferia_core::sink::SinkBatch;
 use transferia_registry::{
     DatasetPrepare, SinkConnector, SinkSpeedtestIsolation, SpeedtestPhysicalTarget,
 };
@@ -63,6 +68,88 @@ fn config() -> PostgresSinkConfig {
 }
 
 #[test]
+fn postgres_sink_declares_its_lossless_bytea_binary_contract() {
+    let limits = config().description();
+
+    assert!(limits
+        .supported_arrow_types
+        .contains(&ArrowTypeFamily::Binary));
+}
+
+#[test]
+fn clickbench_types_pass_postgres_startup_and_runtime_validation() -> anyhow::Result<()> {
+    let schema = DatasetSchema::new(vec![
+        SchemaColumn::new("WatchID".to_owned(), DataType::Int64, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("JavaEnable".to_owned(), DataType::Int16, false),
+        SchemaColumn::new("Title".to_owned(), DataType::Binary, false),
+        SchemaColumn::new(
+            "EventTime".to_owned(),
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Second, None),
+            false,
+        )
+        .with_constraints(true, false, None),
+        SchemaColumn::new("EventDate".to_owned(), DataType::Date32, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("CounterID".to_owned(), DataType::Int32, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("UserID".to_owned(), DataType::Int64, false)
+            .with_constraints(true, false, None),
+    ]);
+    let discovery = DeliveryDiscovery {
+        source_name: Arc::from("clickbench"),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: Arc::from("hits"),
+            incoming_schema: schema.clone(),
+            stored_schema: schema.clone(),
+            system_columns: Vec::new(),
+        }],
+        performance_advice: Vec::new(),
+    };
+    let config = config();
+    config.validate_discovery(&discovery)?;
+
+    let fields = schema
+        .columns
+        .iter()
+        .map(|column| {
+            Field::new(&column.name, column.data_type.clone(), column.nullable)
+                .with_metadata(column.arrow_metadata())
+        })
+        .collect::<Vec<_>>();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        vec![
+            Arc::new(Int64Array::from(vec![7])) as ArrayRef,
+            Arc::new(Int16Array::from(vec![1])) as ArrayRef,
+            Arc::new(BinaryArray::from_iter_values([&[0, 0xff, b'\t'][..]])) as ArrayRef,
+            Arc::new(TimestampSecondArray::from(vec![1_704_067_200])) as ArrayRef,
+            Arc::new(Date32Array::from(vec![19_723])) as ArrayRef,
+            Arc::new(Int32Array::from(vec![42])) as ArrayRef,
+            Arc::new(Int64Array::from(vec![9])) as ArrayRef,
+        ],
+    )?;
+    let byte_size = batch.get_array_memory_size();
+    let runtime = SinkBatch {
+        table: Arc::from("hits"),
+        is_dlq: false,
+        batch,
+        byte_size,
+        memory: PipelineMemory::new(1).reserve_transform(1),
+        system_columns: SystemColumns::default(),
+    };
+    config.validate_batch(&discovery, &runtime)?;
+
+    assert!(super::copy_binary::encode(&runtime.batch).is_ok());
+    assert!(super::copy_text::encode(&runtime.batch).is_ok());
+    Ok(())
+}
+
+#[test]
 fn sink_copy_from_format_defaults_to_binary_and_accepts_explicit_text() {
     let binary = config();
     let text: PostgresSinkConfig = serde_yaml::from_str(
@@ -95,9 +182,38 @@ fn postgres_sink_ddl_covers_every_copy_encoder_type() {
             DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
             "timestamp",
         ),
+        (
+            DataType::Timestamp(
+                arrow::datatypes::TimeUnit::Microsecond,
+                Some("UTC".into()),
+            ),
+            "timestamp with time zone",
+        ),
     ] {
         assert_eq!(postgres_sql_type(&data_type).unwrap(), sql);
     }
+}
+
+#[test]
+fn postgres_sink_rejects_non_utc_timestamp_metadata_during_discovery() {
+    let mut discovery = discovery("events");
+    let schema = DatasetSchema::new(vec![SchemaColumn::new(
+        "value".to_owned(),
+        DataType::Timestamp(
+            arrow::datatypes::TimeUnit::Microsecond,
+            Some("Europe/Moscow".into()),
+        ),
+        false,
+    )]);
+    for dataset in &mut discovery.datasets {
+        dataset.incoming_schema = schema.clone();
+        dataset.stored_schema = schema.clone();
+    }
+
+    let error = config()
+        .validate_discovery(&discovery)
+        .expect_err("PostgreSQL cannot preserve a non-UTC Arrow timezone annotation");
+    assert!(error.to_string().contains("use explicit UTC or no timezone"));
 }
 
 #[test]
@@ -230,6 +346,71 @@ fn both_copy_encoders_reject_nanosecond_values_postgres_cannot_store_losslessly(
 
     assert!(super::copy_binary::encode(&batch).is_err());
     assert!(super::copy_text::encode(&batch).is_err());
+}
+
+#[test]
+fn both_copy_encoders_preserve_explicit_utc_and_reject_unrepresentable_temporals() {
+    let utc = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "observed_at",
+            DataType::Timestamp(
+                arrow::datatypes::TimeUnit::Microsecond,
+                Some("UTC".into()),
+            ),
+            false,
+        )])),
+        vec![Arc::new(
+            TimestampMicrosecondArray::from(vec![1_704_067_200_123_456])
+                .with_timezone("UTC"),
+        ) as ArrayRef],
+    )
+    .unwrap();
+    assert_eq!(
+        super::copy_text::encode(&utc).unwrap().as_ref(),
+        b"2024-01-01 00:00:00.123456+00\n"
+    );
+    assert!(super::copy_binary::encode(&utc).is_ok());
+
+    let invalid_timezone = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "observed_at",
+            DataType::Timestamp(
+                arrow::datatypes::TimeUnit::Microsecond,
+                Some("Europe/Moscow".into()),
+            ),
+            false,
+        )])),
+        vec![Arc::new(
+            TimestampMicrosecondArray::from(vec![0]).with_timezone("Europe/Moscow"),
+        ) as ArrayRef],
+    )
+    .unwrap();
+    assert!(super::copy_text::encode(&invalid_timezone).is_err());
+    assert!(super::copy_binary::encode(&invalid_timezone).is_err());
+
+    let invalid_date = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "day",
+            DataType::Date32,
+            false,
+        )])),
+        vec![Arc::new(Date32Array::from(vec![i32::MIN])) as ArrayRef],
+    )
+    .unwrap();
+    assert!(super::copy_text::encode(&invalid_date).is_err());
+    assert!(super::copy_binary::encode(&invalid_date).is_err());
+
+    let invalid_timestamp = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "observed_at",
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
+            false,
+        )])),
+        vec![Arc::new(TimestampMicrosecondArray::from(vec![i64::MIN])) as ArrayRef],
+    )
+    .unwrap();
+    assert!(super::copy_text::encode(&invalid_timestamp).is_err());
+    assert!(super::copy_binary::encode(&invalid_timestamp).is_err());
 }
 
 #[test]

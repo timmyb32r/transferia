@@ -58,7 +58,7 @@ pub enum Type {
     Uuid,
 
     Date,
-    Date32, // NOTE: This is i32 days since 1900-01-01
+    Date32, // i32 days since Unix epoch
     DateTime(Tz),
     DateTime64(usize, Tz),
 

@@ -70,6 +70,17 @@ fn source_config_requires_exact_distinct_indices_and_positive_limits() {
 }
 
 #[test]
+fn initial_source_configuration_uses_measured_bounded_concurrency() {
+    let mut initial = super::initial_config();
+    initial["hosts"] = json!(["example.test"]);
+    initial["auth"] = json!({ "type": "anonymous" });
+    let config: OpenSearchSourceConfig =
+        serde_json::from_value(initial).expect("valid initial config");
+    assert_eq!(config.read_concurrency, 2);
+    config.validate().expect("complete source config must validate");
+}
+
+#[test]
 fn source_schema_preserves_document_identity_routing_and_exact_json() {
     let schema = schema_for_tests();
     assert_eq!(schema.columns.len(), 4);

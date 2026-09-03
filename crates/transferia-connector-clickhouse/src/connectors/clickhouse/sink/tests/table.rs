@@ -211,14 +211,20 @@ fn seconds_use_signed_datetime64_and_reject_lossy_datetime() -> anyhow::Result<(
 }
 
 #[test]
-fn date32_is_rejected_before_table_creation() {
+fn date32_uses_the_matching_signed_clickhouse_type() -> anyhow::Result<()> {
     let date32 = schema(vec![SchemaColumn::new(
         "date".into(),
         DataType::Date32,
         false,
     )]);
-    let error = merge_tree_ddl("events", &date32, &[]).unwrap_err();
-    assert!(error.to_string().contains("shifts values by 25,567 days"));
+    assert_eq!(
+        merge_tree_ddl("events", &date32, &[])?,
+        "CREATE TABLE IF NOT EXISTS `events` (`date` Date32) ENGINE = MergeTree ORDER BY (tuple())",
+    );
+
+    let matching = HashMap::from([("date".into(), target_column("Date32")?)]);
+    validate_target_schema("events", &date32, &matching, &[])?;
+    Ok(())
 }
 
 #[test]

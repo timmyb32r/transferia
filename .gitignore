@@ -3,3 +3,5 @@ benchmark-results/
 web/node_modules/
 web/dist/
 .transferia-state/
+__pycache__/
+*.py[cod]

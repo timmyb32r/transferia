@@ -56,9 +56,14 @@ fail before a COPY request is sent.
 
 MySQL snapshots expose the text and prepared-statement binary result protocols.
 Both feed the same lossless row-to-Arrow conversion; binary with 16,384 rows per
-batch is the measured default. The sink keeps the measured 1,000-row INSERT
-knee. PostgreSQL, MySQL, and OpenSearch candidate grids and before/after numbers
-are recorded in [the database throughput report](benchmarks/database_throughput/REPORT.md).
+batch is the measured default. The sink uses a 250-row INSERT batch for the wide
+105-column ClickBench workload; the earlier narrow database fixture measured a
+1,000-row knee, so this is workload-specific rather than a universal optimum.
+The narrow fixture is recorded in
+[the database throughput report](benchmarks/database_throughput/REPORT.md), and
+the exact-prefix ClickBench measurements, CPU/RSS data, persisted-integrity
+checks, and explicit read-back qualifications for all six connectors are recorded in
+[the ClickBench report](benchmarks/clickbench_throughput/REPORT.md).
 
 For the demonstration control plane, run:
 
@@ -332,8 +337,8 @@ primary-key contract, the source must provide one logical record per complete
 primary key; the sink detects duplicates in its bounded buffered and in-flight
 window without carrying an unbounded all-history key set.
 
-The measured sink defaults are 20,000 rows per bulk request and eight concurrent
-requests. The source keeps 10,000 rows per page and four concurrent shard
+The measured sink defaults are 20,000 rows per bulk request and four concurrent
+requests. The source keeps 10,000 rows per page and two concurrent shard
 readers; larger ordinary pages exceed OpenSearch's default result-window limit.
 
 Custom-routed OpenSearch source documents and flat rows fail by default because
@@ -386,7 +391,10 @@ budget.
 
 The YTsaurus sink writes static tables. `format: arrow` is the default and uses
 Arrow IPC streaming directly; `format: yson` is an explicit alternative for
-benchmarking. For a finite single-partition snapshot whose schema has a primary
+benchmarking. Its 512 KiB writer row-buffer default was selected by five
+order-balanced exact-prefix ClickBench runs; the previous 1 MiB value was 12.2%
+slower end-to-end on that wide schema with 1.3% lower peak process RSS. For a
+finite single-partition snapshot whose schema has a primary
 key, the default `unique_sorted` semantics require `replace_tables: true`: the
 sink writes an attempt-owned staging table, sorts it server-side by the complete
 primary key into a `unique_keys=true` table, and atomically replaces the

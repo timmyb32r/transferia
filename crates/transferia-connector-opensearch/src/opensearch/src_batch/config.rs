@@ -127,7 +127,7 @@ const fn default_page_rows() -> usize {
 }
 
 const fn default_read_concurrency() -> usize {
-    4
+    2
 }
 
 const fn default_pit_keep_alive_ms() -> u64 {

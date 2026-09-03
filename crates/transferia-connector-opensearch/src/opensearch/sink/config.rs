@@ -137,7 +137,7 @@ const fn default_bulk_target_bytes() -> usize {
 }
 
 const fn default_bulk_concurrency() -> usize {
-    8
+    4
 }
 
 const fn default_flush_interval_ms() -> u64 {

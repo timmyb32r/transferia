@@ -2,8 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
+use arrow::array::{Array, ArrayRef, TimestampMicrosecondBuilder, TimestampSecondArray};
 use arrow::compute::cast;
-use arrow::datatypes::{DataType, Field, Schema};
+use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use iceberg::table::Table;
@@ -116,6 +117,7 @@ impl SinkLimits for IcebergSinkConfig {
     ) -> anyhow::Result<()> {
         validate_batch_against_discovery(discovery, batch)?;
         self.table_for_dataset(&batch.table)?;
+        validate_timestamp_values(&batch.batch)?;
         Ok(())
     }
 }
@@ -702,11 +704,57 @@ pub(super) fn with_schema(batch: &RecordBatch, schema: Arc<Schema>) -> anyhow::R
             if actual.data_type() == expected.data_type() {
                 Ok(Arc::clone(column))
             } else {
-                Ok(cast(column, expected.data_type())?)
+                cast_losslessly(column, expected.data_type())
             }
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(RecordBatch::try_new(schema, columns)?)
+}
+
+fn cast_losslessly(column: &ArrayRef, target: &DataType) -> anyhow::Result<ArrayRef> {
+    if column.data_type() == &DataType::Timestamp(TimeUnit::Second, None)
+        && target == &DataType::Timestamp(TimeUnit::Microsecond, None)
+    {
+        let values = column
+            .as_any()
+            .downcast_ref::<TimestampSecondArray>()
+            .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?;
+        let mut widened = TimestampMicrosecondBuilder::with_capacity(values.len());
+        for value in values.iter() {
+            match value {
+                Some(value) => widened.append_value(value.checked_mul(1_000_000).ok_or_else(
+                    || {
+                        anyhow::anyhow!(
+                            "Iceberg timestamp seconds value cannot be widened to microseconds"
+                        )
+                    },
+                )?),
+                None => widened.append_null(),
+            }
+        }
+        return Ok(Arc::new(widened.finish()));
+    }
+    Ok(cast(column, target)?)
+}
+
+pub(super) fn validate_timestamp_values(batch: &RecordBatch) -> anyhow::Result<()> {
+    for column in batch.columns() {
+        if column.data_type() != &DataType::Timestamp(TimeUnit::Second, None) {
+            continue;
+        }
+        let values = column
+            .as_any()
+            .downcast_ref::<TimestampSecondArray>()
+            .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?;
+        anyhow::ensure!(
+            values
+                .iter()
+                .flatten()
+                .all(|value| value.checked_mul(1_000_000).is_some()),
+            "Iceberg timestamp seconds value cannot be widened to microseconds"
+        );
+    }
+    Ok(())
 }
 
 fn iceberg_arrow_schema(schema: &DatasetSchema) -> Schema {
@@ -736,6 +784,9 @@ fn iceberg_arrow_data_type(data_type: &DataType) -> DataType {
         DataType::UInt32 => DataType::Int64,
         DataType::UInt64 => DataType::Decimal128(20, 0),
         DataType::Float16 | DataType::Float32 => DataType::Float32,
+        DataType::Timestamp(TimeUnit::Second, None) => {
+            DataType::Timestamp(TimeUnit::Microsecond, None)
+        }
         other => other.clone(),
     }
 }

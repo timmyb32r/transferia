@@ -10,7 +10,7 @@ fn initial_configuration_is_complete_and_lossless() {
     assert!(config.create_indices);
     assert_eq!(config.bulk_target_rows, 20_000);
     assert_eq!(config.bulk_target_bytes, 16_777_216);
-    assert_eq!(config.bulk_concurrency, 8);
+    assert_eq!(config.bulk_concurrency, 4);
     assert!(config.retry_max_attempts > 0);
     config.validate().unwrap();
 }

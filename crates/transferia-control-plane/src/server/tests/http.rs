@@ -277,6 +277,46 @@ async fn speedtest_estimate_runs_actual_generator_through_discard() -> anyhow::R
 }
 
 #[tokio::test]
+async fn speedtest_estimate_profiles_clickbench_generator_without_reader_failure(
+) -> anyhow::Result<()> {
+    let root = std::env::temp_dir().join(format!(
+        "transferia-http-test-{}-{}",
+        std::process::id(),
+        TEST_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let store = Arc::new(JsonDeliveryStore::open(root.clone()).await?);
+    let control_plane = Arc::new(ControlPlane::new(
+        store,
+        Arc::new(TestSupervisor::new()),
+        transferia_connectors::extension::Transferia::public()?,
+    ));
+    let config = serde_json::json!({
+        "delivery_type": null,
+        "source": {
+            "data_generator": {
+                "table_name": "clickbench_hits",
+                "preset": { "type": "clickbench" },
+                "amount": { "type": "rows", "row_count": 100_000 },
+            },
+        },
+        "sink": { "discard": {} },
+        "middlewares": [],
+        "pipeline_memory_limit_bytes": 512 * 1024 * 1024,
+        "metrics": null,
+    });
+    let result = control_plane
+        .speedtest_estimate(&config, 1, 60, tokio_util::sync::CancellationToken::new())
+        .await;
+    let result = result.map_err(|error| anyhow::anyhow!("clickbench speedtest failed: {error:?}"))?;
+
+    assert_eq!(result.profile.datasets[0].dataset, "clickbench_hits");
+    assert_eq!(result.profile.datasets[0].columns.len(), 105);
+    assert!(result.source.rows_per_second > 0.0);
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn speedtest_estimate_rejects_a_sink_without_scratch_isolation() -> anyhow::Result<()> {
     let (app, root) = test_router().await?;
     let config = serde_json::json!({

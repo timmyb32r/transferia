@@ -1,9 +1,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use arrow::array::{ArrayRef, Int64Array, StringArray, UInt64Array};
+use arrow::array::{
+    ArrayRef, Int64Array, PrimitiveArray, StringArray, UInt64Array,
+};
 use arrow::compute::cast;
-use arrow::datatypes::{DataType, Field, Schema};
+use arrow::datatypes::{
+    ArrowPrimitiveType, DataType, Field, Schema, TimeUnit, TimestampMicrosecondType,
+    TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType,
+};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use futures_util::Stream;
@@ -229,25 +234,164 @@ pub(super) fn normalize_snapshot_schema(
     batch: &RecordBatch,
     table: &DiscoveredTable,
 ) -> anyhow::Result<RecordBatch> {
-    if table.physical_system_columns.is_empty() {
-        return Ok(batch.clone());
-    }
-    let mut fields = batch.schema().fields().iter().cloned().collect::<Vec<_>>();
+    anyhow::ensure!(
+        batch.num_columns() == table.schema.columns.len(),
+        "ClickHouse snapshot query for '{}.{}' returned {} columns, discovery declared {}",
+        table.config.database,
+        table.config.name,
+        batch.num_columns(),
+        table.schema.columns.len()
+    );
+    let input_schema = batch.schema();
+    let mut fields = input_schema.fields().iter().cloned().collect::<Vec<_>>();
     let mut arrays = batch.columns().to_vec();
-    for system_column in table.physical_system_columns.iter() {
-        let expected = system_column.kind.data_type();
-        if arrays[system_column.index].data_type() != &expected {
-            arrays[system_column.index] = cast(&arrays[system_column.index], &expected).map_err(
-                |error| {
+    for (index, column) in table.schema.columns.iter().enumerate() {
+        let actual = &input_schema.fields()[index];
+        anyhow::ensure!(
+            actual.name() == &column.name && actual.is_nullable() == column.nullable,
+            "ClickHouse snapshot schema drifted at '{}.{}' column {}: discovered '{} nullable={}', query returned '{} nullable={}'",
+            table.config.database,
+            table.config.name,
+            index,
+            column.name,
+            column.nullable,
+            actual.name(),
+            actual.is_nullable(),
+        );
+        let expected = table
+            .physical_system_columns
+            .iter()
+            .find(|system| system.index == index)
+            .map_or_else(|| column.data_type.clone(), |system| system.kind.data_type());
+        if arrays[index].data_type() != &expected {
+            if is_parquet_timestamp_representation(arrays[index].data_type(), &expected) {
+                ensure_lossless_timestamp_cast(&arrays[index], &expected, &column.name)?;
+                arrays[index] = cast(&arrays[index], &expected).map_err(|error| {
+                    anyhow::anyhow!(
+                        "ClickHouse source timestamp column '{}' cannot be decoded as {expected:?}: {error}",
+                        column.name,
+                    )
+                })?;
+            } else if let Some(system) = table
+                .physical_system_columns
+                .iter()
+                .find(|system| system.index == index)
+                .filter(|system| {
+                    system.kind == SystemColumnKind::Topic
+                        && arrays[index].data_type() == &DataType::Binary
+                        && expected == DataType::Utf8
+                })
+            {
+                arrays[index] = cast(&arrays[index], &expected).map_err(|error| {
                     anyhow::anyhow!(
                         "ClickHouse source system column '{}' cannot be decoded as {expected:?}: {error}",
-                        system_column.name,
+                        system.name,
                     )
-                },
-            )?;
+                })?;
+            } else {
+                anyhow::bail!(
+                    "ClickHouse snapshot schema drifted at '{}.{}' column '{}': discovered {:?}, query returned {:?}",
+                    table.config.database,
+                    table.config.name,
+                    column.name,
+                    expected,
+                    arrays[index].data_type(),
+                );
+            }
         }
-        fields[system_column.index] =
-            Arc::new(Field::new(system_column.name.as_ref(), expected, false));
+        fields[index] = Arc::new(
+            Field::new(&column.name, expected, column.nullable)
+                .with_metadata(column.arrow_metadata()),
+        );
     }
     Ok(RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?)
+}
+
+fn is_parquet_timestamp_representation(actual: &DataType, expected: &DataType) -> bool {
+    let DataType::Timestamp(expected_unit, _) = expected else {
+        return false;
+    };
+    let parquet_unit = match expected_unit {
+        TimeUnit::Second => TimeUnit::Millisecond,
+        unit => unit.clone(),
+    };
+    actual == &DataType::Timestamp(parquet_unit, Some(Arc::from("UTC")))
+}
+
+fn ensure_lossless_timestamp_cast(
+    array: &ArrayRef,
+    expected: &DataType,
+    column: &str,
+) -> anyhow::Result<()> {
+    let DataType::Timestamp(actual_unit, _) = array.data_type() else {
+        unreachable!("the caller checks the actual timestamp type")
+    };
+    let DataType::Timestamp(expected_unit, _) = expected else {
+        unreachable!("the caller checks the expected timestamp type")
+    };
+    let actual_scale = timestamp_units_per_second(actual_unit);
+    let expected_scale = timestamp_units_per_second(expected_unit);
+    match actual_unit {
+        TimeUnit::Second => check_timestamp_values::<TimestampSecondType>(
+            array,
+            actual_scale,
+            expected_scale,
+            column,
+        ),
+        TimeUnit::Millisecond => check_timestamp_values::<TimestampMillisecondType>(
+            array,
+            actual_scale,
+            expected_scale,
+            column,
+        ),
+        TimeUnit::Microsecond => check_timestamp_values::<TimestampMicrosecondType>(
+            array,
+            actual_scale,
+            expected_scale,
+            column,
+        ),
+        TimeUnit::Nanosecond => check_timestamp_values::<TimestampNanosecondType>(
+            array,
+            actual_scale,
+            expected_scale,
+            column,
+        ),
+    }
+}
+
+fn check_timestamp_values<T>(
+    array: &ArrayRef,
+    actual_scale: i128,
+    expected_scale: i128,
+    column: &str,
+) -> anyhow::Result<()>
+where
+    T: ArrowPrimitiveType<Native = i64>,
+{
+    let values = array
+        .as_any()
+        .downcast_ref::<PrimitiveArray<T>>()
+        .ok_or_else(|| anyhow::anyhow!("ClickHouse timestamp column '{column}' has invalid Arrow storage"))?;
+    for value in values.iter().flatten() {
+        let scaled = i128::from(value) * expected_scale;
+        anyhow::ensure!(
+            scaled % actual_scale == 0,
+            "ClickHouse timestamp column '{column}' contains value {value} that cannot be represented losslessly in the discovered timestamp unit"
+        );
+        i64::try_from(scaled / actual_scale).map_err(|_| {
+            anyhow::anyhow!(
+                "ClickHouse timestamp column '{column}' contains value {value} that overflows the discovered timestamp unit"
+            )
+        })?;
+    }
+    Ok(())
+}
+
+const fn timestamp_units_per_second(unit: &TimeUnit) -> i128 {
+    match unit {
+        TimeUnit::Second => 1,
+        TimeUnit::Millisecond => 1_000,
+        TimeUnit::Microsecond => 1_000_000,
+        TimeUnit::Nanosecond => 1_000_000_000,
+    }
 }

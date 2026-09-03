@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
-use arrow::array::{Array, BinaryArray, StringArray};
+use arrow::array::{Array, BinaryArray, Date32Array, StringArray};
 use futures_util::future::BoxFuture;
 
 use super::client::{probe_network, ReconnectingClient};
@@ -14,8 +14,8 @@ use super::table::{
 use super::transport::{InsertTransport, NativeTransport};
 use super::{ClickHouseSink, ClickHouseSinkConfig};
 use transferia_core::delivery::{
-    validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
-    SinkLimitsDescription, TextLimit,
+    validate_batch_against_discovery, validate_stored_projection, ArrowTypeFamily,
+    DeliveryDiscovery, NameSyntax, SinkLimits, SinkLimitsDescription, TextLimit,
 };
 use transferia_core::sink::Sink;
 use transferia_core::SystemColumnKind;
@@ -28,6 +28,8 @@ use transferia_registry::{
 
 const SHARD_GROUPS_QUERY: &str =
     "SELECT DISTINCT toString(cluster) AS cluster FROM system.clusters ORDER BY cluster";
+const CLICKHOUSE_DATE32_MIN_DAYS: i32 = -25_567;
+const CLICKHOUSE_DATE32_MAX_DAYS: i32 = 120_529;
 
 pub struct ClickHouseSinkConnector {
     config: ClickHouseSinkConfig,
@@ -252,6 +254,7 @@ impl SinkLimits for ClickHouseSinkConfig {
                 ArrowTypeFamily::FloatingPoint,
                 ArrowTypeFamily::Decimal,
                 ArrowTypeFamily::Boolean,
+                ArrowTypeFamily::Date32,
                 ArrowTypeFamily::Timestamp,
             ],
             object_key: None,
@@ -277,6 +280,39 @@ impl SinkLimits for ClickHouseSinkConfig {
                     dataset.role, dataset.name,
                 ))
             })?;
+        }
+        Ok(())
+    }
+
+    fn validate_batch(
+        &self,
+        discovery: &DeliveryDiscovery,
+        batch: &transferia_core::sink::SinkBatch,
+    ) -> anyhow::Result<()> {
+        validate_batch_against_discovery(discovery, batch)?;
+        for (field, array) in batch.batch.schema().fields().iter().zip(batch.batch.columns()) {
+            if field.data_type() != &arrow::datatypes::DataType::Date32 {
+                continue;
+            }
+            let values = array
+                .as_any()
+                .downcast_ref::<Date32Array>()
+                .ok_or_else(|| anyhow::anyhow!("ClickHouse Date32 Arrow type mismatch"))?;
+            for (row, value) in values.iter().enumerate() {
+                let Some(value) = value else {
+                    continue;
+                };
+                anyhow::ensure!(
+                    (CLICKHOUSE_DATE32_MIN_DAYS..=CLICKHOUSE_DATE32_MAX_DAYS).contains(&value),
+                    "ClickHouse dataset '{}' column '{}' row {} contains Date32 day {}, outside the lossless ClickHouse Date32 range {}..={} (1900-01-01 through 2299-12-31)",
+                    batch.table,
+                    field.name(),
+                    row,
+                    value,
+                    CLICKHOUSE_DATE32_MIN_DAYS,
+                    CLICKHOUSE_DATE32_MAX_DAYS,
+                );
+            }
         }
         Ok(())
     }

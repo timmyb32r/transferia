@@ -717,11 +717,7 @@ write_primitive_values!(write_date_values, scalar u16::default(), write_u16_le, 
     })
 ]);
 write_primitive_values!(write_date32_values, scalar i32::default(), write_i32_le, [
-    (Date32Array, |v: i32| {
-        const DAYS_1900_TO_1970: i32 = 25_567; // Days from 1900-01-01 to 1970-01-01
-        let adjusted = v + DAYS_1900_TO_1970;
-        Ok::<_, Error>(adjusted) // Days since 1900-01-01
-    })
+    (Date32Array, |v: i32| Ok::<_, Error>(v)) // Days since Unix epoch
 ]);
 write_primitive_values!(write_datetime_values, scalar u32::default(), write_u32_le, [
     (TimestampSecondArray, |v: i64| {
@@ -772,11 +768,7 @@ put_primitive_values!(put_date_values, scalar u16::default(), put_u16_le, [
     })
 ]);
 put_primitive_values!(put_date32_values, scalar i32::default(), put_i32_le, [
-    (Date32Array, |v: i32| {
-        const DAYS_1900_TO_1970: i32 = 25_567; // Days from 1900-01-01 to 1970-01-01
-        let adjusted = v + DAYS_1900_TO_1970;
-        Ok::<_, Error>(adjusted) // Days since 1900-01-01
-    })
+    (Date32Array, |v: i32| Ok::<_, Error>(v)) // Days since Unix epoch
 ]);
 put_primitive_values!(put_datetime_values, scalar u32::default(), put_u32_le, [
     (TimestampSecondArray, |v: i64| {
@@ -1124,6 +1116,11 @@ mod tests {
         let mut writer = MockWriter::new();
         serialize_async(&Type::Date, &mut writer, &column, field.data_type()).await.unwrap();
         let expected = vec![0, 0, 1, 0]; // 0, 1 (u16 LE)
+        assert_eq!(writer, expected);
+
+        let mut writer = MockWriter::new();
+        serialize_async(&Type::Date32, &mut writer, &column, field.data_type()).await.unwrap();
+        let expected = vec![0, 0, 0, 0, 1, 0, 0, 0]; // 0, 1 (i32 LE)
         assert_eq!(writer, expected);
     }
 
@@ -1606,13 +1603,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_serialize_datetime64_0() {
-        let column = Arc::new(TimestampSecondArray::from(vec![1000])) as ArrayRef;
+        let column = Arc::new(TimestampSecondArray::from(vec![-1, 4_294_967_296])) as ArrayRef;
         let field = Field::new("ts", DataType::Timestamp(TimeUnit::Second, None), false);
         let mut writer = MockWriter::new();
         serialize_async(&Type::DateTime64(0, Tz::UTC), &mut writer, &column, field.data_type())
             .await
             .unwrap();
-        let expected = vec![232, 3, 0, 0, 0, 0, 0, 0]; // 1000
+        let expected = vec![
+            255, 255, 255, 255, 255, 255, 255, 255, // -1
+            0, 0, 0, 0, 1, 0, 0, 0, // u32::MAX + 1
+        ];
         assert_eq!(writer, expected);
     }
 
@@ -2040,6 +2040,11 @@ mod tests_sync {
         let mut writer = MockWriter::new();
         serialize(&Type::Date, &mut writer, &column, field.data_type()).unwrap();
         let expected = vec![0, 0, 1, 0]; // 0, 1 (u16 LE)
+        assert_eq!(writer, expected);
+
+        let mut writer = MockWriter::new();
+        serialize(&Type::Date32, &mut writer, &column, field.data_type()).unwrap();
+        let expected = vec![0, 0, 0, 0, 1, 0, 0, 0]; // 0, 1 (i32 LE)
         assert_eq!(writer, expected);
     }
 
@@ -2501,11 +2506,14 @@ mod tests_sync {
 
     #[test]
     fn test_serialize_datetime64_0() {
-        let column = Arc::new(TimestampSecondArray::from(vec![1000])) as ArrayRef;
+        let column = Arc::new(TimestampSecondArray::from(vec![-1, 4_294_967_296])) as ArrayRef;
         let field = Field::new("ts", DataType::Timestamp(TimeUnit::Second, None), false);
         let mut writer = MockWriter::new();
         serialize(&Type::DateTime64(0, Tz::UTC), &mut writer, &column, field.data_type()).unwrap();
-        let expected = vec![232, 3, 0, 0, 0, 0, 0, 0]; // 1000
+        let expected = vec![
+            255, 255, 255, 255, 255, 255, 255, 255, // -1
+            0, 0, 0, 0, 1, 0, 0, 0, // u32::MAX + 1
+        ];
         assert_eq!(writer, expected);
     }
 

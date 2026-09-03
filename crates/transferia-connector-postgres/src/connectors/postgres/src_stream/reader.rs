@@ -3,10 +3,11 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use arrow::array::{
-    ArrayRef, BinaryArray, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array,
-    Int64Array, Int8Array, StringArray, UInt32Array, UInt64Array,
+    ArrayRef, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array,
+    Int32Array, Int64Array, Int8Array, StringArray, TimestampMicrosecondArray, UInt32Array,
+    UInt64Array,
 };
-use arrow::datatypes::{DataType, Field, Schema};
+use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use tokio_postgres::Client;
@@ -20,6 +21,10 @@ use super::wal2json;
 use crate::connectors::postgres::source::{
     old_key_column_name, old_value_column_name, DiscoveredTable,
     POSTGRES_REPLICATION_SYSTEM_COLUMNS, POSTGRES_SOURCE_METADATA_COLUMNS,
+};
+use crate::connectors::postgres::temporal::{
+    parse_date, parse_timestamp, postgres_date_to_unix_days,
+    postgres_timestamp_to_unix_micros,
 };
 use crate::metrics::SourceCounters;
 use transferia_core::data::message::SourceBatch;
@@ -741,6 +746,38 @@ fn logical_array(
                 .map(|event| parse_text(event_value(event, index, projection)))
                 .collect::<anyhow::Result<Vec<_>>>()?,
         )) as ArrayRef,
+        DataType::Date32 => Arc::new(Date32Array::from(
+            events
+                .iter()
+                .map(|event| parse_logical_date(event_value(event, index, projection)))
+                .collect::<anyhow::Result<Vec<_>>>()?,
+        )) as ArrayRef,
+        DataType::Timestamp(unit, timezone) => {
+            anyhow::ensure!(
+                *unit == TimeUnit::Microsecond,
+                "PostgreSQL CDC timestamps must use Arrow microsecond precision, got {unit:?}"
+            );
+            let with_timezone = timezone.as_deref() == Some("UTC");
+            anyhow::ensure!(
+                timezone.is_none() || with_timezone,
+                "unsupported PostgreSQL CDC Arrow timestamp timezone {timezone:?}"
+            );
+            let values = events
+                .iter()
+                .map(|event| {
+                    parse_logical_timestamp(
+                        event_value(event, index, projection),
+                        with_timezone,
+                    )
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let array = TimestampMicrosecondArray::from(values);
+            if with_timezone {
+                Arc::new(array.with_timezone("UTC")) as ArrayRef
+            } else {
+                Arc::new(array) as ArrayRef
+            }
+        }
         other => anyhow::bail!("unsupported PostgreSQL CDC Arrow type {other:?}"),
     })
 }
@@ -871,6 +908,37 @@ fn parse_bool(value: &LogicalValue) -> anyhow::Result<Option<bool>> {
         Some("t" | "true") => Ok(Some(true)),
         Some("f" | "false") => Ok(Some(false)),
         Some(value) => anyhow::bail!("invalid PostgreSQL boolean '{value}'"),
+    }
+}
+
+fn parse_logical_date(value: &LogicalValue) -> anyhow::Result<Option<i32>> {
+    match value {
+        LogicalValue::Null | LogicalValue::UnchangedToast => Ok(None),
+        LogicalValue::Text(value) => parse_date(std::str::from_utf8(value)?).map(Some),
+        LogicalValue::Binary(value) => {
+            let bytes: [u8; 4] = value.as_ref().try_into().map_err(|_| {
+                anyhow::anyhow!("invalid PostgreSQL binary date length {}", value.len())
+            })?;
+            postgres_date_to_unix_days(i32::from_be_bytes(bytes)).map(Some)
+        }
+    }
+}
+
+fn parse_logical_timestamp(
+    value: &LogicalValue,
+    with_timezone: bool,
+) -> anyhow::Result<Option<i64>> {
+    match value {
+        LogicalValue::Null | LogicalValue::UnchangedToast => Ok(None),
+        LogicalValue::Text(value) => {
+            parse_timestamp(std::str::from_utf8(value)?, with_timezone).map(Some)
+        }
+        LogicalValue::Binary(value) => {
+            let bytes: [u8; 8] = value.as_ref().try_into().map_err(|_| {
+                anyhow::anyhow!("invalid PostgreSQL binary timestamp length {}", value.len())
+            })?;
+            postgres_timestamp_to_unix_micros(i64::from_be_bytes(bytes)).map(Some)
+        }
     }
 }
 

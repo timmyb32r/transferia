@@ -13,7 +13,7 @@ pub fn initial_config() -> serde_json::Value {
         "auth": { "type": "basic", "username": "", "password": "" },
         "indices": [{ "name": "index" }],
         "page_rows": 10_000,
-        "read_concurrency": 4,
+        "read_concurrency": 2,
         "pit_keep_alive_ms": 300_000,
         "retry_initial_ms": 100,
         "retry_max_ms": 10_000,

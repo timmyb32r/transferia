@@ -1,0 +1,1354 @@
+[
+  {
+    "name": "clickhouse-batch262k-r1",
+    "connector": "clickhouse",
+    "settings": {
+      "batch_rows": 262144
+    },
+    "source": {
+      "arrow_bytes": "1983881584",
+      "bytes_per_second": 644913072.0967004,
+      "completed": true,
+      "duration_ms": 3076.199987,
+      "rows": "2000000",
+      "rows_per_second": 650152.7886522289
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 2000452275,
+      "sampled_deliveries": 8,
+      "sampled_rows": 2000000,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.0645880790218745,
+    "average_process_rss_bytes": 4187070131.891892,
+    "peak_process_rss_bytes": 5152460800,
+    "wall_seconds": 36.6244942699559
+  },
+  {
+    "name": "clickhouse-batch262k-r2",
+    "connector": "clickhouse",
+    "settings": {
+      "batch_rows": 262144
+    },
+    "source": {
+      "arrow_bytes": "1980606626",
+      "bytes_per_second": 628258377.7342365,
+      "completed": true,
+      "duration_ms": 3152.535161,
+      "rows": "2000000",
+      "rows_per_second": 634410.0534522159
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 1763048564,
+      "sampled_deliveries": 7,
+      "sampled_rows": 1773701,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.0581528668626679,
+    "average_process_rss_bytes": 3875200107.4125876,
+    "peak_process_rss_bytes": 4614803456,
+    "wall_seconds": 35.48636607802473
+  },
+  {
+    "name": "clickhouse-batch65k-r1",
+    "connector": "clickhouse",
+    "settings": {
+      "batch_rows": 65409
+    },
+    "source": {
+      "arrow_bytes": "1959467844",
+      "bytes_per_second": 611798702.0214175,
+      "completed": true,
+      "duration_ms": 3202.798302,
+      "rows": "2000000",
+      "rows_per_second": 624453.9341584801
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 1626996306,
+      "sampled_deliveries": 26,
+      "sampled_rows": 1657248,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.068081633937293,
+    "average_process_rss_bytes": 4596196481.802817,
+    "peak_process_rss_bytes": 6053859328,
+    "wall_seconds": 35.46545394696295
+  },
+  {
+    "name": "clickhouse-batch65k-r2",
+    "connector": "clickhouse",
+    "settings": {
+      "batch_rows": 65409
+    },
+    "source": {
+      "arrow_bytes": "1958849891",
+      "bytes_per_second": 661740772.0442673,
+      "completed": true,
+      "duration_ms": 2960.146894,
+      "rows": "2000000",
+      "rows_per_second": 675642.1460211494
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 1750799173,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1777349,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.0744684429188585,
+    "average_process_rss_bytes": 3790630109.986014,
+    "peak_process_rss_bytes": 4741439488,
+    "wall_seconds": 35.394245638977736
+  },
+  {
+    "name": "clickhouse-c16-confirm-r3",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 16
+    },
+    "source": {
+      "arrow_bytes": "1969947332",
+      "bytes_per_second": 681558999.325761,
+      "completed": true,
+      "duration_ms": 2890.35481,
+      "rows": "2000000",
+      "rows_per_second": 691956.5698579408
+    },
+    "destination": {
+      "arrow_bytes": "16741963110",
+      "bytes_per_second": 627853621.8830087,
+      "completed": false,
+      "duration_ms": 26665.392261,
+      "rows": "20535245",
+      "rows_per_second": 770108.49114844
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1735723525,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1779742,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.7640558071603136,
+    "average_process_rss_bytes": 5041703137.172775,
+    "peak_process_rss_bytes": 6113570816,
+    "wall_seconds": 47.532509833108634
+  },
+  {
+    "name": "clickhouse-c16-more-r4",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 16
+    },
+    "source": {
+      "arrow_bytes": "1953656625",
+      "bytes_per_second": 626806929.1152382,
+      "completed": true,
+      "duration_ms": 3116.839547,
+      "rows": "2000000",
+      "rows_per_second": 641675.6364391702
+    },
+    "destination": {
+      "arrow_bytes": "17495165518",
+      "bytes_per_second": 716515047.4645451,
+      "completed": false,
+      "duration_ms": 24417.024568999997,
+      "rows": "21455910",
+      "rows_per_second": 878727.4608078395
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1742492222,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1777091,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.864250458379525,
+    "average_process_rss_bytes": 4848115602.481283,
+    "peak_process_rss_bytes": 5932126208,
+    "wall_seconds": 46.45834984816611
+  },
+  {
+    "name": "clickhouse-c16-more-r5",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 16
+    },
+    "source": {
+      "arrow_bytes": "1961575344",
+      "bytes_per_second": 680238071.1006981,
+      "completed": true,
+      "duration_ms": 2883.6600409999996,
+      "rows": "2000000",
+      "rows_per_second": 693563.0315515407
+    },
+    "destination": {
+      "arrow_bytes": "17125291125",
+      "bytes_per_second": 709290867.9398963,
+      "completed": false,
+      "duration_ms": 24144.243072999998,
+      "rows": "21004570",
+      "rows_per_second": 869961.8346490626
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1738536201,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1781893,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.8642182768348623,
+    "average_process_rss_bytes": 4943427326.601093,
+    "peak_process_rss_bytes": 6340841472,
+    "wall_seconds": 45.413136997958645
+  },
+  {
+    "name": "clickhouse-c16-pair-a-r6",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 16
+    },
+    "source": {
+      "arrow_bytes": "1974200149",
+      "bytes_per_second": 584039571.9103153,
+      "completed": true,
+      "duration_ms": 3380.250661,
+      "rows": "2000000",
+      "rows_per_second": 591672.097893571
+    },
+    "destination": {
+      "arrow_bytes": "17286962178",
+      "bytes_per_second": 856647767.9897534,
+      "completed": false,
+      "duration_ms": 20179.778462000002,
+      "rows": "21205705",
+      "rows_per_second": 1050839.3360180783
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1686775991,
+      "sampled_deliveries": 27,
+      "sampled_rows": 1719366,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 2.0681208273918217,
+    "average_process_rss_bytes": 5104459331.855422,
+    "peak_process_rss_bytes": 6338359296,
+    "wall_seconds": 41.264513595961034
+  },
+  {
+    "name": "clickhouse-c16-pair-b-r6",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 16
+    },
+    "source": {
+      "arrow_bytes": "1963728379",
+      "bytes_per_second": 646107501.1987947,
+      "completed": true,
+      "duration_ms": 3039.321437,
+      "rows": "2000000",
+      "rows_per_second": 658041.6193076718
+    },
+    "destination": {
+      "arrow_bytes": "15564373115",
+      "bytes_per_second": 738902718.6006311,
+      "completed": false,
+      "duration_ms": 21064.170862000003,
+      "rows": "19091859",
+      "rows_per_second": 906366.5085646417
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1768167395,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1781893,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.9078593922874214,
+    "average_process_rss_bytes": 5165269674.666667,
+    "peak_process_rss_bytes": 6083354624,
+    "wall_seconds": 41.70118632516824
+  },
+  {
+    "name": "clickhouse-c16-r1",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 16
+    },
+    "source": {
+      "arrow_bytes": "1961859604",
+      "bytes_per_second": 711094064.9287368,
+      "completed": true,
+      "duration_ms": 2758.931203,
+      "rows": "2000000",
+      "rows_per_second": 724918.4023962775
+    },
+    "destination": {
+      "arrow_bytes": "17387053440",
+      "bytes_per_second": 859621457.2252647,
+      "completed": false,
+      "duration_ms": 20226.406977,
+      "rows": "21325092",
+      "rows_per_second": 1054319.3373024357
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1745134764,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1777091,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 2.0935549528142907,
+    "average_process_rss_bytes": 5073105795.121951,
+    "peak_process_rss_bytes": 5894287360,
+    "wall_seconds": 40.77753005013801
+  },
+  {
+    "name": "clickhouse-c16-r2",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 16
+    },
+    "source": {
+      "arrow_bytes": "1972151956",
+      "bytes_per_second": 685395887.7127174,
+      "completed": true,
+      "duration_ms": 2877.390996,
+      "rows": "2000000",
+      "rows_per_second": 695074.1149813482
+    },
+    "destination": {
+      "arrow_bytes": "18577018115",
+      "bytes_per_second": 917137414.0234098,
+      "completed": false,
+      "duration_ms": 20255.435915,
+      "rows": "22786463",
+      "rows_per_second": 1124955.448780328
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1734536220,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1781893,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 2.204738429093212,
+    "average_process_rss_bytes": 5220667466.0240965,
+    "peak_process_rss_bytes": 6113042432,
+    "wall_seconds": 41.17495245789178
+  },
+  {
+    "name": "clickhouse-c32-confirm-r3",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 32
+    },
+    "source": {
+      "arrow_bytes": "1952489702",
+      "bytes_per_second": 639196529.3718032,
+      "completed": true,
+      "duration_ms": 3054.5999739999997,
+      "rows": "2000000",
+      "rows_per_second": 654750.2183668911
+    },
+    "destination": {
+      "arrow_bytes": "16088506652",
+      "bytes_per_second": 716325524.5872669,
+      "completed": false,
+      "duration_ms": 22459.770173999997,
+      "rows": "19731641",
+      "rows_per_second": 878532.6317738482
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1750960569,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1781893,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 2.120786713367659,
+    "average_process_rss_bytes": 4135292229.818182,
+    "peak_process_rss_bytes": 6025707520,
+    "wall_seconds": 43.653611849062145
+  },
+  {
+    "name": "clickhouse-c32-more-r4",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 32
+    },
+    "source": {
+      "arrow_bytes": "1968677060",
+      "bytes_per_second": 679745522.2845769,
+      "completed": true,
+      "duration_ms": 2896.197173,
+      "rows": "2000000",
+      "rows_per_second": 690560.7182567331
+    },
+    "destination": {
+      "arrow_bytes": "16150251558",
+      "bytes_per_second": 733935120.7650775,
+      "completed": false,
+      "duration_ms": 22005.012570000003,
+      "rows": "19813887",
+      "rows_per_second": 900426.0705132603
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1607109445,
+      "sampled_deliveries": 26,
+      "sampled_rows": 1656608,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.9439961419725904,
+    "average_process_rss_bytes": 4371976428.763006,
+    "peak_process_rss_bytes": 5687885824,
+    "wall_seconds": 42.97848035604693
+  },
+  {
+    "name": "clickhouse-c32-more-r5",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 32
+    },
+    "source": {
+      "arrow_bytes": "1967879421",
+      "bytes_per_second": 674365244.8137623,
+      "completed": true,
+      "duration_ms": 2918.121057,
+      "rows": "2000000",
+      "rows_per_second": 685372.5259966142
+    },
+    "destination": {
+      "arrow_bytes": "16998275611",
+      "bytes_per_second": 678120294.6094242,
+      "completed": false,
+      "duration_ms": 25066.75548,
+      "rows": "20850478",
+      "rows_per_second": 831798.036911317
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1736351797,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1779742,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.9283772732259918,
+    "average_process_rss_bytes": 5113296373.106383,
+    "peak_process_rss_bytes": 6575894528,
+    "wall_seconds": 46.66099380515516
+  },
+  {
+    "name": "clickhouse-c32-pair-a-r6",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 32
+    },
+    "source": {
+      "arrow_bytes": "1959395963",
+      "bytes_per_second": 692316595.3410035,
+      "completed": true,
+      "duration_ms": 2830.202217,
+      "rows": "2000000",
+      "rows_per_second": 706663.286455902
+    },
+    "destination": {
+      "arrow_bytes": "17493521822",
+      "bytes_per_second": 811929729.7593693,
+      "completed": false,
+      "duration_ms": 21545.610636999998,
+      "rows": "21459657",
+      "rows_per_second": 996010.6195898486
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1685207178,
+      "sampled_deliveries": 27,
+      "sampled_rows": 1719366,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 2.065941923991734,
+    "average_process_rss_bytes": 5157370313.788236,
+    "peak_process_rss_bytes": 6207590400,
+    "wall_seconds": 42.203509686049074
+  },
+  {
+    "name": "clickhouse-c32-pair-b-r6",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 32
+    },
+    "source": {
+      "arrow_bytes": "1983429222",
+      "bytes_per_second": 693133821.2843865,
+      "completed": true,
+      "duration_ms": 2861.538654,
+      "rows": "2000000",
+      "rows_per_second": 698924.6841744742
+    },
+    "destination": {
+      "arrow_bytes": "16559860343",
+      "bytes_per_second": 774822868.186169,
+      "completed": false,
+      "duration_ms": 21372.446559,
+      "rows": "20312695",
+      "rows_per_second": 950415.0563168101
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1739939409,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1777349,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.9685457244060003,
+    "average_process_rss_bytes": 5118701615.906433,
+    "peak_process_rss_bytes": 6391140352,
+    "wall_seconds": 42.36122075608
+  },
+  {
+    "name": "clickhouse-c32-r1",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 32
+    },
+    "source": {
+      "arrow_bytes": "1963259182",
+      "bytes_per_second": 649884013.9309615,
+      "completed": true,
+      "duration_ms": 3020.937798,
+      "rows": "2000000",
+      "rows_per_second": 662046.0710326748
+    },
+    "destination": {
+      "arrow_bytes": "16449974870",
+      "bytes_per_second": 824385426.7528191,
+      "completed": false,
+      "duration_ms": 19954.228127000002,
+      "rows": "20174136",
+      "rows_per_second": 1011020.6153603328
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1738196387,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1781893,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 2.2067666212732506,
+    "average_process_rss_bytes": 3551931977.142857,
+    "peak_process_rss_bytes": 5539692544,
+    "wall_seconds": 41.689954485045746
+  },
+  {
+    "name": "clickhouse-c32-r2",
+    "connector": "clickhouse",
+    "settings": {
+      "insert_concurrency": 32
+    },
+    "source": {
+      "arrow_bytes": "1959536465",
+      "bytes_per_second": 677368907.1852484,
+      "completed": true,
+      "duration_ms": 2892.8645,
+      "rows": "2000000",
+      "rows_per_second": 691356.266427273
+    },
+    "destination": {
+      "arrow_bytes": "17826576012",
+      "bytes_per_second": 854358578.6592209,
+      "completed": false,
+      "duration_ms": 20865.449773999997,
+      "rows": "21864808",
+      "rows_per_second": 1047895.3598807767
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1738813399,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1779742,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 2.153272489613303,
+    "average_process_rss_bytes": 5268893288.795321,
+    "peak_process_rss_bytes": 6433374208,
+    "wall_seconds": 42.35878201201558
+  },
+  {
+    "name": "mysql-install-binary16k-r1",
+    "connector": "mysql",
+    "settings": {
+      "batch_rows": 16384,
+      "read_protocol": "binary"
+    },
+    "source": {
+      "arrow_bytes": "1597000096",
+      "bytes_per_second": 106351745.81798744,
+      "completed": false,
+      "duration_ms": 15016.209501000001,
+      "rows": "1474560",
+      "rows_per_second": 98197.88408664663
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 1632488896,
+      "sampled_deliveries": 92,
+      "sampled_rows": 1507328,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.173403200485492,
+    "average_process_rss_bytes": 2545491361.185185,
+    "peak_process_rss_bytes": 3418017792,
+    "wall_seconds": 47.07674222905189
+  },
+  {
+    "name": "mysql-install-binary16k-r2",
+    "connector": "mysql",
+    "settings": {
+      "batch_rows": 16384,
+      "read_protocol": "binary"
+    },
+    "source": {
+      "arrow_bytes": "1597000096",
+      "bytes_per_second": 106370374.27200359,
+      "completed": false,
+      "duration_ms": 15013.579739,
+      "rows": "1474560",
+      "rows_per_second": 98215.08431927208
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 1650233296,
+      "sampled_deliveries": 93,
+      "sampled_rows": 1523712,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.1075468926109657,
+    "average_process_rss_bytes": 2570448159.153439,
+    "peak_process_rss_bytes": 3434160128,
+    "wall_seconds": 47.049926596926525
+  },
+  {
+    "name": "mysql-install-binary65k-r1",
+    "connector": "mysql",
+    "settings": {
+      "batch_rows": 65536,
+      "read_protocol": "binary"
+    },
+    "source": {
+      "arrow_bytes": "1560132064",
+      "bytes_per_second": 103769202.96185803,
+      "completed": false,
+      "duration_ms": 15034.634742,
+      "rows": "1441792",
+      "rows_per_second": 95898.03974234787
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 1489216272,
+      "sampled_deliveries": 21,
+      "sampled_rows": 1376256,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.0702026940520015,
+    "average_process_rss_bytes": 2757968787.06383,
+    "peak_process_rss_bytes": 3425615872,
+    "wall_seconds": 46.794873791979626
+  },
+  {
+    "name": "mysql-install-binary65k-r2",
+    "connector": "mysql",
+    "settings": {
+      "batch_rows": 65536,
+      "read_protocol": "binary"
+    },
+    "source": {
+      "arrow_bytes": "1418302528",
+      "bytes_per_second": 94115855.76495095,
+      "completed": false,
+      "duration_ms": 15069.751175000001,
+      "rows": "1310720",
+      "rows_per_second": 86976.8840094999
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 1489216272,
+      "sampled_deliveries": 21,
+      "sampled_rows": 1376256,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.0770289998710472,
+    "average_process_rss_bytes": 2749907763.2,
+    "peak_process_rss_bytes": 3461410816,
+    "wall_seconds": 47.26892219809815
+  },
+  {
+    "name": "mysql-rows1000-r1",
+    "connector": "mysql",
+    "settings": {
+      "insert_rows": 1000
+    },
+    "source": {
+      "arrow_bytes": "1957151894",
+      "bytes_per_second": 653251156.2298129,
+      "completed": true,
+      "duration_ms": 2996.017497,
+      "rows": "2000000",
+      "rows_per_second": 667552.8437342767
+    },
+    "destination": {
+      "arrow_bytes": "1243772247",
+      "bytes_per_second": 16122843.330818942,
+      "completed": false,
+      "duration_ms": 77143.480308,
+      "rows": "1526430",
+      "rows_per_second": 19786.89571569284
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1735524745,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1777091,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.3938864649738526,
+    "average_process_rss_bytes": 3690615288.123077,
+    "peak_process_rss_bytes": 4376162304,
+    "wall_seconds": 97.21075336402282
+  },
+  {
+    "name": "mysql-rows1000-r2",
+    "connector": "mysql",
+    "settings": {
+      "insert_rows": 1000
+    },
+    "source": {
+      "arrow_bytes": "1964528586",
+      "bytes_per_second": 691574936.9109868,
+      "completed": true,
+      "duration_ms": 2840.659025,
+      "rows": "2000000",
+      "rows_per_second": 704061.9737879311
+    },
+    "destination": {
+      "arrow_bytes": "1196906054",
+      "bytes_per_second": 16452677.331715008,
+      "completed": false,
+      "duration_ms": 72748.406224,
+      "rows": "1469156",
+      "rows_per_second": 20195.026616477535
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1740620806,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1781893,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.400568090975805,
+    "average_process_rss_bytes": 3655460401.548387,
+    "peak_process_rss_bytes": 4653228032,
+    "wall_seconds": 92.66838981001638
+  },
+  {
+    "name": "mysql-rows250-r1",
+    "connector": "mysql",
+    "settings": {
+      "insert_rows": 250
+    },
+    "source": {
+      "arrow_bytes": "1956932450",
+      "bytes_per_second": 657336684.3362236,
+      "completed": true,
+      "duration_ms": 2977.062587,
+      "rows": "2000000",
+      "rows_per_second": 671803.1420412326
+    },
+    "destination": {
+      "arrow_bytes": "1350764664",
+      "bytes_per_second": 24521120.88390171,
+      "completed": false,
+      "duration_ms": 55085.763428,
+      "rows": "1657248",
+      "rows_per_second": 30084.869426673384
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1691157918,
+      "sampled_deliveries": 27,
+      "sampled_rows": 1722657,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.5238889309762876,
+    "average_process_rss_bytes": 3591247633.860465,
+    "peak_process_rss_bytes": 4470956032,
+    "wall_seconds": 74.92046057712287
+  },
+  {
+    "name": "mysql-rows250-r2",
+    "connector": "mysql",
+    "settings": {
+      "insert_rows": 250
+    },
+    "source": {
+      "arrow_bytes": "1975062790",
+      "bytes_per_second": 667023929.7615643,
+      "completed": true,
+      "duration_ms": 2961.007397,
+      "rows": "2000000",
+      "rows_per_second": 675445.7965982582
+    },
+    "destination": {
+      "arrow_bytes": "1350818632",
+      "bytes_per_second": 24342469.833758328,
+      "completed": false,
+      "duration_ms": 55492.258642,
+      "rows": "1657248",
+      "rows_per_second": 29864.489940686813
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1688536797,
+      "sampled_deliveries": 27,
+      "sampled_rows": 1722657,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.5183818686772146,
+    "average_process_rss_bytes": 3629211146.1721854,
+    "peak_process_rss_bytes": 4560658432,
+    "wall_seconds": 75.27269443194382
+  },
+  {
+    "name": "opensearch-c4-confirm-r3",
+    "connector": "opensearch",
+    "settings": {
+      "bulk_concurrency": 4
+    },
+    "source": {
+      "arrow_bytes": "1955122141",
+      "bytes_per_second": 621389499.5674868,
+      "completed": true,
+      "duration_ms": 3146.3713860000003,
+      "rows": "2000000",
+      "rows_per_second": 635652.8694925017
+    },
+    "destination": {
+      "arrow_bytes": "3800428577",
+      "bytes_per_second": 33355076.626410183,
+      "completed": false,
+      "duration_ms": 113938.53534100001,
+      "rows": "1338338",
+      "rows_per_second": 11746.140109617578
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1472766598,
+      "sampled_deliveries": 24,
+      "sampled_rows": 1525790,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.4466543020262287,
+    "average_process_rss_bytes": 2667392711.851301,
+    "peak_process_rss_bytes": 4447277056,
+    "wall_seconds": 134.4440201909747
+  },
+  {
+    "name": "opensearch-c4-r1",
+    "connector": "opensearch",
+    "settings": {
+      "bulk_concurrency": 4
+    },
+    "source": {
+      "arrow_bytes": "1949874910",
+      "bytes_per_second": 572446556.3327215,
+      "completed": true,
+      "duration_ms": 3406.213014,
+      "rows": "2000000",
+      "rows_per_second": 587162.3388730321
+    },
+    "destination": {
+      "arrow_bytes": "3799189890",
+      "bytes_per_second": 32974302.020157386,
+      "completed": false,
+      "duration_ms": 115216.688671,
+      "rows": "1337887",
+      "rows_per_second": 11611.920247251002
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1543899076,
+      "sampled_deliveries": 25,
+      "sampled_rows": 1591199,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.4393510752274997,
+    "average_process_rss_bytes": 2709923869.89781,
+    "peak_process_rss_bytes": 4667514880,
+    "wall_seconds": 136.72437234595418
+  },
+  {
+    "name": "opensearch-c4-r2",
+    "connector": "opensearch",
+    "settings": {
+      "bulk_concurrency": 4
+    },
+    "source": {
+      "arrow_bytes": "1960868057",
+      "bytes_per_second": 637835954.5140253,
+      "completed": true,
+      "duration_ms": 3074.25137,
+      "rows": "2000000",
+      "rows_per_second": 650564.8885829399
+    },
+    "destination": {
+      "arrow_bytes": "3986511940",
+      "bytes_per_second": 32886965.767493587,
+      "completed": false,
+      "duration_ms": 121218.599739,
+      "rows": "1403747",
+      "rows_per_second": 11580.293808231218
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1801974771,
+      "sampled_deliveries": 29,
+      "sampled_rows": 1842500,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.433610378712559,
+    "average_process_rss_bytes": 2870521028.1616874,
+    "peak_process_rss_bytes": 4461486080,
+    "wall_seconds": 142.1322067589499
+  },
+  {
+    "name": "opensearch-c8-confirm-r3",
+    "connector": "opensearch",
+    "settings": {
+      "bulk_concurrency": 8
+    },
+    "source": {
+      "arrow_bytes": "1959413505",
+      "bytes_per_second": 641686623.000015,
+      "completed": true,
+      "duration_ms": 3053.536469,
+      "rows": "2000000",
+      "rows_per_second": 654978.2589153023
+    },
+    "destination": {
+      "arrow_bytes": "3800497651",
+      "bytes_per_second": 31517221.29274335,
+      "completed": false,
+      "duration_ms": 120584.794443,
+      "rows": "1338338",
+      "rows_per_second": 11098.729372820115
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1744037360,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1781893,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.42493468403854334,
+    "average_process_rss_bytes": 3190376918.3886924,
+    "peak_process_rss_bytes": 4347895808,
+    "wall_seconds": 141.26876966003329
+  },
+  {
+    "name": "opensearch-c8-r1",
+    "connector": "opensearch",
+    "settings": {
+      "bulk_concurrency": 8
+    },
+    "source": {
+      "arrow_bytes": "1972140525",
+      "bytes_per_second": 574348996.8278129,
+      "completed": true,
+      "duration_ms": 3433.69717,
+      "rows": "2000000",
+      "rows_per_second": 582462.5472140865
+    },
+    "destination": {
+      "arrow_bytes": "3800433139",
+      "bytes_per_second": 31517526.062744737,
+      "completed": false,
+      "duration_ms": 120581.581544,
+      "rows": "1338338",
+      "rows_per_second": 11099.025098718272
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1547644212,
+      "sampled_deliveries": 25,
+      "sampled_rows": 1591199,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.4444677973496112,
+    "average_process_rss_bytes": 2728517820.4884953,
+    "peak_process_rss_bytes": 3253448704,
+    "wall_seconds": 141.13508419296704
+  },
+  {
+    "name": "opensearch-c8-r2",
+    "connector": "opensearch",
+    "settings": {
+      "bulk_concurrency": 8
+    },
+    "source": {
+      "arrow_bytes": "1984519523",
+      "bytes_per_second": 676475206.4843812,
+      "completed": true,
+      "duration_ms": 2933.617528,
+      "rows": "2000000",
+      "rows_per_second": 681752.1305728985
+    },
+    "destination": {
+      "arrow_bytes": "3800458771",
+      "bytes_per_second": 30830196.034632787,
+      "completed": false,
+      "duration_ms": 123270.665121,
+      "rows": "1338338",
+      "rows_per_second": 10856.905807122193
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1614401154,
+      "sampled_deliveries": 26,
+      "sampled_rows": 1656608,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.4524728530807405,
+    "average_process_rss_bytes": 2819067096.138408,
+    "peak_process_rss_bytes": 4208656384,
+    "wall_seconds": 144.34015113906935
+  },
+  {
+    "name": "opensearch-four-shard-page10k-c2-r1",
+    "connector": "opensearch",
+    "settings": {
+      "page_rows": 10000,
+      "read_concurrency": 2
+    },
+    "source": {
+      "arrow_bytes": "2489283168",
+      "bytes_per_second": 469577397.04692125,
+      "completed": true,
+      "duration_ms": 5301.11369,
+      "rows": "500000",
+      "rows_per_second": 94319.8032034661
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 2489283168,
+      "sampled_deliveries": 52,
+      "sampled_rows": 500000,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.1250008020175084,
+    "average_process_rss_bytes": 3199056923.675676,
+    "peak_process_rss_bytes": 3888889856,
+    "wall_seconds": 27.359980494948104
+  },
+  {
+    "name": "opensearch-four-shard-page10k-c2-r2",
+    "connector": "opensearch",
+    "settings": {
+      "page_rows": 10000,
+      "read_concurrency": 2
+    },
+    "source": {
+      "arrow_bytes": "2489283168",
+      "bytes_per_second": 469854732.9372874,
+      "completed": true,
+      "duration_ms": 5297.984661,
+      "rows": "500000",
+      "rows_per_second": 94375.50917816823
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 2489283168,
+      "sampled_deliveries": 52,
+      "sampled_rows": 500000,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.1250515722490828,
+    "average_process_rss_bytes": 3128474770.285714,
+    "peak_process_rss_bytes": 3749036032,
+    "wall_seconds": 27.66984267020598
+  },
+  {
+    "name": "opensearch-four-shard-page10k-c4-r1",
+    "connector": "opensearch",
+    "settings": {
+      "page_rows": 10000,
+      "read_concurrency": 4
+    },
+    "source": {
+      "arrow_bytes": "2489283168",
+      "bytes_per_second": 453878819.2702008,
+      "completed": true,
+      "duration_ms": 5484.466474999999,
+      "rows": "500000",
+      "rows_per_second": 91166.57058241933
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 2489283168,
+      "sampled_deliveries": 52,
+      "sampled_rows": 500000,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.1655634684464127,
+    "average_process_rss_bytes": 3374156946.285714,
+    "peak_process_rss_bytes": 3980660736,
+    "wall_seconds": 27.583225513109937
+  },
+  {
+    "name": "opensearch-four-shard-page10k-c4-r2",
+    "connector": "opensearch",
+    "settings": {
+      "page_rows": 10000,
+      "read_concurrency": 4
+    },
+    "source": {
+      "arrow_bytes": "2489283168",
+      "bytes_per_second": 452159378.42899424,
+      "completed": true,
+      "duration_ms": 5505.322429999999,
+      "rows": "500000",
+      "rows_per_second": 90821.201910966
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 2489283168,
+      "sampled_deliveries": 52,
+      "sampled_rows": 500000,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.1719441584140748,
+    "average_process_rss_bytes": 3345599290.385965,
+    "peak_process_rss_bytes": 3927855104,
+    "wall_seconds": 28.28633067710325
+  },
+  {
+    "name": "postgres-binary-r1",
+    "connector": "postgres",
+    "settings": {
+      "copy_from_format": "binary"
+    },
+    "source": {
+      "arrow_bytes": "1965239195",
+      "bytes_per_second": 693593292.6416514,
+      "completed": true,
+      "duration_ms": 2833.417243,
+      "rows": "2000000",
+      "rows_per_second": 705861.4487298086
+    },
+    "destination": {
+      "arrow_bytes": "2023238703",
+      "bytes_per_second": 70803521.12310806,
+      "completed": false,
+      "duration_ms": 28575.396688,
+      "rows": "2482947",
+      "rows_per_second": 86891.0772126811
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1744321265,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1778816,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.6828316665675491,
+    "average_process_rss_bytes": 4854353369.791045,
+    "peak_process_rss_bytes": 5681045504,
+    "wall_seconds": 49.88052204903215
+  },
+  {
+    "name": "postgres-binary-r2",
+    "connector": "postgres",
+    "settings": {
+      "copy_from_format": "binary"
+    },
+    "source": {
+      "arrow_bytes": "1951588746",
+      "bytes_per_second": 689690437.4649365,
+      "completed": true,
+      "duration_ms": 2829.658989,
+      "rows": "2000000",
+      "rows_per_second": 706798.9491930966
+    },
+    "destination": {
+      "arrow_bytes": "2025735993",
+      "bytes_per_second": 70991941.02029544,
+      "completed": false,
+      "duration_ms": 28534.731743999997,
+      "rows": "2486024",
+      "rows_per_second": 87122.73948475918
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1735820297,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1781893,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.6990965601468734,
+    "average_process_rss_bytes": 4451005962.448979,
+    "peak_process_rss_bytes": 5254410240,
+    "wall_seconds": 48.619893070077524
+  },
+  {
+    "name": "postgres-install-binary16k-r1",
+    "connector": "postgres",
+    "settings": {
+      "batch_rows": 16384,
+      "copy_to_format": "binary"
+    },
+    "source": {
+      "arrow_bytes": "1643503200",
+      "bytes_per_second": 81529247.6822662,
+      "completed": false,
+      "duration_ms": 20158.449227999998,
+      "rows": "1376256",
+      "rows_per_second": 68271.91836207254
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 1643503200,
+      "sampled_deliveries": 84,
+      "sampled_rows": 1376256,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.1438498272924273,
+    "average_process_rss_bytes": 2484740487.791304,
+    "peak_process_rss_bytes": 3502649344,
+    "wall_seconds": 57.15785275306553
+  },
+  {
+    "name": "postgres-install-binary16k-r2",
+    "connector": "postgres",
+    "settings": {
+      "batch_rows": 16384,
+      "copy_to_format": "binary"
+    },
+    "source": {
+      "arrow_bytes": "1663098264",
+      "bytes_per_second": 84958385.91746192,
+      "completed": false,
+      "duration_ms": 19575.445626,
+      "rows": "1392640",
+      "rows_per_second": 71142.18631888018
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 1623908136,
+      "sampled_deliveries": 83,
+      "sampled_rows": 1359872,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.178583928469679,
+    "average_process_rss_bytes": 2496625821.8854628,
+    "peak_process_rss_bytes": 3517857792,
+    "wall_seconds": 56.48303730599582
+  },
+  {
+    "name": "postgres-install-binary65k-r1",
+    "connector": "postgres",
+    "settings": {
+      "batch_rows": 65536,
+      "copy_to_format": "binary"
+    },
+    "source": {
+      "arrow_bytes": "1487957288",
+      "bytes_per_second": 69585825.07832246,
+      "completed": false,
+      "duration_ms": 21383.051596,
+      "rows": "1245184",
+      "rows_per_second": 58232.28711812719
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 1409641968,
+      "sampled_deliveries": 18,
+      "sampled_rows": 1179648,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.0030732410298802,
+    "average_process_rss_bytes": 2802546869.468354,
+    "peak_process_rss_bytes": 3935789056,
+    "wall_seconds": 58.96877474198118
+  },
+  {
+    "name": "postgres-install-binary65k-r2",
+    "connector": "postgres",
+    "settings": {
+      "batch_rows": 65536,
+      "copy_to_format": "binary"
+    },
+    "source": {
+      "arrow_bytes": "1487957288",
+      "bytes_per_second": 71680002.59633964,
+      "completed": false,
+      "duration_ms": 20758.331949,
+      "rows": "1245184",
+      "rows_per_second": 59984.7811981822
+    },
+    "destination": null,
+    "profile": {
+      "sampled_arrow_bytes": 1409641968,
+      "sampled_deliveries": 18,
+      "sampled_rows": 1179648,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 1.0057210334736904,
+    "average_process_rss_bytes": 2715790405.423729,
+    "peak_process_rss_bytes": 3456495616,
+    "wall_seconds": 58.82346896501258
+  },
+  {
+    "name": "postgres-text-r1",
+    "connector": "postgres",
+    "settings": {
+      "copy_from_format": "text"
+    },
+    "source": {
+      "arrow_bytes": "1971527337",
+      "bytes_per_second": 706004252.8683922,
+      "completed": true,
+      "duration_ms": 2792.5148169999998,
+      "rows": "2000000",
+      "rows_per_second": 716200.3180160745
+    },
+    "destination": {
+      "arrow_bytes": "1452850510",
+      "bytes_per_second": 34493484.69058435,
+      "completed": false,
+      "duration_ms": 42119.563246,
+      "rows": "1781893",
+      "rows_per_second": 42305.59062525945
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1755060715,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1781893,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.7182057603784854,
+    "average_process_rss_bytes": 4457081831.424,
+    "peak_process_rss_bytes": 5312540672,
+    "wall_seconds": 62.15488995308988
+  },
+  {
+    "name": "postgres-text-r2",
+    "connector": "postgres",
+    "settings": {
+      "copy_from_format": "text"
+    },
+    "source": {
+      "arrow_bytes": "1957404765",
+      "bytes_per_second": 673873873.1822343,
+      "completed": true,
+      "duration_ms": 2904.7049349999998,
+      "rows": "2000000",
+      "rows_per_second": 688538.0941455247
+    },
+    "destination": {
+      "arrow_bytes": "1452868778",
+      "bytes_per_second": 35020356.31349828,
+      "completed": false,
+      "duration_ms": 41486.40764799999,
+      "rows": "1781893",
+      "rows_per_second": 42951.24839727845
+    },
+    "profile": {
+      "sampled_arrow_bytes": 1744895827,
+      "sampled_deliveries": 28,
+      "sampled_rows": 1781893,
+      "truncated": false
+    },
+    "mean_process_cpu_cores": 0.721918680539154,
+    "average_process_rss_bytes": 4282324933.959514,
+    "peak_process_rss_bytes": 4811882496,
+    "wall_seconds": 61.48892000806518
+  }
+]

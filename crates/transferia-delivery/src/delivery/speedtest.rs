@@ -1498,8 +1498,15 @@ fn unique_key_strategies(
         for (_, column_index, column) in candidates {
             match build_unique_key_kind_many(&batches, column_index, column) {
                 Ok(kind) => {
-                    selected = Some((column_index, kind));
-                    break;
+                    let capacity = unique_key_max_iteration(kind);
+                    if selected
+                        .as_ref()
+                        .is_none_or(|(_, selected_kind)| {
+                            capacity > unique_key_max_iteration(*selected_kind)
+                        })
+                    {
+                        selected = Some((column_index, kind));
+                    }
                 }
                 Err(error) => rejected.push(format!("{}: {error:#}", column.name)),
             }
@@ -1546,6 +1553,22 @@ fn unique_key_strategies(
         );
     }
     Ok(result)
+}
+
+const fn unique_key_max_iteration(kind: UniqueKeyKind) -> u128 {
+    match kind {
+        UniqueKeyKind::Signed { max_iteration, .. }
+        | UniqueKeyKind::Unsigned { max_iteration, .. }
+        | UniqueKeyKind::Utf8 { max_iteration, .. }
+        | UniqueKeyKind::LargeUtf8 { max_iteration, .. }
+        | UniqueKeyKind::Binary { max_iteration, .. }
+        | UniqueKeyKind::LargeBinary { max_iteration, .. }
+        | UniqueKeyKind::FixedSizeBinary { max_iteration, .. } => max_iteration,
+        UniqueKeyKind::UnboundedUtf8
+        | UniqueKeyKind::UnboundedLargeUtf8
+        | UniqueKeyKind::UnboundedBinary
+        | UniqueKeyKind::UnboundedLargeBinary => u128::MAX,
+    }
 }
 
 fn unique_key_rank(data_type: &DataType) -> Option<u8> {

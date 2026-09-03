@@ -1,15 +1,16 @@
 use arrow::array::{
     Array, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array,
-    Int32Array, Int64Array, Int8Array, StringArray, TimestampMicrosecondArray,
-    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt16Array,
-    UInt32Array, UInt64Array, UInt8Array,
+    Int32Array, Int64Array, Int8Array, StringArray, UInt16Array, UInt32Array, UInt64Array,
+    UInt8Array,
 };
-use arrow::datatypes::{DataType, TimeUnit};
+use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatch;
 use bytes::{BufMut, Bytes, BytesMut};
 
-const POSTGRES_EPOCH_DAYS: i32 = 10_957;
-const POSTGRES_EPOCH_MICROS: i64 = 946_684_800_000_000;
+use crate::connectors::postgres::temporal::{
+    timestamp_has_timezone, timestamp_micros, unix_days_to_postgres_date,
+    unix_micros_to_postgres_timestamp,
+};
 
 pub fn encode(batch: &RecordBatch) -> anyhow::Result<Bytes> {
     let estimated = batch
@@ -109,35 +110,13 @@ fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow
         DataType::Binary => field(output, downcast::<BinaryArray>(column)?.value(row)),
         DataType::Date32 => fixed(
             output,
-            downcast::<Date32Array>(column)?
-                .value(row)
-                .checked_sub(POSTGRES_EPOCH_DAYS)
-                .ok_or_else(|| anyhow::anyhow!("PostgreSQL date conversion overflow"))?
+            unix_days_to_postgres_date(downcast::<Date32Array>(column)?.value(row))?
                 .to_be_bytes(),
         ),
-        DataType::Timestamp(unit, None) => {
-            let micros = match unit {
-                TimeUnit::Second => downcast::<TimestampSecondArray>(column)?
-                    .value(row)
-                    .checked_mul(1_000_000),
-                TimeUnit::Millisecond => downcast::<TimestampMillisecondArray>(column)?
-                    .value(row)
-                    .checked_mul(1_000),
-                TimeUnit::Microsecond => {
-                    Some(downcast::<TimestampMicrosecondArray>(column)?.value(row))
-                }
-                TimeUnit::Nanosecond => {
-                    let nanos = downcast::<TimestampNanosecondArray>(column)?.value(row);
-                    anyhow::ensure!(
-                        nanos.rem_euclid(1_000) == 0,
-                        "PostgreSQL timestamp has microsecond precision; nanosecond value {nanos} is not lossless"
-                    );
-                    Some(nanos / 1_000)
-                }
-            }
-            .and_then(|value| value.checked_sub(POSTGRES_EPOCH_MICROS))
-            .ok_or_else(|| anyhow::anyhow!("PostgreSQL timestamp conversion overflow"))?;
-            fixed(output, micros.to_be_bytes())
+        DataType::Timestamp(unit, _) => {
+            timestamp_has_timezone(column.data_type())?;
+            let micros = timestamp_micros(column, row, unit)?;
+            fixed(output, unix_micros_to_postgres_timestamp(micros)?.to_be_bytes())
         }
         data_type => {
             anyhow::bail!("unsupported Arrow type {data_type:?} for PostgreSQL binary COPY")

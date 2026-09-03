@@ -386,8 +386,9 @@ async fn discover_table(
                 table.name
             );
             anyhow::ensure!(default_values.value(row).is_empty(), "ClickHouse source column '{}.{}.{name}' is generated ({}) and cannot be snapshotted through SELECT *", table.database, table.name, default_values.value(row));
-            let clickhouse_type = Type::from_str(type_values.value(row))?;
-            let data_type = source_arrow_type(&clickhouse_type)?;
+            let declared_type = type_values.value(row);
+            let clickhouse_type = Type::from_str(declared_type)?;
+            let data_type = source_arrow_type(&clickhouse_type, declared_type)?;
             let data_type = match system_column_kind(name) {
                 Some(kind) => {
                     anyhow::ensure!(
@@ -422,13 +423,50 @@ async fn discover_table(
         table.database,
         table.name
     );
-    let schema = DatasetSchema::new(columns);
+    let mut schema = DatasetSchema::new(columns);
+    apply_declared_primary_key(&mut schema, &table)?;
     let physical_system_columns = classify_system_columns(&schema)?;
     Ok(DiscoveredTable {
         config: table,
         schema,
         physical_system_columns,
     })
+}
+
+pub(super) fn apply_declared_primary_key(
+    schema: &mut DatasetSchema,
+    table: &TableConfig,
+) -> anyhow::Result<()> {
+    for key in &table.primary_key {
+        let column = schema
+            .columns
+            .iter_mut()
+            .find(|column| column.name == *key)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "ClickHouse source primary-key column '{}.{}.{}' does not exist",
+                    table.database,
+                    table.name,
+                    key,
+                )
+            })?;
+        anyhow::ensure!(
+            !column.nullable,
+            "ClickHouse source primary-key column '{}.{}.{}' must be non-nullable",
+            table.database,
+            table.name,
+            key,
+        );
+        anyhow::ensure!(
+            system_column_kind(&column.name).is_none(),
+            "ClickHouse source system column '{}.{}.{}' cannot be a primary key",
+            table.database,
+            table.name,
+            key,
+        );
+        column.primary_key = true;
+    }
+    Ok(())
 }
 
 fn system_column_kind(name: &str) -> Option<SystemColumnKind> {
@@ -497,7 +535,10 @@ fn without_system_columns(schema: &DatasetSchema, system_columns: &SystemColumns
     )
 }
 
-fn source_arrow_type(clickhouse_type: &Type) -> anyhow::Result<DataType> {
+pub(super) fn source_arrow_type(
+    clickhouse_type: &Type,
+    declared_type: &str,
+) -> anyhow::Result<DataType> {
     Ok(match clickhouse_type.strip_null() {
         Type::Int8 => DataType::Int8,
         Type::Int16 => DataType::Int16,
@@ -510,9 +551,11 @@ fn source_arrow_type(clickhouse_type: &Type) -> anyhow::Result<DataType> {
         Type::Float32 => DataType::Float32,
         Type::Float64 => DataType::Float64,
         Type::String => DataType::Binary,
-        Type::DateTime(timezone) => {
-            DataType::Timestamp(TimeUnit::Second, Some(Arc::from(timezone.name())))
-        }
+        Type::Date | Type::Date32 => DataType::Date32,
+        Type::DateTime(timezone) => DataType::Timestamp(
+            TimeUnit::Second,
+            declared_timestamp_timezone(declared_type, timezone.name()),
+        ),
         Type::DateTime64(precision, timezone) => DataType::Timestamp(
             match precision {
                 0 => TimeUnit::Second,
@@ -521,8 +564,31 @@ fn source_arrow_type(clickhouse_type: &Type) -> anyhow::Result<DataType> {
                 7..=9 => TimeUnit::Nanosecond,
                 _ => anyhow::bail!("unsupported ClickHouse DateTime64 precision {precision}"),
             },
-            Some(Arc::from(timezone.name())),
+            declared_timestamp_timezone(declared_type, timezone.name()),
         ),
         other => anyhow::bail!("unsupported ClickHouse source type {other}"),
     })
+}
+
+fn declared_timestamp_timezone(declared_type: &str, timezone: &str) -> Option<Arc<str>> {
+    let mut declaration = declared_type.trim();
+    while let Some(inner) = declaration
+        .strip_prefix("Nullable(")
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        declaration = inner.trim();
+    }
+    let explicit = if declaration == "DateTime" {
+        false
+    } else if declaration.starts_with("DateTime(") {
+        true
+    } else if let Some(arguments) = declaration
+        .strip_prefix("DateTime64(")
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        arguments.contains(',')
+    } else {
+        false
+    };
+    explicit.then(|| Arc::from(timezone))
 }

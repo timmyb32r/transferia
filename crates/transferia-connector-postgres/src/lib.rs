@@ -29,7 +29,7 @@ pub fn register(
                     serde_json::json!({
                         "host": "", "port": 5432, "database": "", "username": "",
                         "password": "", "trusted_plaintext": true,
-                        "tables": [{ "schema": "", "name": "" }], "batch_rows": 65536,
+                        "tables": [{ "schema": "", "name": "" }], "batch_rows": 16384,
                         "copy_to_format": "binary",
                         "replication": null
                     })
@@ -83,7 +83,7 @@ fn postgres_source_tuning_parameters() -> Vec<TuningParameter> {
         TuningParameter::UnsignedInteger {
             pointer: "/batch_rows".to_owned(),
             label: "Rows per snapshot batch".to_owned(),
-            baseline: 65_536,
+            baseline: 16_384,
             minimum: 1,
             maximum: u64::MAX,
             candidates: vec![16_384, 65_536, 262_144, 1_048_576],

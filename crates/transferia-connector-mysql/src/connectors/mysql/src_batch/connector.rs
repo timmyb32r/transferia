@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use arrow::datatypes::DataType;
+use arrow::datatypes::{DataType, TimeUnit};
 use futures_util::future::BoxFuture;
 use mysql_async::prelude::Queryable;
 use mysql_async::{Conn, Row};
@@ -37,10 +37,13 @@ pub(super) enum MySqlColumnKind {
     Binary,
     Utf8,
     Json,
+    Date,
+    DateTime,
+    TimestampUtc,
 }
 
 impl MySqlColumnKind {
-    pub(super) const fn arrow_type(self) -> DataType {
+    pub(super) fn arrow_type(self) -> DataType {
         match self {
             Self::Int8 => DataType::Int8,
             Self::UInt8 => DataType::UInt8,
@@ -54,6 +57,11 @@ impl MySqlColumnKind {
             Self::Float64 => DataType::Float64,
             Self::Binary => DataType::Binary,
             Self::Utf8 | Self::Json => DataType::Utf8,
+            Self::Date => DataType::Date32,
+            Self::DateTime => DataType::Timestamp(TimeUnit::Microsecond, None),
+            Self::TimestampUtc => {
+                DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into()))
+            }
         }
     }
 }
@@ -323,9 +331,10 @@ fn column_plan(row: &Row) -> anyhow::Result<ColumnPlan> {
         "json" => MySqlColumnKind::Json,
         "char" | "varchar" | "tinytext" | "text" | "mediumtext" | "longtext"
         | "enum" | "set" | "inet4" | "inet6" | "uuid" => MySqlColumnKind::Utf8,
-        "decimal" | "numeric" | "date" | "time" | "datetime" | "timestamp" | "year" => {
-            MySqlColumnKind::Utf8
-        }
+        "date" => MySqlColumnKind::Date,
+        "datetime" => MySqlColumnKind::DateTime,
+        "timestamp" => MySqlColumnKind::TimestampUtc,
+        "decimal" | "numeric" | "time" | "year" => MySqlColumnKind::Utf8,
         _ => anyhow::bail!(
             "unsupported MySQL/MariaDB column type '{data_type}' ({column_type}) for column '{name}'"
         ),
@@ -333,7 +342,7 @@ fn column_plan(row: &Row) -> anyhow::Result<ColumnPlan> {
     let quoted = quote_identifier(&name);
     let canonical_text = matches!(
         data_type.as_str(),
-        "decimal" | "numeric" | "date" | "time" | "datetime" | "timestamp" | "year"
+        "decimal" | "numeric" | "time" | "year"
     );
     let expression = if canonical_text {
         format!("CAST({quoted} AS CHAR) AS {quoted}")

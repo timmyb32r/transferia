@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import pathlib
@@ -13,6 +12,7 @@ import re
 import signal
 import statistics
 import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -21,12 +21,27 @@ from typing import Any
 
 import yaml
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+from scripts.murmur3_x64_128 import murmur3_x64_128_file
+
 
 STATS = re.compile(
-    r"\[stats\].*?source: (?P<source>[0-9]+) records/s.*?"
+    r"\[stats(?: p=(?P<partition>-?[0-9]+))?\].*?"
+    r"source: (?P<source>[0-9]+) records/s.*?"
     r"sink: (?P<sink>[0-9]+) rows/s.*?"
     r"(?P<retries>[0-9]+) retries.*?cpu: (?P<cpu>[0-9]+)% "
     r"rss: (?P<rss>[0-9.]+) (?P<rss_unit>[GM]iB)"
+)
+FAILURE_MARKERS = (
+    "pipeline failed, restarting",
+    "partition task failed",
+    "non-retryable partition failure",
+    "panicked at",
+    "failed, retrying",
+)
+CONFIG_PLACEHOLDER = re.compile(
+    r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::-(?P<default>[^}]*))?\}"
 )
 
 
@@ -48,18 +63,18 @@ def required(mapping: dict[str, Any], key: str, owner: str) -> Any:
     return value
 
 
-def sha256(path: pathlib.Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def private_write(path: pathlib.Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     path.write_text(text, encoding="utf-8")
     path.chmod(0o600)
+
+
+def private_binary_output(path: pathlib.Path):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.chmod(0o700)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(descriptor, 0o600)
+    return os.fdopen(descriptor, "wb")
 
 
 def environment(raw: dict[str, Any], base: pathlib.Path) -> dict[str, str]:
@@ -74,6 +89,22 @@ def environment(raw: dict[str, Any], base: pathlib.Path) -> dict[str, str]:
     return result
 
 
+def render_config_template(template: str, values: dict[str, str]) -> str:
+    def replace(match: re.Match[str]) -> str:
+        name = match.group("name")
+        if name in values:
+            return values[name]
+        default = match.group("default")
+        if default is not None:
+            return default
+        raise ValueError(f"delivery template requires environment variable {name}")
+
+    rendered = CONFIG_PLACEHOLDER.sub(replace, template)
+    if CONFIG_PLACEHOLDER.search(rendered):
+        raise ValueError("delivery template contains an unresolved environment placeholder")
+    return rendered
+
+
 def rss_bytes(value: str, unit: str) -> float:
     scale = 1024**3 if unit == "GiB" else 1024**2
     return float(value) * scale
@@ -82,15 +113,27 @@ def rss_bytes(value: str, unit: str) -> float:
 def parse_window(log: pathlib.Path, sample_count: int) -> dict[str, Any]:
     samples = []
     for line in log.read_text(errors="replace").splitlines():
+        lowered = line.lower()
+        if any(marker in lowered for marker in FAILURE_MARKERS):
+            raise RuntimeError(
+                "pipeline failure occurred during the measurement; inspect the private raw log"
+            )
         match = STATS.search(line)
         if match:
             samples.append(match.groupdict())
+        elif "[stats" in line:
+            raise RuntimeError("measurement contains an unrecognized [stats] line")
     if len(samples) < sample_count:
         raise RuntimeError(
             f"measurement produced {len(samples)} stats samples, expected at least "
             f"{sample_count}"
         )
     samples = samples[-sample_count:]
+    partitions = {sample["partition"] for sample in samples}
+    if partitions not in ({None}, {"0"}):
+        raise RuntimeError(
+            "single-worker sink benchmark requires aggregate stats or partition zero only"
+        )
     source = [float(sample["source"]) for sample in samples]
     sink = [float(sample["sink"]) for sample in samples]
     cpu = [float(sample["cpu"]) for sample in samples]
@@ -119,6 +162,7 @@ def delivery(
     sink_key: str,
     table_name: str,
     rows: int,
+    preset: str,
     state_path: pathlib.Path,
 ) -> dict[str, Any]:
     document = yaml.safe_load(yaml.safe_dump(template))
@@ -131,7 +175,7 @@ def delivery(
     document["source"] = {
         "data_generator": {
             "table_name": table_name,
-            "preset": {"type": "transfer_logs"},
+            "preset": {"type": preset},
             "amount": {"type": "rows", "row_count": rows},
         }
     }
@@ -166,6 +210,7 @@ def run_once(
     root: pathlib.Path,
     repetition: int,
     process_environment: dict[str, str],
+    preset: str,
 ) -> dict[str, Any]:
     run_name = f"{candidate.name}-r{repetition}"
     work = root / "work" / run_name
@@ -185,6 +230,7 @@ def run_once(
                 sink_key,
                 table_name,
                 rows,
+                preset,
                 work / "state",
             ),
             sort_keys=False,
@@ -192,7 +238,7 @@ def run_once(
     )
     log.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
-    with log.open("wb") as output:
+    with private_binary_output(log) as output:
         process = subprocess.Popen(
             [
                 str(binary),
@@ -285,11 +331,14 @@ def main() -> int:
     base = source.parent
     run = raw["run"]
     tools = raw["tools"]
+    process_environment = environment(raw, base)
     binary = expand_path(required(tools, "rust_binary", "tools"), base)
     template_path = expand_path(
         required(run, "delivery_template_file", "run"), base
     )
-    template = yaml.safe_load(template_path.read_text())
+    template = yaml.safe_load(
+        render_config_template(template_path.read_text(), process_environment)
+    )
     candidates = [
         Candidate(str(item["name"]), dict(item.get("settings", {})))
         for item in run["candidates"]
@@ -299,6 +348,11 @@ def main() -> int:
     warmup = int(run.get("warmup_seconds", 30))
     duration = int(run.get("duration_seconds", 120))
     repetitions = int(run.get("repetitions", 2))
+    preset = str(run.get("preset", "transfer_logs"))
+    if preset not in {"clickbench", "numeric", "transfer_logs"}:
+        raise ValueError(
+            "run.preset must be one of clickbench, numeric, or transfer_logs"
+        )
     if min(warmup, duration, repetitions) <= 0:
         raise ValueError("warmup, duration, and repetitions must be positive")
     run_id = str(
@@ -308,14 +362,17 @@ def main() -> int:
         )
     )
     root = expand_path(run.get("results_dir", "./results"), base) / run_id
-    root.mkdir(parents=True, exist_ok=False)
+    root.mkdir(parents=True, exist_ok=False, mode=0o700)
+    root.chmod(0o700)
     provenance = {
-        "binary_sha256": sha256(binary),
-        "benchmark_config_sha256": sha256(source),
-        "delivery_template_sha256": sha256(template_path),
+        "fingerprint_algorithm": "murmur3_x64_128",
+        "binary_murmur3_x64_128": murmur3_x64_128_file(binary),
+        "benchmark_config_murmur3_x64_128": murmur3_x64_128_file(source),
+        "delivery_template_murmur3_x64_128": murmur3_x64_128_file(template_path),
         "warmup_seconds": warmup,
         "duration_seconds": duration,
         "repetitions": repetitions,
+        "preset": preset,
     }
     private_write(
         root / "provenance.json",
@@ -327,7 +384,6 @@ def main() -> int:
         for candidate in candidates
     ]
     random.Random(int(run.get("seed", 20260829))).shuffle(schedule)
-    process_environment = environment(raw, base)
     results = []
     for candidate, repetition in schedule:
         results.append(
@@ -342,6 +398,7 @@ def main() -> int:
                 root=root,
                 repetition=repetition,
                 process_environment=process_environment,
+                preset=preset,
             )
         )
         write_report(root, results)

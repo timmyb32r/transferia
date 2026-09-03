@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    ArrayRef, BinaryBuilder, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
-    Int8Array, StringBuilder, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+    ArrayRef, BinaryBuilder, Date32Array, Float32Array, Float64Array, Int16Array, Int32Array,
+    Int64Array, Int8Array, StringBuilder, TimestampMicrosecondArray, UInt16Array, UInt32Array,
+    UInt64Array, UInt8Array,
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
+use chrono::NaiveDate;
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
 use mysql_async::prelude::{Query, Queryable, WithParams};
@@ -61,6 +63,9 @@ impl MySqlSource {
         read_protocol: MySqlReadProtocol,
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
+        connection
+            .query_drop("SET SESSION time_zone = '+00:00'")
+            .await?;
         connection
             .query_drop("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             .await?;
@@ -293,7 +298,136 @@ fn column_array(rows: &[Row], index: usize, column: &ColumnPlan) -> anyhow::Resu
             }
             Arc::new(builder.finish())
         }
+        MySqlColumnKind::Date => {
+            let values = rows
+                .iter()
+                .map(|row| match row.as_ref(index) {
+                    Some(Value::NULL) | None => Ok(None),
+                    Some(value) => value_date32(value).map(Some),
+                })
+                .collect::<anyhow::Result<Vec<Option<i32>>>>()?;
+            Arc::new(Date32Array::from(values))
+        }
+        MySqlColumnKind::DateTime | MySqlColumnKind::TimestampUtc => {
+            let values = rows
+                .iter()
+                .map(|row| match row.as_ref(index) {
+                    Some(Value::NULL) | None => Ok(None),
+                    Some(value) => value_timestamp_micros(value).map(Some),
+                })
+                .collect::<anyhow::Result<Vec<Option<i64>>>>()?;
+            let array = TimestampMicrosecondArray::from(values);
+            if column.kind == MySqlColumnKind::TimestampUtc {
+                Arc::new(array.with_timezone("UTC"))
+            } else {
+                Arc::new(array)
+            }
+        }
     })
+}
+
+pub(super) fn value_date32(value: &Value) -> anyhow::Result<i32> {
+    let (year, month, day) = match value {
+        Value::Date(year, month, day, hour, minute, second, micros) => {
+            anyhow::ensure!(
+                (*hour, *minute, *second, *micros) == (0, 0, 0, 0),
+                "MySQL DATE contained a time component"
+            );
+            (*year, *month, *day)
+        }
+        Value::Bytes(value) => parse_date_text(value)?,
+        other => anyhow::bail!("expected MySQL DATE, got {other:?}"),
+    };
+    let date = checked_mysql_date(year, month, day)?;
+    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1)
+        .ok_or_else(|| anyhow::anyhow!("Unix epoch is not representable"))?;
+    Ok(i32::try_from(date.signed_duration_since(epoch).num_days())?)
+}
+
+pub(super) fn value_timestamp_micros(value: &Value) -> anyhow::Result<i64> {
+    let (year, month, day, hour, minute, second, micros) = match value {
+        Value::Date(year, month, day, hour, minute, second, micros) => {
+            (*year, *month, *day, *hour, *minute, *second, *micros)
+        }
+        Value::Bytes(value) => parse_datetime_text(value)?,
+        other => anyhow::bail!("expected MySQL DATETIME or TIMESTAMP, got {other:?}"),
+    };
+    let date = checked_mysql_date(year, month, day)?;
+    anyhow::ensure!(micros < 1_000_000, "MySQL temporal microseconds are out of range");
+    let datetime = date
+        .and_hms_micro_opt(
+            u32::from(hour),
+            u32::from(minute),
+            u32::from(second),
+            micros,
+        )
+        .ok_or_else(|| anyhow::anyhow!("MySQL temporal time component is invalid"))?;
+    Ok(datetime.and_utc().timestamp_micros())
+}
+
+fn checked_mysql_date(year: u16, month: u8, day: u8) -> anyhow::Result<NaiveDate> {
+    anyhow::ensure!(
+        (1000..=9999).contains(&year),
+        "MySQL temporal year {year} is outside the supported 1000..=9999 range"
+    );
+    NaiveDate::from_ymd_opt(i32::from(year), u32::from(month), u32::from(day))
+        .ok_or_else(|| anyhow::anyhow!("MySQL temporal date component is invalid"))
+}
+
+fn parse_date_text(value: &[u8]) -> anyhow::Result<(u16, u8, u8)> {
+    anyhow::ensure!(
+        value.len() == 10 && value[4] == b'-' && value[7] == b'-',
+        "MySQL DATE text does not use YYYY-MM-DD"
+    );
+    Ok((
+        decimal_digits(&value[0..4])?,
+        decimal_digits(&value[5..7])?,
+        decimal_digits(&value[8..10])?,
+    ))
+}
+
+fn parse_datetime_text(value: &[u8]) -> anyhow::Result<(u16, u8, u8, u8, u8, u8, u32)> {
+    anyhow::ensure!(
+        value.len() >= 19
+            && value[4] == b'-'
+            && value[7] == b'-'
+            && value[10] == b' '
+            && value[13] == b':'
+            && value[16] == b':',
+        "MySQL DATETIME/TIMESTAMP text does not use YYYY-MM-DD HH:MM:SS[.ffffff]"
+    );
+    let micros = match value.get(19..) {
+        Some([]) => 0,
+        Some(fraction) if fraction[0] == b'.' && (2..=7).contains(&fraction.len()) => {
+            let digits = &fraction[1..];
+            decimal_digits::<u32>(digits)?
+                * 10_u32.pow(6 - u32::try_from(digits.len())?)
+        }
+        _ => anyhow::bail!(
+            "MySQL DATETIME/TIMESTAMP fraction must contain between one and six digits"
+        ),
+    };
+    Ok((
+        decimal_digits(&value[0..4])?,
+        decimal_digits(&value[5..7])?,
+        decimal_digits(&value[8..10])?,
+        decimal_digits(&value[11..13])?,
+        decimal_digits(&value[14..16])?,
+        decimal_digits(&value[17..19])?,
+        micros,
+    ))
+}
+
+fn decimal_digits<T>(value: &[u8]) -> anyhow::Result<T>
+where
+    T: std::str::FromStr,
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    anyhow::ensure!(
+        !value.is_empty() && value.iter().all(u8::is_ascii_digit),
+        "MySQL temporal component contains a non-decimal character"
+    );
+    Ok(std::str::from_utf8(value)?.parse()?)
 }
 
 pub(super) fn value_i64<T>(value: &Value) -> anyhow::Result<T>

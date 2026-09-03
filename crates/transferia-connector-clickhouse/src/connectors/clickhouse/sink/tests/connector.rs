@@ -1,5 +1,6 @@
-use arrow::array::BinaryArray;
-use arrow::datatypes::DataType;
+use arrow::array::{BinaryArray, Date32Array};
+use arrow::datatypes::{DataType, Field, Schema};
+use arrow::record_batch::RecordBatch;
 use std::collections::BTreeSet;
 
 use super::*;
@@ -420,11 +421,11 @@ fn limits_are_declarative_and_validate_discovered_schema() -> anyhow::Result<()>
     let description = connector.limits().description();
     assert_eq!(description.sink, "clickhouse");
     assert_eq!(
-        description.dataset_name.expect("table limit").syntax,
+        description.dataset_name.as_ref().expect("table limit").syntax,
         NameSyntax::AsciiIdentifier,
     );
     assert_eq!(
-        description.column_name.expect("column limit").syntax,
+        description.column_name.as_ref().expect("column limit").syntax,
         NameSyntax::AsciiIdentifier,
     );
     assert!(description.object_key.is_none());
@@ -438,10 +439,51 @@ fn limits_are_declarative_and_validate_discovered_schema() -> anyhow::Result<()>
         .unwrap_err();
     assert!(format!("{invalid_name:#}").contains("invalid ClickHouse table name"));
 
-    let unsupported_type = connector
+    assert!(description
+        .supported_arrow_types
+        .contains(&ArrowTypeFamily::Date32));
+    connector
         .limits()
-        .validate_discovery(&discovery("events", DataType::Date32))
-        .unwrap_err();
-    assert!(format!("{unsupported_type:#}").contains("Arrow Date32 is unavailable"));
+        .validate_discovery(&discovery("events", DataType::Date32))?;
+    Ok(())
+}
+
+#[test]
+fn date32_runtime_validation_enforces_clickhouse_lossless_range() -> anyhow::Result<()> {
+    let connector = ClickHouseSinkConnector::from_config(serde_yaml::from_str(
+        "hosts: [127.0.0.1]\nport: 1\ntrusted_plaintext: true\ndatabase: default\nusername: default\n",
+    )?)?;
+    let discovery = discovery("events", DataType::Date32);
+    let column = &discovery.datasets[0].incoming_schema.columns[0];
+    let make_batch = |values: Vec<i32>| -> anyhow::Result<transferia_core::sink::SinkBatch> {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new(&column.name, DataType::Date32, false)
+                    .with_metadata(column.arrow_metadata()),
+            ])),
+            vec![Arc::new(Date32Array::from(values))],
+        )?;
+        let byte_size = batch.get_array_memory_size();
+        Ok(transferia_core::sink::SinkBatch {
+            table: Arc::from("events"),
+            is_dlq: false,
+            batch,
+            byte_size,
+            memory: transferia_core::memory::PipelineMemory::new(byte_size.max(1))
+                .reserve_transform(byte_size),
+            system_columns: Default::default(),
+        })
+    };
+
+    connector
+        .limits()
+        .validate_batch(&discovery, &make_batch(vec![-25_567, 0, 120_529])?)?;
+    for invalid in [-25_568, 120_530] {
+        let error = connector
+            .limits()
+            .validate_batch(&discovery, &make_batch(vec![invalid])?)
+            .expect_err("out-of-range Date32 must fail before ClickHouse I/O");
+        assert!(error.to_string().contains("outside the lossless ClickHouse Date32 range"));
+    }
     Ok(())
 }

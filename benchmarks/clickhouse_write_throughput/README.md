@@ -17,9 +17,8 @@ shutdown latency into the result.
 python3 benchmarks/windowed_sink_throughput.py /private/clickhouse-write.yaml
 ```
 
-The result directory contains binary/config/template SHA-256 provenance,
+The result directory contains binary/config/template Murmur3 x64 128 provenance,
 private generated delivery YAML, raw logs, one JSON document per repetition,
 and a generated Markdown summary. The runner deliberately does not delete
 destination tables; clean up only its `sink_window_*` tables after verifying
 the run.
-

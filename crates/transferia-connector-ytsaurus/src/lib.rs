@@ -67,7 +67,7 @@ pub fn register(
                         "write_target_bytes": 536_870_912_u64,
                         "write_concurrency": 4,
                         "write_flush_interval_ms": 1000,
-                        "write_row_buffer_bytes": 1_048_576_u64,
+                        "write_row_buffer_bytes": 524_288_u64,
                         "table_writer": {
                             "block_size": 16_777_216_u64,
                             "max_buffer_size": 16_777_216_u64,
@@ -138,7 +138,7 @@ fn ytsaurus_sink_tuning_parameters() -> Vec<TuningParameter> {
         TuningParameter::UnsignedInteger {
             pointer: "/write_row_buffer_bytes".to_owned(),
             label: "Writer row buffer".to_owned(),
-            baseline: 1 << 20,
+            baseline: 512 << 10,
             minimum: 1,
             maximum: u64::MAX,
             candidates: vec![256 << 10, 512 << 10, 1 << 20],

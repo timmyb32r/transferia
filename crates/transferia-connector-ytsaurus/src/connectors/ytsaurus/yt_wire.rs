@@ -13,13 +13,15 @@ use arrow::array::{
     Date32Builder, Date64Array, Date64Builder, Float32Array, Float32Builder, Float64Array,
     Float64Builder, Int16Array, Int16Builder, Int32Array, Int32Builder, Int64Array, Int64Builder,
     Int8Array, Int8Builder, LargeBinaryArray, LargeStringArray, StringArray, StringBuilder,
-    TimestampMicrosecondArray, TimestampMicrosecondBuilder, UInt16Array, UInt16Builder,
-    UInt32Array, UInt32Builder, UInt64Array, UInt64Builder, UInt8Array, UInt8Builder,
+    TimestampMicrosecondArray, TimestampMicrosecondBuilder, TimestampSecondArray, UInt16Array,
+    UInt16Builder, UInt32Array, UInt32Builder, UInt64Array, UInt64Builder, UInt8Array, UInt8Builder,
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use bytes::Bytes;
 use transferia_core::data::schema::DatasetSchema;
+
+use super::schema::{YT_DATE_UPPER_BOUND_DAYS, YT_TIMESTAMP_UPPER_BOUND_MICROSECONDS};
 
 pub(super) const VALUE_INT64: u8 = 0x03;
 pub(super) const VALUE_UINT64: u8 = 0x04;
@@ -90,6 +92,7 @@ enum WireColumn<'a> {
     LargeBinary(&'a LargeBinaryArray),
     Date32(&'a Date32Array),
     Date64(&'a Date64Array),
+    TimestampSecond(&'a TimestampSecondArray),
     TimestampMicrosecond(&'a TimestampMicrosecondArray),
 }
 
@@ -124,6 +127,9 @@ impl<'a> WireColumn<'a> {
             DataType::LargeBinary => downcast_wire!(array, LargeBinaryArray, LargeBinary),
             DataType::Date32 => downcast_wire!(array, Date32Array, Date32),
             DataType::Date64 => downcast_wire!(array, Date64Array, Date64),
+            DataType::Timestamp(TimeUnit::Second, None) => {
+                downcast_wire!(array, TimestampSecondArray, TimestampSecond)
+            }
             DataType::Timestamp(TimeUnit::Microsecond, None) => {
                 downcast_wire!(array, TimestampMicrosecondArray, TimestampMicrosecond)
             }
@@ -176,9 +182,12 @@ impl<'a> WireColumn<'a> {
             Self::Binary(array) => write_wire_bytes(output, id, array.value(row))?,
             Self::LargeBinary(array) => write_wire_bytes(output, id, array.value(row))?,
             Self::Date32(array) => {
-                let value = u64::try_from(array.value(row)).map_err(|_| {
-                    anyhow::anyhow!("YTsaurus date cannot represent a value before 1970-01-01")
-                })?;
+                let days = array.value(row);
+                anyhow::ensure!(
+                    (0..YT_DATE_UPPER_BOUND_DAYS).contains(&days),
+                    "YTsaurus date must be in the supported [0, {YT_DATE_UPPER_BOUND_DAYS}) day range"
+                );
+                let value = u64::try_from(days)?;
                 write_wire_scalar(output, id, VALUE_UINT64, value);
             }
             Self::Date64(array) => {
@@ -194,8 +203,25 @@ impl<'a> WireColumn<'a> {
                     u64::try_from(milliseconds / 1_000)?,
                 );
             }
+            Self::TimestampSecond(array) => {
+                let microseconds = array.value(row).checked_mul(1_000_000).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "YTsaurus timestamp seconds value cannot be widened to microseconds"
+                    )
+                })?;
+                anyhow::ensure!(
+                    (0..YT_TIMESTAMP_UPPER_BOUND_MICROSECONDS).contains(&microseconds),
+                    "YTsaurus timestamp is outside the supported microsecond range"
+                );
+                write_wire_scalar(output, id, VALUE_UINT64, u64::try_from(microseconds)?);
+            }
             Self::TimestampMicrosecond(array) => {
-                write_wire_scalar(output, id, VALUE_UINT64, u64::try_from(array.value(row))?);
+                let microseconds = array.value(row);
+                anyhow::ensure!(
+                    (0..YT_TIMESTAMP_UPPER_BOUND_MICROSECONDS).contains(&microseconds),
+                    "YTsaurus timestamp is outside the supported microsecond range"
+                );
+                write_wire_scalar(output, id, VALUE_UINT64, u64::try_from(microseconds)?);
             }
         }
         Ok(())
@@ -220,6 +246,7 @@ impl<'a> WireColumn<'a> {
             Self::LargeBinary(array) => array.is_null(row),
             Self::Date32(array) => array.is_null(row),
             Self::Date64(array) => array.is_null(row),
+            Self::TimestampSecond(array) => array.is_null(row),
             Self::TimestampMicrosecond(array) => array.is_null(row),
         }
     }

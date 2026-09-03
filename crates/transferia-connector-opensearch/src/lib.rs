@@ -77,7 +77,7 @@ fn opensearch_source_tuning_parameters() -> Vec<TuningParameter> {
         TuningParameter::UnsignedInteger {
             pointer: "/read_concurrency".to_owned(),
             label: "Parallel shard readers".to_owned(),
-            baseline: 4,
+            baseline: 2,
             minimum: 1,
             maximum: u64::MAX,
             candidates: vec![1, 2, 4, 8],
@@ -109,7 +109,7 @@ fn opensearch_sink_tuning_parameters() -> Vec<TuningParameter> {
         TuningParameter::UnsignedInteger {
             pointer: "/bulk_concurrency".to_owned(),
             label: "Concurrent bulk requests".to_owned(),
-            baseline: 8,
+            baseline: 4,
             minimum: 1,
             maximum: 32,
             candidates: vec![1, 2, 4, 8],

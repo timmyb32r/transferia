@@ -6,6 +6,9 @@ use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 
 pub const MAX_COLUMN_NAME_CHARS: usize = 256;
 pub const MAX_COLUMNS: usize = 32_768;
+// Exclusive bounds of YTsaurus' unsigned `date` and `timestamp` logical types.
+pub(super) const YT_DATE_UPPER_BOUND_DAYS: i32 = 49_673;
+pub(super) const YT_TIMESTAMP_UPPER_BOUND_MICROSECONDS: i64 = 4_291_747_200_000_000;
 
 #[derive(Deserialize)]
 struct SchemaEnvelope {
@@ -181,7 +184,7 @@ pub fn arrow_to_yt(data_type: &DataType) -> anyhow::Result<&'static str> {
         DataType::Utf8 | DataType::LargeUtf8 => "utf8",
         DataType::Date32 => "date",
         DataType::Date64 => "datetime",
-        DataType::Timestamp(TimeUnit::Microsecond, None) => "timestamp",
+        DataType::Timestamp(TimeUnit::Second | TimeUnit::Microsecond, None) => "timestamp",
         _ => anyhow::bail!("Arrow type {data_type:?} is not supported by YTsaurus static tables"),
     })
 }
@@ -194,7 +197,21 @@ pub fn schemas_equal(left: &DatasetSchema, right: &DatasetSchema) -> bool {
             .zip(&right.columns)
             .all(|(left, right)| {
                 left.name == right.name
-                    && left.data_type == right.data_type
+                    && storage_data_types_equal(&left.data_type, &right.data_type)
                     && left.nullable == right.nullable
             })
+}
+
+pub(super) fn storage_data_types_equal(left: &DataType, right: &DataType) -> bool {
+    left == right
+        || matches!(
+            (left, right),
+            (
+                DataType::Timestamp(TimeUnit::Second, None),
+                DataType::Timestamp(TimeUnit::Microsecond, None)
+            ) | (
+                DataType::Timestamp(TimeUnit::Microsecond, None),
+                DataType::Timestamp(TimeUnit::Second, None)
+            )
+        )
 }

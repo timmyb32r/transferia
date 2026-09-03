@@ -13,7 +13,7 @@ fn registration_exposes_only_the_bounded_copy_tuning_surface() -> anyhow::Result
         vec![
             (
                 "/batch_rows",
-                serde_json::json!(65_536),
+                serde_json::json!(16_384),
                 vec![
                     serde_json::json!(16_384),
                     serde_json::json!(65_536),

@@ -6,7 +6,7 @@ least the configured measurement window, using one logical Transferia worker.
 Every scan is complete; partial scans and failed processes invalidate the run.
 
 The private YAML contains S3 access-key metadata and a path to the secret. Keep
-it outside Git. Raw logs, per-scan CPU/RSS, binary SHA-256, snapshot identity,
+it outside Git. Raw logs, per-scan CPU/RSS, binary Murmur3 x64 128, snapshot identity,
 and aggregate throughput are written beneath `results/<timestamp>/`.
 
 ```sh

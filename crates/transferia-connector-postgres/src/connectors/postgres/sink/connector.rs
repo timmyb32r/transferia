@@ -200,6 +200,7 @@ impl SinkLimits for PostgresSinkConfig {
             column_name: Some(name),
             supported_arrow_types: vec![
                 ArrowTypeFamily::Utf8,
+                ArrowTypeFamily::Binary,
                 ArrowTypeFamily::SignedInteger,
                 ArrowTypeFamily::UnsignedInteger,
                 ArrowTypeFamily::FloatingPoint,
@@ -800,6 +801,7 @@ where
 fn postgres_catalog_type(data_type: &DataType) -> anyhow::Result<&'static str> {
     Ok(match data_type {
         DataType::Timestamp(_, None) => "timestamp without time zone",
+        DataType::Timestamp(_, Some(_)) => "timestamp with time zone",
         _ => postgres_sql_type(data_type)?,
     })
 }
@@ -982,6 +984,7 @@ pub(super) fn postgres_sql_type(data_type: &DataType) -> anyhow::Result<&'static
         DataType::Utf8 => "text",
         DataType::Date32 => "date",
         DataType::Timestamp(_, None) => "timestamp",
+        DataType::Timestamp(_, Some(_)) => "timestamp with time zone",
         _ => unreachable!(),
     })
 }

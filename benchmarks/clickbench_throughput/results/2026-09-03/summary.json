@@ -1,0 +1,324 @@
+{
+  "schema_version": 1,
+  "measured_at": "2026-09-03",
+  "code_revision": null,
+  "code_revision_note": "The measured tree contained uncommitted changes; this historical synthetic aggregate does not claim a repository revision as executable identity.",
+  "process_resource_measurement_scope": "CPU and RSS cover the complete sampled process/request interval. They are not aligned to Speedtest role duration and must not be combined with role rows/s into rows/core.",
+  "destination_integrity_evidence": "not recorded uniformly; do not infer persisted row counts from fixture_rows_per_run",
+  "workload": {
+    "name": "ClickBench hits",
+    "columns": 105,
+    "input_kind": "deterministic synthetic profile persisted in each native source",
+    "original_csv_used": false,
+    "original_csv_size_bytes": 81136059858,
+    "original_csv_row_count_verified": false,
+    "primary_key_physical_order": [
+      "WatchID",
+      "EventTime",
+      "EventDate",
+      "CounterID",
+      "UserID"
+    ],
+    "primary_key_official_order": [
+      "CounterID",
+      "EventDate",
+      "UserID",
+      "EventTime",
+      "WatchID"
+    ]
+  },
+  "host": {
+    "logical_cpus": 32,
+    "physical_memory_bytes": 50530660352
+  },
+  "windows": {
+    "source_duration_ceiling_seconds": 15,
+    "source_finite_completion_uses_actual_elapsed": true,
+    "destination_warmup_seconds": 5,
+    "destination_measure_seconds": 15
+  },
+  "service_versions": {
+    "clickhouse": "25.8.32.4",
+    "postgresql": "17.6",
+    "mysql_compatible": "MariaDB 10.6.25",
+    "opensearch": "2.19.1",
+    "ytsaurus": null,
+    "iceberg_rest": null
+  },
+  "results": [
+    {
+      "connector": "ytsaurus",
+      "role": "source",
+      "fixture_rows": 1409820,
+      "baseline": {
+        "configuration": "ordered; batch_rows=65536",
+        "rows_per_second_runs": [577461, 238051, 417416],
+        "rows_per_second_mean": 410976
+      },
+      "selected": {
+        "configuration": "ordered; batch_rows=16384",
+        "rows_per_second_runs": [656463, 559881, 580874, 507395],
+        "rows_per_second_mean": 576153,
+        "mean_cpu_cores": 1.6474,
+        "peak_rss_bytes": 2200584192,
+        "average_rss_bytes": 1406601789
+      },
+      "default_changed": true
+    },
+    {
+      "connector": "ytsaurus",
+      "role": "destination",
+      "fixture_rows_per_run": 1409820,
+      "baseline": {
+        "configuration": "write_concurrency=4; write_target_bytes=536870912; write_row_buffer_bytes=1048576",
+        "rows_per_second_runs": [46922, 46953, 46975],
+        "rows_per_second_mean": 46950
+      },
+      "selected": {
+        "configuration": "unchanged",
+        "rows_per_second_mean": 46950,
+        "mean_cpu_cores": 0.2287,
+        "peak_rss_bytes": 1717986918.4
+      },
+      "rejected": [
+        {
+          "configuration": "write_row_buffer_bytes=524288",
+          "rows_per_second_runs": [46904, 46925, 46961],
+          "rows_per_second_mean": 46930,
+          "reason": "no throughput gain and higher peak RSS"
+        }
+      ],
+      "default_changed": false
+    },
+    {
+      "connector": "clickhouse",
+      "role": "source",
+      "fixture_rows": 2000000,
+      "baseline": {
+        "configuration": "batch_rows=65409; compression=zstd; row_group_rows=250000; decode_threads=16",
+        "rows_per_second_runs": [1182126, 1125761, 1092032],
+        "rows_per_second_mean": 1133306
+      },
+      "selected": {
+        "configuration": "unchanged",
+        "rows_per_second_mean": 1133306,
+        "mean_cpu_cores": 1.7664,
+        "peak_rss_bytes": 2690396160,
+        "average_rss_bytes": 1921997865
+      },
+      "rejected": [
+        {"configuration": "batch_rows=262144", "rows_per_second": 1100007},
+        {"configuration": "compression=lz4; row_group_rows=1000000", "rows_per_second": 879099},
+        {"configuration": "decode_threads=8", "rows_per_second": 994510}
+      ],
+      "default_changed": false
+    },
+    {
+      "connector": "clickhouse",
+      "role": "destination",
+      "baseline": {
+        "configuration": "compression=zstd; insert_target_rows=1000000; insert_target_bytes=671088640; insert_concurrency=32",
+        "rows_per_second_runs": [315979, 353148],
+        "rows_per_second_mean": 334564,
+        "persisted_rows_runs": [6508669, 7096094]
+      },
+      "selected": {
+        "configuration": "unchanged",
+        "rows_per_second_mean": 334564,
+        "mean_cpu_cores": 1.959,
+        "peak_rss_bytes": 2576980377.6
+      },
+      "rejected": [
+        {
+          "configuration": "insert_concurrency=16",
+          "rows_per_second_runs": [267141, 283130],
+          "rows_per_second_mean": 275136,
+          "persisted_rows_runs": [5639280, 5780262]
+        }
+      ],
+      "default_changed": false
+    },
+    {
+      "connector": "iceberg",
+      "role": "source",
+      "fixture_rows": 7754010,
+      "baseline": {
+        "configuration": "read_batch_rows=65536; read_data_file_concurrency=32; parquet_range_coalesce_bytes=1048576",
+        "rows_per_second_runs": [695022, 666216, 679082],
+        "rows_per_second_mean": 680107
+      },
+      "selected": {
+        "configuration": "unchanged",
+        "rows_per_second_mean": 680107,
+        "mean_cpu_cores": 1.1744,
+        "peak_rss_bytes": 4298567680,
+        "average_rss_bytes": 2963527434
+      },
+      "rejected": [
+        {"configuration": "read_batch_rows=262144", "rows_per_second": 658796},
+        {"configuration": "read_data_file_concurrency=16", "rows_per_second": 636821},
+        {"configuration": "parquet_range_coalesce_bytes=4194304", "rows_per_second": 654615}
+      ],
+      "default_changed": false
+    },
+    {
+      "connector": "iceberg",
+      "role": "destination",
+      "fixture_rows_per_run": 7754010,
+      "baseline": {
+        "configuration": "parquet_compression=zstd; write_concurrency=8; parquet_row_group_rows=250000",
+        "rows_per_second_runs": [281525, 375527],
+        "rows_per_second_mean": 328526
+      },
+      "selected": {
+        "configuration": "unchanged",
+        "rows_per_second_mean": 328526,
+        "mean_cpu_cores": 2.4383,
+        "peak_rss_bytes": 2362232012.8
+      },
+      "rejected": [
+        {
+          "configuration": "parquet_compression=zstd; write_concurrency=8; parquet_row_group_rows=1000000",
+          "rows_per_second_runs": [375275, 375486],
+          "rows_per_second_mean": 375380,
+          "reason": "candidate overlaps the best high-variance baseline run and lacks the required repeat count"
+        },
+        {"configuration": "parquet_compression=lz4; write_concurrency=8; parquet_row_group_rows=250000", "rows_per_second_mean": 328532},
+        {"configuration": "parquet_compression=zstd; write_concurrency=4; parquet_row_group_rows=250000", "rows_per_second_mean": 281585}
+      ],
+      "default_changed": false
+    },
+    {
+      "connector": "postgres",
+      "role": "source",
+      "fixture_rows": 1386323,
+      "representation_note": "DATE and TIMESTAMP are exposed as canonical Utf8 by the current source",
+      "baseline": {
+        "configuration": "copy_to_format=binary; batch_rows=65536",
+        "rows_per_second_runs": [84358, 84159],
+        "rows_per_second_mean": 84259
+      },
+      "selected": {
+        "configuration": "copy_to_format=binary; batch_rows=16384",
+        "rows_per_second_runs": [111016, 97792, 102849],
+        "rows_per_second_mean": 103886,
+        "mean_cpu_cores": 1.3466,
+        "peak_rss_bytes": 1935056896,
+        "average_rss_bytes": 964220928
+      },
+      "rejected": [
+        {"configuration": "copy_to_format=text; batch_rows=65536", "rows_per_second": 31684},
+        {"configuration": "copy_to_format=binary; batch_rows=262144", "rows_per_second": 64678}
+      ],
+      "default_changed": true
+    },
+    {
+      "connector": "postgres",
+      "role": "destination",
+      "baseline": {
+        "configuration": "copy_from_format=binary",
+        "rows_per_second_runs": [76468, 77780],
+        "rows_per_second_mean": 77124,
+        "persisted_rows_runs": [1550802, 1503808]
+      },
+      "selected": {
+        "configuration": "unchanged",
+        "rows_per_second_mean": 77124,
+        "mean_cpu_cores": 0.505,
+        "peak_rss_bytes": 929038336
+      },
+      "rejected": [
+        {"configuration": "copy_from_format=text", "rows_per_second_mean": 42075, "persisted_rows_runs": [845892, 845892]}
+      ],
+      "default_changed": false
+    },
+    {
+      "connector": "mysql",
+      "role": "source",
+      "fixture_rows": 540431,
+      "representation_note": "DATE, DATETIME, and TIMESTAMP are exposed as canonical text by the current source",
+      "baseline": {
+        "configuration": "read_protocol=binary; batch_rows=16384",
+        "rows_per_second_runs": [194675, 214399, 198977],
+        "rows_per_second_mean": 202684
+      },
+      "selected": {
+        "configuration": "unchanged",
+        "rows_per_second_mean": 202684,
+        "mean_cpu_cores": 1.1126,
+        "peak_rss_bytes": 892366848,
+        "average_rss_bytes": 722627379
+      },
+      "rejected": [
+        {"configuration": "read_protocol=binary; batch_rows=65536", "rows_per_second": 158814},
+        {"configuration": "read_protocol=text; batch_rows=16384", "rows_per_second": 140257}
+      ],
+      "default_changed": false
+    },
+    {
+      "connector": "mysql",
+      "role": "destination",
+      "baseline": {
+        "configuration": "insert_rows=1000",
+        "rows_per_second_runs": [15634, 15640, 18763],
+        "rows_per_second_mean": 16679
+      },
+      "selected": {
+        "configuration": "insert_rows=250",
+        "rows_per_second_runs": [25030, 26597, 26598],
+        "rows_per_second_mean": 26075,
+        "mean_cpu_cores": 0.3162,
+        "peak_rss_bytes": 794820608
+      },
+      "default_changed": true
+    },
+    {
+      "connector": "opensearch",
+      "role": "source",
+      "fixture_rows": 234970,
+      "representation_note": "source exposes an opaque _id/_routing/_source/_routing_key envelope rather than 105 typed columns",
+      "baseline": {
+        "configuration": "page_rows=10000; read_concurrency=4",
+        "rows_per_second_runs": [45923, 46941, 45220],
+        "rows_per_second_mean": 46028
+      },
+      "selected": {
+        "configuration": "unchanged",
+        "rows_per_second_mean": 46028,
+        "mean_cpu_cores": 0.8607,
+        "peak_rss_bytes": 1279660032,
+        "average_rss_bytes": 974957568
+      },
+      "rejected": [
+        {
+          "configuration": "page_rows=5000; read_concurrency=4",
+          "rows_per_second_runs": [48346, 46034, 47550],
+          "rows_per_second_mean": 47310,
+          "reason": "2.8% gain is below the 5% threshold and doubles requests per row"
+        },
+        {"configuration": "page_rows=10000; read_concurrency=2", "rows_per_second": 45530}
+      ],
+      "default_changed": false
+    },
+    {
+      "connector": "opensearch",
+      "role": "destination",
+      "fixture_rows_per_run": 258467,
+      "baseline": {
+        "configuration": "bulk_target_rows=20000; bulk_target_bytes=16777216; bulk_concurrency=8",
+        "rows_per_second_runs": [12515, 12516, 13300],
+        "rows_per_second_mean": 12777
+      },
+      "selected": {
+        "configuration": "unchanged",
+        "rows_per_second_mean": 12777,
+        "mean_cpu_cores": 0.3244,
+        "peak_rss_bytes": 1395864371.2
+      },
+      "rejected": [
+        {"configuration": "bulk_concurrency=4", "rows_per_second_mean": 11993}
+      ],
+      "default_changed": false
+    }
+  ]
+}

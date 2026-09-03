@@ -842,9 +842,7 @@ fn clickhouse_type(data_type: &DataType) -> anyhow::Result<String> {
             format!("Decimal({precision}, {scale})")
         }
         DataType::Boolean => "Bool".into(),
-        DataType::Date32 => anyhow::bail!(
-            "Arrow Date32 is unavailable for ClickHouse: clickhouse-arrow 0.2 shifts values by 25,567 days"
-        ),
+        DataType::Date32 => "Date32".into(),
         DataType::Date64 => anyhow::bail!(
             "Arrow Date64 is unavailable for ClickHouse without an explicit configured conversion to Timestamp(Millisecond)"
         ),

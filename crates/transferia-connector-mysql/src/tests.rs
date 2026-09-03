@@ -34,7 +34,7 @@ fn registration_exposes_only_the_bounded_batch_tuning_surface() -> anyhow::Resul
         )?,
         vec![(
             "/insert_rows",
-            serde_json::json!(1_000),
+            serde_json::json!(250),
             vec![
                 serde_json::json!(100),
                 serde_json::json!(250),
@@ -112,5 +112,5 @@ fn sink_hides_internal_insert_batch_tuning() {
         schema["properties"]["insert_rows"]["x-ui"]["widget"],
         "hidden"
     );
-    assert_eq!(schema["properties"]["insert_rows"]["default"], 1_000);
+    assert_eq!(schema["properties"]["insert_rows"]["default"], 250);
 }

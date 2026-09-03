@@ -3,8 +3,11 @@
     reason = "the explicit match keeps the negative protocol assertion readable"
 )]
 
-use arrow::array::{ArrayRef, BinaryArray, Int64Array, StringArray};
-use arrow::datatypes::{DataType, Field, Schema};
+use arrow::array::{
+    Array as _, ArrayRef, BinaryArray, Date32Array, Int64Array, StringArray,
+    TimestampMicrosecondArray, TimestampSecondArray,
+};
+use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use bytes::Bytes;
@@ -43,13 +46,14 @@ fn dynamic_row_modification_codes_match_the_native_rpc_contract() {
     assert_eq!(NativeRowModification::Delete.rpc_value(), 1);
     assert_eq!(NativeRowModification::Modify.rpc_value(), 3);
 }
-use super::schema::{parse_schema, schema_to_yt, sorted_unique_schema_to_yt};
+use super::schema::{parse_schema, schema_to_yt, schemas_equal, sorted_unique_schema_to_yt};
 use super::sink::{
     cleanup_ytsaurus_speedtest_root, drop_oversized_rows, dynamic_row_modification, encode_arrow,
     encode_arrow_batches, is_speedtest_scratch_root, is_within_speedtest_root,
     physical_target_set, prepare_ytsaurus_speedtest_root, speedtest_root_proof,
     speedtest_scratch_root, validate_initial_tablet_count, validate_row_weight,
-    validate_speedtest_cleanup_scope, validate_speedtest_isolation_id, yt_guid,
+    validate_speedtest_cleanup_scope, validate_speedtest_isolation_id, validate_temporal_values,
+    yt_guid,
     YTsaurusSinkConnector, YTsaurusSpeedtestClient, YTsaurusSpeedtestScope,
 };
 use super::src_batch::{
@@ -1028,7 +1032,7 @@ fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
     assert_eq!(config.write_target_bytes, 512 * 1024 * 1024);
     assert_eq!(config.write_concurrency, 4);
     assert_eq!(config.write_flush_interval_ms, 1_000);
-    assert_eq!(config.write_row_buffer_bytes, 1024 * 1024);
+    assert_eq!(config.write_row_buffer_bytes, 512 * 1024);
     assert_eq!(config.table_writer.block_size, 16 * 1024 * 1024);
     assert_eq!(config.table_writer.max_buffer_size, 16 * 1024 * 1024);
     assert_eq!(config.table_writer.writer_window_size, 64 * 1024 * 1024);
@@ -1288,6 +1292,98 @@ fn schema_round_trip_and_arrow_writer_are_native() -> anyhow::Result<()> {
         StreamReader::try_new(Cursor::new(payload), None)?.collect::<Result<Vec<_>, _>>()?;
     assert_eq!(decoded.len(), 2);
     assert_eq!(decoded.iter().map(RecordBatch::num_rows).sum::<usize>(), 4);
+    Ok(())
+}
+
+#[test]
+fn timestamp_seconds_are_losslessly_widened_for_ytsaurus_storage() -> anyhow::Result<()> {
+    let logical = DatasetSchema::new(vec![SchemaColumn::new(
+        "event_time".into(),
+        DataType::Timestamp(TimeUnit::Second, None),
+        true,
+    )]);
+    let encoded_schema = schema_to_yt(&logical)?;
+    let physical = parse_schema(serde_json::json!({
+        "$attributes": { "strict": true },
+        "$value": encoded_schema,
+    }))?;
+    assert_eq!(
+        physical.columns[0].data_type,
+        DataType::Timestamp(TimeUnit::Microsecond, None)
+    );
+    assert!(schemas_equal(&physical, &logical));
+
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "event_time",
+            DataType::Timestamp(TimeUnit::Second, None),
+            true,
+        )])),
+        vec![Arc::new(TimestampSecondArray::from(vec![
+            Some(1),
+            Some(4_291_747_199),
+            None,
+        ]))],
+    )?;
+    let payload = encode_arrow(&batch)?;
+    let mut reader = StreamReader::try_new(Cursor::new(payload), None)?;
+    let decoded = reader.next().expect("one Arrow batch")?;
+    let values = decoded
+        .column(0)
+        .as_any()
+        .downcast_ref::<TimestampMicrosecondArray>()
+        .expect("physical microsecond timestamp");
+    assert_eq!(values.value(0), 1_000_000);
+    assert_eq!(values.value(1), 4_291_747_199_000_000);
+    assert!(values.is_null(2));
+
+    let encoded = encode_wire_batch(&batch)?;
+    let decoded = YtWireDecoder::new(&physical).decode(&encoded.column_names, encoded.payload)?;
+    let values = decoded
+        .column(0)
+        .as_any()
+        .downcast_ref::<TimestampMicrosecondArray>()
+        .expect("physical microsecond timestamp");
+    assert_eq!(values.value(0), 1_000_000);
+    assert_eq!(values.value(1), 4_291_747_199_000_000);
+    assert!(values.is_null(2));
+    Ok(())
+}
+
+#[test]
+fn ytsaurus_temporal_validation_fails_before_encoding_side_effects() -> anyhow::Result<()> {
+    let invalid_timezone = DatasetSchema::new(vec![SchemaColumn::new(
+        "event_time".into(),
+        DataType::Timestamp(TimeUnit::Second, Some("UTC".into())),
+        false,
+    )]);
+    assert!(schema_to_yt(&invalid_timezone).is_err());
+
+    for value in [-1, 4_291_747_200, i64::MAX] {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(
+                "event_time",
+                DataType::Timestamp(TimeUnit::Second, None),
+                false,
+            )])),
+            vec![Arc::new(TimestampSecondArray::from(vec![value]))],
+        )?;
+        assert!(validate_temporal_values(&batch).is_err());
+        assert!(encode_arrow(&batch).is_err());
+        assert!(encode_wire_batch(&batch).is_err());
+    }
+    for days in [-1, 49_673] {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(
+                "event_date",
+                DataType::Date32,
+                false,
+            )])),
+            vec![Arc::new(Date32Array::from(vec![days]))],
+        )?;
+        assert!(validate_temporal_values(&batch).is_err());
+        assert!(encode_wire_batch(&batch).is_err());
+    }
     Ok(())
 }
 

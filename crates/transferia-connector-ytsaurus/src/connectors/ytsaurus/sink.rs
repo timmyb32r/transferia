@@ -3,7 +3,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use arrow::array::{Array, BinaryArray, LargeBinaryArray, LargeStringArray, StringArray};
+use arrow::array::{
+    Array, ArrayRef, BinaryArray, Date32Array, LargeBinaryArray, LargeStringArray, StringArray,
+    TimestampMicrosecondBuilder, TimestampSecondArray,
+};
 use arrow::compute;
 use arrow::datatypes::{DataType, Schema, TimeUnit};
 use arrow::ipc::writer::StreamWriter;
@@ -21,7 +24,8 @@ use super::config::{
 use super::native_rpc::{NativeDynamicWriter, NativeRowModification};
 use super::schema::{
     arrow_to_yt, parse_schema, schema_to_yt, schemas_equal, sorted_unique_schema_to_yt,
-    validate_column_name, MAX_COLUMNS,
+    storage_data_types_equal, validate_column_name, MAX_COLUMNS, YT_DATE_UPPER_BOUND_DAYS,
+    YT_TIMESTAMP_UPPER_BOUND_MICROSECONDS,
 };
 use super::yt_wire::encode_wire_batch;
 use crate::metrics::SinkCounters;
@@ -278,6 +282,7 @@ impl SinkLimits for YTsaurusSinkConfig {
     ) -> anyhow::Result<()> {
         validate_batch_against_discovery(discovery, batch)?;
         self.path_for_dataset(&batch.table)?;
+        validate_temporal_values(&batch.batch)?;
         if self.big_value_policy() == YTsaurusBigValuePolicy::Fail {
             validate_row_weight(&batch.batch, self.static_tables())?;
         }
@@ -1223,15 +1228,19 @@ impl YTsaurusSink {
     }
 
     async fn write_deliveries(&self, deliveries: &[Delivery]) -> anyhow::Result<()> {
+        for delivery in deliveries {
+            for batch in &delivery.outputs {
+                self.limits
+                    .validate_batch(&self.discovery, batch)
+                    .map_err(DataPlaneFailure::fatal)?;
+            }
+        }
         if let Some(scope) = &self.speedtest_scope {
             verify_ytsaurus_speedtest_root(&self.client, scope).await?;
         }
         let mut tables = Vec::<(Arc<str>, Vec<RecordBatch>, u64, u64)>::new();
         for delivery in deliveries {
             for batch in &delivery.outputs {
-                self.limits
-                    .validate_batch(&self.discovery, batch)
-                    .map_err(DataPlaneFailure::fatal)?;
                 if batch.rows() == 0 {
                     continue;
                 }
@@ -1485,7 +1494,10 @@ fn dynamic_schemas_equal(
         && expected.columns.iter().all(|expected_column| {
             existing.columns.iter().any(|existing_column| {
                 existing_column.name == expected_column.name
-                    && existing_column.data_type == expected_column.data_type
+                    && storage_data_types_equal(
+                        &existing_column.data_type,
+                        &expected_column.data_type,
+                    )
                     && existing_column.nullable == expected_column.nullable
                     && existing_column.primary_key == expected_column.primary_key
             })
@@ -1501,12 +1513,17 @@ pub(super) fn encode_arrow_batches(batches: &[RecordBatch]) -> anyhow::Result<Ve
     let batch = batches
         .first()
         .ok_or_else(|| anyhow::anyhow!("cannot encode an empty Arrow batch list"))?;
+    let batches = batches
+        .iter()
+        .map(widen_timestamp_seconds)
+        .collect::<anyhow::Result<Vec<_>>>()?;
     // YTsaurus maps the physical Arrow type to its table schema and rejects
     // Arrow extension annotations (for example `arrow.json`) even when their
     // storage type is a supported lossless Utf8 value.  Keep application
     // metadata in discovery, but send only the physical wire schema expected by
-    // YTsaurus.  Values, nullability, names, and physical types are unchanged.
-    let fields = batch
+    // YTsaurus. Second-resolution timestamps are widened exactly to YTsaurus'
+    // native microsecond representation; values and nullability are unchanged.
+    let fields = batches[0]
         .schema()
         .fields()
         .iter()
@@ -1524,7 +1541,7 @@ pub(super) fn encode_arrow_batches(batches: &[RecordBatch]) -> anyhow::Result<Ve
         Vec::with_capacity(batches.iter().map(RecordBatch::get_array_memory_size).sum());
     {
         let mut writer = StreamWriter::try_new(&mut output, &wire_schema)?;
-        for batch in batches {
+        for batch in &batches {
             let wire_batch =
                 RecordBatch::try_new(Arc::clone(&wire_schema), batch.columns().to_vec())?;
             writer.write(&wire_batch)?;
@@ -1532,6 +1549,112 @@ pub(super) fn encode_arrow_batches(batches: &[RecordBatch]) -> anyhow::Result<Ve
         writer.finish()?;
     }
     Ok(output)
+}
+
+pub(super) fn validate_temporal_values(batch: &RecordBatch) -> anyhow::Result<()> {
+    for column in batch.columns() {
+        match column.data_type() {
+            DataType::Date32 => {
+                let values = column
+                    .as_any()
+                    .downcast_ref::<Date32Array>()
+                    .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?;
+                anyhow::ensure!(
+                    values
+                        .iter()
+                        .flatten()
+                        .all(|days| (0..YT_DATE_UPPER_BOUND_DAYS).contains(&days)),
+                    "YTsaurus date is outside the supported day range"
+                );
+            }
+            DataType::Timestamp(TimeUnit::Second, None) => {
+                let values = column
+                    .as_any()
+                    .downcast_ref::<TimestampSecondArray>()
+                    .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?;
+                for value in values.iter().flatten() {
+                    let microseconds = value.checked_mul(1_000_000).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "YTsaurus timestamp seconds value cannot be widened to microseconds"
+                        )
+                    })?;
+                    anyhow::ensure!(
+                        (0..YT_TIMESTAMP_UPPER_BOUND_MICROSECONDS).contains(&microseconds),
+                        "YTsaurus timestamp is outside the supported microsecond range"
+                    );
+                }
+            }
+            DataType::Timestamp(TimeUnit::Microsecond, None) => {
+                let values = column
+                    .as_any()
+                    .downcast_ref::<arrow::array::TimestampMicrosecondArray>()
+                    .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?;
+                anyhow::ensure!(
+                    values.iter().flatten().all(|value| {
+                        (0..YT_TIMESTAMP_UPPER_BOUND_MICROSECONDS).contains(&value)
+                    }),
+                    "YTsaurus timestamp is outside the supported microsecond range"
+                );
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn widen_timestamp_seconds(batch: &RecordBatch) -> anyhow::Result<RecordBatch> {
+    let mut changed = false;
+    let mut fields = Vec::with_capacity(batch.num_columns());
+    let mut columns = Vec::<ArrayRef>::with_capacity(batch.num_columns());
+    for (field, column) in batch.schema().fields().iter().zip(batch.columns()) {
+        if field.data_type() == &DataType::Timestamp(TimeUnit::Second, None) {
+            changed = true;
+            let values = column
+                .as_any()
+                .downcast_ref::<TimestampSecondArray>()
+                .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?;
+            let mut widened = TimestampMicrosecondBuilder::with_capacity(values.len());
+            for value in values.iter() {
+                match value {
+                    Some(value) => {
+                        let microseconds = value.checked_mul(1_000_000).ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "YTsaurus timestamp seconds value cannot be widened to microseconds"
+                            )
+                        })?;
+                        anyhow::ensure!(
+                            (0..YT_TIMESTAMP_UPPER_BOUND_MICROSECONDS).contains(&microseconds),
+                            "YTsaurus timestamp is outside the supported microsecond range"
+                        );
+                        widened.append_value(microseconds);
+                    }
+                    None => widened.append_null(),
+                }
+            }
+            fields.push(
+                arrow::datatypes::Field::new(
+                    field.name(),
+                    DataType::Timestamp(TimeUnit::Microsecond, None),
+                    field.is_nullable(),
+                )
+                .with_metadata(field.metadata().clone()),
+            );
+            columns.push(Arc::new(widened.finish()));
+        } else {
+            fields.push(field.as_ref().clone());
+            columns.push(Arc::clone(column));
+        }
+    }
+    if !changed {
+        return Ok(batch.clone());
+    }
+    Ok(RecordBatch::try_new(
+        Arc::new(Schema::new_with_metadata(
+            fields,
+            batch.schema().metadata().clone(),
+        )),
+        columns,
+    )?)
 }
 
 pub(super) fn validate_row_weight(batch: &RecordBatch, static_tables: bool) -> anyhow::Result<()> {
@@ -1586,6 +1709,7 @@ fn row_exceeds_limits(
             | DataType::UInt64
             | DataType::Float64
             | DataType::Date64
+            | DataType::Timestamp(TimeUnit::Second, None)
             | DataType::Timestamp(TimeUnit::Microsecond, None) => 8,
             DataType::Utf8 => array
                 .as_any()

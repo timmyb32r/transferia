@@ -317,6 +317,18 @@ fn parquet_input_schema(table: &DiscoveredTable) -> Arc<Schema> {
                     .iter()
                     .find(|system| system.index == index && system.kind == SystemColumnKind::Topic)
                     .map_or_else(|| column.data_type.clone(), |_| DataType::Binary);
+                let data_type = match data_type {
+                    DataType::Timestamp(unit, _) => DataType::Timestamp(
+                        match unit {
+                            arrow::datatypes::TimeUnit::Second => {
+                                arrow::datatypes::TimeUnit::Millisecond
+                            }
+                            unit => unit,
+                        },
+                        Some(Arc::from("UTC")),
+                    ),
+                    data_type => data_type,
+                };
                 Field::new(&column.name, data_type, column.nullable)
             })
             .collect::<Vec<_>>(),

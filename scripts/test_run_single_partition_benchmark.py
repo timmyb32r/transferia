@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import json
 import pathlib
 import tempfile
 import unittest
@@ -16,9 +17,9 @@ SPEC.loader.exec_module(BENCH)
 
 def comparison_document(**overrides):
     document = {
-        "schema_version": 3,
-        "config_sha256": "same-config",
-        "binary_sha256": "binary",
+        "schema_version": 5,
+        "config_murmur3_x64_128": "same-config",
+        "binary_murmur3_x64_128": "binary",
         "rustc": "rustc 1.0",
         "platform": {"system": "test", "machine": "test"},
         "parameters": {
@@ -108,12 +109,23 @@ class StatsParsingTest(unittest.TestCase):
             "PQ_TOKEN": "super-secret",
             "CLICKHOUSE_PASSWORD": "also-secret",
             "S3_SECRET_KEY": "third-secret",
+            "S3_ACCESS_KEY": "access-credential",
             "S3_BUCKET": "benchmark",
+            "CLICKHOUSE_HTTP_ENDPOINT": "https://user:password@clickhouse:8443/api?token=query-secret",
         }
+        result = BENCH.reproducibility_environment(environment)
+
         self.assertEqual(
-            BENCH.reproducibility_environment(environment),
-            {"PQ_HOST": "broker", "PQ_PORT": "2135", "S3_BUCKET": "benchmark"},
+            result,
+            {
+                "PQ_HOST": "broker",
+                "PQ_PORT": "2135",
+                "S3_BUCKET": "benchmark",
+                "CLICKHOUSE_HTTP_ENDPOINT": "https://clickhouse:8443",
+            },
         )
+        self.assertNotIn("access-credential", json.dumps(result))
+        self.assertNotIn("query-secret", json.dumps(result))
 
 
 class SummaryTest(unittest.TestCase):
@@ -141,10 +153,10 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(result["regressed_pairs"], 4)
 
     def test_comparison_rejects_a_different_config(self):
-        baseline = comparison_document(config_sha256="baseline")
-        current = comparison_document(config_sha256="candidate")
+        baseline = comparison_document(config_murmur3_x64_128="baseline")
+        current = comparison_document(config_murmur3_x64_128="candidate")
 
-        with self.assertRaisesRegex(ValueError, "config_sha256"):
+        with self.assertRaisesRegex(ValueError, "config_murmur3_x64_128"):
             BENCH.validate_comparison_context(current, baseline)
 
     def test_comparison_allows_distinct_consumer_prefixes_only(self):
@@ -154,7 +166,7 @@ class SummaryTest(unittest.TestCase):
                 "PQ_PORT": "2135",
                 "PQ_CONSUMER_JSON": "transferia-json-baseline",
             },
-            binary_sha256="baseline-binary",
+            binary_murmur3_x64_128="baseline-binary",
         )
         current = comparison_document(
             environment={
@@ -162,7 +174,7 @@ class SummaryTest(unittest.TestCase):
                 "PQ_PORT": "2135",
                 "PQ_CONSUMER_JSON": "transferia-json-candidate",
             },
-            binary_sha256="candidate-binary",
+            binary_murmur3_x64_128="candidate-binary",
         )
 
         BENCH.validate_comparison_context(current, baseline)
@@ -171,178 +183,29 @@ class SummaryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "environment"):
             BENCH.validate_comparison_context(current, baseline)
 
-    def test_sha256_file_identifies_the_actual_binary(self):
+    def test_murmur3_file_identifies_the_actual_binary(self):
         with tempfile.TemporaryDirectory() as directory:
             binary = pathlib.Path(directory) / "transferia"
             binary.write_bytes(b"candidate-binary")
 
             self.assertEqual(
-                BENCH.sha256_file(binary),
-                "b75afc06019cb1f4b81851ad4d23fe7586c10564e26d06166ab124a9ff406233",
+                BENCH.murmur3_x64_128_file(binary),
+                "3e1d1c42b473abe1c2793abe7f6d7963",
             )
 
-    def test_run_namespace_is_stable_and_isolates_every_repetition(self):
-        first = BENCH.run_namespace(pathlib.Path("/results/baseline"), 1)
-
-        self.assertEqual(first, BENCH.run_namespace(pathlib.Path("/results/baseline"), 1))
-        self.assertNotEqual(first, BENCH.run_namespace(pathlib.Path("/results/baseline"), 2))
-        self.assertNotEqual(first, BENCH.run_namespace(pathlib.Path("/results/candidate"), 1))
-        self.assertRegex(first, r"^[a-f0-9]{12}_01$")
-
-    def test_clickhouse_cleanup_drops_both_tables_and_waits_for_merges(self):
-        queries = []
-
-        def query(environment, sql):
-            queries.append((environment, sql))
-            return "0\n" if sql.startswith("SELECT") else ""
-
-        environment = {
-            "CLICKHOUSE_HTTP_ENDPOINT": "http://clickhouse:8123",
-            "CLICKHOUSE_DATABASE": "bench-db",
-        }
-        with mock.patch.object(BENCH, "clickhouse_query", side_effect=query):
-            BENCH.cleanup_clickhouse_run(environment, "events_deadbeef_01")
-
-        self.assertEqual(
-            [sql for _, sql in queries],
-            [
-                "DROP TABLE IF EXISTS `bench-db`.`events_deadbeef_01` SYNC",
-                "DROP TABLE IF EXISTS `bench-db`.`events_deadbeef_01_dlq` SYNC",
-                "SELECT count() FROM system.merges WHERE database = 'bench-db' "
-                "AND table IN ('events_deadbeef_01', 'events_deadbeef_01_dlq')",
-            ],
-        )
-
-    def test_successful_clickhouse_run_rejects_cleanup_on_the_wrong_endpoint(self):
-        with mock.patch.object(BENCH, "clickhouse_query", return_value="0\n"):
-            with self.assertRaisesRegex(RuntimeError, "expected both benchmark tables"):
-                BENCH.cleanup_clickhouse_run(
-                    {}, "events_deadbeef_01", require_existing=True
-                )
-
-    def test_successful_clickhouse_run_requires_and_drops_both_tables(self):
-        queries = []
-
-        def query(_environment, sql):
-            queries.append(sql)
-            if "system.tables" in sql:
-                return "2\n"
-            return "0\n"
-
-        with mock.patch.object(BENCH, "clickhouse_query", side_effect=query):
-            BENCH.cleanup_clickhouse_run({}, "events_deadbeef_01", require_existing=True)
-
-        self.assertIn("SELECT count() FROM system.tables", queries[0])
-        self.assertEqual(sum(sql.startswith("DROP TABLE") for sql in queries), 2)
-
-    def test_clickhouse_cleanup_times_out_if_merges_do_not_quiesce(self):
-        with mock.patch.object(BENCH, "clickhouse_query", return_value="1\n"), mock.patch.object(
-            BENCH.time, "monotonic", side_effect=[0.0, 0.0, 31.0]
-        ), mock.patch.object(BENCH.time, "sleep"):
-            with self.assertRaisesRegex(RuntimeError, "background merges"):
-                BENCH.cleanup_clickhouse_run({}, "events_deadbeef_01", timeout_seconds=30)
-
-    def test_clickhouse_query_keeps_credentials_out_of_the_url(self):
-        environment = {
-            "CLICKHOUSE_HTTP_ENDPOINT": "http://clickhouse:8123",
-            "CLICKHOUSE_DATABASE": "bench-db",
-            "CLICKHOUSE_USERNAME": "bench-user",
-            "CLICKHOUSE_PASSWORD": "secret",
-        }
-        response = mock.MagicMock()
-        response.__enter__.return_value.read.return_value = b"0\n"
-        with mock.patch.object(BENCH.urllib.request, "urlopen", return_value=response) as urlopen:
-            BENCH.clickhouse_query(environment, "SELECT 1")
-
-        request = urlopen.call_args.args[0]
-        self.assertNotIn("bench-user", request.full_url)
-        self.assertNotIn("secret", request.full_url)
-        self.assertEqual(request.get_header("X-clickhouse-user"), "bench-user")
-        self.assertEqual(request.get_header("X-clickhouse-key"), "secret")
-
-    def test_cleanup_detection_uses_the_sink_config_not_environment_defaults(self):
-        config = "source:\n  pqv1: {}\nsink:\n  clickhouse: {}\n"
-        with mock.patch.object(BENCH, "cleanup_clickhouse_run") as cleanup:
-            BENCH.cleanup_run(config, {}, "deadbeef_01", require_existing=True)
-
-        cleanup.assert_called_once_with(
-            {}, "events_deadbeef_01", require_existing=True
-        )
-
-        with mock.patch.object(BENCH, "cleanup_clickhouse_run") as cleanup:
-            BENCH.cleanup_run(
-                "sink:\n  discard: {}\n", {}, "deadbeef_01", require_existing=True
-            )
-        cleanup.assert_not_called()
-
-    def test_repetition_cleanup_runs_even_when_the_benchmark_fails(self):
-        config_text = "sink:\n  clickhouse: {}\n"
-        output = pathlib.Path("/results/failed")
-        namespace = BENCH.run_namespace(output, 2)
-        with mock.patch.object(BENCH, "run_once", side_effect=RuntimeError("benchmark failed")), \
-             mock.patch.object(BENCH, "cleanup_run") as cleanup:
-            with self.assertRaisesRegex(RuntimeError, "benchmark failed"):
-                BENCH.run_repetition(
-                    pathlib.Path("transferia"),
-                    pathlib.Path("config.yaml"),
-                    config_text,
-                    output,
-                    2,
-                    30,
-                    90,
-                    80,
-                    {},
-                )
-
-        cleanup.assert_called_once_with(config_text, {}, namespace, require_existing=False)
-
-    def test_cleanup_failure_does_not_mask_the_benchmark_failure(self):
-        run_error = RuntimeError("benchmark failed")
-        cleanup_error = RuntimeError("cleanup failed")
-        with mock.patch.object(BENCH, "run_once", side_effect=run_error), mock.patch.object(
-            BENCH, "cleanup_run", side_effect=cleanup_error
-        ):
-            with self.assertRaisesRegex(RuntimeError, "benchmark failed") as raised:
-                BENCH.run_repetition(
-                    pathlib.Path("transferia"),
-                    pathlib.Path("config.yaml"),
-                    "sink:\n  clickhouse: {}\n",
-                    pathlib.Path("/results/failed"),
-                    1,
-                    30,
-                    90,
-                    80,
-                    {},
-                )
-
-        self.assertIs(raised.exception.__cause__, cleanup_error)
-
-    def test_successful_repetition_requires_tables_on_the_cleanup_endpoint(self):
-        config_text = "sink:\n  clickhouse: {}\n"
-        output = pathlib.Path("/results/success")
+    def test_run_namespace_uses_a_fresh_128_bit_random_identity(self):
         with mock.patch.object(
-            BENCH,
-            "run_once",
-            return_value={"namespace": BENCH.run_namespace(output, 1)},
-        ), mock.patch.object(BENCH, "cleanup_run") as cleanup:
-            BENCH.run_repetition(
-                pathlib.Path("transferia"),
-                pathlib.Path("config.yaml"),
-                config_text,
-                output,
-                1,
-                30,
-                90,
-                80,
-                {},
-            )
+            BENCH.secrets,
+            "token_hex",
+            side_effect=["a" * 32, "b" * 32],
+        ) as token_hex:
+            first = BENCH.run_namespace(1)
+            second = BENCH.run_namespace(1)
 
-        cleanup.assert_called_once_with(
-            config_text,
-            {},
-            BENCH.run_namespace(output, 1),
-            require_existing=True,
-        )
+        self.assertEqual(first, "a" * 32 + "_01")
+        self.assertEqual(second, "b" * 32 + "_01")
+        self.assertNotEqual(first, second)
+        self.assertEqual(token_hex.call_args_list, [mock.call(16), mock.call(16)])
 
 
 class RunnerTest(unittest.TestCase):
@@ -380,14 +243,14 @@ class RunnerTest(unittest.TestCase):
             log = (root / "run-03.log").read_text()
             self.assertIn("[stats p=0]", log)
             self.assertIn("rep=3", log)
-            self.assertIn("destination=" + BENCH.run_namespace(root, 3), log)
+            self.assertIn("destination=" + result["namespace"], log)
 
     def test_run_once_rejects_pipeline_restart(self):
         process = mock.Mock()
         process.poll.return_value = None
         process.stdout = iter(
             [
-                "pipeline failed, restarting: boom\n",
+                "pipeline failed, restarting: bearer super-secret\n",
                 "[stats p=0] source: 42 records/s | network-raw 42 B/s | "
                 "network-decoded 0 B/s | response-wait 1% | network-decode 0% busy || "
                 "parse: benchmark-discard || "
@@ -401,7 +264,7 @@ class RunnerTest(unittest.TestCase):
         ), mock.patch.object(BENCH, "terminate"):
             config = pathlib.Path(directory) / "config.yaml"
             config.write_text("unused: true\n", encoding="utf-8")
-            with self.assertRaisesRegex(RuntimeError, "pipeline failures occurred"):
+            with self.assertRaisesRegex(RuntimeError, "pipeline failures occurred") as raised:
                 BENCH.run_once(
                     pathlib.Path("unused"),
                     config,
@@ -409,6 +272,78 @@ class RunnerTest(unittest.TestCase):
                     1,
                     0,
                     0.02,
+                    1,
+                )
+            self.assertNotIn("super-secret", str(raised.exception))
+            self.assertEqual(
+                (pathlib.Path(directory) / "run-01.log").stat().st_mode & 0o777,
+                0o600,
+            )
+
+    def test_private_result_file_is_never_group_or_world_readable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = pathlib.Path(directory) / "results" / "result.json"
+            BENCH.private_text_write(result, '{"status":"ok"}')
+
+            self.assertEqual(result.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(result.parent.stat().st_mode & 0o777, 0o700)
+
+    def test_run_once_can_measure_a_finite_source_that_drains_early(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            binary = root / "finite-transferia.py"
+            line = (
+                "[stats p=0] source: 420 records/s | network-raw 42 B/s | "
+                "network-decoded 0 B/s | response-wait 1% | network-decode 0% busy || "
+                "parse: benchmark-discard || "
+                "sink: 0 rows/s | 0 B/s | 0 flushes/s | 0 source-msg/s | 0% busy | "
+                "0 retries | buffered N/A | objects 0/0/0 | 0% backpressure || "
+                "guarantee: destructive-benchmark | cpu: 125% rss: 16 MiB"
+            )
+            binary.write_text(
+                "#!/usr/bin/env python3\n"
+                f"line = {line!r}\n"
+                "for _ in range(4):\n"
+                "    print(line, flush=True)\n",
+                encoding="utf-8",
+            )
+            binary.chmod(0o755)
+            config = root / "config.yaml"
+            config.write_text("unused: true\n", encoding="utf-8")
+
+            result = BENCH.run_once(
+                binary,
+                config,
+                root,
+                1,
+                0,
+                30,
+                3,
+                allow_early_completion=True,
+            )
+
+            self.assertEqual(result["sample_count"], 4)
+            self.assertEqual(result["summary"]["source_records_per_s"]["median"], 420)
+            self.assertTrue(result["completed_naturally"])
+            self.assertGreater(result["elapsed_seconds"], 0)
+
+    def test_run_once_still_rejects_unexpected_early_completion_by_default(self):
+        process = mock.Mock()
+        process.poll.return_value = 0
+        process.stdout = iter(())
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            BENCH.subprocess, "Popen", return_value=process
+        ), mock.patch.object(BENCH, "terminate"):
+            config = pathlib.Path(directory) / "config.yaml"
+            config.write_text("unused: true\n", encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "exited early"):
+                BENCH.run_once(
+                    pathlib.Path("unused"),
+                    config,
+                    pathlib.Path(directory),
+                    1,
+                    0,
+                    1,
                     1,
                 )
 

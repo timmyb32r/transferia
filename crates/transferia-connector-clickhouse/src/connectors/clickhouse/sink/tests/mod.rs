@@ -2,8 +2,10 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use arrow::array::{BinaryArray, Int64Array, StringArray, UInt64Array};
-use arrow::datatypes::{DataType, Field, Schema};
+use arrow::array::{
+    BinaryArray, Date32Array, Int64Array, StringArray, TimestampSecondArray, UInt64Array,
+};
+use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use tokio::sync::{mpsc, Notify, Semaphore};
@@ -11,7 +13,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use super::actor::clickhouse_changelog_batches;
+use super::actor::{clickhouse_changelog_batches, key_predicate};
 use super::{
     ClickHouseCompression, ClickHouseInsertFormat, ClickHouseSink, ClickHouseSinkConfig,
     InsertError, InsertTransport,
@@ -31,6 +33,31 @@ enum Plan {
     Success,
     Transient,
     Permanent,
+}
+
+#[test]
+fn date32_primary_key_predicate_uses_raw_unix_epoch_days() -> anyhow::Result<()> {
+    let values = Date32Array::from(vec![-1]);
+    assert_eq!(
+        key_predicate("event_date", &values, 0, &DataType::Date32)?,
+        "toInt32(`event_date`) = -1",
+    );
+    Ok(())
+}
+
+#[test]
+fn second_timestamp_primary_key_predicate_preserves_signed_seconds() -> anyhow::Result<()> {
+    let values = TimestampSecondArray::from(vec![4_294_967_296]);
+    assert_eq!(
+        key_predicate(
+            "event_time",
+            &values,
+            0,
+            &DataType::Timestamp(TimeUnit::Second, None),
+        )?,
+        "toUnixTimestamp64Second(`event_time`) = 4294967296",
+    );
+    Ok(())
 }
 
 struct FakeState {

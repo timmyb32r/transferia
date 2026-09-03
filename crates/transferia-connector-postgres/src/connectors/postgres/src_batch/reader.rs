@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    ArrayRef, BinaryArray, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array,
-    Int64Array, Int8Array, StringArray, UInt32Array, UInt64Array,
+    ArrayRef, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array,
+    Int32Array, Int64Array, Int8Array, StringArray, TimestampMicrosecondArray, UInt32Array,
+    UInt64Array,
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
@@ -13,6 +14,10 @@ use crate::connectors::postgres::common::{
     postgres_requires_text_projection, postgres_to_arrow, quote_identifier, PostgresCopyFormat,
 };
 use crate::connectors::postgres::source::{TableConfig, POSTGRES_SOURCE_METADATA_COLUMNS};
+use crate::connectors::postgres::temporal::{
+    parse_date, parse_timestamp, postgres_date_to_unix_days,
+    postgres_timestamp_to_unix_micros,
+};
 use crate::metrics::SourceCounters;
 use super::copy_out::{CopyOutReader, RawCopyRow};
 use transferia_core::data::message::SourceBatch;
@@ -455,8 +460,51 @@ fn column_array(
                 })
                 .collect::<anyhow::Result<Vec<Option<&str>>>>()?,
         )) as ArrayRef,
+        tokio_postgres::types::Type::DATE => primitive!(i32, Date32Array, decode_date),
+        tokio_postgres::types::Type::TIMESTAMP => {
+            primitive!(i64, TimestampMicrosecondArray, decode_timestamp)
+        }
+        tokio_postgres::types::Type::TIMESTAMPTZ => {
+            let values = rows
+                .iter()
+                .map(|row| {
+                    row.fields[index]
+                        .as_deref()
+                        .map(|value| decode_timestamptz(value, copy_format))
+                        .transpose()
+                })
+                .collect::<anyhow::Result<Vec<Option<i64>>>>()?;
+            Arc::new(TimestampMicrosecondArray::from(values).with_timezone("UTC")) as ArrayRef
+        }
         _ => anyhow::bail!("unsupported PostgreSQL type '{}'", data_type.name()),
     })
+}
+
+pub(super) fn decode_date(value: &[u8], format: PostgresCopyFormat) -> anyhow::Result<i32> {
+    match format {
+        PostgresCopyFormat::Binary => {
+            postgres_date_to_unix_days(decode_i32(value, PostgresCopyFormat::Binary)?)
+        }
+        PostgresCopyFormat::Text => parse_date(decode_string(value)?),
+    }
+}
+
+pub(super) fn decode_timestamp(value: &[u8], format: PostgresCopyFormat) -> anyhow::Result<i64> {
+    match format {
+        PostgresCopyFormat::Binary => {
+            postgres_timestamp_to_unix_micros(decode_i64(value, PostgresCopyFormat::Binary)?)
+        }
+        PostgresCopyFormat::Text => parse_timestamp(decode_string(value)?, false),
+    }
+}
+
+pub(super) fn decode_timestamptz(value: &[u8], format: PostgresCopyFormat) -> anyhow::Result<i64> {
+    match format {
+        PostgresCopyFormat::Binary => {
+            postgres_timestamp_to_unix_micros(decode_i64(value, PostgresCopyFormat::Binary)?)
+        }
+        PostgresCopyFormat::Text => parse_timestamp(decode_string(value)?, true),
+    }
 }
 
 fn decode_bool(value: &[u8], format: PostgresCopyFormat) -> anyhow::Result<bool> {

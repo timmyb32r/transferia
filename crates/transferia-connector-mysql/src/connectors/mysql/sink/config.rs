@@ -25,5 +25,5 @@ impl MySqlSinkConfig {
 }
 
 const fn default_insert_rows() -> usize {
-    1_000
+    250
 }

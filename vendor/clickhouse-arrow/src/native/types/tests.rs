@@ -887,7 +887,7 @@ fn roundtrip_sized_date_time_types_sync() {
     let test_cases = vec![
         (Type::Date, vec![Value::Date(Date(0)), Value::Date(Date(18262))]), /* 1970-01-01 to
                                                                              * 2020-01-01 */
-        (Type::Date32, vec![Value::Date32(Date32(0)), Value::Date32(Date32(-719_163))]), /* 1900-01-01 */
+        (Type::Date32, vec![Value::Date32(Date32(0)), Value::Date32(Date32(-25_567))]), /* 1900-01-01 */
         (Type::DateTime(UTC), vec![
             Value::DateTime(DateTime(UTC, 0)),
             Value::DateTime(DateTime(UTC, 1_577_836_800)),

@@ -89,14 +89,13 @@ pub struct Date32(pub i32);
 
 #[expect(clippy::cast_possible_truncation)]
 impl Date32 {
-    /// Creates a `Date32` from days since 1900-01-01.
+    /// Creates a `Date32` from days since the Unix epoch.
     pub fn from_days(days: i32) -> Self { Date32(days) }
 
-    /// Creates a `Date32` from milliseconds since 1970-01-01, adjusting to 1900-01-01 epoch.
+    /// Creates a `Date32` from milliseconds since the Unix epoch.
     pub fn from_millis(ms: i64) -> Self {
-        const DAYS_1900_TO_1970: i64 = 25_567; // Days from 1900-01-01 to 1970-01-01
-        let days = ms / 86_400_000; // Milliseconds per day
-        Date32((days - DAYS_1900_TO_1970) as i32)
+        let days = ms.div_euclid(86_400_000); // Milliseconds per day
+        Date32(days as i32)
     }
 }
 
@@ -140,7 +139,7 @@ impl FromSql for Date32 {
 impl From<NaiveDate> for Date32 {
     fn from(other: NaiveDate) -> Self {
         let days =
-            other.signed_duration_since(NaiveDate::from_ymd_opt(1900, 1, 1).unwrap()).num_days();
+            other.signed_duration_since(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()).num_days();
         #[expect(clippy::cast_possible_truncation)]
         Date32(days as i32)
     }
@@ -148,7 +147,7 @@ impl From<NaiveDate> for Date32 {
 
 impl From<Date32> for NaiveDate {
     fn from(date: Date32) -> Self {
-        NaiveDate::from_ymd_opt(1900, 1, 1).unwrap() + Duration::days(i64::from(date.0))
+        NaiveDate::from_ymd_opt(1970, 1, 1).unwrap() + Duration::days(i64::from(date.0))
     }
 }
 
@@ -694,8 +693,6 @@ mod chrono_tests {
     use chrono_tz::UTC;
 
     use super::*;
-    use crate::deserialize::DAYS_1900_TO_1970;
-
     #[test]
     fn test_naivedate() {
         for i in 0..30000u16 {
@@ -748,11 +745,12 @@ mod chrono_tests {
 
     #[test]
     fn test_date32_from_millis() {
-        let days = 0_i32;
-        let ms = i64::from(days + DAYS_1900_TO_1970) * 86_400_000_i64;
+        let days = -1_i32;
+        let ms = i64::from(days) * 86_400_000_i64;
         let date1 = Date32::from_days(days);
         let date2 = Date32::from_millis(ms);
         assert_eq!(date1, date2);
+        assert_eq!(Date32::from_millis(-1), Date32(-1));
     }
 
     #[cfg(feature = "serde")]

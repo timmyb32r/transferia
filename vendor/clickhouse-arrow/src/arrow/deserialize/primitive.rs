@@ -58,12 +58,7 @@ macro_rules! primitive {
     (Float32 => $reader:expr) => {{ $reader.try_get_f32_le()? }};
     (Float64 => $reader:expr) => {{ $reader.try_get_f64_le()? }};
     (Date => $reader:expr) => {{ $reader.try_get_u16_le().map(i32::from)? }};
-    (Date32 => $reader:expr) => {{
-        {
-            let days = $reader.try_get_i32_le()?;
-            days - $crate::deserialize::DAYS_1900_TO_1970 // Adjust to days since 1970-01-01
-        }
-    }};
+    (Date32 => $reader:expr) => {{ $reader.try_get_i32_le()? }};
     (DateTime => $reader:expr) => {{ $reader.try_get_u32_le().map(i64::from)? }};
     (DateTime64(0) => $reader:expr) => {{ $reader.try_get_i64_le()? }};
     (DateTime64(3) => $reader:expr) => {{ $reader.try_get_i64_le()? }};
@@ -103,12 +98,7 @@ macro_rules! primitive_async {
     (Float32 => $reader:expr) => {{ $reader.read_f32_le().await? }};
     (Float64 => $reader:expr) => {{ $reader.read_f64_le().await? }};
     (Date => $reader:expr) => {{ $reader.read_u16_le().await?.map(i32::from)? }};
-    (Date32 => $reader:expr) => {{
-        {
-            let days = $reader.read_i32_le().await?;
-            days - $crate::deserialize::DAYS_1900_TO_1970 // Adjust to days since 1970-01-01
-        }
-    }};
+    (Date32 => $reader:expr) => {{ $reader.read_i32_le().await? }};
     (DateTime => $reader:expr) => {{ $reader.read_u32_le().await?.map(i64::from)? }};
     (DateTime64(0) => $reader:expr) => {{ $reader.read_i64_le().await? }};
     (DateTime64(3) => $reader:expr) => {{ $reader.read_i64_le().await? }};
@@ -807,6 +797,26 @@ mod tests {
         let array = result.as_any().downcast_ref::<Date32Array>().unwrap();
         assert_eq!(array, &Date32Array::from(vec![1, 2, 3]));
         assert_eq!(array.nulls(), None);
+
+        let input = vec![
+            255, 255, 255, 255, // -1
+            0, 0, 0, 0, // 0
+            1, 0, 0, 0, // 1
+        ];
+        let mut reader = Cursor::new(input);
+        let mut builder = TypedBuilder::try_new(&Type::Date32, &data_type).unwrap();
+        let result = deserialize_async(
+            &Type::Date32,
+            &mut builder,
+            &mut reader,
+            rows,
+            &null_mask,
+            &mut vec![],
+        )
+        .await
+        .expect("Failed to deserialize Date32");
+        let array = result.as_any().downcast_ref::<Date32Array>().unwrap();
+        assert_eq!(array, &Date32Array::from(vec![-1, 0, 1]));
     }
 
     /// Tests deserialization of `Nullable(Date)` with null values.

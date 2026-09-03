@@ -1,12 +1,15 @@
 use arrow::array::{
     Array, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array,
-    Int32Array, Int64Array, Int8Array, StringArray, TimestampMicrosecondArray,
-    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt16Array,
-    UInt32Array, UInt64Array, UInt8Array,
+    Int32Array, Int64Array, Int8Array, StringArray, UInt16Array, UInt32Array, UInt64Array,
+    UInt8Array,
 };
-use arrow::datatypes::{DataType, TimeUnit};
+use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatch;
 use bytes::{BufMut as _, Bytes, BytesMut};
+
+use crate::connectors::postgres::temporal::{
+    format_date, format_timestamp, timestamp_has_timezone, timestamp_micros,
+};
 
 pub fn encode(batch: &RecordBatch) -> anyhow::Result<Bytes> {
     let mut output = BytesMut::with_capacity(batch.get_array_memory_size());
@@ -61,30 +64,14 @@ fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow
             }
         }
         DataType::Date32 => {
-            let days = i64::from(downcast::<Date32Array>(column)?.value(row));
-            let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1)
-                .ok_or_else(|| anyhow::anyhow!("invalid Unix epoch date"))?;
-            let date = epoch
-                .checked_add_signed(chrono::Duration::days(days))
-                .ok_or_else(|| anyhow::anyhow!("PostgreSQL date conversion overflow"))?;
-            output.extend_from_slice(date.format("%Y-%m-%d").to_string().as_bytes());
+            let date = format_date(downcast::<Date32Array>(column)?.value(row))?;
+            output.extend_from_slice(date.as_bytes());
         }
-        DataType::Timestamp(unit, None) => {
+        DataType::Timestamp(unit, _) => {
+            let with_timezone = timestamp_has_timezone(column.data_type())?;
             let micros = timestamp_micros(column, row, unit)?;
-            let seconds = micros.div_euclid(1_000_000);
-            let subsecond_micros = micros.rem_euclid(1_000_000);
-            let nanos = u32::try_from(subsecond_micros)?
-                .checked_mul(1_000)
-                .ok_or_else(|| anyhow::anyhow!("PostgreSQL timestamp conversion overflow"))?;
-            let timestamp = chrono::DateTime::from_timestamp(seconds, nanos)
-                .ok_or_else(|| anyhow::anyhow!("PostgreSQL timestamp is outside Arrow range"))?
-                .naive_utc();
-            output.extend_from_slice(
-                timestamp
-                    .format("%Y-%m-%d %H:%M:%S%.6f")
-                    .to_string()
-                    .as_bytes(),
-            );
+            let timestamp = format_timestamp(micros, with_timezone)?;
+            output.extend_from_slice(timestamp.as_bytes());
         }
         data_type => {
             anyhow::bail!("unsupported Arrow type {data_type:?} for PostgreSQL text COPY")
@@ -155,31 +142,6 @@ fn escape_text(output: &mut BytesMut, value: &[u8]) {
             other => output.put_u8(*other),
         }
     }
-}
-
-fn timestamp_micros(
-    column: &dyn Array,
-    row: usize,
-    unit: &TimeUnit,
-) -> anyhow::Result<i64> {
-    let micros = match unit {
-        TimeUnit::Second => downcast::<TimestampSecondArray>(column)?
-            .value(row)
-            .checked_mul(1_000_000),
-        TimeUnit::Millisecond => downcast::<TimestampMillisecondArray>(column)?
-            .value(row)
-            .checked_mul(1_000),
-        TimeUnit::Microsecond => Some(downcast::<TimestampMicrosecondArray>(column)?.value(row)),
-        TimeUnit::Nanosecond => {
-            let nanos = downcast::<TimestampNanosecondArray>(column)?.value(row);
-            anyhow::ensure!(
-                nanos.rem_euclid(1_000) == 0,
-                "PostgreSQL timestamp has microsecond precision; nanosecond value {nanos} is not lossless"
-            );
-            Some(nanos / 1_000)
-        }
-    };
-    micros.ok_or_else(|| anyhow::anyhow!("PostgreSQL timestamp conversion overflow"))
 }
 
 fn hex(value: u8) -> u8 {

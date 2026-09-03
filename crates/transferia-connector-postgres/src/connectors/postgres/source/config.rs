@@ -66,5 +66,5 @@ fn default_schema() -> String {
     "public".into()
 }
 const fn default_batch_rows() -> usize {
-    65_536
+    16_384
 }

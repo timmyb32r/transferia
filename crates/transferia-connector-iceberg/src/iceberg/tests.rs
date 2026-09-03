@@ -1,8 +1,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use arrow::array::{Decimal128Array, UInt64Array};
-use arrow::datatypes::{DataType, Field, Schema};
+use arrow::array::{
+    Array as _, Decimal128Array, TimestampMicrosecondArray, TimestampSecondArray, UInt64Array,
+};
+use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use schemars::schema_for;
 use tokio::sync::Notify;
@@ -172,6 +174,85 @@ fn iceberg_schema_preserves_primary_key_columns() {
         .filter_map(|id| converted.name_by_field_id(id))
         .collect::<Vec<_>>();
     assert_eq!(identifiers, ["id"]);
+}
+
+#[test]
+fn iceberg_sink_losslessly_widens_timestamp_seconds_to_microseconds() {
+    let schema = DatasetSchema::new(vec![
+        SchemaColumn::new(
+            "event_time".to_owned(),
+            DataType::Timestamp(TimeUnit::Second, None),
+            true,
+        ),
+        SchemaColumn::new("event_date".to_owned(), DataType::Date32, false),
+    ]);
+    let iceberg = super::sink::iceberg_schema(&schema).expect("Iceberg schema");
+    let target =
+        Arc::new(iceberg::arrow::schema_to_arrow_schema(&iceberg).expect("Iceberg Arrow schema"));
+    assert_eq!(
+        target.field(0).data_type(),
+        &DataType::Timestamp(TimeUnit::Microsecond, None)
+    );
+    assert_eq!(target.field(1).data_type(), &DataType::Date32);
+
+    let source = Arc::new(Schema::new(vec![Field::new(
+        "event_time",
+        DataType::Timestamp(TimeUnit::Second, None),
+        true,
+    )]));
+    let batch = RecordBatch::try_new(
+        source,
+        vec![Arc::new(TimestampSecondArray::from(vec![
+            Some(-1),
+            Some(0),
+            Some(1),
+            None,
+        ]))],
+    )
+    .expect("source batch");
+    let target = Arc::new(Schema::new(vec![Field::new(
+        "event_time",
+        DataType::Timestamp(TimeUnit::Microsecond, None),
+        true,
+    )]));
+    let converted = super::sink::with_schema(&batch, target).expect("converted batch");
+    let values = converted
+        .column(0)
+        .as_any()
+        .downcast_ref::<TimestampMicrosecondArray>()
+        .expect("microsecond timestamp");
+    assert_eq!(values.value(0), -1_000_000);
+    assert_eq!(values.value(1), 0);
+    assert_eq!(values.value(2), 1_000_000);
+    assert!(values.is_null(3));
+}
+
+#[test]
+fn iceberg_timestamp_validation_rejects_invalid_schema_and_overflow_before_write() {
+    let invalid_timezone = DatasetSchema::new(vec![SchemaColumn::new(
+        "event_time".to_owned(),
+        DataType::Timestamp(TimeUnit::Second, Some("UTC".into())),
+        false,
+    )]);
+    assert!(super::sink::iceberg_schema(&invalid_timezone).is_err());
+
+    let source = Arc::new(Schema::new(vec![Field::new(
+        "event_time",
+        DataType::Timestamp(TimeUnit::Second, None),
+        false,
+    )]));
+    let batch = RecordBatch::try_new(
+        source,
+        vec![Arc::new(TimestampSecondArray::from(vec![i64::MAX]))],
+    )
+    .expect("source batch");
+    assert!(super::sink::validate_timestamp_values(&batch).is_err());
+    let target = Arc::new(Schema::new(vec![Field::new(
+        "event_time",
+        DataType::Timestamp(TimeUnit::Microsecond, None),
+        false,
+    )]));
+    assert!(super::sink::with_schema(&batch, target).is_err());
 }
 
 #[test]

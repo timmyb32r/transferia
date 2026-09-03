@@ -3,6 +3,8 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio_postgres::types::{Kind, Type};
 
+use super::temporal::{timestamp_data_type, timestamp_has_timezone};
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum PostgresCopyFormat {
@@ -195,6 +197,9 @@ pub fn postgres_to_arrow(data_type: &Type) -> anyhow::Result<DataType> {
         Type::FLOAT8 => DataType::Float64,
         Type::BYTEA => DataType::Binary,
         Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME => DataType::Utf8,
+        Type::DATE => DataType::Date32,
+        Type::TIMESTAMP => timestamp_data_type(false),
+        Type::TIMESTAMPTZ => timestamp_data_type(true),
         _ => match data_type.kind() {
             Kind::Pseudo => anyhow::bail!(
                 "PostgreSQL pseudo-type '{data_type}' cannot be stored in a source table"
@@ -228,6 +233,9 @@ pub const fn postgres_requires_text_projection(data_type: &Type) -> bool {
             | Type::VARCHAR
             | Type::BPCHAR
             | Type::NAME
+            | Type::DATE
+            | Type::TIMESTAMP
+            | Type::TIMESTAMPTZ
     )
 }
 
@@ -247,7 +255,8 @@ pub fn arrow_to_postgres(data_type: &DataType) -> anyhow::Result<Type> {
         DataType::Binary => Type::BYTEA,
         DataType::Utf8 => Type::TEXT,
         DataType::Date32 => Type::DATE,
-        DataType::Timestamp(_, None) => Type::TIMESTAMP,
+        DataType::Timestamp(_, _) if timestamp_has_timezone(data_type)? => Type::TIMESTAMPTZ,
+        DataType::Timestamp(_, _) => Type::TIMESTAMP,
         _ => anyhow::bail!("unsupported Arrow type {data_type:?} for PostgreSQL COPY"),
     })
 }

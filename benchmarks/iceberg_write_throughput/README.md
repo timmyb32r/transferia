@@ -16,8 +16,7 @@ and must never target user data.
 python3 benchmarks/windowed_sink_throughput.py /private/iceberg-write.yaml
 ```
 
-The result directory contains SHA-256 provenance, private generated configs,
+The result directory contains Murmur3 x64 128 provenance, private generated configs,
 raw logs, per-repetition JSON, and a generated Markdown report. Each repetition
 uses a unique table. The runner does not delete tables or object versions;
 perform cleanup only in the explicitly dedicated benchmark storage.
-

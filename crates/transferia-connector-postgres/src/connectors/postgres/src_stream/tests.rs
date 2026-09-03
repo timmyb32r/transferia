@@ -1,9 +1,14 @@
-use arrow::array::{Array, BinaryArray, Int32Array, Int64Array, StringArray, UInt64Array};
-use arrow::datatypes::DataType;
+use std::sync::Arc;
+
+use arrow::array::{
+    Array, BinaryArray, Date32Array, Int32Array, Int64Array, StringArray,
+    TimestampMicrosecondArray, UInt64Array,
+};
+use arrow::datatypes::{DataType, TimeUnit};
 use bytes::{BufMut, Bytes, BytesMut};
 
 use super::config::{LogicalDecoder, PostgresReplicationConfig};
-use super::event::LogicalValue;
+use super::event::{ChangeEvent, LogicalValue};
 use super::pgoutput::PgOutputDecoder;
 use super::reader::{
     events_to_table_data, normalize_pgoutput_event, normalize_wal2json_event, parse_lsn,
@@ -18,6 +23,7 @@ use transferia_core::data::schema::{
     SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 use transferia_core::data::system_columns::SystemColumnKind;
+use transferia_core::ChangeOperation;
 
 const RELATION_ID: u32 = 42;
 const TRANSACTION_ID: u32 = 7;
@@ -275,6 +281,80 @@ fn normalized_cdc_batch_marks_and_indexes_the_operation_column() {
     assert_eq!(transaction_id.value(0), u64::from(TRANSACTION_ID));
     assert_eq!(source_timestamp.value(0), commit_timestamp_micros);
     assert!(event_timestamp.value(0) > commit_timestamp_micros);
+}
+
+#[test]
+fn cdc_temporals_match_snapshot_arrow_types_values_and_utc_semantics() {
+    let table = DiscoveredTable {
+        config: TableConfig {
+            schema: "public".into(),
+            name: "temporal_values".into(),
+        },
+        schema: DatasetSchema::new(vec![
+            SchemaColumn::new("day".into(), DataType::Date32, false),
+            SchemaColumn::new(
+                "created_at".into(),
+                DataType::Timestamp(TimeUnit::Microsecond, None),
+                false,
+            ),
+            SchemaColumn::new(
+                "observed_at".into(),
+                DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+                false,
+            ),
+        ]),
+        type_oids: vec![1_082, 1_114, 1_184],
+        replica_identity_full: false,
+    };
+    let events = vec![ChangeEvent {
+        schema: Arc::from("public"),
+        table: Arc::from("temporal_values"),
+        operation: ChangeOperation::Create,
+        values: vec![
+            LogicalValue::Text(Bytes::from_static(b"2024-01-01")),
+            LogicalValue::Text(Bytes::from_static(b"2024-01-01 00:00:00.123456")),
+            LogicalValue::Text(Bytes::from_static(
+                b"2024-01-01 03:00:00.123456+03",
+            )),
+        ],
+        old_values: None,
+        old_values_kind: None,
+        lsn: END_LSN,
+        transaction_id: TRANSACTION_ID,
+        commit_timestamp_micros: COMMIT_MICROS,
+    }];
+
+    let data = events_to_table_data(&table, "postgres", &events).unwrap();
+    assert_eq!(data.batch.schema().field(0).data_type(), &DataType::Date32);
+    assert_eq!(
+        data.batch.schema().field(1).data_type(),
+        &DataType::Timestamp(TimeUnit::Microsecond, None)
+    );
+    assert_eq!(
+        data.batch.schema().field(2).data_type(),
+        &DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into()))
+    );
+    let day = data
+        .batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<Date32Array>()
+        .unwrap();
+    let created_at = data
+        .batch
+        .column(1)
+        .as_any()
+        .downcast_ref::<TimestampMicrosecondArray>()
+        .unwrap();
+    let observed_at = data
+        .batch
+        .column(2)
+        .as_any()
+        .downcast_ref::<TimestampMicrosecondArray>()
+        .unwrap();
+    assert_eq!(day.value(0), 19_723);
+    assert_eq!(created_at.value(0), 1_704_067_200_123_456);
+    assert_eq!(observed_at.value(0), created_at.value(0));
 }
 
 #[test]

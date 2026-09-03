@@ -615,7 +615,7 @@ fn current_rows_query(
     ))
 }
 
-fn key_predicate(
+pub(super) fn key_predicate(
     name: &str,
     array: &dyn Array,
     row: usize,
@@ -713,18 +713,22 @@ fn key_predicate(
             let value = decimal_literal(values.value(row), *scale)?;
             format!("{name} = CAST('{value}' AS Decimal({precision}, {scale}))")
         }
+        DataType::Date32 => {
+            let values = array
+                .as_any()
+                .downcast_ref::<arrow::array::Date32Array>()
+                .ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
+            format!("toInt32({name}) = {}", values.value(row))
+        }
         DataType::Timestamp(unit, _) => {
             let value = timestamp_value(array, row, *unit)?;
-            let nanoseconds = match unit {
-                TimeUnit::Second => value.checked_mul(1_000_000_000),
-                TimeUnit::Millisecond => value.checked_mul(1_000_000),
-                TimeUnit::Microsecond => value.checked_mul(1_000),
-                TimeUnit::Nanosecond => Some(value),
-            }
-            .ok_or_else(|| {
-                anyhow::anyhow!("ClickHouse timestamp primary key overflows nanoseconds")
-            })?;
-            format!("toUnixTimestamp64Nano({name}) = {nanoseconds}")
+            let conversion = match unit {
+                TimeUnit::Second => "toUnixTimestamp64Second",
+                TimeUnit::Millisecond => "toUnixTimestamp64Milli",
+                TimeUnit::Microsecond => "toUnixTimestamp64Micro",
+                TimeUnit::Nanosecond => "toUnixTimestamp64Nano",
+            };
+            format!("{conversion}({name}) = {value}")
         }
         other => {
             anyhow::bail!("ClickHouse cannot restore TOAST values for primary-key type {other:?}")

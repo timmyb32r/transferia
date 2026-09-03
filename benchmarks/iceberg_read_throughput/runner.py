@@ -19,6 +19,7 @@ import re
 import signal
 import statistics
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -28,6 +29,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 import yaml
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+
+from scripts.murmur3_x64_128 import murmur3_x64_128_file
 
 
 @dataclasses.dataclass(frozen=True)
@@ -266,7 +271,7 @@ def write_report(root: pathlib.Path, provenance: dict[str, Any], results: list[d
         f"- Snapshot rows: {provenance['rows']:,}",
         f"- Measurement window: at least {provenance['measurement_seconds']:.0f} s per candidate/repetition",
         f"- Snapshot ID: `{provenance['snapshot_id']}`",
-        f"- Binary SHA-256: `{provenance['binary_sha256']}`",
+        f"- Binary Murmur3 x64 128: `{provenance['binary_murmur3_x64_128']}`",
         "",
         "| Candidate | median rows/s | min | max | CPU | rows/core-s | peak RSS |",
         "|---|---:|---:|---:|---:|---:|---:|",
@@ -307,7 +312,7 @@ def main() -> int:
     metadata = response["metadata"]
     rows = snapshot_rows(metadata)
     binary = pathlib.Path(os.path.expanduser(str(required(raw["tools"], "rust_binary", "tools"))))
-    binary_sha256 = subprocess.check_output(["sha256sum", str(binary)], text=True).split()[0]
+    binary_murmur3_x64_128 = murmur3_x64_128_file(binary)
     provenance = {
         "started_at": datetime.now(timezone.utc).isoformat(),
         "rows": rows,
@@ -315,7 +320,7 @@ def main() -> int:
         "metadata_location": response.get("metadata-location"),
         "measurement_seconds": float(raw["run"].get("measurement_seconds", 120)),
         "binary": str(binary),
-        "binary_sha256": binary_sha256,
+        "binary_murmur3_x64_128": binary_murmur3_x64_128,
         "host": os.uname().nodename,
         "cpu_count": os.cpu_count(),
     }

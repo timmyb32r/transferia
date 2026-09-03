@@ -52,7 +52,7 @@ pub fn register(
                     serde_json::json!({
                         "host": "", "port": 3306, "database": "", "username": "",
                         "password": "", "trusted_plaintext": true,
-                        "create_tables": true, "insert_rows": 1000
+                        "create_tables": true, "insert_rows": 250
                     })
                 },
                 |config| Ok(Box::new(mysql::MySqlSinkConnector::from_config(config)?)),
@@ -96,7 +96,7 @@ fn mysql_sink_tuning_parameters() -> Vec<TuningParameter> {
     vec![TuningParameter::UnsignedInteger {
         pointer: "/insert_rows".to_owned(),
         label: "Rows per INSERT".to_owned(),
-        baseline: 1_000,
+        baseline: 250,
         minimum: 1,
         maximum: u64::MAX,
         candidates: vec![100, 250, 1_000, 4_000],

@@ -3,6 +3,7 @@ pub mod sink;
 pub mod source;
 pub mod src_batch;
 pub mod src_stream;
+mod temporal;
 
 pub use common::{
     check_connection, check_network_connection, PostgresConnectionCheckConfig,

@@ -50,6 +50,9 @@ struct SnapshotRow {
     ratio: f64,
     name: Option<String>,
     payload: Vec<u8>,
+    day: i32,
+    created_at: i64,
+    observed_at: i64,
 }
 
 #[tokio::test]
@@ -78,12 +81,19 @@ async fn binary_and_text_copy_are_wire_and_value_equivalent() -> anyhow::Result<
                 flag boolean NOT NULL,
                 ratio double precision NOT NULL,
                 name text,
-                payload bytea NOT NULL
+                payload bytea NOT NULL,
+                day date NOT NULL,
+                created_at timestamp(6) without time zone NOT NULL,
+                observed_at timestamp(6) with time zone NOT NULL
             );
             INSERT INTO copy_source VALUES
                 (2, '\377'::"char", 4000000000::oid, false, -1.25,
-                 E'literal\\N\ttab\nline\\tail', decode('00ff09', 'hex')),
-                (1, ''::"char", 42::oid, true, 1.5, NULL, decode('', 'hex'));
+                 E'literal\\N\ttab\nline\\tail', decode('00ff09', 'hex'),
+                 DATE '2024-01-01', TIMESTAMP '2024-01-01 00:00:00.123456',
+                 TIMESTAMPTZ '2024-01-01 03:00:00.123456+03'),
+                (1, ''::"char", 42::oid, true, 1.5, NULL, decode('', 'hex'),
+                 DATE '1970-01-01', TIMESTAMP '1969-12-31 23:59:59.999999',
+                 TIMESTAMPTZ '1969-12-31 23:59:59.999999+00');
             "#,
         )
         .await?;
@@ -102,6 +112,9 @@ async fn binary_and_text_copy_are_wire_and_value_equivalent() -> anyhow::Result<
                 ratio: 1.5,
                 name: None,
                 payload: Vec::new(),
+                day: 0,
+                created_at: -1,
+                observed_at: -1,
             },
             SnapshotRow {
                 id: 2,
@@ -111,6 +124,9 @@ async fn binary_and_text_copy_are_wire_and_value_equivalent() -> anyhow::Result<
                 ratio: -1.25,
                 name: Some("literal\\N\ttab\nline\\tail".to_owned()),
                 payload: vec![0, 255, 9],
+                day: 19_723,
+                created_at: 1_704_067_200_123_456,
+                observed_at: 1_704_067_200_123_456,
             },
         ]
     );
@@ -130,6 +146,7 @@ async fn binary_and_text_copy_are_wire_and_value_equivalent() -> anyhow::Result<
                 None,
                 "1970-01-01".to_owned(),
                 "1969-12-31 23:59:59.999999".to_owned(),
+                "1969-12-31 23:59:59.999999".to_owned(),
                 1.5,
                 true,
             ),
@@ -139,6 +156,7 @@ async fn binary_and_text_copy_are_wire_and_value_equivalent() -> anyhow::Result<
                 "00ff09".to_owned(),
                 Some("literal\\N\ttab\nline\\tail".to_owned()),
                 "2024-01-01".to_owned(),
+                "2024-01-01 00:00:00.123456".to_owned(),
                 "2024-01-01 00:00:00.123456".to_owned(),
                 -1.25,
                 false,
@@ -184,6 +202,18 @@ async fn read_snapshot(host: &str, port: u16, format: &str) -> anyhow::Result<Ve
                 let ratios = array::<Float64Array>(batch, 4);
                 let names = array::<StringArray>(batch, 5);
                 let payloads = array::<BinaryArray>(batch, 6);
+                let days = array::<Date32Array>(batch, 7);
+                let created_at = array::<TimestampMicrosecondArray>(batch, 8);
+                let observed_at = array::<TimestampMicrosecondArray>(batch, 9);
+                assert_eq!(batch.schema().field(7).data_type(), &DataType::Date32);
+                assert_eq!(
+                    batch.schema().field(8).data_type(),
+                    &DataType::Timestamp(TimeUnit::Microsecond, None)
+                );
+                assert_eq!(
+                    batch.schema().field(9).data_type(),
+                    &DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into()))
+                );
                 for row in 0..batch.num_rows() {
                     rows.push(SnapshotRow {
                         id: ids.value(row),
@@ -193,6 +223,9 @@ async fn read_snapshot(host: &str, port: u16, format: &str) -> anyhow::Result<Ve
                         ratio: ratios.value(row),
                         name: (!names.is_null(row)).then(|| names.value(row).to_owned()),
                         payload: payloads.value(row).to_vec(),
+                        day: days.value(row),
+                        created_at: created_at.value(row),
+                        observed_at: observed_at.value(row),
                     });
                 }
             }
@@ -294,6 +327,11 @@ fn sink_schema() -> DatasetSchema {
             DataType::Timestamp(TimeUnit::Microsecond, None),
             false,
         ),
+        SchemaColumn::new(
+            "observed_at".to_owned(),
+            DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+            false,
+        ),
         SchemaColumn::new("ratio".to_owned(), DataType::Float64, false),
         SchemaColumn::new("flag".to_owned(), DataType::Boolean, false),
     ])
@@ -312,6 +350,11 @@ fn sink_batch() -> anyhow::Result<RecordBatch> {
                 DataType::Timestamp(TimeUnit::Microsecond, None),
                 false,
             ),
+            Field::new(
+                "observed_at",
+                DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+                false,
+            ),
             Field::new("ratio", DataType::Float64, false),
             Field::new("flag", DataType::Boolean, false),
         ])),
@@ -328,20 +371,34 @@ fn sink_batch() -> anyhow::Result<RecordBatch> {
                 -1,
                 1_704_067_200_123_456,
             ])) as ArrayRef,
+            Arc::new(
+                TimestampMicrosecondArray::from(vec![-1, 1_704_067_200_123_456])
+                    .with_timezone("UTC"),
+            ) as ArrayRef,
             Arc::new(Float64Array::from(vec![1.5, -1.25])) as ArrayRef,
             Arc::new(BooleanArray::from(vec![true, false])) as ArrayRef,
         ],
     )?)
 }
 
-type StoredRow = (i32, i64, String, Option<String>, String, String, f64, bool);
+type StoredRow = (
+    i32,
+    i64,
+    String,
+    Option<String>,
+    String,
+    String,
+    String,
+    f64,
+    bool,
+);
 
 async fn stored_sink_rows(
     client: &tokio_postgres::Client,
     table: &str,
 ) -> anyhow::Result<Vec<StoredRow>> {
     let statement = format!(
-        "SELECT char_value::integer, oid_value::bigint, encode(payload, 'hex'), name, day::text, created_at::text, ratio, flag FROM \"{table}\" ORDER BY oid_value"
+        "SELECT char_value::integer, oid_value::bigint, encode(payload, 'hex'), name, day::text, created_at::text, (observed_at AT TIME ZONE 'UTC')::text, ratio, flag FROM \"{table}\" ORDER BY oid_value"
     );
     client
         .query(&statement, &[])
@@ -357,6 +414,7 @@ async fn stored_sink_rows(
                 row.try_get(5)?,
                 row.try_get(6)?,
                 row.try_get(7)?,
+                row.try_get(8)?,
             ))
         })
         .collect()

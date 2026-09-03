@@ -24,7 +24,7 @@ fn registration_exposes_only_the_bounded_throughput_tuning_surface() -> anyhow::
             ),
             (
                 "/read_concurrency",
-                serde_json::json!(4),
+                serde_json::json!(2),
                 vec![
                     serde_json::json!(1),
                     serde_json::json!(2),
@@ -57,7 +57,7 @@ fn registration_exposes_only_the_bounded_throughput_tuning_surface() -> anyhow::
             ),
             (
                 "/bulk_concurrency",
-                serde_json::json!(8),
+                serde_json::json!(4),
                 vec![
                     serde_json::json!(1),
                     serde_json::json!(2),

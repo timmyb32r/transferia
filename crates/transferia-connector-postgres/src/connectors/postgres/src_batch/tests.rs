@@ -1,7 +1,10 @@
 use super::copy_out::{CopyDecoder, DecodeState};
-use super::reader::{decode_i8, source_column_expression, source_user_field};
+use super::reader::{
+    decode_date, decode_i8, decode_timestamp, decode_timestamptz, source_column_expression,
+    source_user_field,
+};
+use arrow::datatypes::{DataType, TimeUnit};
 use bytes::Bytes;
-use arrow::datatypes::DataType;
 use tokio_postgres::types::{Kind, Type};
 
 use crate::connectors::postgres::common::postgres_to_arrow;
@@ -116,6 +119,15 @@ fn postgres_types_use_native_arrow_where_lossless_and_canonical_text_otherwise()
         (Type::VARCHAR, DataType::Utf8),
         (Type::BPCHAR, DataType::Utf8),
         (Type::NAME, DataType::Utf8),
+        (Type::DATE, DataType::Date32),
+        (
+            Type::TIMESTAMP,
+            DataType::Timestamp(TimeUnit::Microsecond, None),
+        ),
+        (
+            Type::TIMESTAMPTZ,
+            DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+        ),
     ] {
         assert_eq!(postgres_to_arrow(&postgres).unwrap(), arrow);
         assert_eq!(
@@ -127,11 +139,8 @@ fn postgres_types_use_native_arrow_where_lossless_and_canonical_text_otherwise()
     for postgres in [
         Type::NUMERIC,
         Type::MONEY,
-        Type::DATE,
         Type::TIME,
         Type::TIMETZ,
-        Type::TIMESTAMP,
-        Type::TIMESTAMPTZ,
         Type::INTERVAL,
         Type::JSON,
         Type::JSONB,
@@ -160,6 +169,72 @@ fn postgres_types_use_native_arrow_where_lossless_and_canonical_text_otherwise()
             "\"value\"::text AS \"value\""
         );
     }
+}
+
+#[test]
+fn temporal_copy_decoders_preserve_types_epochs_offsets_and_microseconds() {
+    for (text, postgres_days, unix_days) in [
+        ("1970-01-01", -10_957_i32, 0_i32),
+        ("2000-01-01", 0, 10_957),
+        ("0001-01-01 BC", -730_485, -719_528),
+    ] {
+        assert_eq!(
+            decode_date(text.as_bytes(), PostgresCopyFormat::Text).unwrap(),
+            unix_days
+        );
+        assert_eq!(
+            decode_date(&postgres_days.to_be_bytes(), PostgresCopyFormat::Binary).unwrap(),
+            unix_days
+        );
+    }
+
+    let expected = 1_704_067_200_123_456_i64;
+    let postgres = expected - 946_684_800_000_000;
+    assert_eq!(
+        decode_timestamp(
+            b"2024-01-01 00:00:00.123456",
+            PostgresCopyFormat::Text,
+        )
+        .unwrap(),
+        expected
+    );
+    assert_eq!(
+        decode_timestamp(&postgres.to_be_bytes(), PostgresCopyFormat::Binary).unwrap(),
+        expected
+    );
+    assert_eq!(
+        decode_timestamptz(
+            b"2024-01-01 03:00:00.123456+03",
+            PostgresCopyFormat::Text,
+        )
+        .unwrap(),
+        expected
+    );
+    assert_eq!(
+        decode_timestamptz(&postgres.to_be_bytes(), PostgresCopyFormat::Binary).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn temporal_copy_decoders_fail_closed_on_infinity_precision_and_bad_offsets() {
+    for value in [i32::MIN, i32::MAX] {
+        assert!(decode_date(&value.to_be_bytes(), PostgresCopyFormat::Binary).is_err());
+    }
+    for value in [i64::MIN, i64::MAX] {
+        assert!(decode_timestamp(&value.to_be_bytes(), PostgresCopyFormat::Binary).is_err());
+    }
+    assert!(decode_date(b"infinity", PostgresCopyFormat::Text).is_err());
+    assert!(decode_timestamp(
+        b"2024-01-01 00:00:00.1234567",
+        PostgresCopyFormat::Text,
+    )
+    .is_err());
+    assert!(decode_timestamptz(
+        b"2024-01-01 00:00:00",
+        PostgresCopyFormat::Text,
+    )
+    .is_err());
 }
 
 #[test]
