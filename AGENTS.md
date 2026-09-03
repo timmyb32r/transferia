@@ -223,7 +223,14 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   verified against their source value. Prefer MurmurHash3 x64 128-bit
   (Murmur3 128) unless measurements justify another non-cryptographic
   algorithm. Do not spend SHA-family or other cryptographic hashing cost where
-  collision resistance is not a security or persistent-identity requirement.
+  collision resistance is not required by an explicit, documented adversarial
+  or cross-trust-boundary threat model. Long-lived or persisted identity alone
+  is not such a requirement. Reproducibility manifests, benchmark provenance,
+  build/configuration fingerprints, cache keys, and trusted-environment file
+  identity are non-cryptographic tasks even when their fingerprints are stored
+  permanently; use Murmur3 128 and retain the exact metadata needed to verify
+  the source value. Do not infer a cryptographic requirement merely from words
+  such as integrity, identity, provenance, durable, persistent, or verified.
   A hash must never silently replace user data or become the sole proof of
   equality where a collision could lose or corrupt data.
 - Every operational or safety limit must come from an explicit user-visible
