@@ -1,7 +1,9 @@
-use super::*;
 use std::collections::BTreeMap;
+
 use arrow::array::Int64Array;
 use arrow::datatypes::{Field, Schema};
+
+use super::*;
 
 struct RecordingSource {
     groups: Arc<std::sync::Mutex<Vec<Vec<i64>>>>,
@@ -21,6 +23,42 @@ struct CancellationSensitiveSource {
     cancelled_reads: Arc<AtomicU64>,
     shutdowns: Arc<AtomicU64>,
     fail_shutdown: bool,
+}
+
+enum BufferedReadResult {
+    Data(i64),
+    Finished,
+    Failure(&'static str),
+}
+
+struct BufferedReadStep {
+    release: Arc<tokio::sync::Notify>,
+    result: BufferedReadResult,
+}
+
+struct NonCancellationSafeSource {
+    reads: VecDeque<(usize, BufferedReadStep)>,
+    started: mpsc::UnboundedSender<usize>,
+    cancelled_reads: Arc<std::sync::Mutex<Vec<usize>>>,
+    commits: Arc<std::sync::Mutex<Vec<Vec<i64>>>>,
+    shutdowns: Arc<AtomicU64>,
+}
+
+struct BufferedReadGuard {
+    index: usize,
+    completed: bool,
+    cancelled_reads: Arc<std::sync::Mutex<Vec<usize>>>,
+}
+
+impl Drop for BufferedReadGuard {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.cancelled_reads
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(self.index);
+        }
+    }
 }
 
 struct FiniteShutdownFailureSource {
@@ -279,6 +317,166 @@ impl Source for CancellationSensitiveSource {
             }
         })
     }
+}
+
+impl Source for NonCancellationSafeSource {
+    fn read_batch(
+        &mut self,
+    ) -> futures_util::future::BoxFuture<
+        '_,
+        transferia_core::failure::DataPlaneResult<transferia_core::data::message::SourceBatch>,
+    > {
+        let Some((index, step)) = self.reads.pop_front() else {
+            return Box::pin(async {
+                Err(DataPlaneFailure::fatal(anyhow::anyhow!(
+                    "source was read after its one-shot buffered result"
+                )))
+            });
+        };
+        let started = self.started.clone();
+        let cancelled_reads = Arc::clone(&self.cancelled_reads);
+        Box::pin(async move {
+            let mut guard = BufferedReadGuard {
+                index,
+                completed: false,
+                cancelled_reads,
+            };
+            started.send(index).map_err(|_| {
+                DataPlaneFailure::fatal(anyhow::anyhow!("read-start observer closed"))
+            })?;
+            step.release.notified().await;
+            guard.completed = true;
+            match step.result {
+                BufferedReadResult::Data(value) => {
+                    let batch = RecordBatch::try_new(
+                        Arc::new(Schema::new(vec![Field::new(
+                            "value",
+                            arrow::datatypes::DataType::Int64,
+                            false,
+                        )])),
+                        vec![Arc::new(Int64Array::from(vec![value]))],
+                    )
+                    .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
+                    Ok(SourceBatch::Typed {
+                        tables: vec![TableData::new(
+                            "events".into(),
+                            false,
+                            batch,
+                            transferia_core::data::system_columns::SystemColumns::default(),
+                        )],
+                        source_rows: 1,
+                        commit_marker: Some(CommitMarker::new(value)),
+                        memory: Vec::new(),
+                    })
+                }
+                BufferedReadResult::Finished => Ok(SourceBatch::Finished),
+                BufferedReadResult::Failure(message) => {
+                    Err(DataPlaneFailure::retryable(anyhow::anyhow!(message)))
+                }
+            }
+        })
+    }
+
+    fn commit_offsets<'ctx>(
+        &'ctx mut self,
+        markers: &'ctx [CommitMarker],
+    ) -> futures_util::future::BoxFuture<'ctx, transferia_core::failure::DataPlaneResult<()>> {
+        Box::pin(async move {
+            let committed = markers
+                .iter()
+                .map(|marker| marker.value::<i64>().copied().map_err(anyhow::Error::new))
+                .collect::<anyhow::Result<Vec<_>>>()
+                .map_err(DataPlaneFailure::fatal)?;
+            self.commits
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(committed);
+            Ok(())
+        })
+    }
+
+    fn shutdown(
+        &mut self,
+    ) -> futures_util::future::BoxFuture<'_, transferia_core::failure::DataPlaneResult<()>> {
+        self.shutdowns.fetch_add(1, Ordering::Relaxed);
+        Box::pin(async { Ok(()) })
+    }
+}
+
+struct BufferedSourceFixture {
+    source: Box<dyn Source>,
+    releases: Vec<Arc<tokio::sync::Notify>>,
+    started: mpsc::UnboundedReceiver<usize>,
+    cancelled_reads: Arc<std::sync::Mutex<Vec<usize>>>,
+    commits: Arc<std::sync::Mutex<Vec<Vec<i64>>>>,
+    shutdowns: Arc<AtomicU64>,
+}
+
+fn buffered_source(results: Vec<BufferedReadResult>) -> BufferedSourceFixture {
+    let (started_tx, started) = mpsc::unbounded_channel();
+    let releases = (0..results.len())
+        .map(|_| Arc::new(tokio::sync::Notify::new()))
+        .collect::<Vec<_>>();
+    let reads = results
+        .into_iter()
+        .enumerate()
+        .map(|(index, result)| {
+            (
+                index,
+                BufferedReadStep {
+                    release: Arc::clone(&releases[index]),
+                    result,
+                },
+            )
+        })
+        .collect();
+    let cancelled_reads = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let commits = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let shutdowns = Arc::new(AtomicU64::new(0));
+    let source: Box<dyn Source> = Box::new(NonCancellationSafeSource {
+        reads,
+        started: started_tx,
+        cancelled_reads: Arc::clone(&cancelled_reads),
+        commits: Arc::clone(&commits),
+        shutdowns: Arc::clone(&shutdowns),
+    });
+    BufferedSourceFixture {
+        source,
+        releases,
+        started,
+        cancelled_reads,
+        commits,
+        shutdowns,
+    }
+}
+
+async fn expect_read_started(started: &mut mpsc::UnboundedReceiver<usize>, expected: usize) {
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), started.recv())
+            .await
+            .expect("source read must start")
+            .expect("read-start channel must remain open"),
+        expected
+    );
+}
+
+async fn expect_typed_value(output: &mut mpsc::Receiver<ReadEnvelope>, expected: i64) -> DeliveryId {
+    let envelope = tokio::time::timeout(Duration::from_secs(1), output.recv())
+        .await
+        .expect("source output must arrive")
+        .expect("source output channel must remain open");
+    let ReadPayload::Typed(tables) = &envelope.payload else {
+        panic!("expected typed source output");
+    };
+    assert_eq!(tables.len(), 1);
+    let values = tables[0]
+        .batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .expect("Int64 value column");
+    assert_eq!(values.values(), &[expected]);
+    envelope.id
 }
 
 impl Source for FiniteShutdownFailureSource {
@@ -571,6 +769,257 @@ async fn sink_commit_events_do_not_cancel_an_in_flight_source_read() {
     task.await.unwrap().unwrap();
     assert_eq!(cancelled_reads.load(Ordering::Relaxed), 0);
     assert_eq!(shutdowns.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn every_queued_commit_is_drained_without_dropping_a_buffered_source_batch() {
+    let mut fixture = buffered_source(vec![
+        BufferedReadResult::Data(10),
+        BufferedReadResult::Data(20),
+        BufferedReadResult::Data(30),
+        BufferedReadResult::Data(40),
+        BufferedReadResult::Finished,
+    ]);
+    let (output_tx, mut output_rx) = mpsc::channel(1);
+    let (event_tx, event_rx) = mpsc::channel(4);
+    let task = tokio::spawn(reader_loop(
+        fixture.source,
+        output_tx,
+        event_rx,
+        PipelineMemory::new(1 << 20),
+        CancellationToken::new(),
+        Arc::new(PipelineProgress::new()),
+        None,
+    ));
+
+    for (index, value) in [10_i64, 20, 30].into_iter().enumerate() {
+        expect_read_started(&mut fixture.started, index).await;
+        fixture.releases[index].notify_one();
+        assert_eq!(expect_typed_value(&mut output_rx, value).await.get(), index as u64 + 1);
+    }
+    expect_read_started(&mut fixture.started, 3).await;
+    for id in [1, 3] {
+        event_tx
+            .send(SinkEvent::CommittedThrough(DeliveryId::new(id)))
+            .await
+            .expect("commit event must be queued");
+    }
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    fixture.releases[3].notify_one();
+    assert_eq!(expect_typed_value(&mut output_rx, 40).await.get(), 4);
+
+    expect_read_started(&mut fixture.started, 4).await;
+    fixture.releases[4].notify_one();
+    event_tx
+        .send(SinkEvent::CommittedThrough(DeliveryId::new(4)))
+        .await
+        .expect("last commit event must be queued");
+
+    task.await
+        .expect("reader task must not panic")
+        .expect("finite reader must finish");
+    assert!(fixture
+        .cancelled_reads
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_empty());
+    assert_eq!(
+        fixture
+            .commits
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_slice(),
+        [vec![10], vec![20, 30], vec![40]]
+    );
+    assert_eq!(fixture.shutdowns.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn queued_commit_cannot_hide_a_buffered_source_read_failure() {
+    let mut fixture = buffered_source(vec![
+        BufferedReadResult::Data(10),
+        BufferedReadResult::Failure("buffered source read failed"),
+    ]);
+    let (output_tx, mut output_rx) = mpsc::channel(1);
+    let (event_tx, event_rx) = mpsc::channel(1);
+    let task = tokio::spawn(reader_loop(
+        fixture.source,
+        output_tx,
+        event_rx,
+        PipelineMemory::new(1 << 20),
+        CancellationToken::new(),
+        Arc::new(PipelineProgress::new()),
+        None,
+    ));
+
+    expect_read_started(&mut fixture.started, 0).await;
+    fixture.releases[0].notify_one();
+    assert_eq!(expect_typed_value(&mut output_rx, 10).await.get(), 1);
+    expect_read_started(&mut fixture.started, 1).await;
+    event_tx
+        .send(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+        .await
+        .expect("commit event must be queued");
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    fixture.releases[1].notify_one();
+
+    let error = task
+        .await
+        .expect("reader task must not panic")
+        .expect_err("the read failure must remain visible");
+    assert!(error.to_string().contains("buffered source read failed"));
+    assert!(fixture
+        .cancelled_reads
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_empty());
+    assert!(fixture
+        .commits
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_empty());
+    assert_eq!(fixture.shutdowns.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn queued_commit_cannot_cancel_a_one_shot_finished_result() {
+    let mut fixture = buffered_source(vec![
+        BufferedReadResult::Data(10),
+        BufferedReadResult::Finished,
+    ]);
+    let (output_tx, mut output_rx) = mpsc::channel(1);
+    let (event_tx, event_rx) = mpsc::channel(1);
+    let task = tokio::spawn(reader_loop(
+        fixture.source,
+        output_tx,
+        event_rx,
+        PipelineMemory::new(1 << 20),
+        CancellationToken::new(),
+        Arc::new(PipelineProgress::new()),
+        None,
+    ));
+
+    expect_read_started(&mut fixture.started, 0).await;
+    fixture.releases[0].notify_one();
+    assert_eq!(expect_typed_value(&mut output_rx, 10).await.get(), 1);
+    expect_read_started(&mut fixture.started, 1).await;
+    event_tx
+        .send(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+        .await
+        .expect("commit event must be queued");
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    fixture.releases[1].notify_one();
+
+    task.await
+        .expect("reader task must not panic")
+        .expect("one-shot Finished result must complete the reader");
+    assert!(fixture
+        .cancelled_reads
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_empty());
+    assert_eq!(
+        fixture
+            .commits
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_slice(),
+        [vec![10]]
+    );
+}
+
+#[tokio::test]
+async fn closing_the_sink_event_channel_does_not_cancel_an_in_flight_read() {
+    let mut fixture = buffered_source(vec![
+        BufferedReadResult::Data(10),
+        BufferedReadResult::Data(20),
+    ]);
+    let (output_tx, mut output_rx) = mpsc::channel(1);
+    let (event_tx, event_rx) = mpsc::channel(1);
+    let task = tokio::spawn(reader_loop(
+        fixture.source,
+        output_tx,
+        event_rx,
+        PipelineMemory::new(1 << 20),
+        CancellationToken::new(),
+        Arc::new(PipelineProgress::new()),
+        None,
+    ));
+
+    expect_read_started(&mut fixture.started, 0).await;
+    fixture.releases[0].notify_one();
+    assert_eq!(expect_typed_value(&mut output_rx, 10).await.get(), 1);
+    expect_read_started(&mut fixture.started, 1).await;
+    drop(event_tx);
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    fixture.releases[1].notify_one();
+
+    let error = task
+        .await
+        .expect("reader task must not panic")
+        .expect_err("a closed sink event channel must stop the pipeline");
+    assert!(error.to_string().contains("sink event stream closed"));
+    assert!(fixture
+        .cancelled_reads
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_empty());
+    assert_eq!(fixture.shutdowns.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn commit_processing_during_output_backpressure_keeps_the_completed_batch() {
+    let mut fixture = buffered_source(vec![
+        BufferedReadResult::Data(10),
+        BufferedReadResult::Data(20),
+        BufferedReadResult::Finished,
+    ]);
+    let (output_tx, mut output_rx) = mpsc::channel(1);
+    let (event_tx, event_rx) = mpsc::channel(1);
+    let task = tokio::spawn(reader_loop(
+        fixture.source,
+        output_tx,
+        event_rx,
+        PipelineMemory::new(1 << 20),
+        CancellationToken::new(),
+        Arc::new(PipelineProgress::new()),
+        None,
+    ));
+
+    expect_read_started(&mut fixture.started, 0).await;
+    fixture.releases[0].notify_one();
+    expect_read_started(&mut fixture.started, 1).await;
+    fixture.releases[1].notify_one();
+    event_tx
+        .send(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+        .await
+        .expect("commit event must be queued while output is full");
+
+    assert_eq!(expect_typed_value(&mut output_rx, 10).await.get(), 1);
+    assert_eq!(expect_typed_value(&mut output_rx, 20).await.get(), 2);
+    expect_read_started(&mut fixture.started, 2).await;
+    fixture.releases[2].notify_one();
+    event_tx
+        .send(SinkEvent::CommittedThrough(DeliveryId::new(2)))
+        .await
+        .expect("second commit event must be queued");
+
+    task.await
+        .expect("reader task must not panic")
+        .expect("finite reader must finish");
+    assert!(fixture
+        .cancelled_reads
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_empty());
+    assert_eq!(
+        fixture
+            .commits
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_slice(),
+        [vec![10], vec![20]]
+    );
 }
 
 #[tokio::test]
