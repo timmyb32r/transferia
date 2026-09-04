@@ -52,14 +52,20 @@ pub struct S3SourceConfig {
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum S3InputParser {
-    #[schemars(title = "Parquet")]
+    #[schemars(
+        title = "S3 Parquet parser",
+        extend("x-ui" = { "capabilities": { "component": "parser", "key": "s3_parquet", "record_semantics": ["append_only"] } })
+    )]
     Parquet {
         #[serde(default = "default_parquet_batch_rows")]
         #[schemars(extend("x-ui" = { "widget": "hidden" }))]
         batch_rows: usize,
     },
 
-    #[schemars(title = "JSON", extend("x-ui" = { "widget": "json_parser" }))]
+    #[schemars(
+        title = "S3 JSON parser",
+        extend("x-ui" = { "widget": "json_parser", "capabilities": { "component": "parser", "key": "s3_json", "record_semantics": ["append_only"] } })
+    )]
     Json {
         #[schemars(
             title = "Parser settings",

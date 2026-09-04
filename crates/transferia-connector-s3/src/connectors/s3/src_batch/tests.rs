@@ -1,5 +1,7 @@
+use super::config::S3InputParser;
 use super::*;
 use crate::metrics::MetricsRegistry;
+use schemars::schema_for;
 use std::sync::Arc;
 
 #[test]
@@ -34,4 +36,26 @@ fn parquet_source_requires_an_explicit_table_and_positive_batch_size() {
     )
     .unwrap();
     valid.validate().unwrap();
+}
+
+#[test]
+fn parser_schema_declares_s3_matrix_capabilities() {
+    let schema = serde_json::to_value(schema_for!(S3InputParser)).unwrap();
+    let variants = schema["oneOf"].as_array().unwrap();
+
+    for (title, key) in [
+        ("S3 Parquet parser", "s3_parquet"),
+        ("S3 JSON parser", "s3_json"),
+    ] {
+        let variant = variants
+            .iter()
+            .find(|variant| variant["title"] == title)
+            .unwrap();
+        assert_eq!(variant["x-ui"]["capabilities"]["component"], "parser");
+        assert_eq!(variant["x-ui"]["capabilities"]["key"], key);
+        assert_eq!(
+            variant["x-ui"]["capabilities"]["record_semantics"],
+            serde_json::json!(["append_only"])
+        );
+    }
 }

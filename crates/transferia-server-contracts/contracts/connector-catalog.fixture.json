@@ -5784,7 +5784,7 @@
             "S3InputParser": {
               "oneOf": [
                 {
-                  "title": "Parquet",
+                  "title": "S3 Parquet parser",
                   "type": "object",
                   "properties": {
                     "batch_rows": {
@@ -5804,10 +5804,19 @@
                   "additionalProperties": false,
                   "required": [
                     "type"
-                  ]
+                  ],
+                  "x-ui": {
+                    "capabilities": {
+                      "component": "parser",
+                      "key": "s3_parquet",
+                      "record_semantics": [
+                        "append_only"
+                      ]
+                    }
+                  }
                 },
                 {
-                  "title": "JSON",
+                  "title": "S3 JSON parser",
                   "type": "object",
                   "properties": {
                     "common": {
@@ -5833,7 +5842,14 @@
                     "json_parser"
                   ],
                   "x-ui": {
-                    "widget": "json_parser"
+                    "widget": "json_parser",
+                    "capabilities": {
+                      "component": "parser",
+                      "key": "s3_json",
+                      "record_semantics": [
+                        "append_only"
+                      ]
+                    }
                   }
                 },
                 {
