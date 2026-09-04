@@ -780,7 +780,7 @@ fn assert_mysql_source(
     );
     anyhow::ensure!(source["version"] == "transferia");
     anyhow::ensure!(source["connector"] == "mysql");
-    anyhow::ensure!(source["name"] == "inventory");
+    anyhow::ensure!(source["name"] == "Inventory delivery");
     anyhow::ensure!(source["db"] == DATABASE);
     anyhow::ensure!(source["table"] == "debezium_events");
     anyhow::ensure!(source["snapshot"] == if snapshot { "true" } else { "false" });
