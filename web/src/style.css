@@ -1051,11 +1051,11 @@ h3 {
 }
 .route-composition:has(> .parser-details-card) > .endpoint-card-source {
   border-bottom-color: transparent;
-  border-radius: 4px 4px 0 0;
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
 }
 .route-composition:has(> .serializer-details-card) > .endpoint-card-sink {
   border-bottom-color: transparent;
-  border-radius: 4px 4px 0 0;
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
 }
 .route-composition:has(> .parser-details-card) > .endpoint-card-source,
 .route-composition:has(> .parser-details-card) > .source-parser-bridge,
@@ -4790,11 +4790,11 @@ button::after {
   }
   .route-composition:has(> .parser-details-card) > .endpoint-card-source {
     border-bottom-color: transparent;
-    border-radius: 4px 4px 0 0;
+    border-radius: var(--radius-panel) var(--radius-panel) 0 0;
   }
   .route-composition:has(> .serializer-details-card) > .endpoint-card-sink {
     border-bottom-color: transparent;
-    border-radius: 4px 4px 0 0;
+    border-radius: var(--radius-panel) var(--radius-panel) 0 0;
   }
   .parser-details-card {
     grid-column: 1;

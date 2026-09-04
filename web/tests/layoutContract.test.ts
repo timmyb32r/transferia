@@ -25,4 +25,17 @@ describe("delivery layout contract", () => {
       /@media \(max-width: 1300px\)[\s\S]*?\.serializer-details-card\s*\{[^}]*grid-column:\s*1;/,
     );
   });
+
+  it("uses the same panel corner radius for source and destination cards", () => {
+    const connectedRadius =
+      "border-radius: var(--radius-panel) var(--radius-panel) 0 0;";
+    const sourceRule = styles.match(
+      /:has\(> \.parser-details-card\) > \.endpoint-card-source\s*\{([^}]*)\}/,
+    );
+    const sinkRule = styles.match(
+      /:has\(> \.serializer-details-card\) > \.endpoint-card-sink\s*\{([^}]*)\}/,
+    );
+    expect(sourceRule?.[1]).toContain(connectedRadius);
+    expect(sinkRule?.[1]).toContain(connectedRadius);
+  });
 });
