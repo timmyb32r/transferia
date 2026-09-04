@@ -167,7 +167,10 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
   }
   for (const group of groups.values()) {
     for (const kind of applicableKinds(group.key)) {
-      if (group.key === "delivery_mode.batch" && kind === "destination") {
+      if (
+        (group.key === "delivery_mode.batch" || group.key === "partitioned") &&
+        kind === "destination"
+      ) {
         continue;
       }
       const members = group.members.get(kind) ?? new Set<string>();
