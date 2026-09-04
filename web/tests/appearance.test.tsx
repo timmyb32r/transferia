@@ -287,24 +287,26 @@ describe("appearance preferences", () => {
     expect(dialog.parentElement?.parentElement).toBe(document.body);
     expect(document.body.style.overflow).toBe("hidden");
     fireEvent.click(view.getByRole("tab", { name: "Entities" }));
-    const entityCategories = view.getByRole("navigation", {
-      name: "Entity categories",
-    });
     expect(
-      within(entityCategories)
-        .getAllByRole("button")
-        .map((button) => button.textContent),
+      [
+        "All sources",
+        "All destinations",
+        "All parsers",
+        "All transformers",
+        "All serializers",
+      ].map((name) => view.getByRole("region", { name }).tagName),
     ).toEqual([
-      "All sources",
-      "All destinations",
-      "All parsers",
-      "All transformers",
-      "All serializers",
+      "SECTION",
+      "SECTION",
+      "SECTION",
+      "SECTION",
+      "SECTION",
     ]);
-    fireEvent.click(
-      within(entityCategories).getByRole("button", { name: "All parsers" }),
-    );
-    expect(view.getByText("JSON parser")).toBeTruthy();
+    expect(
+      within(view.getByRole("region", { name: "All parsers" })).getByText(
+        "JSON parser",
+      ),
+    ).toBeTruthy();
     expect(view.queryByText("Has property")).toBeNull();
 
     fireEvent.click(view.getByRole("tab", { name: "Properties" }));

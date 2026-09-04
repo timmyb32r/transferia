@@ -4123,6 +4123,32 @@ button::after {
   background: var(--surface-soft);
 }
 
+.entity-browser {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  min-height: 0;
+  padding: 12px;
+  overflow: hidden;
+  background: var(--surface-soft);
+}
+
+.entity-list {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line-inner);
+  border-radius: var(--radius-control);
+}
+
+.entity-list h3 {
+  margin: 0 0 7px;
+  font-size: 13px;
+}
+
 .capability-groups > nav {
   display: grid;
   align-content: start;
@@ -4166,21 +4192,22 @@ button::after {
 
 .entity-catalog-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
   align-content: start;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
-.capability-group .entity-catalog-list li {
+.entity-catalog-list li {
   margin: 0;
-  padding: 10px 11px;
-  overflow: hidden;
+  padding: 7px 2px;
   color: var(--text-secondary);
-  background: var(--surface-soft);
-  border: 1px solid var(--line-inner);
-  border-radius: var(--radius-control);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  border-bottom: 1px solid var(--line-inner);
+  overflow-wrap: anywhere;
 }
 
 .property-browser {
@@ -4634,6 +4661,7 @@ button::after {
   }
 
   .capability-groups,
+  .entity-browser,
   .property-browser {
     grid-template-columns: minmax(0, 1fr);
     overflow: auto;

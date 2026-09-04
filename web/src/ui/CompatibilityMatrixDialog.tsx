@@ -350,8 +350,6 @@ export function CompatibilityMatrixDialog({
   const [activeTab, setActiveTab] = useState<
     "matrix" | "entities" | "properties"
   >("matrix");
-  const [activeEntityGroup, setActiveEntityGroup] =
-    useState("component.source");
   const [activeProperty, setActiveProperty] = useState<string | null>(null);
   const [activeEntity, setActiveEntity] = useState<string | null>(null);
   const sources = useMemo(
@@ -394,9 +392,6 @@ export function CompatibilityMatrixDialog({
         title,
       })),
   );
-  const selectedEntityGroup =
-    entityGroups.find((entry) => entry.key === activeEntityGroup) ??
-    entityGroups[0];
   const selectedProperty =
     propertyGroups.find((group) => group.key === activeProperty) ??
     propertyGroups[0];
@@ -650,30 +645,13 @@ export function CompatibilityMatrixDialog({
             </table>
           </div>
         ) : activeTab === "entities" ? (
-          <div class="capability-groups entity-browser">
-            <nav aria-label="Entity categories">
-              {entityGroups.map(({ key, label }) => (
-                <Button
-                  key={key}
-                  aria-pressed={selectedEntityGroup?.key === key}
-                  onClick={() => setActiveEntityGroup(key)}
-                >
-                  {label}
-                </Button>
-              ))}
-            </nav>
-            {selectedEntityGroup && (
-              <section class="capability-group">
-                <h3>{selectedEntityGroup.label}</h3>
+          <div class="entity-browser">
+            {entityGroups.map(({ key, kind, label, group }) => (
+              <section class="entity-list" key={key} aria-label={label}>
+                <h3>{label}</h3>
                 <ul class="entity-catalog-list">
-                  {(selectedEntityGroup.group.members.get(
-                    selectedEntityGroup.kind,
-                  )?.size ?? 0) > 0 ? (
-                    [
-                      ...(selectedEntityGroup.group.members.get(
-                        selectedEntityGroup.kind,
-                      ) ?? []),
-                    ]
+                  {(group.members.get(kind)?.size ?? 0) > 0 ? (
+                    [...(group.members.get(kind) ?? [])]
                       .sort((left, right) => left.localeCompare(right))
                       .map((entity) => <li key={entity}>{entity}</li>)
                   ) : (
@@ -681,7 +659,7 @@ export function CompatibilityMatrixDialog({
                   )}
                 </ul>
               </section>
-            )}
+            ))}
           </div>
         ) : (
           <div class="property-browser">
