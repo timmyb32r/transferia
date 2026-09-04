@@ -4,6 +4,8 @@ use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_delivery_contracts::semantics::RecordSemantics;
 use transferia_registry::{EndpointRole, RegistryBuilder};
 
+use crate::{check_opensearch_connection, opensearch};
+
 #[test]
 fn registration_exposes_only_the_bounded_throughput_tuning_surface() -> anyhow::Result<()> {
     let mut builder = RegistryBuilder::new();
@@ -123,4 +125,42 @@ fn registration_publishes_batch_source_and_append_only_sink() -> anyhow::Result<
         "password"
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn incomplete_auth_produces_a_network_only_result() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let accept = tokio::spawn(async move { listener.accept().await.unwrap() });
+    let result = check_opensearch_connection(opensearch::OpenSearchConnectionCheckConfig {
+        hosts: vec![address.ip().to_string()],
+        port: address.port(),
+        trusted_plaintext: true,
+        tls_ca_file: None,
+        auth: None,
+        request_timeout_ms: 1_000,
+        max_response_bytes: 1_024,
+    })
+    .await
+    .unwrap();
+
+    assert!(matches!(
+        result.status,
+        transferia_registry::ConnectionCheckStatus::NetworkReachable
+    ));
+    assert!(result
+        .message
+        .unwrap()
+        .contains("Authentication was not checked"));
+    accept.await.unwrap();
+}
+
+#[test]
+fn checker_config_accepts_null_auth_and_ignores_endpoint_specific_fields() {
+    let config: opensearch::OpenSearchConnectionCheckConfig = serde_yaml::from_str(
+        "hosts: [search.example]\nport: 9200\nauth: null\ncreate_indices: true\n",
+    )
+    .unwrap();
+
+    assert!(!config.credentials_complete());
 }

@@ -3,23 +3,23 @@ use std::path::PathBuf;
 use mysql_async::prelude::Queryable;
 use mysql_async::{Conn, OptsBuilder, SslOpts};
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 #[derive(Clone, Deserialize)]
 pub struct MySqlConnectionCheckConfig {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_default")]
     pub host: String,
 
     #[serde(default = "default_mysql_port")]
     pub port: u16,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_default")]
     pub database: String,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_default")]
     pub username: String,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_default")]
     pub password: String,
 
     #[serde(default)]
@@ -27,6 +27,14 @@ pub struct MySqlConnectionCheckConfig {
 
     #[serde(default)]
     pub tls_ca_file: Option<String>,
+}
+
+fn deserialize_null_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 impl MySqlConnectionCheckConfig {

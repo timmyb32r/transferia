@@ -21,6 +21,54 @@ pub enum OpenSearchAuth {
     Anonymous,
 }
 
+#[derive(Clone, Deserialize)]
+pub struct OpenSearchConnectionCheckConfig {
+    #[serde(default)]
+    pub hosts: Vec<String>,
+
+    #[serde(default = "default_opensearch_port")]
+    pub port: u16,
+
+    #[serde(default)]
+    pub trusted_plaintext: bool,
+
+    #[serde(default)]
+    pub tls_ca_file: Option<String>,
+
+    #[serde(default)]
+    pub auth: Option<OpenSearchAuth>,
+
+    #[serde(default = "default_request_timeout_ms")]
+    pub request_timeout_ms: u64,
+
+    #[serde(default = "default_max_response_bytes")]
+    pub max_response_bytes: usize,
+}
+
+impl OpenSearchConnectionCheckConfig {
+    #[must_use]
+    pub fn credentials_complete(&self) -> bool {
+        match &self.auth {
+            Some(OpenSearchAuth::Basic { username, .. }) => !username.is_empty(),
+            Some(OpenSearchAuth::Anonymous) => true,
+            None => false,
+        }
+    }
+
+    #[must_use]
+    pub fn connection(&self) -> Option<OpenSearchConnectionConfig> {
+        Some(OpenSearchConnectionConfig {
+            hosts: self.hosts.clone(),
+            port: self.port,
+            trusted_plaintext: self.trusted_plaintext,
+            tls_ca_file: self.tls_ca_file.clone(),
+            auth: self.auth.clone()?,
+            request_timeout_ms: self.request_timeout_ms,
+            max_response_bytes: self.max_response_bytes,
+        })
+    }
+}
+
 impl OpenSearchAuth {
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         if let Self::Basic { username, .. } = self {
@@ -195,6 +243,10 @@ pub fn validate_index_name(name: &str) -> anyhow::Result<()> {
 
 const fn default_request_timeout_ms() -> u64 {
     30_000
+}
+
+const fn default_opensearch_port() -> u16 {
+    9200
 }
 
 const fn default_max_response_bytes() -> usize {

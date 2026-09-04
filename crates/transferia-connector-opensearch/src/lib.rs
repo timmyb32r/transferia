@@ -6,6 +6,7 @@ pub mod opensearch;
 
 use std::sync::Arc;
 
+use reqwest::Method;
 use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_delivery_contracts::semantics::RecordSemantics;
 use transferia_registry::tuning::{NumericScale, TuningParameter};
@@ -34,18 +35,9 @@ pub fn register(
                 },
             )?
             .source_tuning_parameters(opensearch_source_tuning_parameters())?
-            .source_checker::<opensearch::src_batch::OpenSearchSourceConfig, _, _>({
-                let metrics = Arc::clone(metrics);
-                move |config| {
-                    let metrics = Arc::clone(&metrics);
-                    async move {
-                        opensearch::src_batch::OpenSearchSourceConnector::check_connection(
-                            config, metrics,
-                        )
-                        .await
-                    }
-                }
-            })
+            .source_checker::<opensearch::OpenSearchConnectionCheckConfig, _, _>(
+                check_opensearch_connection,
+            )
             .sink::<opensearch::sink::OpenSearchSinkConfig, _, _>(
                 opensearch::sink::initial_config,
                 |config| {
@@ -56,11 +48,55 @@ pub fn register(
             )?
             .sink_tuning_parameters(opensearch_sink_tuning_parameters())?
             .sink_record_semantics(vec![RecordSemantics::AppendOnly])?
-            .sink_checker::<opensearch::sink::OpenSearchSinkConfig, _, _>(|config| async move {
-                opensearch::sink::OpenSearchSinkConnector::check_connection(config).await
-            }),
+            .sink_checker::<opensearch::OpenSearchConnectionCheckConfig, _, _>(
+                check_opensearch_connection,
+            ),
     )?;
     Ok(())
+}
+
+async fn check_opensearch_connection(
+    config: opensearch::OpenSearchConnectionCheckConfig,
+) -> anyhow::Result<transferia_registry::ConnectionCheckResult> {
+    if config.credentials_complete() {
+        let connection = config
+            .connection()
+            .ok_or_else(|| anyhow::anyhow!("OpenSearch authentication is incomplete"))?;
+        let client = opensearch::OpenSearchClient::new(&connection)?;
+        client
+            .request(Method::GET, &[], &[], "application/json", None)
+            .await?;
+        Ok(transferia_registry::ConnectionCheckResult::default())
+    } else {
+        check_opensearch_network_connection(&config).await?;
+        Ok(transferia_registry::ConnectionCheckResult {
+            message: Some(
+                "OpenSearch is network-reachable. Authentication was not checked because credentials are incomplete."
+                    .to_owned(),
+            ),
+            ..transferia_registry::ConnectionCheckResult::network_reachable()
+        })
+    }
+}
+
+async fn check_opensearch_network_connection(
+    config: &opensearch::OpenSearchConnectionCheckConfig,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(!config.hosts.is_empty(), "opensearch.hosts must not be empty");
+    transferia_connector_support::address::validate_port("opensearch.port", config.port)?;
+    let mut failures = Vec::new();
+    for host in &config.hosts {
+        transferia_connector_support::address::validate_host("opensearch.hosts", host)?;
+        match tokio::net::TcpStream::connect((host.as_str(), config.port)).await {
+            Ok(_) => return Ok(()),
+            Err(error) => failures.push(format!("{host}: {error}")),
+        }
+    }
+    anyhow::bail!(
+        "no OpenSearch host is network-reachable on port {}: {}",
+        config.port,
+        failures.join("; ")
+    )
 }
 
 fn opensearch_source_tuning_parameters() -> Vec<TuningParameter> {

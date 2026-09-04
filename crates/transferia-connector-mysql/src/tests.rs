@@ -110,6 +110,16 @@ fn checker_config_ignores_source_specific_fields() {
 }
 
 #[test]
+fn checker_config_treats_null_form_credentials_as_incomplete() {
+    let config: mysql::MySqlConnectionCheckConfig = serde_yaml::from_str(
+        "host: db.example\nport: 3306\ndatabase: null\nusername: null\npassword: null\n",
+    )
+    .unwrap();
+
+    assert!(!config.credentials_complete());
+}
+
+#[test]
 fn sink_hides_internal_insert_batch_tuning() {
     let schema = serde_json::to_value(schemars::schema_for!(mysql::sink::MySqlSinkConfig)).unwrap();
     assert_eq!(
