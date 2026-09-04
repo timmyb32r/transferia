@@ -12,6 +12,49 @@ const MAX_FIELD_NUMBER: u32 = (1 << 29) - 1;
 
 pub struct ProtobufWireDetector;
 
+pub struct CloudEventsWireDetector;
+
+impl ParserDetector for CloudEventsWireDetector {
+    fn try_parse(&self, payload: &[u8]) -> anyhow::Result<Option<ParserDetection>> {
+        let Some(fields) = decode_message(payload, 0) else {
+            return Ok(None);
+        };
+        if !looks_like_cloud_event(&fields) {
+            return Ok(None);
+        }
+        let Some(mut detection) = ProtobufWireDetector.try_parse(payload)? else {
+            return Ok(None);
+        };
+        detection.key = "cloud_events".to_owned();
+        detection.label = "CloudEvents parser".to_owned();
+        detection.config["protobuf"]["message_name"] =
+            serde_json::Value::String("io.cloudevents.v1.CloudEvent".to_owned());
+        Ok(Some(detection))
+    }
+}
+
+fn looks_like_cloud_event(fields: &[WireField]) -> bool {
+    let required_text = [1_u32, 2, 3, 4].into_iter().all(|number| {
+        fields.iter().any(|field| {
+            field.number == number
+                && matches!(
+                    &field.value,
+                    WireValue::LengthDelimited(value)
+                        if !value.is_empty() && std::str::from_utf8(value).is_ok()
+                )
+        })
+    });
+    let has_data = fields.iter().any(|field| {
+        matches!(field.number, 6..=8) && matches!(field.value, WireValue::LengthDelimited(_))
+    });
+    required_text
+        && has_data
+        && fields.iter().all(|field| {
+            matches!(field.number, 1..=8)
+                && matches!(field.value, WireValue::LengthDelimited(_))
+        })
+}
+
 impl ParserDetector for ProtobufWireDetector {
     fn try_parse(&self, payload: &[u8]) -> anyhow::Result<Option<ParserDetection>> {
         self.try_parse_samples(&[payload], usize::MAX)

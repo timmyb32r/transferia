@@ -49,3 +49,32 @@ fn json_detection_aggregates_messages_until_the_explicit_row_limit() {
 fn non_json_payload_has_no_detection() {
     assert!(detect(&[0xff, 0x00, 0x10]).is_empty());
 }
+
+#[test]
+fn protobuf_cloud_event_is_detected_as_both_cloud_events_and_protobuf() {
+    let mut payload = Vec::new();
+    for (field, value) in [
+        (1_u8, b"event-1".as_slice()),
+        (2, b"urn:transferia:test".as_slice()),
+        (3, b"1.0".as_slice()),
+        (4, b"example.created".as_slice()),
+        (6, &[0, 255, 65][..]),
+    ] {
+        payload.push((field << 3) | 2);
+        payload.push(u8::try_from(value.len()).unwrap());
+        payload.extend_from_slice(value);
+    }
+
+    let detected = detect(&payload);
+    assert_eq!(
+        detected
+            .iter()
+            .map(|detection| detection.key.as_str())
+            .collect::<Vec<_>>(),
+        ["cloud_events", "protobuf"]
+    );
+    assert_eq!(
+        detected[0].config["protobuf"]["message_name"],
+        "io.cloudevents.v1.CloudEvent"
+    );
+}

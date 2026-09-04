@@ -30,6 +30,8 @@ pub fn detect_samples(payloads: &[&[u8]], max_rows: usize) -> Vec<ParserDetectio
     [
         &JsonDetector as &dyn ParserDetector,
         &TskvDetector as &dyn ParserDetector,
+        &super::protoscope::CloudEventsWireDetector as &dyn ParserDetector,
+        &super::protoscope::ProtobufWireDetector as &dyn ParserDetector,
     ]
         .into_iter()
         .filter_map(|detector| {
