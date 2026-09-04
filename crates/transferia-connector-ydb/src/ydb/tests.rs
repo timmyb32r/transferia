@@ -316,6 +316,7 @@ fn plaintext_endpoint_requires_explicit_trust() {
         trusted_plaintext: false,
         auth: YdbAuth::Anonymous,
         request_timeout_ms: 30_000,
+        max_rpc_message_bytes: 256 * 1024 * 1024,
     };
     assert!(config.validate().is_err());
 }
@@ -505,6 +506,7 @@ fn sink_requires_exact_table_mappings_and_primary_key() -> anyhow::Result<()> {
             trusted_plaintext: true,
             auth: YdbAuth::Anonymous,
             request_timeout_ms: 30_000,
+            max_rpc_message_bytes: 256 * 1024 * 1024,
         },
         tables: vec![YdbTableConfig {
             path: "/local/events".to_owned(),
@@ -557,6 +559,7 @@ fn speedtest_sink_config(create_tables: bool) -> YdbSinkConfig {
             trusted_plaintext: true,
             auth: YdbAuth::Anonymous,
             request_timeout_ms: 30_000,
+            max_rpc_message_bytes: 256 * 1024 * 1024,
         },
         tables: vec![
             YdbTableConfig {

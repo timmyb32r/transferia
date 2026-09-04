@@ -176,3 +176,30 @@ async fn progress_source_is_singleton_and_grows_for_overlap() {
     let second = second.await;
     assert_eq!(second.bytes(), 30);
 }
+
+#[tokio::test]
+async fn progress_source_companion_is_independent_source_accounting() {
+    let memory = PipelineMemory::new(10);
+    let raw = memory.reserve_progress_source(7).await;
+    let decoded = raw.reserve_source_companion(13).unwrap();
+    assert_eq!(memory.used(), 20);
+    assert_eq!(memory.source_used(), 20);
+    assert_eq!(memory.transform_used(), 0);
+
+    assert!(raw.shrink_to(3));
+    assert_eq!(raw.bytes(), 3);
+    assert_eq!(decoded.bytes(), 13);
+    assert_eq!(memory.source_used(), 16);
+
+    drop(raw);
+    assert_eq!(memory.source_used(), 13);
+    drop(decoded);
+    assert_eq!(memory.used(), 0);
+}
+
+#[tokio::test]
+async fn ordinary_source_lease_cannot_create_a_progress_companion() {
+    let memory = PipelineMemory::new(10);
+    let ordinary = memory.reserve(1).await;
+    assert!(ordinary.reserve_source_companion(1).is_err());
+}

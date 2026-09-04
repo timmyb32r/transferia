@@ -109,6 +109,22 @@ fn stored_projection_rejects_partial_or_user_column_loss() {
         .push(SystemColumnKind::Offset.into());
     assert!(validate_stored_projection(&duplicate, &duplicate.datasets[0]).is_err());
 
+    let mut duplicate_names = projection_discovery(false);
+    let repeated = duplicate_names.datasets[0].incoming_schema.columns[0].clone();
+    duplicate_names.datasets[0]
+        .incoming_schema
+        .columns
+        .insert(1, repeated.clone());
+    duplicate_names.datasets[0]
+        .stored_schema
+        .columns
+        .push(repeated);
+    assert!(validate_stored_projection(
+        &duplicate_names,
+        &duplicate_names.datasets[0]
+    )
+    .is_err());
+
     let mut wrong_type = projection_discovery(false);
     wrong_type.datasets[0].incoming_schema.columns[1].data_type = DataType::Utf8;
     assert!(validate_stored_projection(&wrong_type, &wrong_type.datasets[0]).is_err());

@@ -17,14 +17,16 @@ pub fn register(
     registry.register(
         ComponentRegistration::new("ydb", "YDB")
             .source::<ydb::YdbSourceConfig, _, _>(
-                vec![DeliveryMode::Batch],
+                vec![DeliveryMode::Batch, DeliveryMode::Stream],
                 false,
                 || {
                     serde_json::json!({
                         "endpoint": "", "database": "", "trusted_plaintext": false,
                         "auth": { "type": "token", "token": "" },
                         "tables": [{ "path": "" }], "batch_rows": 65536,
-                        "request_timeout_ms": 30000
+                        "request_timeout_ms": 30000,
+                        "max_rpc_message_bytes": 268435456,
+                        "replication": null
                     })
                 },
                 {
@@ -37,6 +39,10 @@ pub fn register(
                     }
                 },
             )?
+            .source_record_semantics(vec![
+                RecordSemantics::AppendOnly,
+                RecordSemantics::Changelog,
+            ])?
             .sink::<ydb::YdbSinkConfig, _, _>(
                 || {
                     serde_json::json!({
@@ -44,7 +50,8 @@ pub fn register(
                         "auth": { "type": "token", "token": "" },
                         "tables": [{ "path": "" }], "create_tables": true,
                         "retry_max_ms": 30000,
-                        "request_timeout_ms": 30000
+                        "request_timeout_ms": 30000,
+                        "max_rpc_message_bytes": 268435456
                     })
                 },
                 |config| Ok(Box::new(ydb::YdbSinkConnector::from_config(config)?)),

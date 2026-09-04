@@ -1,6 +1,7 @@
 mod config;
 mod sink;
 mod source;
+mod src_stream;
 mod transport;
 mod types;
 
@@ -8,6 +9,7 @@ pub use config::{
     YdbAuth, YdbConnectionCheckConfig, YdbConnectionConfig, YdbSinkConfig, YdbSourceConfig,
     YdbTableConfig,
 };
+pub use src_stream::YdbReplicationConfig;
 pub use sink::YdbSinkConnector;
 pub use source::YdbSourceConnector;
 

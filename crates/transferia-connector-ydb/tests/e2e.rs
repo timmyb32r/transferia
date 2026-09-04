@@ -240,6 +240,7 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
         trusted_plaintext: true,
         auth: YdbAuth::Anonymous,
         request_timeout_ms: 30_000,
+        max_rpc_message_bytes: 256 * 1024 * 1024,
     };
     wait_for_ydb(&connection).await?;
 
@@ -370,6 +371,7 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
             batch_rows: 1024,
             session_shutdown_timeout_ms: 30_000,
             session_shutdown_retry_initial_ms: 50,
+            replication: None,
         },
         Arc::new(transferia_connector_ydb::metrics::MetricsRegistry::new()),
     )?;

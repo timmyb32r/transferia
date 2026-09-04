@@ -3,6 +3,8 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use super::src_stream::YdbReplicationConfig;
+
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum YdbAuth {
@@ -75,18 +77,29 @@ pub struct YdbConnectionConfig {
     #[serde(default = "default_request_timeout_ms")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub request_timeout_ms: u64,
+
+    #[serde(default = "default_max_rpc_message_bytes")]
+    #[schemars(
+        range(min = 1, max = 4_294_967_295_u64),
+        title = "Maximum RPC message bytes",
+        description = "Maximum encoded YDB gRPC request or response accepted by setup, discovery, snapshot, and destination operations",
+        extend("x-ui" = { "section": "advanced", "widget": "byte_size" })
+    )]
+    pub max_rpc_message_bytes: usize,
 }
 
 impl YdbConnectionConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         let endpoint = self.tonic_endpoint()?;
-        anyhow::ensure!(
-            !self.database.trim().is_empty() && self.database.starts_with('/'),
-            "ydb.database must be an absolute non-empty path"
-        );
+        validate_absolute_ydb_path("ydb.database", &self.database)?;
         anyhow::ensure!(
             self.request_timeout_ms > 0,
             "ydb.request_timeout_ms must be positive"
+        );
+        anyhow::ensure!(
+            (1..=u32::MAX as usize).contains(&self.max_rpc_message_bytes),
+            "ydb.max_rpc_message_bytes must be in 1..={}",
+            u32::MAX
         );
         if endpoint.starts_with("http://") {
             anyhow::ensure!(
@@ -98,16 +111,28 @@ impl YdbConnectionConfig {
     }
 
     pub fn tonic_endpoint(&self) -> anyhow::Result<String> {
-        let endpoint = self.endpoint.trim_end_matches('/');
-        if let Some(authority) = endpoint.strip_prefix("grpc://") {
-            anyhow::ensure!(!authority.is_empty(), "ydb.endpoint has no authority");
-            return Ok(format!("http://{authority}"));
-        }
-        if let Some(authority) = endpoint.strip_prefix("grpcs://") {
-            anyhow::ensure!(!authority.is_empty(), "ydb.endpoint has no authority");
-            return Ok(format!("https://{authority}"));
-        }
-        anyhow::bail!("ydb.endpoint must start with grpc:// or grpcs://")
+        let (scheme, authority) = if let Some(authority) = self.endpoint.strip_prefix("grpc://") {
+            ("http", authority)
+        } else if let Some(authority) = self.endpoint.strip_prefix("grpcs://") {
+            ("https", authority)
+        } else {
+            anyhow::bail!("ydb.endpoint must start with grpc:// or grpcs://");
+        };
+        anyhow::ensure!(
+            !authority.is_empty()
+                && !authority
+                    .bytes()
+                    .any(|byte| matches!(byte, b'@' | b'/' | b'?' | b'#')),
+            "ydb.endpoint must contain only a bare host[:port] authority without userinfo, path, query, or fragment"
+        );
+        let authority = authority
+            .parse::<http::uri::Authority>()
+            .map_err(|_| anyhow::anyhow!("ydb.endpoint contains an invalid authority"))?;
+        anyhow::ensure!(
+            !authority.host().is_empty(),
+            "ydb.endpoint has no host authority"
+        );
+        Ok(format!("{scheme}://{authority}"))
     }
 
     #[must_use]
@@ -118,6 +143,10 @@ impl YdbConnectionConfig {
 
 const fn default_request_timeout_ms() -> u64 {
     30_000
+}
+
+const fn default_max_rpc_message_bytes() -> usize {
+    256 * 1024 * 1024
 }
 
 #[derive(Clone, Deserialize)]
@@ -136,6 +165,9 @@ pub struct YdbConnectionCheckConfig {
 
     #[serde(default = "default_request_timeout_ms")]
     pub request_timeout_ms: u64,
+
+    #[serde(default = "default_max_rpc_message_bytes")]
+    pub max_rpc_message_bytes: usize,
 }
 
 impl YdbConnectionCheckConfig {
@@ -152,6 +184,7 @@ impl YdbConnectionCheckConfig {
             trusted_plaintext: self.trusted_plaintext,
             auth: self.auth.clone(),
             request_timeout_ms: self.request_timeout_ms,
+            max_rpc_message_bytes: self.max_rpc_message_bytes,
         }
     }
 }
@@ -171,6 +204,7 @@ impl YdbTableConfig {
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "snapshot", "delivery_modes": ["batch"], "record_semantics": ["append_only"] } }))]
 pub struct YdbSourceConfig {
     #[serde(flatten)]
     pub connection: YdbConnectionConfig,
@@ -195,6 +229,10 @@ pub struct YdbSourceConfig {
         extend("x-ui" = { "section": "advanced" })
     )]
     pub session_shutdown_retry_initial_ms: u64,
+
+    /// Configures ordinary YDB table replication from pre-created changefeeds.
+    #[serde(default)]
+    pub replication: Option<YdbReplicationConfig>,
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -254,6 +292,9 @@ impl YdbSourceConfig {
                 .is_some(),
             "ydb.session_shutdown_timeout_ms exceeds the platform clock range"
         );
+        if let Some(replication) = &self.replication {
+            replication.validate()?;
+        }
         validate_tables(&self.tables)
     }
 
@@ -273,6 +314,7 @@ fn validate_tables(tables: &[YdbTableConfig]) -> anyhow::Result<()> {
     let mut paths = std::collections::HashSet::new();
     let mut names = std::collections::HashSet::new();
     for table in tables {
+        validate_absolute_ydb_path("ydb.tables[].path", &table.path)?;
         let name = table.name();
         anyhow::ensure!(
             !name.is_empty(),
@@ -284,16 +326,26 @@ fn validate_tables(tables: &[YdbTableConfig]) -> anyhow::Result<()> {
             "ydb.tables repeats logical name '{name}'"
         );
         anyhow::ensure!(
-            table.path.starts_with('/') && !table.path.ends_with('/'),
-            "YDB table path '{}' must be absolute and must not end with '/'",
-            table.path
-        );
-        anyhow::ensure!(
             paths.insert(table.path.as_str()),
             "ydb.tables repeats path '{}'",
             table.path
         );
     }
+    Ok(())
+}
+
+pub(super) fn validate_absolute_ydb_path(field: &str, value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        value.starts_with('/')
+            && value != "/"
+            && value.trim() == value
+            && !value.ends_with('/')
+            && value
+                .split('/')
+                .skip(1)
+                .all(|segment| !segment.is_empty() && segment != "." && segment != ".."),
+        "{field} must be a canonical absolute non-root YDB path without surrounding whitespace, empty, '.', or '..' segments"
+    );
     Ok(())
 }
 

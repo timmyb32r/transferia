@@ -435,6 +435,30 @@ pub fn validate_stored_projection(
     discovery: &DeliveryDiscovery,
     dataset: &DiscoveredDataset,
 ) -> anyhow::Result<()> {
+    let incoming_names = dataset
+        .incoming_schema
+        .columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<HashSet<_>>();
+    anyhow::ensure!(
+        incoming_names.len() == dataset.incoming_schema.columns.len(),
+        "discovered {:?} dataset '{}' repeats an incoming column name",
+        dataset.role,
+        dataset.name,
+    );
+    let stored_names = dataset
+        .stored_schema
+        .columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<HashSet<_>>();
+    anyhow::ensure!(
+        stored_names.len() == dataset.stored_schema.columns.len(),
+        "discovered {:?} dataset '{}' repeats a stored column name",
+        dataset.role,
+        dataset.name,
+    );
     let changelog_input = dataset
         .system_columns
         .iter()

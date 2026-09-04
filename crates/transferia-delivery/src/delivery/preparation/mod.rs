@@ -263,6 +263,7 @@ async fn build_pipeline_plan(
         Arc::from(catalog.build_source(source_kind, source_config)?);
     let sink_connector: Arc<dyn SinkConnector> =
         Arc::from(catalog.build_sink(sink_kind, sink_config)?);
+    source_connector.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)?;
     sink_connector.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)?;
 
     let source_descriptor = source_connector.compatibility();

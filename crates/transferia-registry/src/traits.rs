@@ -119,6 +119,12 @@ pub enum SpeedtestUnsupported {
 pub trait SourceConnector: Send + Sync {
     fn compatibility(&self) -> EndpointDescriptor;
 
+    /// Reject source configurations whose proven peak source-side working set
+    /// cannot fit the delivery's explicit per-partition memory budget.
+    fn validate_pipeline_memory_limit(&self, _limit_bytes: usize) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     fn delivery_discovery(
         &self,
         context: SourceDiscoveryContext,

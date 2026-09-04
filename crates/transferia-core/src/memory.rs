@@ -399,6 +399,58 @@ impl MemoryReservation {
         Ok(())
     }
 
+    /// Reserve independently retained source output while this progress-source lease keeps the
+    /// transport input alive.
+    ///
+    /// The companion is synchronous for the same reason as [`Self::grow_progress_source_to`]:
+    /// waiting for ordinary capacity while the progress-critical input is retained can deadlock
+    /// the source that must decode and release it. The returned lease is independent, so the
+    /// transport can later resize its raw-input lease without under-accounting decoded output.
+    pub fn reserve_source_companion(&self, bytes: usize) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            matches!(self.lease.kind, ReservationKind::ProgressSource),
+            "only a progress-source reservation can create a source companion"
+        );
+        let bytes = bytes.max(1);
+        let memory = &self.lease.memory;
+        let before = memory
+            .used
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                used.checked_add(bytes)
+            })
+            .map_err(|_| anyhow::anyhow!("pipeline memory accounting overflow"))?;
+        if memory
+            .source_used
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                used.checked_add(bytes)
+            })
+            .is_err()
+        {
+            memory.used.fetch_sub(bytes, Ordering::AcqRel);
+            return Err(anyhow::anyhow!(
+                "pipeline source memory accounting overflow"
+            ));
+        }
+        let after = before + bytes;
+        if after > memory.limit {
+            tracing::warn!(
+                required_bytes = bytes,
+                used_before = before,
+                used_after = after,
+                limit_bytes = memory.limit,
+                "progress-critical source decoding temporarily exceeded memory budget",
+            );
+        }
+        Ok(Self {
+            lease: Arc::new(MemoryLease {
+                bytes: AtomicUsize::new(bytes),
+                resize: Mutex::new(()),
+                kind: ReservationKind::Source,
+                memory: Arc::clone(memory),
+            }),
+        })
+    }
+
     /// Reduce accounting after a peak allocation has been released. This is
     /// useful for decompression, where compressed and decoded buffers overlap
     /// briefly but only the decoded bytes continue through the pipeline.

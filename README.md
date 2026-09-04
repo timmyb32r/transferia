@@ -7,7 +7,7 @@ share expensive connection pools and upload clients:
 ```text
 stream: Logbroker (YDB or PQv1) | Kafka
 batch:  PostgreSQL | MySQL | OpenSearch | YDB | ClickHouse | S3 | Iceberg | YTsaurus | data generator
-replication: PostgreSQL (pgoutput or wal2json) | MySQL 8 (row binlog)
+replication: PostgreSQL (pgoutput or wal2json) | MySQL 8 (row binlog) | YDB (Changefeed)
 batch + stream: PostgreSQL (exact exported-slot boundary) | MySQL 8 (exact FTWRL/GTID boundary)
                                     |
                                     v
@@ -23,12 +23,13 @@ Logbroker | Kafka | PostgreSQL | MySQL | OpenSearch | YDB | ClickHouse | S3 | Ic
 Source and sink connectors are selected from the runtime registry; parser kinds
 are validated explicitly. Logbroker and Kafka provide streaming sources and
 sinks. PostgreSQL and MySQL 8 provide finite snapshots, ordinary database
-replication, coordinated batch-and-stream sources, and sinks. OpenSearch, YDB,
-ClickHouse, S3, Iceberg, and YTsaurus provide finite-snapshot sources and sinks.
-YDB writes production Arrow IPC batches with `BulkUpsert` and
-requires an explicit logical-to-physical table mapping plus a non-null primary
-key. The batch-only data generator and non-durable `discard` sink are explicit
-benchmark components.
+replication, coordinated batch-and-stream sources, and sinks. YDB provides
+finite snapshots, ordinary stream-only Changefeed replication, and a sink.
+OpenSearch, ClickHouse, S3, Iceberg, and YTsaurus provide finite-snapshot
+sources and sinks. YDB writes production Arrow IPC batches with `BulkUpsert`
+and requires an explicit logical-to-physical table mapping plus a non-null
+primary key. The batch-only data generator and non-durable `discard` sink are
+explicit benchmark components.
 
 The generator includes numeric, transfer-log, and ClickBench `hits` presets.
 The ClickBench preset keeps the reference dataset's 105-column Arrow schema,
@@ -194,6 +195,38 @@ transaction payload, or lost execution lock fails closed instead of choosing a
 newer position. Purging files whose transactions are already included in the
 durable GTID frontier is supported; restart uses GTID auto-position rather than
 requiring the old filename to remain present.
+
+YDB table replication is enabled explicitly with `source.ydb.replication` and
+requires `delivery_type: stream`. Every configured table must already have the
+named `FORMAT JSON`, `NEW_AND_OLD_IMAGES` Changefeed with
+`VIRTUAL_TIMESTAMPS` enabled; schema-change events, resolved timestamps, and the
+initial scan must be disabled. The Changefeed topic must have exactly one fixed
+partition, with automatic partition splitting and merging disabled. This keeps
+the Topic offset a valid monotonic row version; multi-partition and
+auto-partitioned Changefeeds are rejected before execution rather than risking
+a newer row receiving a lower partition-local version. Its topic must already
+have the named important consumer, with `read_from` unset and RAW records
+allowed. The consumer must set
+the persistent attributes `transferia.delivery_id` to the delivery's exact
+`delivery_id` and `transferia.coordination_node_path` to the configured
+`replication.coordination_node_path`; that Coordination node must also already
+exist. Transferia validates these resources but does not create or silently
+replace them.
+
+For `NEW_AND_OLD_IMAGES`, an `update` or `reset` event with `newImage` and no
+`oldImage` becomes create (`c`), the same event with a complete `oldImage`
+becomes update (`u`), and `erase` with a complete `oldImage` becomes delete
+(`d`). Composite primary-key order and complete old values for updates and
+deletes are preserved. Nullable YDB `Json` and `JsonDocument` columns are
+rejected because Changefeed JSON cannot distinguish SQL `NULL` from JSON
+`null` losslessly.
+
+Source progress advances only after YDB returns the matching server offset
+acknowledgement. A read or shutdown before that acknowledgement leaves the
+cursor unchanged, so restart replays the exact unacknowledged records. An
+expired retained cursor or detected schema drift fails closed without advancing
+the cursor. This is ordinary CDC: it is not DBLog, does not expose
+`batch_and_stream`, and makes no atomic initial-snapshot handoff claim.
 
 For the demonstration control plane, run:
 

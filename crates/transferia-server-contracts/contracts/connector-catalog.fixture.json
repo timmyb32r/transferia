@@ -8058,6 +8058,19 @@
                 "widget": "hidden"
               }
             },
+            "max_rpc_message_bytes": {
+              "title": "Maximum RPC message bytes",
+              "description": "Maximum encoded YDB gRPC request or response accepted by setup, discovery, snapshot, and destination operations",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1,
+              "maximum": 4294967295,
+              "default": 268435456,
+              "x-ui": {
+                "section": "advanced",
+                "widget": "byte_size"
+              }
+            },
             "tables": {
               "type": "array",
               "items": {
@@ -8096,6 +8109,17 @@
               "x-ui": {
                 "section": "advanced"
               }
+            },
+            "replication": {
+              "description": "Configures ordinary YDB table replication from pre-created changefeeds.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/YdbReplicationConfig"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "additionalProperties": false,
@@ -8105,6 +8129,18 @@
             "tables",
             "installation"
           ],
+          "x-ui": {
+            "capabilities": {
+              "component": "source",
+              "key": "snapshot",
+              "delivery_modes": [
+                "batch"
+              ],
+              "record_semantics": [
+                "append_only"
+              ]
+            }
+          },
           "$defs": {
             "YdbAuth": {
               "oneOf": [
@@ -8174,13 +8210,113 @@
               "required": [
                 "path"
               ]
+            },
+            "YdbReplicationConfig": {
+              "type": "object",
+              "properties": {
+                "changefeed_name": {
+                  "title": "Changefeed name",
+                  "description": "Existing FORMAT JSON, NEW_AND_OLD_IMAGES YDB changefeed present on every configured table",
+                  "type": "string"
+                },
+                "consumer_name": {
+                  "title": "Consumer name",
+                  "description": "Existing important consumer present on every configured changefeed topic",
+                  "type": "string"
+                },
+                "coordination_node_path": {
+                  "title": "Coordination node path",
+                  "description": "Existing YDB Coordination node used to fence this changefeed consumer globally",
+                  "type": "string"
+                },
+                "read_buffer_bytes": {
+                  "title": "Read buffer bytes",
+                  "description": "YDB Topic flow-control credit granted by each replication reader",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 1,
+                  "default": 1048576,
+                  "x-ui": {
+                    "section": "advanced",
+                    "widget": "byte_size"
+                  }
+                },
+                "max_message_bytes": {
+                  "title": "Maximum change record bytes",
+                  "description": "Maximum encoded bytes accepted for one YDB changefeed record before failing closed",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 1,
+                  "maximum": 4294967295,
+                  "default": 1048576,
+                  "x-ui": {
+                    "section": "advanced",
+                    "widget": "byte_size"
+                  }
+                },
+                "max_batch_bytes": {
+                  "title": "Maximum change batch bytes",
+                  "description": "Maximum encoded bytes accepted in one YDB Topic response before failing closed",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 1,
+                  "maximum": 4294967295,
+                  "default": 1048576,
+                  "x-ui": {
+                    "section": "advanced",
+                    "widget": "byte_size"
+                  }
+                },
+                "max_response_bytes": {
+                  "title": "Maximum Topic response bytes",
+                  "description": "Maximum encoded gRPC response bytes accepted before YDB Topic protobuf decoding",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 1,
+                  "maximum": 4294967295,
+                  "default": 1572864,
+                  "x-ui": {
+                    "section": "advanced",
+                    "widget": "byte_size"
+                  }
+                },
+                "commit_timeout_ms": {
+                  "title": "Offset commit timeout, ms",
+                  "description": "Maximum time to wait for YDB to acknowledge source offsets after the destination commit",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 1,
+                  "default": 30000,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "changefeed_name",
+                "consumer_name",
+                "coordination_node_path"
+              ],
+              "x-ui": {
+                "capabilities": {
+                  "component": "source",
+                  "key": "replication",
+                  "delivery_modes": [
+                    "stream"
+                  ],
+                  "record_semantics": [
+                    "changelog"
+                  ]
+                }
+              }
             }
           }
         },
         "initial": {
-          "request_timeout_ms": 30000,
+          "replication": null,
           "database": "",
-          "batch_rows": 65536,
+          "max_rpc_message_bytes": 268435456,
           "auth": {
             "type": "token",
             "token": ""
@@ -8190,6 +8326,8 @@
               "path": ""
             }
           ],
+          "batch_rows": 65536,
+          "request_timeout_ms": 30000,
           "installation": {
             "endpoint": "grpc://localhost:2136",
             "trusted_plaintext": true,
@@ -8197,10 +8335,12 @@
           }
         },
         "delivery_modes": [
-          "batch"
+          "batch",
+          "stream"
         ],
         "record_semantics": [
-          "append_only"
+          "append_only",
+          "changelog"
         ],
         "partitioned": false,
         "connection_check": true,
@@ -8260,6 +8400,19 @@
               "default": 30000,
               "x-ui": {
                 "widget": "hidden"
+              }
+            },
+            "max_rpc_message_bytes": {
+              "title": "Maximum RPC message bytes",
+              "description": "Maximum encoded YDB gRPC request or response accepted by setup, discovery, snapshot, and destination operations",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1,
+              "maximum": 4294967295,
+              "default": 268435456,
+              "x-ui": {
+                "section": "advanced",
+                "widget": "byte_size"
               }
             },
             "tables": {
@@ -8366,9 +8519,9 @@
           }
         },
         "initial": {
-          "request_timeout_ms": 30000,
+          "max_rpc_message_bytes": 268435456,
           "database": "",
-          "retry_max_ms": 30000,
+          "request_timeout_ms": 30000,
           "auth": {
             "type": "token",
             "token": ""
@@ -8379,6 +8532,7 @@
             }
           ],
           "create_tables": true,
+          "retry_max_ms": 30000,
           "installation": {
             "endpoint": "grpc://localhost:2136",
             "trusted_plaintext": true,

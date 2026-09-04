@@ -2,9 +2,12 @@ use prost::Message;
 use tonic::metadata::AsciiMetadataValue;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tonic::Request;
+use transferia_connector_support::external_request::observe_external_request;
+use ydb_grpc::ydb_proto::coordination::v1::coordination_service_client::CoordinationServiceClient;
 use ydb_grpc::ydb_proto::formats::ArrowBatchSettings;
 use ydb_grpc::ydb_proto::status_ids::StatusCode;
 use ydb_grpc::ydb_proto::table::v1::table_service_client::TableServiceClient;
+use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 use ydb_grpc::ydb_proto::table::{
     bulk_upsert_request, BulkUpsertRequest, BulkUpsertResult, CommitTransactionRequest,
     CommitTransactionResult, CreateSessionRequest, CreateSessionResult, CreateTableRequest,
@@ -66,6 +69,8 @@ pub(super) fn is_not_found_error(error: &anyhow::Error) -> bool {
 #[derive(Clone)]
 pub(super) struct YdbClient {
     service: TableServiceClient<Channel>,
+    topic_service: TopicServiceClient<Channel>,
+    coordination_service: CoordinationServiceClient<Channel>,
     database: AsciiMetadataValue,
     token: Option<AsciiMetadataValue>,
     timeout: std::time::Duration,
@@ -97,10 +102,17 @@ impl YdbClient {
             .transpose()?;
         let database = AsciiMetadataValue::try_from(config.database.clone())
             .map_err(|_| anyhow::anyhow!("YDB database is not valid ASCII metadata"))?;
+        let max_rpc_message_bytes = config.max_rpc_message_bytes;
         Ok(Self {
-            service: TableServiceClient::new(channel)
-                .max_decoding_message_size(256 * 1024 * 1024)
-                .max_encoding_message_size(256 * 1024 * 1024),
+            service: TableServiceClient::new(channel.clone())
+                .max_decoding_message_size(max_rpc_message_bytes)
+                .max_encoding_message_size(max_rpc_message_bytes),
+            topic_service: TopicServiceClient::new(channel.clone())
+                .max_decoding_message_size(max_rpc_message_bytes)
+                .max_encoding_message_size(max_rpc_message_bytes),
+            coordination_service: CoordinationServiceClient::new(channel)
+                .max_decoding_message_size(max_rpc_message_bytes)
+                .max_encoding_message_size(max_rpc_message_bytes),
             database,
             token,
             timeout: config.request_timeout(),
@@ -120,14 +132,26 @@ impl YdbClient {
         request
     }
 
+    pub fn topic_service(&self) -> TopicServiceClient<Channel> {
+        self.topic_service.clone()
+    }
+
+    pub fn coordination_service(&self) -> CoordinationServiceClient<Channel> {
+        self.coordination_service.clone()
+    }
+
     pub async fn create_session(&mut self) -> anyhow::Result<String> {
         let request = self.request(CreateSessionRequest {
             operation_params: None,
         });
-        let response = tokio::time::timeout(self.timeout, self.service.create_session(request))
-            .await
-            .map_err(|_| anyhow::anyhow!("YDB CreateSession timed out"))??
-            .into_inner();
+        let response = observe_external_request("ydb", "table.create_session", async {
+            tokio::time::timeout(self.timeout, self.service.create_session(request))
+                .await
+                .map_err(|_| anyhow::anyhow!("YDB CreateSession timed out"))?
+                .map_err(anyhow::Error::from)
+        })
+        .await?
+        .into_inner();
         decode_operation::<CreateSessionResult>(response.operation, "CreateSession")
             .map(|result| result.session_id)
     }
@@ -144,16 +168,16 @@ impl YdbClient {
             include_set_val: false,
             include_shard_nodes_info: false,
         });
-        let response = tokio::time::timeout(self.timeout, self.service.describe_table(request))
-            .await
-            .map_err(|_| anyhow::anyhow!("YDB DescribeTable timed out"))??
-            .into_inner();
+        let response = observe_external_request("ydb", "table.describe_table", async {
+            tokio::time::timeout(self.timeout, self.service.describe_table(request))
+                .await
+                .map_err(|_| anyhow::anyhow!("YDB DescribeTable timed out"))?
+                .map_err(anyhow::Error::from)
+        })
+        .await?
+        .into_inner();
         let result = decode_operation(response.operation, "DescribeTable");
-        let delete = self.request(DeleteSessionRequest {
-            session_id,
-            operation_params: None,
-        });
-        let _ignored = self.service.delete_session(delete).await;
+        let _ignored = self.delete_session(session_id).await;
         result
     }
 
@@ -199,10 +223,14 @@ impl YdbClient {
             session_id,
             operation_params: None,
         });
-        let response = tokio::time::timeout(self.timeout, self.service.delete_session(request))
-            .await
-            .map_err(|_| anyhow::anyhow!("YDB DeleteSession timed out"))??
-            .into_inner();
+        let response = observe_external_request("ydb", "table.delete_session", async {
+            tokio::time::timeout(self.timeout, self.service.delete_session(request))
+                .await
+                .map_err(|_| anyhow::anyhow!("YDB DeleteSession timed out"))?
+                .map_err(anyhow::Error::from)
+        })
+        .await?
+        .into_inner();
         ensure_operation(response.operation, "DeleteSession")?;
         Ok(())
     }

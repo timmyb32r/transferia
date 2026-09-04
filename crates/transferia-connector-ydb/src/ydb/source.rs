@@ -12,6 +12,10 @@ use ydb_grpc::ydb_proto::status_ids::StatusCode;
 use ydb_grpc::ydb_proto::table::{ReadTableRequest, ReadTableResponse};
 
 use super::config::{YdbSourceConfig, YdbTableConfig};
+use super::src_stream::{
+    discover_replication_resources, prepare_replication, replication_discovery,
+    replication_contract_violation, PreparedReplication, YdbReplicationSource,
+};
 use super::transport::{is_not_found_error, YdbClient};
 use super::types::{column_plans, dataset_schema, result_set_to_batch, ColumnPlan};
 use crate::metrics::{MetricsRegistry, SourceCounters};
@@ -28,7 +32,11 @@ use transferia_core::source::{CommitMarker, Source};
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
+use transferia_delivery_contracts::DeliveryType;
+use transferia_registry::{
+    PreparedSourceExecution, SourceBuildContext, SourceConnector, SourceDiscoveryContext,
+    SourceExecutionContext, SourcePhase, SpeedtestUnsupported,
+};
 
 const SYSTEM_COLUMN_KINDS: [SystemColumnKind; 4] = [
     SystemColumnKind::Topic,
@@ -38,10 +46,10 @@ const SYSTEM_COLUMN_KINDS: [SystemColumnKind; 4] = [
 ];
 
 #[derive(Clone)]
-struct DiscoveredTable {
-    config: YdbTableConfig,
-    schema: DatasetSchema,
-    columns: Vec<ColumnPlan>,
+pub(super) struct DiscoveredTable {
+    pub(super) config: YdbTableConfig,
+    pub(super) schema: DatasetSchema,
+    pub(super) columns: Vec<ColumnPlan>,
 }
 
 pub struct YdbSourceConnector {
@@ -49,6 +57,7 @@ pub struct YdbSourceConnector {
     parser_plan: ParserPlan,
     metrics: Arc<MetricsRegistry>,
     discovered: tokio::sync::OnceCell<Arc<Vec<DiscoveredTable>>>,
+    replication_prepared: tokio::sync::Mutex<Option<Arc<PreparedReplication>>>,
     counters: Mutex<HashMap<i64, Arc<SourceCounters>>>,
 }
 
@@ -63,6 +72,7 @@ impl YdbSourceConnector {
             parser_plan: ParserPlan::native_source(),
             metrics,
             discovered: tokio::sync::OnceCell::new(),
+            replication_prepared: tokio::sync::Mutex::new(None),
             counters: Mutex::new(HashMap::new()),
         })
     }
@@ -101,14 +111,70 @@ impl YdbSourceConnector {
                 .or_insert_with(|| Arc::new(SourceCounters::new())),
         )
     }
+
+    async fn prepared_replication(
+        &self,
+        durable: &transferia_registry::durable::DurableContext,
+        cancellation: &tokio_util::sync::CancellationToken,
+        replay_identity: Arc<str>,
+    ) -> anyhow::Result<Arc<PreparedReplication>> {
+        let mut prepared = self.replication_prepared.lock().await;
+        if let Some(current) = prepared.as_ref() {
+            if current.delivery_id.as_ref() != durable.delivery_id.as_ref()
+                || current.replay_identity.as_ref() != replay_identity.as_ref()
+            {
+                return Err(replication_contract_violation(anyhow::anyhow!(
+                    "YDB replication connector was prepared for a different delivery or replay identity"
+                )));
+            }
+            if !current.fence_lost.is_cancelled() {
+                return Ok(Arc::clone(current));
+            }
+        }
+        // Release this connector's stale local execution lease before trying to reacquire it.
+        // A still-live source keeps its own Arc and therefore continues to fence overlap.
+        drop(prepared.take());
+        let replacement = Arc::new(
+            prepare_replication(
+                &self.config,
+                durable,
+                cancellation,
+                replay_identity,
+            )
+            .await?,
+        );
+        *prepared = Some(Arc::clone(&replacement));
+        Ok(replacement)
+    }
 }
 
 impl SourceConnector for YdbSourceConnector {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::YdbSource(SourceDescriptor {
-            behavior: SourceBehavior::FiniteAppendOnlyRows,
-            delivery_modes: SourceDeliveryModes::BATCH,
+            behavior: if self.config.replication.is_some() {
+                SourceBehavior::ChangelogRows
+            } else {
+                SourceBehavior::FiniteAppendOnlyRows
+            },
+            delivery_modes: if self.config.replication.is_some() {
+                SourceDeliveryModes::STREAM
+            } else {
+                SourceDeliveryModes::BATCH
+            },
         })
+    }
+
+    fn validate_pipeline_memory_limit(&self, limit_bytes: usize) -> anyhow::Result<()> {
+        let Some(replication) = self.config.replication.as_ref() else {
+            return Ok(());
+        };
+        let required_bytes = replication.minimum_pipeline_memory_bytes()?;
+        anyhow::ensure!(
+            required_bytes <= limit_bytes,
+            "YDB replication max_response_bytes={} needs at least {required_bytes} bytes of pipeline memory for bounded Topic protobuf decoding, but pipeline_memory_limit_bytes is {limit_bytes}",
+            replication.max_response_bytes
+        );
+        Ok(())
     }
 
     fn delivery_discovery(
@@ -119,8 +185,22 @@ impl SourceConnector for YdbSourceConnector {
             let SourceDiscoveryContext {
                 request,
                 cancellation,
-                delivery_type: _,
+                delivery_type,
             } = context;
+            if self.config.replication.is_some() {
+                anyhow::ensure!(
+                    delivery_type == DeliveryType::Stream,
+                    "YDB replication configuration supports only stream delivery, got '{}'",
+                    delivery_type.label()
+                );
+                let resources = discover_replication_resources(&self.config, &cancellation).await?;
+                return replication_discovery(request, &resources);
+            }
+            anyhow::ensure!(
+                delivery_type == DeliveryType::Batch,
+                "YDB snapshot configuration supports only batch delivery, got '{}'",
+                delivery_type.label()
+            );
             let tables = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("YDB discovery cancelled"),
@@ -172,12 +252,119 @@ impl SourceConnector for YdbSourceConnector {
         })
     }
 
+    fn prepare_execution(
+        &self,
+        context: SourceExecutionContext,
+    ) -> BoxFuture<'_, anyhow::Result<Option<PreparedSourceExecution>>> {
+        Box::pin(async move {
+            if self.config.replication.is_none() {
+                anyhow::ensure!(
+                    context.delivery_type == DeliveryType::Batch,
+                    "YDB snapshot configuration supports only batch delivery"
+                );
+                return Ok(None);
+            }
+            anyhow::ensure!(
+                context.delivery_type == DeliveryType::Stream,
+                "YDB replication configuration supports only stream delivery"
+            );
+            let replay_identity = context.replay_identity.ok_or_else(|| {
+                replication_contract_violation(anyhow::anyhow!(
+                    "YDB replication requires a non-secret replay identity bound to the complete replay-affecting delivery configuration"
+                ))
+            })?;
+            if replay_identity.is_empty() {
+                return Err(replication_contract_violation(anyhow::anyhow!(
+                    "YDB replication replay identity must not be empty"
+                )));
+            }
+            let durable = context.durable;
+            let cancellation = context.cancellation;
+            let prepared = self
+                .prepared_replication(
+                    &durable,
+                    &cancellation,
+                    Arc::clone(&replay_identity),
+                )
+                .await?;
+            if prepared.delivery_id.as_ref() != durable.delivery_id.as_ref()
+                || prepared.replay_identity.as_ref() != replay_identity.as_ref()
+            {
+                return Err(replication_contract_violation(anyhow::anyhow!(
+                    "YDB replication connector was prepared for a different delivery or replay identity"
+                )));
+            }
+            let discovery = replication_discovery(context.request, &prepared.resources)
+                .map_err(replication_contract_violation)?;
+            let remaining_phases = self.execution_phases(DeliveryType::Stream, &discovery)?;
+            Ok(Some(PreparedSourceExecution {
+                discovery,
+                remaining_phases,
+            }))
+        })
+    }
+
     fn build_source(
         &self,
         context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
             let partition_id = context.partition_id;
+            if self.config.replication.is_some() {
+                if context.delivery_type != DeliveryType::Stream
+                    || context.phase != SourcePhase::Stream
+                {
+                    return Err(replication_contract_violation(anyhow::anyhow!(
+                        "YDB replication source can be built only for the stream phase"
+                    )));
+                }
+                if partition_id != 0 {
+                    return Err(replication_contract_violation(anyhow::anyhow!(
+                        "YDB replication has exactly one stream partition"
+                    )));
+                }
+                let replay_identity = context.replay_identity.as_ref().ok_or_else(|| {
+                    replication_contract_violation(anyhow::anyhow!(
+                        "YDB replication source build has no replay identity"
+                    ))
+                })?;
+                if replay_identity.is_empty() {
+                    return Err(replication_contract_violation(anyhow::anyhow!(
+                        "YDB replication replay identity must not be empty"
+                    )));
+                }
+                let prepared = self
+                    .prepared_replication(
+                        &context.durable,
+                        &context.cancellation,
+                        Arc::clone(replay_identity),
+                    )
+                    .await?;
+                if prepared.delivery_id.as_ref() != context.durable.delivery_id.as_ref()
+                    || prepared.replay_identity.as_ref() != replay_identity.as_ref()
+                {
+                    return Err(replication_contract_violation(anyhow::anyhow!(
+                        "YDB replication source build uses a different delivery or replay identity"
+                    )));
+                }
+                let counters = self.counters(partition_id);
+                self.metrics
+                    .register_source(partition_id, Arc::clone(&counters));
+                let source = YdbReplicationSource::new(
+                    &self.config,
+                    prepared,
+                    context.cancellation,
+                    context.memory,
+                    counters,
+                )
+                .await?;
+                return Ok(Box::new(source) as Box<dyn Source>);
+            }
+            anyhow::ensure!(
+                context.delivery_type == DeliveryType::Batch
+                    && context.phase == SourcePhase::Snapshot,
+                "YDB snapshot source can be built only for the batch snapshot phase"
+            );
             let tables = self.discovered_tables().await?;
             let table = tables
                 .get(usize::try_from(partition_id)?)
@@ -207,7 +394,11 @@ impl SourceConnector for YdbSourceConnector {
         &self,
         context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
-        self.build_source(context)
+        if self.config.replication.is_some() {
+            Box::pin(async { Err(SpeedtestUnsupported::SourceIsolation.into()) })
+        } else {
+            self.build_source(context)
+        }
     }
 
     fn parser(&self) -> Arc<dyn transferia_delivery_contracts::parser::ParserFactory> {

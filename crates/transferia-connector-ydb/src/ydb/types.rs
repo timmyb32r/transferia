@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use arrow::array::{
@@ -83,18 +82,52 @@ impl ColumnKind {
 pub(super) struct ColumnPlan {
     pub name: String,
     pub kind: ColumnKind,
+    /// Exact physical YDB type discovered for this column.
+    ///
+    /// `ColumnKind` is the Arrow projection and intentionally folds aliases
+    /// such as `Date`/`Date32`. CDC decoding and drift detection must use this
+    /// value so those physically distinct source types cannot be confused.
+    pub declared_type: Type,
     pub nullable: bool,
     pub primary_key: bool,
+    /// Zero-based position in YDB's positional changefeed `key` array.
+    pub primary_key_ordinal: Option<usize>,
+}
+
+impl ColumnPlan {
+    pub(super) fn primitive_type(&self) -> anyhow::Result<Option<PrimitiveTypeId>> {
+        let mut declared = &self.declared_type;
+        if let Some(r#type::Type::OptionalType(optional)) = declared.r#type.as_ref() {
+            declared = optional
+                .item
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("YDB Optional type has no item"))?;
+        }
+        match declared.r#type.as_ref() {
+            Some(r#type::Type::TypeId(type_id)) => PrimitiveTypeId::try_from(*type_id)
+                .map(Some)
+                .map_err(|_| anyhow::anyhow!("unknown YDB primitive type id {type_id}")),
+            Some(r#type::Type::DecimalType(_)) => Ok(None),
+            Some(other) => anyhow::bail!("unsupported YDB column type {other:?}"),
+            None => anyhow::bail!("YDB column type is empty"),
+        }
+    }
 }
 
 pub(super) fn column_plans(
     columns: Vec<ColumnMeta>,
     primary_key: &[String],
 ) -> anyhow::Result<Vec<ColumnPlan>> {
-    let primary_key = primary_key
-        .iter()
-        .map(String::as_str)
-        .collect::<HashSet<_>>();
+    for (ordinal, name) in primary_key.iter().enumerate() {
+        anyhow::ensure!(
+            !primary_key[..ordinal].contains(name),
+            "YDB primary key repeats column '{name}'"
+        );
+        anyhow::ensure!(
+            columns.iter().any(|column| column.name == *name),
+            "YDB primary key refers to unknown column '{name}'"
+        );
+    }
     columns
         .into_iter()
         .map(|column| {
@@ -112,7 +145,8 @@ pub(super) fn column_plans(
             // nullable would incorrectly reject every primary key discovered from
             // those servers.
             let nullable = optional || column.not_null == Some(false);
-            let is_key = primary_key.contains(column.name.as_str());
+            let primary_key_ordinal = primary_key.iter().position(|name| name == &column.name);
+            let is_key = primary_key_ordinal.is_some();
             anyhow::ensure!(
                 !is_key || !nullable,
                 "YDB primary-key column '{}' is nullable",
@@ -121,8 +155,10 @@ pub(super) fn column_plans(
             Ok(ColumnPlan {
                 name: column.name,
                 kind,
+                declared_type: declared,
                 nullable,
                 primary_key: is_key,
+                primary_key_ordinal,
             })
         })
         .collect()
@@ -171,8 +207,8 @@ fn column_kind(value: &Type) -> anyhow::Result<(ColumnKind, bool)> {
             let precision = u8::try_from(decimal.precision)?;
             let scale = i8::try_from(decimal.scale)?;
             anyhow::ensure!(
-                precision <= 38,
-                "YDB Decimal({precision},{scale}) exceeds Arrow Decimal128 precision 38"
+                (1..=38).contains(&precision) && scale >= 0 && scale <= precision as i8,
+                "YDB Decimal({precision},{scale}) requires precision 1..=38 and scale 0..=precision"
             );
             Ok((ColumnKind::Decimal { precision, scale }, false))
         }
@@ -181,9 +217,12 @@ fn column_kind(value: &Type) -> anyhow::Result<(ColumnKind, bool)> {
     }
 }
 
-fn same_declared_type(actual: &Type, expected: &ColumnKind) -> anyhow::Result<bool> {
-    let (actual, _optional) = column_kind(actual)?;
-    Ok(&actual == expected)
+fn same_declared_type(actual: &Type, expected: &Type) -> anyhow::Result<bool> {
+    // Parse both sides first so malformed or newly unsupported source types do
+    // not get accepted merely because their protobuf representation matches.
+    column_kind(actual)?;
+    column_kind(expected)?;
+    Ok(actual == expected)
 }
 
 fn primitive_kind(value: PrimitiveTypeId) -> anyhow::Result<ColumnKind> {
@@ -247,7 +286,8 @@ pub(super) fn result_set_to_batch(
                     .all(|(actual, expected)| {
                         actual.name == expected.name
                             && actual.r#type.as_ref().is_some_and(|actual| {
-                                same_declared_type(actual, &expected.kind).unwrap_or(false)
+                                same_declared_type(actual, &expected.declared_type)
+                                    .unwrap_or(false)
                             })
                     }),
             "YDB result schema changed after discovery"
