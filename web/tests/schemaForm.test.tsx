@@ -137,7 +137,9 @@ describe("schema form", () => {
     expect(rowCount.getAttribute("data-form-type")).toBe("other");
 
     fireEvent.focus(rowCount);
-    expect(rowCount.value).toBe("50000000");
+    expect(rowCount.value).toBe("50 000 000");
+    fireEvent.input(rowCount, { target: { value: "500000001" } });
+    expect(rowCount.value).toBe("500 000 001");
   });
 
   it("keeps routing unions wide instead of applying the enum width", () => {

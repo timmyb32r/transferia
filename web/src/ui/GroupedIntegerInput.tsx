@@ -19,6 +19,7 @@ export function GroupedIntegerInput({
   disabled = false,
   onChange,
 }: GroupedIntegerInputProps) {
+  const input = useRef<HTMLInputElement>(null);
   const focused = useRef(false);
   const [displayValue, setDisplayValue] = useState(() => formatInteger(value));
 
@@ -28,6 +29,7 @@ export function GroupedIntegerInput({
 
   return (
     <AutofillResistantInput
+      inputRef={input}
       id={id}
       type="text"
       inputMode="numeric"
@@ -35,7 +37,6 @@ export function GroupedIntegerInput({
       disabled={disabled}
       onFocus={() => {
         focused.current = true;
-        setDisplayValue(value === null ? "" : String(value));
       }}
       onBlur={() => {
         focused.current = false;
@@ -43,13 +44,28 @@ export function GroupedIntegerInput({
       }}
       onInput={(event) => {
         const raw = event.currentTarget.value;
-        setDisplayValue(raw);
         const digits = raw.replaceAll(/[\s,_]/g, "");
         if (digits === "") {
+          setDisplayValue("");
           onChange(null);
           return;
         }
-        if (!/^\d+$/.test(digits)) return;
+        if (!/^\d+$/.test(digits)) {
+          const formatted = formatInteger(value);
+          event.currentTarget.value = formatted;
+          setDisplayValue(formatted);
+          return;
+        }
+        const digitsBeforeCaret = raw
+          .slice(0, event.currentTarget.selectionStart ?? raw.length)
+          .replaceAll(/[^\d]/g, "").length;
+        const formatted = formatDigits(digits);
+        event.currentTarget.value = formatted;
+        setDisplayValue(formatted);
+        requestAnimationFrame(() => {
+          const position = caretAfterDigits(formatted, digitsBeforeCaret);
+          input.current?.setSelectionRange(position, position);
+        });
         const parsed = Number(digits);
         if (
           Number.isSafeInteger(parsed) &&
@@ -64,5 +80,19 @@ export function GroupedIntegerInput({
 
 function formatInteger(value: number | null): string {
   if (value === null) return "";
-  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, "\u202f");
+  return formatDigits(String(value));
+}
+
+function formatDigits(value: string): string {
+  return value.replace(/\B(?=(\d{3})+(?!\d))/g, "\u202f");
+}
+
+function caretAfterDigits(value: string, digitCount: number): number {
+  if (digitCount === 0) return 0;
+  let seen = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    if (/\d/.test(value[index]!)) seen += 1;
+    if (seen === digitCount) return index + 1;
+  }
+  return value.length;
 }
