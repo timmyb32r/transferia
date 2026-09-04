@@ -594,6 +594,13 @@ impl ControlPlane {
             Value::String(speedtest_id.clone()),
         );
         materialized.insert(
+            "delivery_name".to_owned(),
+            config
+                .get("delivery_name")
+                .cloned()
+                .unwrap_or_else(|| Value::String(speedtest_id.clone())),
+        );
+        materialized.insert(
             "durable_storage".to_owned(),
             serde_json::json!({
                 "type": "local_file",
