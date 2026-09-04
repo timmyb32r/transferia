@@ -1028,7 +1028,7 @@ h3 {
     "source arrow sink"
     "sourcebridge . sinkbridge"
     "parser parser parser"
-    "serializer serializer serializer";
+    ". . serializer";
   align-items: start;
   margin-bottom: 0;
 }
@@ -3241,7 +3241,7 @@ button::after {
 .serializer-details-card {
   position: relative;
   grid-area: serializer;
-  grid-column: 1 / -1;
+  grid-column: 3;
   min-width: 0;
   padding: 20px 22px 22px;
   border: 1px solid var(--route-line);
