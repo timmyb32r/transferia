@@ -239,6 +239,7 @@ async fn discard_sink_runs_through_the_connector_and_actor_boundary() -> anyhow:
         .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
+            replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -315,7 +316,7 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
     for _ in 0..50 {
         match connector
             .prepare(
-                SinkPrepare::from_discovery(&discovery, true, "test-transfer")?
+                SinkPrepare::from_discovery(&discovery, true, "test-transfer", None)?
                     .expect("row discovery"),
             )
             .await
@@ -339,6 +340,7 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
         .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
+            replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -396,7 +398,7 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
         .validate_discovery(&changelog_discovery)?;
     connector
         .prepare(
-            SinkPrepare::from_discovery(&changelog_discovery, false, "test-transfer")?
+            SinkPrepare::from_discovery(&changelog_discovery, false, "test-transfer", None)?
                 .expect("changelog discovery"),
         )
         .await?;
@@ -404,6 +406,7 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
         .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
+            replay_identity: None,
             finite_source: false,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -563,7 +566,8 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     connector.limits().validate_discovery(&discovery)?;
     connector
         .prepare(
-            SinkPrepare::from_discovery(&discovery, true, "test-transfer")?.expect("row discovery"),
+            SinkPrepare::from_discovery(&discovery, true, "test-transfer", None)?
+                .expect("row discovery"),
         )
         .await?;
 
@@ -578,6 +582,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
         .build_sink(SinkBuildContext {
             durable: durable.clone(),
             partition_id: 0,
+            replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -690,6 +695,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
             }
             .build("s3-e2e")?,
             partition_id: 0,
+            replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,

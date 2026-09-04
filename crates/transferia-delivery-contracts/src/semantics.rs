@@ -132,6 +132,7 @@ impl EndpointDescriptor {
                         | Self::YdbSink
                         | Self::YTsaurusSink(YTsaurusSinkMode::Dynamic)
                         | Self::ClickHouse
+                        | Self::IcebergSink
                         | Self::Discard
                 ) || matches!(
                     self,
@@ -261,6 +262,7 @@ pub enum DiagnosticCode {
     UnsupportedPartitionFieldType,
     WallClockRotationDisablesExactlyOnce,
     DeterministicS3Commit,
+    DeterministicIcebergReplica,
     ClickHouseAtLeastOnce,
     OpenSearchAtLeastOnce,
     MySqlAtLeastOnce,
@@ -437,14 +439,35 @@ pub fn validate_pipeline(
         };
     }
     if matches!(sink, EndpointDescriptor::IcebergSink) {
+        if matches!(
+            source,
+            EndpointDescriptor::MySql(SourceDescriptor {
+                behavior: SourceBehavior::ChangelogRows,
+                ..
+            }) | EndpointDescriptor::Postgres(SourceDescriptor {
+                behavior: SourceBehavior::ChangelogRows,
+                ..
+            })
+        ) {
+            return DeliverySemanticsReport {
+                guarantee: DeliveryGuarantee::ExactlyOnce,
+                diagnostics: vec![SemanticsDiagnostic {
+                    code: DiagnosticCode::DeterministicIcebergReplica,
+                    severity: DiagnosticSeverity::Info,
+                    config_paths: vec!["source".into(), "sink.iceberg".into()],
+                    explanation: "PostgreSQL/MySQL source coordinates identify one atomic Iceberg v2 row-delta snapshot; exact snapshot properties plus durable compare-and-exchange make every retry idempotent before source acknowledgement".into(),
+                    remediation: None,
+                }],
+            };
+        }
         return DeliverySemanticsReport {
             guarantee: DeliveryGuarantee::AtLeastOnce,
             diagnostics: vec![SemanticsDiagnostic {
                 code: DiagnosticCode::IcebergAtLeastOnce,
                 severity: DiagnosticSeverity::Info,
                 config_paths: vec!["sink.iceberg".into()],
-                explanation: "an Iceberg snapshot commit precedes source progress commit, so replay after an ambiguous source commit may append duplicate rows".into(),
-                remediation: Some("include a stable row identity and run Iceberg compaction/deduplication when duplicate-free final state is required".into()),
+                explanation: "append-only Iceberg snapshot commits are not a source-coordinate-keyed replica protocol".into(),
+                remediation: Some("use PostgreSQL/MySQL changelog replication with a complete primary key for exactly-once Iceberg replica state".into()),
             }],
         };
     }

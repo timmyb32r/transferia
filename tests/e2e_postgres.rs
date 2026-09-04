@@ -97,7 +97,9 @@ async fn run_pipeline(
     discovery: Arc<DeliveryDiscovery>,
 ) -> anyhow::Result<()> {
     sink.limits().validate_discovery(&discovery)?;
-    if let Some(prepare) = SinkPrepare::from_discovery(&discovery, true, "test-transfer")? {
+    if let Some(prepare) =
+        SinkPrepare::from_discovery(&discovery, true, "test-transfer", None)?
+    {
         sink.prepare(prepare).await?;
     }
     let memory = PipelineMemory::new(256 * 1024 * 1024);
@@ -116,6 +118,7 @@ async fn run_pipeline(
         .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
+            replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -307,7 +310,7 @@ async fn postgres_sink_applies_changelog_atomically_and_replay_is_idempotent() -
     let wrong_key = changelog_discovery("cdc_wrong_key");
     let error = connector
         .prepare(
-            SinkPrepare::from_discovery(&wrong_key, false, "test-transfer")?
+            SinkPrepare::from_discovery(&wrong_key, false, "test-transfer", None)?
                 .expect("wrong-key dataset"),
         )
         .await
@@ -318,13 +321,17 @@ async fn postgres_sink_applies_changelog_atomically_and_replay_is_idempotent() -
     );
     connector.limits().validate_discovery(&discovery)?;
     connector
-        .prepare(SinkPrepare::from_discovery(&discovery, false, "test-transfer")?.expect("dataset"))
+        .prepare(
+            SinkPrepare::from_discovery(&discovery, false, "test-transfer", None)?
+                .expect("dataset"),
+        )
         .await?;
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let sink = connector
         .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
+            replay_identity: None,
             finite_source: false,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -594,13 +601,15 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     postgres_sink.limits().validate_discovery(&copy_discovery)?;
     postgres_sink
         .prepare(
-            SinkPrepare::from_discovery(&copy_discovery, true, "test-transfer")?.expect("dataset"),
+            SinkPrepare::from_discovery(&copy_discovery, true, "test-transfer", None)?
+                .expect("dataset"),
         )
         .await?;
     let sink = postgres_sink
         .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
+            replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,

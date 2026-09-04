@@ -1009,7 +1009,8 @@ async fn isolated_connector_rejects_substituted_prepare_before_io() -> anyhow::R
     )?;
     let substituted = discovery("production");
     let request =
-        SinkPrepare::from_discovery(&substituted, true, "speedtest")?.expect("one dataset");
+        SinkPrepare::from_discovery(&substituted, true, "speedtest", None)?
+            .expect("one dataset");
 
     let error = isolation
         .connector()

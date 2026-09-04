@@ -72,6 +72,7 @@ fn only_operation_aware_state_sinks_accept_changelog_rows() {
         EndpointDescriptor::YdbSink,
         EndpointDescriptor::YTsaurusSink(YTsaurusSinkMode::Dynamic),
         EndpointDescriptor::ClickHouse,
+        EndpointDescriptor::IcebergSink,
         EndpointDescriptor::Discard,
     ];
     for sink in operation_aware {
@@ -89,7 +90,6 @@ fn only_operation_aware_state_sinks_accept_changelog_rows() {
         EndpointDescriptor::LogbrokerSink(QueueSinkDescriptor { changelog: false }),
         EndpointDescriptor::KafkaSink(QueueSinkDescriptor { changelog: false }),
         sink(S3Partitioning::Source, false),
-        EndpointDescriptor::IcebergSink,
         EndpointDescriptor::OpenSearchSink,
     ];
 
@@ -117,6 +117,32 @@ fn only_operation_aware_state_sinks_accept_changelog_rows() {
                 .ensure_valid()
                 .is_ok()
         );
+    }
+}
+
+#[test]
+fn postgres_and_mysql_changelogs_to_iceberg_are_exactly_once() {
+    for source in [
+        EndpointDescriptor::Postgres(SourceDescriptor {
+            behavior: SourceBehavior::ChangelogRows,
+            delivery_modes: SourceDeliveryModes::BATCH_AND_STREAM,
+        }),
+        EndpointDescriptor::MySql(SourceDescriptor {
+            behavior: SourceBehavior::ChangelogRows,
+            delivery_modes: SourceDeliveryModes::BATCH_AND_STREAM,
+        }),
+    ] {
+        let report = validate_pipeline(
+            &source,
+            &EndpointDescriptor::IcebergSink,
+            &discovery(),
+            false,
+        );
+        assert_eq!(report.guarantee, DeliveryGuarantee::ExactlyOnce);
+        assert!(report.ensure_valid().is_ok());
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == DiagnosticCode::DeterministicIcebergReplica
+        }));
     }
 }
 

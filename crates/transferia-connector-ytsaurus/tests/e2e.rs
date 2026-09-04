@@ -259,13 +259,17 @@ async fn ytsaurus_source_and_arrow_sink_use_the_real_http_api() -> anyhow::Resul
     let discovered = discovery();
     arrow_connector.limits().validate_discovery(&discovered)?;
     arrow_connector
-        .prepare(SinkPrepare::from_discovery(&discovered, true, "test-transfer")?.expect("dataset"))
+        .prepare(
+            SinkPrepare::from_discovery(&discovered, true, "test-transfer", None)?
+                .expect("dataset"),
+        )
         .await?;
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let arrow_sink = arrow_connector
         .build_sink(SinkBuildContext {
             durable: transferia_test_support::durable_context(),
             partition_id: 0,
+            replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,

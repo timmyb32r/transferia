@@ -361,6 +361,35 @@ async fn preserves_unchanged_columns_while_collapsing_same_key_events() {
 }
 
 #[tokio::test]
+async fn full_image_collapse_keeps_columns_whose_values_did_not_change() {
+    let (discovery, batch) = batch_with_changed_masks(
+        vec![Some("u")],
+        vec![Some(1)],
+        vec![77],
+        vec![Some(&[0b01])],
+    )
+    .await;
+    let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(&discovery, &batch).unwrap()
+    else {
+        panic!("operation column must produce a changelog batch")
+    };
+
+    assert_eq!(changelog.collapsed_runs().unwrap()[0].batch.num_columns(), 1);
+    let full = changelog.collapsed_full_image_runs().unwrap();
+    assert_eq!(full[0].batch.num_columns(), 2);
+    assert_eq!(
+        full[0]
+            .batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        77
+    );
+}
+
+#[tokio::test]
 async fn replica_identity_full_collapses_primary_key_changes_without_leaving_old_rows() {
     let (discovery, batch) = full_old_value_batch(
         vec![2, 3],

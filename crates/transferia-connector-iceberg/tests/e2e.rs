@@ -136,7 +136,8 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
     connector.limits().validate_discovery(&discovery)?;
     connector
         .prepare(
-            SinkPrepare::from_discovery(&discovery, true, "test-transfer")?.expect("row discovery"),
+            SinkPrepare::from_discovery(&discovery, true, "test-transfer", None)?
+                .expect("row discovery"),
         )
         .await
         .context("prepare Iceberg table through REST catalog")?;
@@ -145,6 +146,7 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
         .build_sink(SinkBuildContext {
             durable: transferia_test_support::durable_context(),
             partition_id: 0,
+            replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,

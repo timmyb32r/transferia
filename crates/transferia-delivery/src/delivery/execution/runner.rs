@@ -682,7 +682,12 @@ async fn start_pipeline(
     tracing::info!(limits = %serde_json::to_string(&sink_connector.limits().description())?, "sink limits validated against delivery discovery");
 
     if let Some(request) =
-        SinkPrepare::from_discovery(&discovery, finite_source, config.delivery_id.clone())?
+        SinkPrepare::from_discovery(
+            &discovery,
+            finite_source,
+            config.delivery_id.clone(),
+            replay_identity.clone(),
+        )?
     {
         sink_connector.prepare(request).await?;
     }
@@ -904,6 +909,7 @@ async fn run_partition_attempt(
         .sink_connector
         .build_sink(SinkBuildContext {
             partition_id,
+            replay_identity: dependencies.replay_identity.clone(),
             finite_source: dependencies.delivery_finite,
             counters: sink_counters,
             keep_system_columns: dependencies.keep_system_columns,

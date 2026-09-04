@@ -91,6 +91,7 @@ async fn logbroker_ydb_sink_commits_only_after_real_grpc_ack() -> anyhow::Result
         .build_sink(SinkBuildContext {
             durable: transferia_test_support::durable_context(),
             partition_id: 0,
+            replay_identity: None,
             finite_source: false,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,

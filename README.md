@@ -26,10 +26,11 @@ sinks. PostgreSQL and MySQL 8 provide finite snapshots, ordinary database
 replication, coordinated batch-and-stream sources, and sinks. YDB provides
 finite snapshots, ordinary stream-only Changefeed replication, and a sink.
 OpenSearch, ClickHouse, S3, Iceberg, and YTsaurus provide finite-snapshot
-sources and sinks. YDB writes production Arrow IPC batches with `BulkUpsert`
-and requires an explicit logical-to-physical table mapping plus a non-null
-primary key. The batch-only data generator and non-durable `discard` sink are
-explicit benchmark components.
+sources and sinks. Iceberg additionally applies PostgreSQL and MySQL changelogs
+as primary-keyed replicas. YDB writes production Arrow IPC batches with
+`BulkUpsert` and requires an explicit logical-to-physical table mapping plus a
+non-null primary key. The batch-only data generator and non-durable `discard`
+sink are explicit benchmark components.
 
 The generator includes numeric, transfer-log, and ClickBench `hits` presets.
 The ClickBench preset keeps the reference dataset's 105-column Arrow schema,
@@ -310,6 +311,22 @@ expensive `COUNT(*)` or substitute approximate catalog statistics. Destination
 reconciliation is currently performed only by a single-worker snapshot; a
 multi-worker run reports per-worker output totals and explicitly marks the
 destination check unavailable rather than guessing a global sum.
+
+Iceberg replica mode accepts only PostgreSQL or MySQL changelog discovery with
+a complete primary key and a complete old image. Each source transaction is
+collapsed to its final keyed mutations, then written as Iceberg v2 equality
+deletes plus replacement data files in one atomic row-delta snapshot. Primary
+key changes therefore delete the old identity and insert the new identity; a
+delete writes only the equality-delete key. The destination table is bound to
+the exact delivery and replay identities, and every commit stores the exact
+source-coordinate identity in both durable storage and the active Iceberg
+snapshot lineage. A retry after any ambiguous failure either proves that exact
+snapshot already committed and becomes a no-op, or commits it once. Different
+payloads, rolled-back snapshots, changed ownership, schema drift, unsupported
+sources, and incomplete replica images fail closed before source acknowledgement.
+The source cursor advances only after every affected Iceberg table has
+acknowledged its atomic snapshot, so restart produces neither lost changes nor
+duplicate logical rows.
 
 ## Quality checks
 

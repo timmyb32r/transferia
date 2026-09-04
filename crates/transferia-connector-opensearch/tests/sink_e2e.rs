@@ -205,13 +205,14 @@ async fn opensearch_sink_commits_strict_bulk_rejects_duplicates_and_preserves_ro
     let discovery = discovery("events");
     connector.limits().validate_discovery(&discovery)?;
     connector
-        .prepare(SinkPrepare::from_discovery(&discovery, true, "e2e")?.expect("dataset"))
+        .prepare(SinkPrepare::from_discovery(&discovery, true, "e2e", None)?.expect("dataset"))
         .await?;
 
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let sink = connector
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -316,13 +317,14 @@ async fn opensearch_sink_commits_strict_bulk_rejects_duplicates_and_preserves_ro
         .validate_discovery(&envelope_discovery)?;
     envelope_connector
         .prepare(
-            SinkPrepare::from_discovery(&envelope_discovery, true, "roundtrip")?
+            SinkPrepare::from_discovery(&envelope_discovery, true, "roundtrip", None)?
                 .expect("dataset"),
         )
         .await?;
     let envelope_sink = envelope_connector
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,

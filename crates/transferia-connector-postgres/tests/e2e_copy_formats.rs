@@ -262,13 +262,15 @@ async fn write_sink_batch(host: &str, port: u16, table: &str, format: &str) -> a
     connector.limits().validate_discovery(&discovery)?;
     connector
         .prepare(
-            SinkPrepare::from_discovery(&discovery, true, "copy-format-e2e")?.expect("one dataset"),
+            SinkPrepare::from_discovery(&discovery, true, "copy-format-e2e", None)?
+                .expect("one dataset"),
         )
         .await?;
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let sink = connector
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,

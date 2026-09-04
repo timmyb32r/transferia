@@ -746,6 +746,9 @@ fn schemas_are_equivalent(original: &DatasetSchema, isolated: &DatasetSchema) ->
 pub struct SinkBuildContext {
     pub partition_id: i64,
 
+    /// Stable identity of the prepared source execution, when the source defines one.
+    pub replay_identity: Option<Arc<str>>,
+
     /// Whether the source replays the same finite snapshot after a partition restart.
     pub finite_source: bool,
 
@@ -764,6 +767,9 @@ pub struct SinkPrepare {
     pub finite_source: bool,
 
     pub transfer_id: Arc<str>,
+
+    /// Stable identity of the prepared source execution, when the source defines one.
+    pub replay_identity: Option<Arc<str>>,
 }
 
 pub struct DatasetPrepare {
@@ -781,6 +787,7 @@ impl SinkPrepare {
         discovery: &DeliveryDiscovery,
         finite_source: bool,
         transfer_id: impl Into<Arc<str>>,
+        replay_identity: Option<Arc<str>>,
     ) -> anyhow::Result<Option<Self>> {
         if discovery.datasets.is_empty() {
             return Ok(None);
@@ -804,6 +811,7 @@ impl SinkPrepare {
                 .collect(),
             finite_source,
             transfer_id: transfer_id.into(),
+            replay_identity,
         }))
     }
 }

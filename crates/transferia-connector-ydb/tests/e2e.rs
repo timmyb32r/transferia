@@ -256,7 +256,7 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
     let discovery = Arc::new(discovery());
     sink.limits().validate_discovery(&discovery)?;
     sink.prepare(
-        SinkPrepare::from_discovery(&discovery, true, "test-transfer")?.expect("datasets"),
+        SinkPrepare::from_discovery(&discovery, true, "test-transfer", None)?.expect("datasets"),
     )
     .await?;
 
@@ -264,6 +264,7 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
     let built = sink
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -315,13 +316,14 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
     let changelog_discovery = Arc::new(changelog_discovery());
     sink.limits().validate_discovery(&changelog_discovery)?;
     sink.prepare(
-        SinkPrepare::from_discovery(&changelog_discovery, false, "test-transfer")?
+        SinkPrepare::from_discovery(&changelog_discovery, false, "test-transfer", None)?
             .expect("changelog dataset"),
     )
     .await?;
     let changelog_sink = sink
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            replay_identity: None,
             finite_source: false,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,

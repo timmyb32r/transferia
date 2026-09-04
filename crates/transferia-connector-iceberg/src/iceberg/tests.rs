@@ -12,9 +12,13 @@ use iceberg::TableIdent;
 use schemars::schema_for;
 use tokio::sync::Notify;
 use tokio::task::JoinSet;
-use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_core::data::schema::{
+    DatasetSchema, SchemaColumn, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+};
+use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::delivery::{
-    DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
+    DatasetRole, DeliveryDiscovery, DiscoveredDataset, DiscoveredSystemColumn, SchemaOrigin,
+    SourceTopology,
 };
 use transferia_registry::{SinkConnector, SnapshotRowCountStrategy};
 
@@ -51,6 +55,61 @@ fn speedtest_row_count_discovery() -> DeliveryDiscovery {
                 system_columns: Vec::new(),
             },
         ],
+        performance_advice: Vec::new(),
+    }
+}
+
+fn replica_discovery(source: &str, complete_old_image: bool) -> DeliveryDiscovery {
+    let stored = DatasetSchema::new(vec![
+        SchemaColumn::new("id".to_owned(), DataType::Int64, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("value".to_owned(), DataType::Utf8, false),
+    ]);
+    let system_columns = [
+        SystemColumnKind::Topic,
+        SystemColumnKind::Partition,
+        SystemColumnKind::Offset,
+        SystemColumnKind::MessageIndex,
+        SystemColumnKind::ChangeOperation,
+        SystemColumnKind::ChangedColumns,
+    ]
+    .into_iter()
+    .map(DiscoveredSystemColumn::from)
+    .collect::<Vec<_>>();
+    let mut incoming = stored.columns.clone();
+    incoming.push(
+        SchemaColumn::new("_old_id".to_owned(), DataType::Int64, true)
+            .with_old_value_of("id".to_owned()),
+    );
+    if complete_old_image {
+        incoming.push(
+            SchemaColumn::new("_old_value".to_owned(), DataType::Utf8, true)
+                .with_old_value_of("value".to_owned()),
+        );
+    }
+    incoming.push(
+        SchemaColumn::new("_source_tx".to_owned(), DataType::UInt64, false)
+            .with_system_role(SYSTEM_ROLE_SOURCE_TRANSACTION_ID),
+    );
+    incoming.extend(system_columns.iter().map(|column| {
+        SchemaColumn::new(
+            column.name.to_string(),
+            column.kind.data_type(),
+            false,
+        )
+    }));
+    DeliveryDiscovery {
+        source_name: Arc::from(source),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: true,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: Arc::from("events"),
+            incoming_schema: DatasetSchema::new(incoming),
+            stored_schema: stored,
+            system_columns,
+        }],
         performance_advice: Vec::new(),
     }
 }
@@ -141,6 +200,35 @@ fn iceberg_sink_rejects_zero_write_concurrency() {
     .expect("syntactically valid config");
     let error = config.validate().expect_err("zero concurrency must fail");
     assert!(error.to_string().contains("write_concurrency"));
+}
+
+#[test]
+fn iceberg_replica_requires_mysql_or_postgres_and_complete_old_images() {
+    let config: IcebergSinkConfig = serde_json::from_value(serde_json::json!({
+        "catalog": { "uri": "https://catalog.example", "auth": { "type": "none" } },
+        "storage": { "type": "s3", "bucket": "warehouse" },
+        "namespace": "analytics"
+    }))
+    .expect("valid sink config");
+    let connector = super::sink::IcebergSinkConnector::from_config(config).expect("connector");
+    connector
+        .limits()
+        .validate_discovery(&replica_discovery("mysql", true))
+        .expect("complete MySQL replica contract");
+    connector
+        .limits()
+        .validate_discovery(&replica_discovery("postgres", true))
+        .expect("complete PostgreSQL replica contract");
+    let missing_old = connector
+        .limits()
+        .validate_discovery(&replica_discovery("postgres", false))
+        .expect_err("partial old image must fail before table creation");
+    assert!(missing_old.to_string().contains("complete old image"));
+    let unsupported = connector
+        .limits()
+        .validate_discovery(&replica_discovery("logbroker", true))
+        .expect_err("unsupported changelog source must fail before table creation");
+    assert!(unsupported.to_string().contains("PostgreSQL and MySQL"));
 }
 
 #[test]
@@ -482,19 +570,44 @@ fn iceberg_snapshot_scan_only_retries_before_emitting_rows() {
 #[test]
 fn iceberg_commit_identity_is_stable_and_scoped() {
     let table = uuid::Uuid::from_u128(1);
-    let first = IcebergCommitIdentity::new("delivery", 0, "events", table, 7);
-    let replay = IcebergCommitIdentity::new("delivery", 0, "events", table, 7);
+    let first = IcebergCommitIdentity::new_finite_for_test(
+        "delivery",
+        Some("replay"),
+        0,
+        "events",
+        table,
+        vec![7],
+    )
+    .expect("commit identity");
+    let replay = IcebergCommitIdentity::new_finite_for_test(
+        "delivery",
+        Some("replay"),
+        0,
+        "events",
+        table,
+        vec![7],
+    )
+    .expect("commit identity");
     assert_eq!(first.token, replay.token);
+    assert_eq!(first.exact, replay.exact);
     assert_eq!(first.durable_key, replay.durable_key);
     assert_eq!(first.uuid, replay.uuid);
 
     for distinct in [
-        IcebergCommitIdentity::new("other-delivery", 0, "events", table, 7),
-        IcebergCommitIdentity::new("delivery", 1, "events", table, 7),
-        IcebergCommitIdentity::new("delivery", 0, "other-events", table, 7),
-        IcebergCommitIdentity::new("delivery", 0, "events", uuid::Uuid::from_u128(2), 7),
-        IcebergCommitIdentity::new("delivery", 0, "events", table, 8),
+        IcebergCommitIdentity::new_finite_for_test("other-delivery", Some("replay"), 0, "events", table, vec![7]),
+        IcebergCommitIdentity::new_finite_for_test("delivery", Some("replay"), 1, "events", table, vec![7]),
+        IcebergCommitIdentity::new_finite_for_test("delivery", Some("replay"), 0, "other-events", table, vec![7]),
+        IcebergCommitIdentity::new_finite_for_test(
+            "delivery",
+            Some("replay"),
+            0,
+            "events",
+            uuid::Uuid::from_u128(2),
+            vec![7],
+        ),
+        IcebergCommitIdentity::new_finite_for_test("delivery", Some("replay"), 0, "events", table, vec![8]),
     ] {
+        let distinct = distinct.expect("commit identity");
         assert_ne!(first.token, distinct.token);
         assert_ne!(first.durable_key, distinct.durable_key);
         assert_ne!(first.uuid, distinct.uuid);

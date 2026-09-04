@@ -578,7 +578,7 @@ async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyho
     wrong_key.datasets[0].name = Arc::from("cdc_wrong_key");
     let error = sink
         .prepare(
-            SinkPrepare::from_discovery(&wrong_key, false, "test-transfer")?
+            SinkPrepare::from_discovery(&wrong_key, false, "test-transfer", None)?
                 .expect("wrong-key dataset"),
         )
         .await
@@ -589,7 +589,7 @@ async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyho
     );
     sink.limits().validate_discovery(&discovery)?;
     sink.prepare(
-        SinkPrepare::from_discovery(&discovery, true, "test-transfer")?.expect("datasets"),
+        SinkPrepare::from_discovery(&discovery, true, "test-transfer", None)?.expect("datasets"),
     )
     .await
     .context("prepare MySQL sink tables")?;
@@ -598,6 +598,7 @@ async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyho
     let built = sink
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -676,13 +677,14 @@ async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyho
     let changelog_discovery = Arc::new(mysql_changelog_discovery());
     sink.limits().validate_discovery(&changelog_discovery)?;
     sink.prepare(
-        SinkPrepare::from_discovery(&changelog_discovery, false, "test-transfer")?
+        SinkPrepare::from_discovery(&changelog_discovery, false, "test-transfer", None)?
             .expect("changelog dataset"),
     )
     .await?;
     let changelog_sink = sink
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            replay_identity: None,
             finite_source: false,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,

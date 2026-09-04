@@ -516,6 +516,7 @@ async fn measure_destination(
             &isolation.discovery,
             pipeline.finite_source,
             format!("speedtest-{isolation_id}"),
+            None,
         )?;
         if let Some(request) = prepare {
             isolation.connector().prepare(request).await?;
@@ -526,6 +527,7 @@ async fn measure_destination(
             .connector()
             .build_sink(SinkBuildContext {
                 partition_id,
+                replay_identity: None,
                 finite_source: pipeline.finite_source,
                 counters: Arc::clone(&counters),
                 keep_system_columns: isolation.discovery.keep_system_columns,

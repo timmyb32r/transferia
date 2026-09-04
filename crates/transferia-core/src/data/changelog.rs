@@ -95,6 +95,19 @@ impl ChangelogBatch {
         reason = "the event-order state machine is clearer when its transitions remain together"
     )]
     pub fn collapsed_runs(&self) -> anyhow::Result<Vec<ChangelogRun>> {
+        self.collapsed_runs_with_changed_columns(&self.changed_columns)
+    }
+
+    /// Collapse changes when every current row is a complete source image.
+    pub fn collapsed_full_image_runs(&self) -> anyhow::Result<Vec<ChangelogRun>> {
+        let changed_columns = vec![vec![true; self.rows.num_columns()]; self.rows.num_rows()];
+        self.collapsed_runs_with_changed_columns(&changed_columns)
+    }
+
+    fn collapsed_runs_with_changed_columns(
+        &self,
+        changed_columns: &[Vec<bool>],
+    ) -> anyhow::Result<Vec<ChangelogRun>> {
         let key_columns = self
             .primary_key_indexes
             .iter()
@@ -108,7 +121,7 @@ impl ChangelogBatch {
         )?;
         let keys = converter.convert_columns(&key_columns)?;
         if self.old_primary_keys.is_none() {
-            return self.collapsed_runs_without_old_values(&keys);
+            return self.collapsed_runs_without_old_values(&keys, changed_columns);
         }
         let old_keys = self
             .old_primary_keys
@@ -119,7 +132,7 @@ impl ChangelogBatch {
         let mut latest = HashMap::<Vec<u8>, CollapsedRow>::with_capacity(self.rows.num_rows());
         for row in 0..self.rows.num_rows() {
             let operation = self.operations[row];
-            let changed = &self.changed_columns[row];
+            let changed = &changed_columns[row];
             if let Some(old_keys) = &old_keys {
                 match operation {
                     ChangeOperation::Create | ChangeOperation::SnapshotRead => {
@@ -207,11 +220,15 @@ impl ChangelogBatch {
         self.materialize_runs(&selected)
     }
 
-    fn collapsed_runs_without_old_values(&self, keys: &Rows) -> anyhow::Result<Vec<ChangelogRun>> {
+    fn collapsed_runs_without_old_values(
+        &self,
+        keys: &Rows,
+        changed_columns: &[Vec<bool>],
+    ) -> anyhow::Result<Vec<ChangelogRun>> {
         let mut latest = HashMap::<Row<'_>, CollapsedRow>::with_capacity(self.rows.num_rows());
         for row in 0..self.rows.num_rows() {
             let operation = self.operations[row];
-            let changed = &self.changed_columns[row];
+            let changed = &changed_columns[row];
             match latest.entry(keys.row(row)) {
                 std::collections::hash_map::Entry::Vacant(entry) => {
                     let source = ValueSource::Current(row);
