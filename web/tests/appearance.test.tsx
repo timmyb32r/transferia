@@ -324,6 +324,12 @@ describe("appearance preferences", () => {
     expect(view.getByText("Has property")).toBeTruthy();
     const pair = view.getByLabelText("Selected capability result");
     const entityList = view.getByRole("navigation", { name: "Entities" });
+    expect(entityList.classList.contains("always-visible-scrollbar")).toBe(true);
+    expect(
+      view
+        .getByRole("navigation", { name: "Properties" })
+        .classList.contains("always-visible-scrollbar"),
+    ).toBe(true);
     const destinationEntities = within(entityList)
       .getByRole("heading", { name: "Destinations" })
       .closest("section")!;

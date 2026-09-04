@@ -633,7 +633,10 @@ export function CompatibilityMatrixDialog({
           </div>
         ) : (
           <div class="property-browser">
-            <nav class="property-list" aria-label="Properties">
+            <nav
+              class="property-list always-visible-scrollbar"
+              aria-label="Properties"
+            >
               <section aria-label="Delivery type">
                 <h3>Delivery type</h3>
                 {deliveryTypeProperties.map((group) => (
@@ -659,7 +662,10 @@ export function CompatibilityMatrixDialog({
                 ))}
               </section>
             </nav>
-            <nav class="property-entity-list" aria-label="Entities">
+            <nav
+              class="property-entity-list always-visible-scrollbar"
+              aria-label="Entities"
+            >
               {entityGroups.map(({ key, kind, label, group }) => (
                 <section key={key} aria-label={label}>
                   <h3>{KIND_LABELS[kind]}</h3>

@@ -4190,6 +4190,10 @@ button::after {
   scrollbar-gutter: stable;
 }
 
+.always-visible-scrollbar {
+  overflow-y: scroll;
+}
+
 .property-list {
   display: grid;
   align-content: start;
