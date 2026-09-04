@@ -45,6 +45,12 @@ describe("delivery layout contract", () => {
     );
   });
 
+  it("does not paint a browser focus highlight around parser settings", () => {
+    expect(styles).toMatch(
+      /\.parser-details-card\s*\{[^}]*outline:\s*none;/s,
+    );
+  });
+
   it("lets the workspace shrink instead of creating page-level horizontal overflow", () => {
     expect(styles).toMatch(
       /\.workspace\s*\{[^}]*width:\s*min\(1680px, 100%\);[^}]*min-width:\s*0;/s,

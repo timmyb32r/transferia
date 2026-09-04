@@ -3248,6 +3248,7 @@ button::after {
   padding: 20px 22px 22px;
   border: 1px solid var(--route-line);
   border-radius: 0 4px 4px;
+  outline: none;
 }
 .serializer-details-card {
   position: relative;
