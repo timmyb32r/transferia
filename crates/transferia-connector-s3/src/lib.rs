@@ -40,6 +40,11 @@ pub fn register(
                 },
             )?
             .source_tuning_parameters(s3_source_tuning_parameters())?
+            .source_previewer::<s3::src_batch::S3SourceConfig, _, _>(
+                |config, max_bytes, cancellation| async move {
+                    s3::src_batch::preview_message(&config, max_bytes, cancellation).await
+                },
+            )
             .source_checker::<s3::src_batch::S3SourceConfig, _, _>(|config| async move {
                 config.check_connection().await?;
                 Ok(transferia_registry::ConnectionCheckResult::default())

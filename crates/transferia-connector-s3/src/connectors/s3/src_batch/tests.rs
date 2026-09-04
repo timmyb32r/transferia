@@ -1,8 +1,15 @@
 use super::config::S3InputParser;
+use super::preview::preview_first_object;
 use super::*;
+use bytes::Bytes;
+use object_store::memory::InMemory;
+use object_store::path::Path;
+use object_store::ObjectStore;
 use crate::metrics::MetricsRegistry;
 use schemars::schema_for;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 #[test]
 fn source_supports_only_json_parquet_and_discard_parsers() {
@@ -58,4 +65,40 @@ fn parser_schema_declares_s3_matrix_capabilities() {
             serde_json::json!(["append_only"])
         );
     }
+}
+
+#[tokio::test]
+async fn preview_reads_a_bounded_prefix_of_the_first_nonempty_object() {
+    let store = Arc::new(InMemory::new());
+    store
+        .put(&Path::from("events/empty.json"), Bytes::new().into())
+        .await
+        .unwrap();
+    store
+        .put(
+            &Path::from("events/rows.jsonl"),
+            Bytes::from_static(b"{\"id\":1}\n{\"id\":2}\n").into(),
+        )
+        .await
+        .unwrap();
+
+    let prefix = Path::from("events");
+    let preview = preview_first_object(
+        store,
+        Some(&prefix),
+        Duration::from_secs(1),
+        9,
+        CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(preview.payload, b"{\"id\":1}\n");
+    assert_eq!(
+        preview.detection_payloads,
+        vec![b"{\"id\":1}\n".to_vec()]
+    );
+    assert_eq!(preview.metadata.topic, "events/rows.jsonl");
+    assert_eq!(preview.metadata.declared_uncompressed_size, Some(18));
+    assert_eq!(preview.metadata.compressed_size, 9);
 }

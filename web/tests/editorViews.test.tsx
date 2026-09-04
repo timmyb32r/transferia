@@ -446,6 +446,50 @@ describe("endpoint connection check", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
+    readOnlyView.unmount();
+
+    const s3Config = {
+      source: {
+        s3: {
+          bucket: "events",
+          table_name: "events",
+          parser: { type: "parquet", batch_rows: 65_536 },
+        },
+      },
+    };
+    const onS3Config = vi.fn();
+    const s3View = render(
+      <EndpointCard
+        title="Source"
+        role="source"
+        selectedKey="s3"
+        connectors={[{ key: "s3", title: "S3", source: parserEndpoint }]}
+        endpoint={parserEndpoint}
+        config={s3Config}
+        readOnly={false}
+        showRequiredErrors={false}
+        onChoose={() => undefined}
+        onConfig={onS3Config}
+      />,
+    );
+    fireEvent.click(
+      s3View.getByRole("button", { name: "Preview one message" }),
+    );
+    await s3View.findByRole("dialog");
+    fireEvent.click(s3View.getByRole("button", { name: "Use parser" }));
+    expect(onS3Config).toHaveBeenCalledWith({
+      source: {
+        s3: {
+          bucket: "events",
+          table_name: "events",
+          parser: {
+            type: "json",
+            common: { system_columns: {} },
+            json_parser: {},
+          },
+        },
+      },
+    });
     parserSettings.remove();
   });
 });

@@ -16,7 +16,7 @@ use testcontainers::runners::AsyncRunner as _;
 use testcontainers::{GenericImage, ImageExt as _};
 use tokio_util::sync::CancellationToken;
 
-use transferia_connector_s3::s3::src_batch::S3SourceConfig;
+use transferia_connector_s3::s3::src_batch::{preview_message, S3SourceConfig};
 use transferia_connector_s3::s3::S3SourceConnector;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::delivery::DeliveryDiscoveryRequest;
@@ -94,6 +94,11 @@ async fn s3_source_snapshots_sorted_objects_and_parses_json() -> anyhow::Result<
             "bucket: transferia-source-e2e\npath_prefix: snapshot\ntable_name: events\nregion: us-east-1\nendpoint: 'http://{host}:{port}'\ncredentials: {{ access_key: test, secret_key: test }}\nparser:\n  type: json\n  common: {{}}\n  json_parser:\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n    json_framing: single_document\n    columns:\n      - {{ jsonpath: '$.id', column_name: id, json_data_type: number, arrow_type: Int64, nullable: false }}\n"
         ))?;
     config.check_connection().await?;
+    let preview = preview_message(&config, 8, CancellationToken::new()).await?;
+    assert_eq!(preview.payload, br#"{"id":1}"#);
+    assert_eq!(preview.detection_payloads, vec![br#"{"id":1}"#.to_vec()]);
+    assert_eq!(preview.metadata.topic, "snapshot/01.json");
+    assert_eq!(preview.metadata.declared_uncompressed_size, Some(8));
     let connector = S3SourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))?;
     connector
         .delivery_discovery(SourceDiscoveryContext {

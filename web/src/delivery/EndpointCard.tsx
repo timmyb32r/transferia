@@ -8,6 +8,7 @@ import type {
   ConnectorDefinition,
   EndpointDefinition,
   JsonObject,
+  JsonValue,
   RecordSemantics,
 } from "../types";
 import { compiledSchema, endpointValue, isObject } from "./editorConfig";
@@ -47,14 +48,28 @@ export function EndpointCard(props: {
     role: props.role,
     config: isObject(value) ? value : {},
   });
+  const previewResult =
+    props.selectedKey === "s3" && preview.result
+      ? {
+          ...preview.result,
+          detections: preview.result.detections.filter(
+            (detection) =>
+              isObject(detection.config) &&
+              isObject(detection.config["json_parser"]),
+          ),
+        }
+      : preview.result;
 
   const applyDetection = (config: JsonObject) => {
+    const parser =
+      props.selectedKey === "s3" ? s3ParserFromDetection(config, value) : config;
+    if (!parser) return;
     props.onConfig({
       ...props.config,
       [props.role]: {
         [props.selectedKey]: {
           ...(isObject(value) ? value : {}),
-          parser: config,
+          parser,
         },
       },
     });
@@ -195,7 +210,7 @@ export function EndpointCard(props: {
       )}
       {showSettings && preview.open && (
         <MessagePreviewDialog
-          result={preview.result}
+          result={previewResult}
           error={preview.error}
           loading={preview.loading}
           allowApply={!props.readOnly}
@@ -207,4 +222,35 @@ export function EndpointCard(props: {
       )}
     </article>
   );
+}
+
+function s3ParserFromDetection(
+  detection: JsonObject,
+  sourceConfig: JsonValue | undefined,
+): JsonObject | undefined {
+  const jsonParser = detection["json_parser"];
+  if (!isObject(jsonParser)) return undefined;
+  const currentParser =
+    isObject(sourceConfig) && isObject(sourceConfig["parser"])
+      ? sourceConfig["parser"]
+      : undefined;
+  const currentCommon =
+    isObject(currentParser) && isObject(currentParser["common"])
+      ? currentParser["common"]
+      : undefined;
+  const detectedCommon = isObject(detection["common"])
+    ? detection["common"]
+    : undefined;
+  const systemColumns =
+    (isObject(currentCommon?.["system_columns"])
+      ? currentCommon["system_columns"]
+      : undefined) ??
+    (isObject(detectedCommon?.["system_columns"])
+      ? detectedCommon["system_columns"]
+      : {});
+  return {
+    type: "json",
+    common: { system_columns: systemColumns },
+    json_parser: jsonParser,
+  };
 }

@@ -6303,7 +6303,7 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": true
       },
       "sink": {
         "schema": {
