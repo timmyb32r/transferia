@@ -44,4 +44,13 @@ describe("delivery layout contract", () => {
       /\.dynamic-select-status\s*\{[^}]*height:\s*38px;[^}]*overflow-y:\s*auto;/s,
     );
   });
+
+  it("lets the workspace shrink instead of creating page-level horizontal overflow", () => {
+    expect(styles).toMatch(
+      /\.workspace\s*\{[^}]*width:\s*min\(1680px, 100%\);[^}]*min-width:\s*0;/s,
+    );
+    expect(styles).toMatch(
+      /\.table-shell\s*\{[^}]*min-width:\s*0;[^}]*overflow-x:\s*auto;/s,
+    );
+  });
 });

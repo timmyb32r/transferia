@@ -815,6 +815,7 @@ select {
 }
 .workspace {
   width: min(1680px, 100%);
+  min-width: 0;
   padding: 28px 36px 64px;
 }
 .page-header,
