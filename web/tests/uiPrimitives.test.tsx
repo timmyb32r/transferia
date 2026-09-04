@@ -26,6 +26,22 @@ describe("UI primitives", () => {
     expect(details.open).toBe(true);
   });
 
+  it("closes an open disclosure when the user clicks outside", () => {
+    const view = render(
+      <Disclosure label="Advanced settings">
+        <p>Advanced value</p>
+      </Disclosure>,
+    );
+    const details = view.container.querySelector("details")!;
+    const summary = view.getByText("Advanced settings");
+    fireEvent.click(summary, { detail: 1 });
+    expect(details.open).toBe(true);
+
+    fireEvent.pointerDown(document.body);
+
+    expect(details.open).toBe(false);
+  });
+
   it("gives pending actions immediate feedback without changing their label", () => {
     const onClick = vi.fn();
     const view = render(
