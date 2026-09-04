@@ -10,6 +10,7 @@ use super::{CommonParserConfig, ParserPlan};
 
 const BUILTIN_PARSERS: &[&str] = &[
     "json_parser",
+    "tskv",
     "schema_registry",
     "debezium",
     "raw_to_table",

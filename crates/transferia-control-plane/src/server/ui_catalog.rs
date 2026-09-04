@@ -10,7 +10,11 @@ pub use transferia_server_contracts::api::UiCatalog;
 #[derive(JsonSchema)]
 #[expect(dead_code, reason = "fields are consumed by the JsonSchema derive")]
 struct CommonConfigSchema {
-    #[schemars(title = "Delivery name", extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(
+        title = "Delivery name",
+        default = "default_delivery_name",
+        extend("x-ui" = { "widget": "hidden" })
+    )]
     delivery_name: String,
 
     #[schemars(title = "Delivery type")]
@@ -26,6 +30,10 @@ struct CommonConfigSchema {
     pipeline_memory_limit_bytes: usize,
 
     metrics: Option<MetricsConfig>,
+}
+
+fn default_delivery_name() -> String {
+    "Untitled delivery".to_owned()
 }
 
 pub fn build_ui_catalog() -> anyhow::Result<UiCatalog> {

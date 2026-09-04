@@ -109,7 +109,13 @@ export function ColumnMappingsEditor({
     "jsonpath",
     "json_data_type",
     "arrow_type",
-  ];
+  ].filter((field) => node.properties[field] !== undefined);
+  const mainFieldLabels: Record<string, string> = {
+    column_name: "Column",
+    jsonpath: "JSON path",
+    json_data_type: "JSON type",
+    arrow_type: "Arrow type",
+  };
   const rowIsIncomplete = (raw: JsonValue) => {
     const column = isObject(raw) ? raw : {};
     return mainFields.some((field) => {
@@ -124,19 +130,12 @@ export function ColumnMappingsEditor({
   const addColumn = () => {
     rowIds.insert(value.length);
     const created = createValue(node);
-    onChange(
-      [
-        ...value,
-        isObject(created)
-          ? {
-              ...created,
-              json_data_type: "string",
-              arrow_type: "Utf8",
-            }
-          : created,
-      ],
-      keys,
-    );
+    const column = isObject(created) ? { ...created } : created;
+    if (isObject(column) && node.properties.json_data_type !== undefined)
+      column.json_data_type = "string";
+    if (isObject(column) && node.properties.arrow_type !== undefined)
+      column.arrow_type = "Utf8";
+    onChange([...value, column], keys);
   };
   return (
     <div
@@ -219,10 +218,9 @@ export function ColumnMappingsEditor({
                   onChange={selectAllRows}
                 />
               </th>
-              <th>Column</th>
-              <th>JSON path</th>
-              <th>JSON type</th>
-              <th>Arrow type</th>
+              {mainFields.map((field) => (
+                <th key={field}>{mainFieldLabels[field]}</th>
+              ))}
               <th class="flag-column bulk-flag-column">
                 <span>Not null</span>
                 <IndeterminateCheckbox
@@ -430,7 +428,11 @@ export function ColumnMappingsEditor({
                     <tr class="table-details-row">
                       <td />
                       <td />
-                      <td colSpan={showLowCardinality ? 7 : 6}>
+                      <td
+                        colSpan={
+                          mainFields.length + 2 + (showLowCardinality ? 1 : 0)
+                        }
+                      >
                         <section class="column-details">
                           <div class="column-details-heading">
                             <strong>Advanced column settings</strong>

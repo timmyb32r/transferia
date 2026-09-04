@@ -1456,6 +1456,8 @@ describe("schema form", () => {
     expect(details.container.textContent).toContain("JSON parser settings");
     expect(details.container.textContent).not.toContain("Parser settings");
     expect(details.container.textContent).toContain("Output columns");
+    expect(details.container.textContent).not.toContain("JSON path");
+    expect(details.container.textContent).not.toContain("JSON type");
     expect(
       details.container.querySelector(".source-parser-bridge"),
     ).not.toBeNull();
@@ -1777,7 +1779,10 @@ describe("schema form", () => {
       />,
     );
     expect(container.querySelectorAll("thead")).toHaveLength(1);
-    expect(container.querySelectorAll("th")).toHaveLength(8);
+    expect(container.querySelectorAll("th")).toHaveLength(6);
+    expect(container.querySelector("thead")?.textContent).not.toContain(
+      "JSON type",
+    );
     expect(container.querySelectorAll("tbody .config-table-row")).toHaveLength(
       2,
     );

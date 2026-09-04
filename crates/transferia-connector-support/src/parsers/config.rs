@@ -5,6 +5,7 @@ use crate::parsers::debezium::DebeziumParserConfig;
 use crate::parsers::json_parser::JsonParserConfig;
 use crate::parsers::raw_to_table::RawToTableParserConfig;
 use crate::parsers::schema_registry::SchemaRegistryParserConfig;
+use crate::parsers::tskv::TskvParserConfig;
 use crate::parsers::ParserEntry;
 use transferia_core::data::system_columns::SystemColumnKind;
 
@@ -16,6 +17,8 @@ use transferia_core::data::system_columns::SystemColumnKind;
 pub enum ParserSchema {
     #[schemars(title = "JSON parser", extend("x-ui" = { "capabilities": { "component": "parser", "key": "json_parser", "record_semantics": ["append_only"] } }))]
     Json(JsonParserSchema),
+    #[schemars(title = "TSKV parser", extend("x-ui" = { "capabilities": { "component": "parser", "key": "tskv", "record_semantics": ["append_only"] } }))]
+    Tskv(TskvParserSchema),
     #[schemars(title = "Confluent Schema Registry parser", extend("x-ui" = { "capabilities": { "component": "parser", "key": "schema_registry", "record_semantics": ["append_only"] } }))]
     SchemaRegistry(SchemaRegistryParserSchema),
     #[schemars(title = "Debezium parser", extend("x-ui" = { "capabilities": { "component": "parser", "key": "debezium", "record_semantics": ["changelog"] } }))]
@@ -52,6 +55,18 @@ pub struct JsonParserSchema {
 
     #[schemars(title = "JSON parser")]
     pub json_parser: JsonParserConfig,
+}
+
+#[derive(JsonSchema)]
+pub struct TskvParserSchema {
+    #[schemars(
+        title = "Parser settings",
+        extend("x-ui" = { "widget": "parser_common" })
+    )]
+    pub common: CommonParserConfig,
+
+    #[schemars(title = "TSKV parser")]
+    pub tskv: TskvParserConfig,
 }
 
 #[derive(JsonSchema)]

@@ -9,6 +9,7 @@ pub mod protobuf;
 pub mod protoscope;
 pub mod raw_to_table;
 pub mod schema_registry;
+pub mod tskv;
 
 use std::collections::HashMap;
 
@@ -129,6 +130,11 @@ impl ParserPlan {
                         serde_yaml::from_value(config.parser.raw()?.clone())?;
                     return Self::from_json_config(&config.common, &parser_config, topic_path);
                 }
+                "tskv" => {
+                    let parser_config: tskv::TskvParserConfig =
+                        serde_yaml::from_value(config.parser.raw()?.clone())?;
+                    return Self::from_tskv_config(&config.common, &parser_config, topic_path);
+                }
                 "schema_registry" => {
                     let table: Arc<str> = config.resolve_table_name(topic_path)?.into();
                     anyhow::ensure!(
@@ -149,7 +155,8 @@ impl ParserPlan {
                         })
                         .collect::<Vec<_>>();
                     validate_primary_key(
-                        &projection,
+                        &projection.keys,
+                        "schema_registry",
                         &config.common.system_columns,
                         &schema,
                         &discovered_system_columns,
@@ -193,6 +200,7 @@ impl ParserPlan {
                     }
                     let mut supported = vec![
                         "json_parser",
+                        "tskv",
                         "schema_registry",
                         "debezium",
                         "raw_to_table",
@@ -255,6 +263,47 @@ impl ParserPlan {
         })
     }
 
+    pub fn from_tskv_config(
+        common: &CommonParserConfig,
+        parser_config: &tskv::TskvParserConfig,
+        source_name: &str,
+    ) -> anyhow::Result<Self> {
+        common.system_columns.validate()?;
+        let table: Arc<str> = common.resolve_table_name(source_name)?.into();
+        let parser = Arc::new(tskv::TskvParser::new(
+            parser_config,
+            &common.system_columns,
+            Arc::clone(&table),
+        )?);
+        let dataset_schema = parser_config.to_dataset_schema()?;
+        let discovered_system_columns = common
+            .system_columns
+            .enabled()
+            .map(|kind| DiscoveredSystemColumn {
+                kind,
+                name: Arc::from(common.system_columns.name(kind)),
+            })
+            .collect::<Vec<_>>();
+        validate_primary_key(
+            &parser_config.keys,
+            "tskv",
+            &common.system_columns,
+            &dataset_schema,
+            &discovered_system_columns,
+        )?;
+        Ok(Self {
+            parser,
+            table,
+            stored_dataset_schema: dataset_schema.clone(),
+            dataset_schema,
+            parses_rows: true,
+            record_semantics: RecordSemantics::AppendOnly,
+            discovered_system_columns,
+            primary_key: Arc::from(parser_config.keys.clone()),
+            dlq_dataset_schema: default_dlq_schema(),
+        })
+    }
+
     pub fn from_plugin(
         common: &CommonParserConfig,
         source_name: &str,
@@ -309,7 +358,8 @@ impl ParserPlan {
             })
             .collect::<Vec<_>>();
         validate_primary_key(
-            parser_config,
+            &parser_config.keys,
+            "json_parser",
             &common.system_columns,
             &schema,
             &discovered_system_columns,
@@ -589,7 +639,8 @@ impl ParserSession for TopicTableParserSession {
 }
 
 fn validate_primary_key(
-    parser: &json_parser::JsonParserConfig,
+    keys: &[String],
+    parser_name: &str,
     enabled: &SystemColumnsConfig,
     schema: &DatasetSchema,
     system_columns: &[DiscoveredSystemColumn],
@@ -611,18 +662,18 @@ fn validate_primary_key(
             system.name,
         );
     }
-    let mut unique = std::collections::HashSet::with_capacity(parser.keys.len());
-    for key in &parser.keys {
+    let mut unique = std::collections::HashSet::with_capacity(keys.len());
+    for key in keys {
         anyhow::ensure!(
             unique.insert(key),
-            "json_parser.keys repeats column '{key}'"
+            "{parser_name}.keys repeats column '{key}'"
         );
         let nullable = available.get(key.as_str()).ok_or_else(|| {
-            anyhow::anyhow!("json_parser.keys column '{key}' is not produced by the parser")
+            anyhow::anyhow!("{parser_name}.keys column '{key}' is not produced by the parser")
         })?;
         anyhow::ensure!(
             !nullable,
-            "json_parser.keys column '{key}' must be non-nullable"
+            "{parser_name}.keys column '{key}' must be non-nullable"
         );
     }
     Ok(())

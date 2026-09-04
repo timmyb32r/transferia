@@ -7,6 +7,7 @@
       "delivery_name": {
         "title": "Delivery name",
         "type": "string",
+        "default": "Untitled delivery",
         "x-ui": {
           "widget": "hidden"
         }
@@ -120,7 +121,6 @@
       }
     },
     "required": [
-      "delivery_name",
       "delivery_type",
       "middlewares",
       "pipeline_memory_limit_bytes"
@@ -389,6 +389,19 @@
                     "capabilities": {
                       "component": "parser",
                       "key": "json_parser",
+                      "record_semantics": [
+                        "append_only"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "title": "TSKV parser",
+                  "$ref": "#/$defs/TskvParserSchema",
+                  "x-ui": {
+                    "capabilities": {
+                      "component": "parser",
+                      "key": "tskv",
                       "record_semantics": [
                         "append_only"
                       ]
@@ -907,6 +920,166 @@
                     "action"
                   ]
                 }
+              ]
+            },
+            "TskvParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/CommonParserConfig",
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "tskv": {
+                  "title": "TSKV parser",
+                  "$ref": "#/$defs/TskvParserConfig"
+                }
+              },
+              "required": [
+                "common",
+                "tskv"
+              ]
+            },
+            "TskvParserConfig": {
+              "type": "object",
+              "properties": {
+                "columns": {
+                  "title": "Data schema",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/TskvColumnMapping"
+                  },
+                  "minItems": 1,
+                  "x-ui": {
+                    "widget": "column_mappings",
+                    "initial_items": 1
+                  }
+                },
+                "unknown_fields": {
+                  "title": "On Unknown Field",
+                  "$ref": "#/$defs/UnknownFieldPolicy",
+                  "default": {
+                    "action": "send_to_column",
+                    "column_name": "additional_properties"
+                  }
+                },
+                "keys": {
+                  "title": "Keys",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "x-ui": {
+                    "widget": "column_keys"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "columns"
+              ]
+            },
+            "TskvColumnMapping": {
+              "type": "object",
+              "properties": {
+                "column_name": {
+                  "type": "string"
+                },
+                "arrow_type": {
+                  "type": "string",
+                  "default": "Utf8",
+                  "x-ui": {
+                    "widget": "select",
+                    "options": [
+                      "Utf8",
+                      "LargeUtf8",
+                      "Int64",
+                      "Int32",
+                      "Int16",
+                      "Int8",
+                      "UInt64",
+                      "UInt32",
+                      "UInt16",
+                      "UInt8",
+                      "Float64",
+                      "Float32",
+                      "Boolean",
+                      "Decimal128",
+                      "Date32",
+                      "Date64",
+                      "Timestamp(Second)",
+                      "Timestamp(Millisecond)",
+                      "Timestamp(Microsecond)",
+                      "Timestamp(Nanosecond)",
+                      "Timestamp(Second, UTC)",
+                      "Timestamp(Millisecond, UTC)",
+                      "Timestamp(Microsecond, UTC)",
+                      "Timestamp(Nanosecond, UTC)"
+                    ]
+                  }
+                },
+                "decimal_precision": {
+                  "title": "Decimal precision",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255,
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "decimal_scale": {
+                  "title": "Decimal scale",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int8",
+                  "minimum": -128,
+                  "maximum": 127,
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "nullable": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "time_conversion": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/TimeConversion"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "low_cardinality": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "max_length": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint",
+                  "minimum": 0,
+                  "default": null
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "column_name"
               ]
             },
             "SchemaRegistryParserSchema": {
@@ -2178,6 +2351,19 @@
                   }
                 },
                 {
+                  "title": "TSKV parser",
+                  "$ref": "#/$defs/TskvParserSchema",
+                  "x-ui": {
+                    "capabilities": {
+                      "component": "parser",
+                      "key": "tskv",
+                      "record_semantics": [
+                        "append_only"
+                      ]
+                    }
+                  }
+                },
+                {
                   "title": "Confluent Schema Registry parser",
                   "$ref": "#/$defs/SchemaRegistryParserSchema",
                   "x-ui": {
@@ -2689,6 +2875,166 @@
                     "action"
                   ]
                 }
+              ]
+            },
+            "TskvParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/CommonParserConfig",
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "tskv": {
+                  "title": "TSKV parser",
+                  "$ref": "#/$defs/TskvParserConfig"
+                }
+              },
+              "required": [
+                "common",
+                "tskv"
+              ]
+            },
+            "TskvParserConfig": {
+              "type": "object",
+              "properties": {
+                "columns": {
+                  "title": "Data schema",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/TskvColumnMapping"
+                  },
+                  "minItems": 1,
+                  "x-ui": {
+                    "widget": "column_mappings",
+                    "initial_items": 1
+                  }
+                },
+                "unknown_fields": {
+                  "title": "On Unknown Field",
+                  "$ref": "#/$defs/UnknownFieldPolicy",
+                  "default": {
+                    "action": "send_to_column",
+                    "column_name": "additional_properties"
+                  }
+                },
+                "keys": {
+                  "title": "Keys",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "x-ui": {
+                    "widget": "column_keys"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "columns"
+              ]
+            },
+            "TskvColumnMapping": {
+              "type": "object",
+              "properties": {
+                "column_name": {
+                  "type": "string"
+                },
+                "arrow_type": {
+                  "type": "string",
+                  "default": "Utf8",
+                  "x-ui": {
+                    "widget": "select",
+                    "options": [
+                      "Utf8",
+                      "LargeUtf8",
+                      "Int64",
+                      "Int32",
+                      "Int16",
+                      "Int8",
+                      "UInt64",
+                      "UInt32",
+                      "UInt16",
+                      "UInt8",
+                      "Float64",
+                      "Float32",
+                      "Boolean",
+                      "Decimal128",
+                      "Date32",
+                      "Date64",
+                      "Timestamp(Second)",
+                      "Timestamp(Millisecond)",
+                      "Timestamp(Microsecond)",
+                      "Timestamp(Nanosecond)",
+                      "Timestamp(Second, UTC)",
+                      "Timestamp(Millisecond, UTC)",
+                      "Timestamp(Microsecond, UTC)",
+                      "Timestamp(Nanosecond, UTC)"
+                    ]
+                  }
+                },
+                "decimal_precision": {
+                  "title": "Decimal precision",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255,
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "decimal_scale": {
+                  "title": "Decimal scale",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int8",
+                  "minimum": -128,
+                  "maximum": 127,
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "nullable": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "time_conversion": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/TimeConversion"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "low_cardinality": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "max_length": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint",
+                  "minimum": 0,
+                  "default": null
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "column_name"
               ]
             },
             "SchemaRegistryParserSchema": {

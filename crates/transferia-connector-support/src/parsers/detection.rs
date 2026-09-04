@@ -27,7 +27,11 @@ pub fn detect(payload: &[u8]) -> Vec<ParserDetection> {
 
 #[must_use]
 pub fn detect_samples(payloads: &[&[u8]], max_rows: usize) -> Vec<ParserDetection> {
-    std::iter::once(&JsonDetector as &dyn ParserDetector)
+    [
+        &JsonDetector as &dyn ParserDetector,
+        &TskvDetector as &dyn ParserDetector,
+    ]
+        .into_iter()
         .filter_map(|detector| {
             detect_with_samples(detector, payloads, max_rows)
                 .ok()
@@ -45,6 +49,131 @@ fn detect_with_samples(
 }
 
 struct JsonDetector;
+
+struct TskvDetector;
+
+impl ParserDetector for TskvDetector {
+    fn try_parse(&self, payload: &[u8]) -> anyhow::Result<Option<ParserDetection>> {
+        self.try_parse_samples(&[payload], usize::MAX)
+    }
+
+    fn try_parse_samples(
+        &self,
+        payloads: &[&[u8]],
+        max_rows: usize,
+    ) -> anyhow::Result<Option<ParserDetection>> {
+        let mut records = Vec::new();
+        for payload in payloads {
+            let Ok(fields) = super::tskv::parse_record(payload) else {
+                continue;
+            };
+            records.push(fields);
+            if records.len() >= max_rows {
+                break;
+            }
+        }
+        if records.is_empty() {
+            return Ok(None);
+        }
+        let mut names = BTreeSet::new();
+        for record in &records {
+            names.extend(record.keys().cloned());
+        }
+        let columns = names
+            .iter()
+            .map(|name| {
+                let values = records
+                    .iter()
+                    .filter_map(|record| record.get(name))
+                    .collect::<Vec<_>>();
+                let arrow_type = infer_tskv_arrow_type(&values);
+                serde_json::json!({
+                    "column_name": name,
+                    "arrow_type": arrow_type,
+                    "nullable": values.len() != records.len(),
+                    "time_conversion": null,
+                    "low_cardinality": false,
+                    "max_length": null
+                })
+            })
+            .collect::<Vec<_>>();
+        let inferred_columns = columns
+            .iter()
+            .filter_map(|column| {
+                Some(InferredColumn {
+                    name: column.get("column_name")?.as_str()?.to_owned(),
+                    source_type: "string".to_owned(),
+                    arrow_type: column.get("arrow_type")?.as_str()?.to_owned(),
+                    nullable: column.get("nullable")?.as_bool()?,
+                })
+            })
+            .collect();
+        let sample_rows = records
+            .iter()
+            .map(|record| {
+                Value::Object(
+                    record
+                        .iter()
+                        .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+                        .collect(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let content = sample_rows
+            .first()
+            .and_then(|row| serde_json::to_string_pretty(row).ok())
+            .unwrap_or_default();
+        Ok(Some(ParserDetection {
+            key: "tskv".to_owned(),
+            label: "TSKV parser".to_owned(),
+            config: serde_json::json!({
+                "common": {
+                    "table_naming": { "type": "from_config", "name": "" },
+                    "system_columns": {}
+                },
+                "tskv": {
+                    "columns": columns,
+                    "unknown_fields": {
+                        "action": "send_to_column",
+                        "column_name": "additional_properties"
+                    },
+                    "keys": []
+                }
+            }),
+            inferred_columns,
+            sample_rows,
+            preview_tabs: vec![ParserPreviewTab {
+                key: "tskv_pretty_print".to_owned(),
+                label: "Pretty print".to_owned(),
+                content,
+                truncated: false,
+            }],
+            sampled_messages: records.len(),
+            sampled_rows: records.len(),
+        }))
+    }
+}
+
+fn infer_tskv_arrow_type(values: &[&String]) -> &'static str {
+    if values.iter().all(|value| matches!(value.as_str(), "true" | "false")) {
+        "Boolean"
+    } else if values.iter().all(|value| value.parse::<i64>().is_ok()) {
+        "Int64"
+    } else if values
+        .iter()
+        .all(|value| value.parse::<u64>().is_ok())
+    {
+        "UInt64"
+    } else if values.iter().all(|value| {
+        value
+            .parse::<f64>()
+            .is_ok_and(|number| number.is_finite())
+    }) {
+        "Float64"
+    } else {
+        "Utf8"
+    }
+}
 
 impl ParserDetector for JsonDetector {
     fn try_parse(&self, payload: &[u8]) -> anyhow::Result<Option<ParserDetection>> {
