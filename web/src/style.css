@@ -4194,6 +4194,24 @@ button::after {
   gap: 4px;
 }
 
+.property-list section {
+  display: grid;
+  gap: 4px;
+}
+
+.property-list section + section {
+  margin-top: 12px;
+}
+
+.property-list h3 {
+  margin: 0;
+  padding: 4px 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .property-list button,
 .property-entity-list button {
   justify-content: flex-start;

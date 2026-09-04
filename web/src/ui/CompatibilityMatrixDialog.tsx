@@ -358,6 +358,12 @@ export function CompatibilityMatrixDialog({
   const propertyGroups = capabilityGroups.filter(
     (group) => !group.key.startsWith("component."),
   );
+  const deliveryTypeProperties = propertyGroups.filter((group) =>
+    group.key.startsWith("delivery_mode."),
+  );
+  const otherProperties = propertyGroups.filter(
+    (group) => !group.key.startsWith("delivery_mode."),
+  );
   const entities = entityGroups.flatMap(({ kind, group }) =>
     [...(group.members.get(kind) ?? [])]
       .sort((left, right) => left.localeCompare(right))
@@ -583,15 +589,30 @@ export function CompatibilityMatrixDialog({
         ) : (
           <div class="property-browser">
             <nav class="property-list" aria-label="Properties">
-              {propertyGroups.map((group) => (
-                <Button
-                  key={group.key}
-                  aria-pressed={selectedProperty?.key === group.key}
-                  onClick={() => setActiveProperty(group.key)}
-                >
-                  {group.label}
-                </Button>
-              ))}
+              <section aria-label="Delivery type">
+                <h3>Delivery type</h3>
+                {deliveryTypeProperties.map((group) => (
+                  <Button
+                    key={group.key}
+                    aria-pressed={selectedProperty?.key === group.key}
+                    onClick={() => setActiveProperty(group.key)}
+                  >
+                    {group.label}
+                  </Button>
+                ))}
+              </section>
+              <section aria-label="Other properties">
+                <h3>Other properties</h3>
+                {otherProperties.map((group) => (
+                  <Button
+                    key={group.key}
+                    aria-pressed={selectedProperty?.key === group.key}
+                    onClick={() => setActiveProperty(group.key)}
+                  >
+                    {group.label}
+                  </Button>
+                ))}
+              </section>
             </nav>
             <nav class="property-entity-list" aria-label="Entities">
               {entityGroups.map(({ key, kind, label, group }) => (

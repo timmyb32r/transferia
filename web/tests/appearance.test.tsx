@@ -289,6 +289,16 @@ describe("appearance preferences", () => {
     expect(view.queryByText("Has property")).toBeNull();
 
     fireEvent.click(view.getByRole("tab", { name: "Properties" }));
+    const deliveryType = view.getByRole("region", { name: "Delivery type" });
+    expect(
+      within(deliveryType)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual([
+      "Batch + stream delivery",
+      "Batch delivery",
+      "Stream delivery",
+    ]);
     fireEvent.click(
       view.getByRole("button", { name: "Only append-only records" }),
     );
