@@ -4078,6 +4078,10 @@ button::after {
   gap: 8px;
 }
 
+.capability-membership-columns.entity-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .capability-membership {
   min-width: 0;
   padding: 8px;

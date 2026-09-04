@@ -480,7 +480,13 @@ export function CompatibilityMatrixDialog({
             {selectedCapabilityGroup && (
               <section class="capability-group">
                 <h3>{selectedCapabilityGroup.label}</h3>
-                <div class="capability-membership-columns">
+                <div
+                  class={`capability-membership-columns${
+                    selectedCapabilityGroup.key.startsWith("component.")
+                      ? " entity-list"
+                      : ""
+                  }`}
+                >
                   <CapabilityMembership
                     title="Has property"
                     property={selectedCapabilityGroup.key}
@@ -522,15 +528,22 @@ function CapabilityMembership({
   const populated = [...groups.entries()].filter(
     ([, members]) => members.size > 0,
   );
+  const entityList = property.startsWith("component.");
   return (
-    <section class="capability-membership">
-      <h4>{title}</h4>
+    <section
+      class="capability-membership"
+      aria-label={entityList ? title : undefined}
+    >
+      {!entityList && <h4>{title}</h4>}
       {populated.length === 0 ? (
         <p>None</p>
       ) : (
         populated.map(([kind, members]) => (
-          <section key={kind}>
-            <h5>{capabilityKindLabel(property, kind)}</h5>
+          <section
+            key={kind}
+            aria-label={entityList ? KIND_LABELS[kind] : undefined}
+          >
+            {!entityList && <h5>{capabilityKindLabel(property, kind)}</h5>}
             <ul>
               {[...members].sort().map((member) => (
                 <li key={member}>{member}</li>

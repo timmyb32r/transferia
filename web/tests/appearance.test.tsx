@@ -273,7 +273,10 @@ describe("appearance preferences", () => {
     expect(view.getByText("Does not have property")).toBeTruthy();
     expect(view.getByText("Parsers — append-only output")).toBeTruthy();
     fireEvent.click(view.getByRole("button", { name: "Kafka / Logbroker parsers" }));
+    expect(view.queryByText("Has property")).toBeNull();
     expect(view.queryByText("Does not have property")).toBeNull();
+    expect(view.queryByText("Parsers")).toBeNull();
+    expect(view.getByText("JSON parser")).toBeTruthy();
     fireEvent.click(view.getByRole("tab", { name: "Matrix" }));
     expect(document.activeElement).toBe(
       view.getByRole("button", { name: "Close compatibility matrix" }),
