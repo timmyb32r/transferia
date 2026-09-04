@@ -88,17 +88,12 @@ describe("message preview dialog", () => {
     expect(view.getByText("cdc/prod/logs")).toBeTruthy();
   });
 
-  it("copies text as text and binary as bytes, with raw actions only on raw tabs", async () => {
+  it("copies text as text and the visible binary representation as hex text", async () => {
     const copyText = vi.fn().mockResolvedValue(undefined);
-    const copyBinary = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
-      value: { writeText: copyText, write: copyBinary },
+      value: { writeText: copyText },
     });
-    class TestClipboardItem {
-      constructor(readonly items: Record<string, Blob>) {}
-    }
-    vi.stubGlobal("ClipboardItem", TestClipboardItem);
     const apply = vi.fn();
     const payload = btoa('{"id":1}');
     const view = render(
@@ -161,16 +156,12 @@ describe("message preview dialog", () => {
     expect(view.getByText("JSON parser · JSON lines")).toBeTruthy();
     fireEvent.click(view.getByRole("tab", { name: "Binary" }));
     fireEvent.click(view.getByRole("button", { name: "Copy message" }));
-    await waitFor(() => expect(copyBinary).toHaveBeenCalledTimes(1));
-    const [clipboardItems] = copyBinary.mock.calls[0] as [
-      TestClipboardItem[],
-    ];
-    expect(Object.keys(clipboardItems[0]!.items)).toEqual([
-      "web application/octet-stream",
-    ]);
-    expect(clipboardItems[0]!.items["web application/octet-stream"]?.size).toBe(
-      8,
+    await waitFor(() =>
+      expect(copyText).toHaveBeenLastCalledWith(
+        "7b 22 69 64 22 3a 31 7d",
+      ),
     );
+    expect(view.getByText("Message copied as hex text")).toBeTruthy();
     fireEvent.click(view.getByRole("tab", { name: "Pretty print" }));
     expect(view.queryByRole("button", { name: "Copy message" })).toBeNull();
     expect(view.queryByRole("button", { name: "Download message" })).toBeNull();

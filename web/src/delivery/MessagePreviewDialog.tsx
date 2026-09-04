@@ -89,15 +89,7 @@ export function MessagePreviewDialog({
           new TextDecoder("utf-8", { fatal: false }).decode(bytes),
         );
       } else {
-        const buffer = new ArrayBuffer(bytes.byteLength);
-        new Uint8Array(buffer).set(bytes);
-        await navigator.clipboard.write([
-          new ClipboardItem({
-            "web application/octet-stream": new Blob([buffer], {
-              type: "application/octet-stream",
-            }),
-          }),
-        ]);
+        await navigator.clipboard.writeText(hexColumns(bytes).values.join("\n"));
       }
       setCopyState("copied");
     } catch {
@@ -291,7 +283,7 @@ function CopyStatus({
       {state === "copied"
         ? format === "text"
           ? "Message copied as text"
-          : "Message copied as binary data"
+          : "Message copied as hex text"
         : state === "error"
           ? "Could not copy the message"
           : state === "copying"
