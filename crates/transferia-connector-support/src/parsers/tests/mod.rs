@@ -161,6 +161,19 @@ fn raw_to_table_public_schema_is_selectable_and_has_lossless_defaults() {
 }
 
 #[test]
+fn message_aware_parsers_offer_from_message_first_without_changing_json_defaults() {
+    let schema = serde_json::to_value(schemars::schema_for!(crate::parsers::config::ParserSchema))
+        .expect("parser schema must serialize");
+    let naming = &schema["$defs"]["MessageTableNaming"]["oneOf"];
+    assert_eq!(naming[0]["title"], "From message");
+    assert_eq!(naming[0]["properties"]["type"]["const"], "from_message");
+    let common = &schema["$defs"]["CommonParserConfig"]["properties"]["table_naming"];
+    assert_eq!(common["$ref"], "#/$defs/TableNaming");
+    let generic_naming = &schema["$defs"]["TableNaming"]["oneOf"];
+    assert_eq!(generic_naming[0]["title"], "From config");
+}
+
+#[test]
 fn raw_to_table_plan_uses_source_coordinates_as_primary_key() -> anyhow::Result<()> {
     let config: ParserConfig = serde_yaml::from_str(
         "common:\n  table_naming: { type: from_config, name: events }\nraw_to_table: {}\n",

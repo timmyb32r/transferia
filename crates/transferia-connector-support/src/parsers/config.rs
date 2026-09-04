@@ -38,7 +38,7 @@ pub struct DebeziumParserSchema {
         title = "Parser settings",
         extend("x-ui" = { "widget": "parser_common" })
     )]
-    pub common: CommonParserConfig,
+    pub common: MessageAwareCommonParserConfig,
 
     #[schemars(title = "Debezium parser")]
     pub debezium: DebeziumParserConfig,
@@ -75,7 +75,7 @@ pub struct SchemaRegistryParserSchema {
         title = "Parser settings",
         extend("x-ui" = { "widget": "parser_common" })
     )]
-    pub common: CommonParserConfig,
+    pub common: MessageAwareCommonParserConfig,
 
     #[schemars(title = "Confluent Schema Registry parser")]
     pub schema_registry: SchemaRegistryParserConfig,
@@ -97,6 +97,28 @@ pub struct RawToTableParserSchema {
 pub struct RawToTableCommonConfig {
     #[schemars(title = "Table name", extend("x-ui" = { "control_width": "table_name" }))]
     pub table_naming: TableNaming,
+}
+
+#[derive(JsonSchema)]
+pub struct MessageAwareCommonParserConfig {
+    #[schemars(title = "Table name", extend("x-ui" = { "control_width": "table_name" }))]
+    pub table_naming: MessageTableNaming,
+
+    #[schemars(extend("x-ui" = { "widget": "system_columns" }))]
+    pub system_columns: SystemColumnsConfig,
+}
+
+#[derive(JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum MessageTableNaming {
+    #[schemars(title = "From message")]
+    FromMessage,
+
+    #[schemars(title = "From config")]
+    FromConfig { name: String },
+
+    #[schemars(title = "From topic name")]
+    FromTopicName,
 }
 
 #[derive(JsonSchema)]
@@ -214,6 +236,9 @@ pub enum TableNaming {
     #[schemars(title = "From topic name")]
     #[default]
     FromTopicName,
+
+    #[schemars(title = "From message")]
+    FromMessage,
 }
 
 impl ParserConfig {
@@ -231,6 +256,9 @@ impl CommonParserConfig {
                 })
             }
             TableNaming::FromTopicName => Ok(topic_path.to_string()),
+            TableNaming::FromMessage => anyhow::bail!(
+                "table_naming type 'from_message' requires a message-aware parser"
+            ),
         }
     }
 }
