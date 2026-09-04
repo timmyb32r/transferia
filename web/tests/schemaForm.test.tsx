@@ -26,6 +26,31 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("supports connector-specific field labels without changing shared schemas", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["preserve_key"]),
+      properties: {
+        preserve_key: {
+          kind: "boolean",
+          title: "Add message key",
+          xUi: {},
+        },
+      },
+    };
+    const view = render(
+      <SchemaForm
+        node={node}
+        value={{ preserve_key: true }}
+        fieldLabelOverrides={{ preserve_key: "Add sourceID" }}
+        onChange={() => undefined}
+      />,
+    );
+    expect(view.getByText("Add sourceID")).toBeTruthy();
+    expect(view.queryByText("Add message key")).toBeNull();
+  });
+
   it("keeps parse and unknown-field policies on one responsive row", () => {
     const node: CompiledNode = {
       kind: "object",

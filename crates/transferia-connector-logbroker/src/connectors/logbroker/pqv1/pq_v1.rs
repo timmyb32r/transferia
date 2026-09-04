@@ -1649,7 +1649,7 @@ impl PqV1Source {
             messages.push(Message {
                 value: message.data,
                 tombstone: false,
-                key: None,
+                key: Some(message.source_id),
                 headers: Arc::from([]),
                 meta: MessageMeta {
                     topic: Some(Arc::clone(&self.topic_path)),

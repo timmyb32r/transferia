@@ -25,6 +25,7 @@ use transferia_core::memory::MemoryReservation;
 /// One decompressed message within a partition part.
 pub struct DecodedMessage {
     pub data: Bytes,
+    pub source_id: Bytes,
     /// Stable source offset within the `PQv1` partition.
     pub offset: u64,
     pub write_timestamp_ms: u64,
@@ -38,6 +39,7 @@ pub struct PqV1CommitMarker {
 /// Raw (still-compressed) message handed off to the decompress pool.
 pub(super) struct RawMsg {
     pub(super) data: Vec<u8>,
+    pub(super) source_id: Bytes,
     pub(super) codec: i32,
     pub(super) uncompressed_size: u64,
     pub(super) offset: u64,
@@ -122,6 +124,7 @@ pub(super) fn prepare_data_batch(
             let mut messages = Vec::new();
             for message_batch in partition.batches {
                 let write_timestamp_ms = message_batch.write_timestamp_ms;
+                let source_id = Bytes::from(message_batch.source_id.into_boxed_slice());
                 for message in message_batch.message_data {
                     super::observe_offset(assignment, pid, message.offset, allow_ttl_rewind)?;
                     compressed_bytes = compressed_bytes
@@ -132,6 +135,7 @@ pub(super) fn prepare_data_batch(
                         .ok_or_else(|| anyhow!("PQv1 message count overflow"))?;
                     messages.push(RawMsg {
                         data: message.data,
+                        source_id: source_id.clone(),
                         codec: message.codec,
                         uncompressed_size: message.uncompressed_size,
                         offset: message.offset,
@@ -325,6 +329,7 @@ pub(super) fn pending_raw_bytes(kind: &PendingDataKind) -> anyhow::Result<usize>
                     checked_raw_add(bytes, checked_raw_capacity::<RawMsg>(part.msgs.capacity())?)?;
                 for message in &part.msgs {
                     bytes = checked_raw_add(bytes, message.data.capacity())?;
+                    bytes = checked_raw_add(bytes, message.source_id.len())?;
                 }
             }
         }
@@ -429,6 +434,7 @@ fn decoded_batch_bytes(parts: &[RawPart], include_raw_payload: bool) -> anyhow::
             );
             retained = retained
                 .checked_add(retained_payload)
+                .and_then(|bytes| bytes.checked_add(message.source_id.len()))
                 .ok_or_else(|| anyhow!("PQv1 decoded batch memory estimate overflow"))?;
         }
     }
@@ -509,9 +515,11 @@ pub(super) fn decode_parts_with_cancellation(
             decompressed_bytes = decompressed_bytes.saturating_add(data.len() as u64);
             retained_bytes = retained_bytes
                 .checked_add(retained_payload)
+                .and_then(|bytes| bytes.checked_add(message.source_id.len()))
                 .ok_or_else(|| anyhow!("PQv1 decoded batch size overflow"))?;
             decoded.push(DecodedMessage {
                 data,
+                source_id: message.source_id,
                 offset,
                 write_timestamp_ms: message.write_timestamp_ms,
             });

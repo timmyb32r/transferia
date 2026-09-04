@@ -30,6 +30,7 @@ export interface SchemaFormProps extends NodeEditorProps {
   optionOverrides?: Record<string, string[]>;
   connectionAction?: ComponentChildren;
   deliveryType?: string;
+  fieldLabelOverrides?: Readonly<Record<string, string>>;
 }
 
 export interface VariantUi {
@@ -43,6 +44,9 @@ const RequiredErrorsContext = createContext(false);
 const RootValueContext = createContext<JsonValue>({});
 const OptionOverridesContext = createContext<Record<string, string[]>>({});
 const DeliveryTypeContext = createContext<string | undefined>(undefined);
+const FieldLabelOverridesContext = createContext<
+  Readonly<Record<string, string>>
+>({});
 
 export function SchemaForm({
   node,
@@ -53,27 +57,30 @@ export function SchemaForm({
   optionOverrides = {},
   connectionAction,
   deliveryType,
+  fieldLabelOverrides = {},
   onChange,
 }: SchemaFormProps) {
   return (
-    <DeliveryTypeContext.Provider value={deliveryType}>
-    <RootValueContext.Provider value={value}>
-      <OptionOverridesContext.Provider value={optionOverrides}>
-        <RequiredErrorsContext.Provider value={showRequiredErrors}>
-          <VariantUiContext.Provider value={variantUi}>
-            <NodeEditor
-              node={node}
-              value={value}
-              disabled={disabled}
-              connectionAction={connectionAction}
-              onChange={onChange}
-              path="#"
-            />
-          </VariantUiContext.Provider>
-        </RequiredErrorsContext.Provider>
-      </OptionOverridesContext.Provider>
-    </RootValueContext.Provider>
-    </DeliveryTypeContext.Provider>
+    <FieldLabelOverridesContext.Provider value={fieldLabelOverrides}>
+      <DeliveryTypeContext.Provider value={deliveryType}>
+        <RootValueContext.Provider value={value}>
+          <OptionOverridesContext.Provider value={optionOverrides}>
+            <RequiredErrorsContext.Provider value={showRequiredErrors}>
+              <VariantUiContext.Provider value={variantUi}>
+                <NodeEditor
+                  node={node}
+                  value={value}
+                  disabled={disabled}
+                  connectionAction={connectionAction}
+                  onChange={onChange}
+                  path="#"
+                />
+              </VariantUiContext.Provider>
+            </RequiredErrorsContext.Provider>
+          </OptionOverridesContext.Provider>
+        </RootValueContext.Provider>
+      </DeliveryTypeContext.Provider>
+    </FieldLabelOverridesContext.Provider>
   );
 }
 
@@ -86,6 +93,7 @@ export function VariantDetailsForm({
   widget,
   bridgeClass,
   cardClass,
+  fieldLabelOverrides = {},
 }: SchemaFormProps & {
   widget: string;
   bridgeClass: string;
@@ -93,21 +101,23 @@ export function VariantDetailsForm({
 }) {
   const widgets = useWidgetRegistry();
   return (
-    <RootValueContext.Provider value={value}>
-      <RequiredErrorsContext.Provider value={showRequiredErrors}>
-        <VariantDetailsCard
-          node={node}
-          value={value}
-          disabled={disabled}
-          widget={widget}
-          bridgeClass={bridgeClass}
-          cardClass={cardClass}
-          widgets={widgets}
-          NodeEditor={NodeEditor}
-          onChange={onChange}
-        />
-      </RequiredErrorsContext.Provider>
-    </RootValueContext.Provider>
+    <FieldLabelOverridesContext.Provider value={fieldLabelOverrides}>
+      <RootValueContext.Provider value={value}>
+        <RequiredErrorsContext.Provider value={showRequiredErrors}>
+          <VariantDetailsCard
+            node={node}
+            value={value}
+            disabled={disabled}
+            widget={widget}
+            bridgeClass={bridgeClass}
+            cardClass={cardClass}
+            widgets={widgets}
+            NodeEditor={NodeEditor}
+            onChange={onChange}
+          />
+        </RequiredErrorsContext.Provider>
+      </RootValueContext.Provider>
+    </FieldLabelOverridesContext.Provider>
   );
 }
 
@@ -455,6 +465,7 @@ function PropertyEditor({
   path = `#/${name}`,
 }: PropertyEditorProps) {
   const widgets = useWidgetRegistry();
+  const fieldLabelOverrides = useContext(FieldLabelOverridesContext);
   const showRequiredErrors = useContext(RequiredErrorsContext);
   const variantUi = useContext(VariantUiContext);
   const selectionOnly =
@@ -516,7 +527,7 @@ function PropertyEditor({
   const classes = `${wideRow ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`;
   return (
     <FormField
-      label={node.title ?? humanize(name)}
+      label={fieldLabelOverrides[name] ?? node.title ?? humanize(name)}
       optional={!required}
       description={presentation?.hideDescription ? undefined : node.description}
       controlId={isDirectlyLabelled(node) ? identifier : undefined}

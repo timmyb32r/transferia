@@ -181,6 +181,11 @@ export function DeliveryConfiguration({
                 )}
                 disabled={readOnly}
                 showRequiredErrors={requiredErrorScope !== "none"}
+                fieldLabelOverrides={
+                  selection.sourceKey === "logbroker"
+                    ? { preserve_key: "Add sourceID" }
+                    : {}
+                }
                 onChange={(next) =>
                   onConfig({
                     ...editor.config,

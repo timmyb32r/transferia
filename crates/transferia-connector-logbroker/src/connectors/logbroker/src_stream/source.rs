@@ -1055,6 +1055,7 @@ pub(super) fn decode_batches(
         let codec = Codec::try_from(batch.codec)
             .map_err(|_| fatal(anyhow!("YDB Topic returned unknown codec {}", batch.codec)))?;
         let written_at_ms = batch.written_at.map(timestamp_millis).transpose()?;
+        let source_id = Bytes::from(batch.producer_id.into_bytes().into_boxed_slice());
         for message in batch.message_data {
             anyhow::ensure!(message.offset >= 0, "YDB Topic returned negative offset");
             let headers: Arc<[MessageHeader]> = message
@@ -1069,6 +1070,7 @@ pub(super) fn decode_batches(
             let value = decode_message(codec, message.data)?;
             total_bytes = total_bytes
                 .checked_add(value.len())
+                .and_then(|size| size.checked_add(source_id.len()))
                 .and_then(|size| {
                     headers.iter().try_fold(size, |size, header| {
                         size.checked_add(header.key.len())?
@@ -1091,7 +1093,7 @@ pub(super) fn decode_batches(
             messages.push(Message {
                 value,
                 tombstone: false,
-                key: None,
+                key: Some(source_id.clone()),
                 headers,
                 meta: MessageMeta {
                     topic: Some(Arc::clone(topic)),

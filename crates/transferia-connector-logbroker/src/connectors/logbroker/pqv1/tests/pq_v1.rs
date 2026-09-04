@@ -1200,6 +1200,7 @@ fn decoded_accounting_includes_fixed_metadata_and_caps_the_batch() {
         cookie: None,
         msgs: vec![RawMsg {
             data: vec![1, 2, 3],
+            source_id: Bytes::new(),
             codec: 1,
             uncompressed_size: 3,
             offset: 1,
@@ -1221,6 +1222,7 @@ fn decoded_accounting_includes_fixed_metadata_and_caps_the_batch() {
         msgs: vec![
             RawMsg {
                 data: vec![],
+                source_id: Bytes::new(),
                 codec: 2,
                 uncompressed_size: half_plus_one,
                 offset: 1,
@@ -1228,6 +1230,7 @@ fn decoded_accounting_includes_fixed_metadata_and_caps_the_batch() {
             },
             RawMsg {
                 data: vec![],
+                source_id: Bytes::new(),
                 codec: 2,
                 uncompressed_size: half_plus_one,
                 offset: 2,
@@ -1424,6 +1427,7 @@ async fn decompression_error_fails_the_whole_server_batch() {
         cookie: None,
         msgs: vec![RawMsg {
             data: vec![1, 2, 3],
+            source_id: Bytes::new(),
             codec: 99,
             uncompressed_size: 3,
             offset: 42,
@@ -1444,6 +1448,7 @@ fn raw_batches_are_recognized_without_using_the_decompression_pool() {
         cookie: None,
         msgs: vec![RawMsg {
             data: vec![1],
+            source_id: Bytes::new(),
             codec: 1,
             uncompressed_size: 1,
             offset: 1,
@@ -1457,6 +1462,7 @@ fn raw_batches_are_recognized_without_using_the_decompression_pool() {
         cookie: None,
         msgs: vec![RawMsg {
             data: vec![1],
+            source_id: Bytes::new(),
             codec: 2,
             uncompressed_size: 1,
             offset: 1,
@@ -1473,6 +1479,7 @@ fn raw_overlap_counts_payload_only_once() {
         cookie: None,
         msgs: vec![RawMsg {
             data: vec![1, 2, 3],
+            source_id: Bytes::new(),
             codec: 1,
             uncompressed_size: 3,
             offset: 1,
@@ -1592,7 +1599,7 @@ async fn session_task_panic_is_surfaced_as_retryable_failure() {
 #[tokio::test]
 async fn source_keeps_one_memory_reservation_per_decoded_part() {
     let memory = PipelineMemory::new(1024);
-    let peak = decoded_part_retained_bytes(2) + 6;
+    let peak = decoded_part_retained_bytes(2) + 6 + 9;
     let retained = peak - DECODED_PART_METADATA_BYTES - 2 * DECODED_MESSAGE_METADATA_BYTES;
     let reservation = memory.reserve(peak).await;
     let (tx, rx) = mpsc::channel(1);
@@ -1603,11 +1610,13 @@ async fn source_keeps_one_memory_reservation_per_decoded_part() {
         msgs: vec![
             DecodedMessage {
                 data: Bytes::from_static(b"one"),
+                source_id: Bytes::from_static(b"source-id"),
                 offset: 1,
                 write_timestamp_ms: 10,
             },
             DecodedMessage {
                 data: Bytes::from_static(b"two"),
+                source_id: Bytes::new(),
                 offset: 2,
                 write_timestamp_ms: 11,
             },
@@ -1627,6 +1636,7 @@ async fn source_keeps_one_memory_reservation_per_decoded_part() {
         panic!("expected raw batch");
     };
     assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0].key.as_deref(), Some(b"source-id".as_slice()));
     assert_eq!(reservations.len(), 1);
     assert_eq!(reservations[0].bytes(), retained);
     assert_eq!(memory.source_used(), retained);
@@ -1672,6 +1682,7 @@ async fn decode_retains_the_preaccounted_source_reservation() {
         cookie: Some(cookie(1)),
         msgs: vec![RawMsg {
             data: vec![1, 2, 3],
+            source_id: Bytes::new(),
             codec: 1,
             uncompressed_size: 3,
             offset: 42,
@@ -1756,6 +1767,7 @@ async fn source_groups_commit_markers_into_one_request_without_draining_data_bat
             cookie: Some(cookie(partition_cookie)),
             msgs: vec![DecodedMessage {
                 data: Bytes::from_static(b"message"),
+                source_id: Bytes::new(),
                 offset: partition_cookie,
                 write_timestamp_ms: 10 + partition_cookie,
             }],

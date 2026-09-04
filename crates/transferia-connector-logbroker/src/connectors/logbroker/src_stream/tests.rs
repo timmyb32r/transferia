@@ -23,6 +23,7 @@ fn connector(extra: &str) -> anyhow::Result<YdbDriverSourceConnector> {
 fn ydb_topic_decode_preserves_ordered_duplicate_binary_metadata() -> anyhow::Result<()> {
     let batch = Batch {
         codec: Codec::Raw.into(),
+        producer_id: "source-id".into(),
         message_data: vec![MessageData {
             offset: i64::MAX - 1,
             data: vec![1, 2, 3],
@@ -43,6 +44,7 @@ fn ydb_topic_decode_preserves_ordered_duplicate_binary_metadata() -> anyhow::Res
     let decoded = decode_batches(vec![batch], &Arc::from("account/topic"), i64::MAX)?;
     let message = &decoded.messages[0];
     assert_eq!(message.headers.len(), 2);
+    assert_eq!(message.key.as_deref(), Some(b"source-id".as_slice()));
     assert_eq!(message.headers[0].key.as_ref(), "duplicate");
     assert_eq!(message.headers[0].value.as_deref(), Some(&[0, 255][..]));
     assert_eq!(message.headers[1].key.as_ref(), "duplicate");
