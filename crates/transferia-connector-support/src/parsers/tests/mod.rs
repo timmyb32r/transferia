@@ -153,6 +153,11 @@ fn raw_to_table_public_schema_is_selectable_and_has_lossless_defaults() {
     assert!(config_text.contains("preserve_key"));
     assert!(config_text.contains("preserve_headers"));
     assert!(config_text.contains("preserve_write_timestamp"));
+    assert!(config_text.contains("Add message key"));
+    assert!(config_text.contains("Add headers"));
+    assert!(config_text.contains("Add write timestamp"));
+    assert!(!config_text.contains("Preserve message"));
+    assert!(!config_text.contains("Preserve write timestamp"));
 }
 
 #[test]

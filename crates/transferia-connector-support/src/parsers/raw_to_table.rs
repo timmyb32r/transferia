@@ -41,21 +41,21 @@ pub struct RawToTableParserConfig {
     pub value_type: RawValueType,
 
     #[schemars(
-        title = "Preserve message key",
+        title = "Add message key",
         description = "Disabling this explicitly discards source message keys",
         default = "default_true"
     )]
     pub preserve_key: bool,
 
     #[schemars(
-        title = "Preserve message headers",
+        title = "Add headers",
         description = "Disabling this explicitly discards source message headers",
         default = "default_true"
     )]
     pub preserve_headers: bool,
 
     #[schemars(
-        title = "Preserve write timestamp",
+        title = "Add write timestamp",
         description = "Disabling this explicitly discards source message write timestamps",
         default = "default_true"
     )]

@@ -1365,19 +1365,19 @@
                   "default": "bytes"
                 },
                 "preserve_key": {
-                  "title": "Preserve message key",
+                  "title": "Add message key",
                   "description": "Disabling this explicitly discards source message keys",
                   "type": "boolean",
                   "default": true
                 },
                 "preserve_headers": {
-                  "title": "Preserve message headers",
+                  "title": "Add headers",
                   "description": "Disabling this explicitly discards source message headers",
                   "type": "boolean",
                   "default": true
                 },
                 "preserve_write_timestamp": {
-                  "title": "Preserve write timestamp",
+                  "title": "Add write timestamp",
                   "description": "Disabling this explicitly discards source message write timestamps",
                   "type": "boolean",
                   "default": true
@@ -3326,19 +3326,19 @@
                   "default": "bytes"
                 },
                 "preserve_key": {
-                  "title": "Preserve message key",
+                  "title": "Add message key",
                   "description": "Disabling this explicitly discards source message keys",
                   "type": "boolean",
                   "default": true
                 },
                 "preserve_headers": {
-                  "title": "Preserve message headers",
+                  "title": "Add headers",
                   "description": "Disabling this explicitly discards source message headers",
                   "type": "boolean",
                   "default": true
                 },
                 "preserve_write_timestamp": {
-                  "title": "Preserve write timestamp",
+                  "title": "Add write timestamp",
                   "description": "Disabling this explicitly discards source message write timestamps",
                   "type": "boolean",
                   "default": true
