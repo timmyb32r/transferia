@@ -1,264 +1,120 @@
-use anyhow::Context as _;
 use apache_avro::Schema as AvroSchema;
-use arrow::array::{Array as _, BinaryArray, Int64Array, StringArray};
 use prost::Message as _;
 use prost_reflect::DynamicMessage;
 
-use transferia_core::data::changelog::{project_sink_batch, ChangelogAction, ProjectedSinkBatch};
-use transferia_core::data::message::Message;
-use transferia_core::delivery::{DeliveryDiscoveryRequest, SourceTopology};
-use transferia_core::memory::PipelineMemory;
-use transferia_core::sink::SinkBatch;
-use transferia_delivery_contracts::semantics::{RecordSemantics, SourceBehavior};
-
 use super::*;
-use crate::parsers::{CommonParserConfig, ParserPlan, TableNaming};
 use crate::schema_registry::{
-    encode_message_indexes, json_to_avro, protobuf_descriptor_pool, RegistrySchema, SchemaFormat,
+    encode_message_indexes, json_to_avro, protobuf_descriptor_pool, RegistrySchema,
+    SchemaFormat, SchemaRegistryAuth,
 };
 
 #[test]
-fn primary_keys_are_an_explicit_required_editor_field() -> anyhow::Result<()> {
+fn editor_exposes_only_schema_registry_settings() -> anyhow::Result<()> {
     let schema = serde_json::to_value(schemars::schema_for!(DebeziumParserConfig))?;
-    let keys = &schema["properties"]["keys"];
-    assert_eq!(keys["minItems"], 1);
-    assert!(keys.get("x-ui").is_none());
-    assert_eq!(keys["title"], "Primary key columns");
+    let properties = schema["properties"]
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("Debezium config properties are absent"))?;
+    assert_eq!(properties.keys().collect::<Vec<_>>(), ["connection"]);
+    assert_eq!(properties["connection"]["title"], "Schema Registry");
     Ok(())
 }
 
-#[tokio::test]
-async fn json_parser_preserves_changelog_controls_to_sink_projection() -> anyhow::Result<()> {
-    let config = config(DebeziumInput::Json);
-    let common = CommonParserConfig {
-        table_naming: TableNaming::FromConfig {
-            name: "accounts".to_owned(),
-        },
-        system_columns: SystemColumnsConfig::default(),
-    };
-    let plan = ParserPlan::from_debezium_config(&common, &config, "topic")?;
-    assert_eq!(plan.record_semantics(), RecordSemantics::Changelog);
-    assert_eq!(plan.source_behavior(), SourceBehavior::ChangelogRows);
-
-    let discovery = plan.delivery_discovery(
-        "topic".into(),
-        SourceTopology::DynamicWorkerLanes,
-        DeliveryDiscoveryRequest {
-            keep_system_columns: false,
-        },
-    )?;
-    let dataset = &discovery.datasets[0];
+#[test]
+fn schemas_preserve_complete_key_and_row_without_manual_projection() -> anyhow::Result<()> {
+    let (incoming, stored) = config().schemas()?;
     assert_eq!(
-        dataset
-            .stored_schema
+        stored
             .columns
             .iter()
             .map(|column| column.name.as_str())
             .collect::<Vec<_>>(),
-        ["id", "payload"]
+        ["message_key_base64", "data"]
     );
-    assert_eq!(dataset.incoming_schema.columns.len(), 17);
+    assert!(stored.columns[0].primary_key);
+    assert!(!stored.columns[0].nullable);
+    assert_eq!(stored.columns[1].data_type, DataType::Utf8);
+    assert_eq!(incoming.columns.len(), 14);
     assert_eq!(
-        dataset.incoming_schema.columns[2].old_value_of.as_deref(),
-        Some("id")
+        incoming.columns[2].old_value_of.as_deref(),
+        Some("message_key_base64")
     );
-
-    let parser = plan.parser();
-    let mut session = parser.create_session(4 * 1024 * 1024);
-    let messages = vec![
-        message(&envelope(
-            "c",
-            &Value::Null,
-            &row(1, &Value::from("alpha")),
-            10,
-        )),
-        message(&envelope(
-            "u",
-            &row(1, &Value::from("alpha")),
-            &row(1, &Value::from(UNAVAILABLE_VALUE)),
-            11,
-        )),
-        message(&envelope(
-            "d",
-            &row(1, &Value::from("alpha")),
-            &Value::Null,
-            12,
-        )),
-        Message {
-            value: Bytes::new(),
-            tombstone: true,
-            key: Some(Bytes::from_static(br#"{"id":1}"#)),
-            headers: Arc::from([]),
-            meta: transferia_core::data::message::MessageMeta::default(),
-        },
-    ];
-    let (main, dlq) = session.parse_into(messages)?;
-    assert!(dlq.is_none());
-    assert_eq!(main.batch.num_rows(), 3);
-    let id = main
-        .batch
-        .column(0)
-        .as_any()
-        .downcast_ref::<Int64Array>()
-        .unwrap();
-    assert_eq!(id.values(), &[1, 1, 1]);
-    let payload = main
-        .batch
-        .column(1)
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .unwrap();
-    assert!(payload.is_null(1));
-    let changed = main
-        .batch
-        .column(main.batch.num_columns() - 1)
-        .as_any()
-        .downcast_ref::<BinaryArray>()
-        .unwrap();
-    assert_eq!(changed.value(0), &[0b11]);
-    assert_eq!(changed.value(1), &[0b01]);
-
-    let byte_size = main.batch.get_array_memory_size();
-    let sink = SinkBatch {
-        table: main.table,
-        is_dlq: false,
-        batch: main.batch,
-        byte_size,
-        memory: PipelineMemory::new(byte_size.max(1))
-            .reserve(byte_size)
-            .await,
-        system_columns: main.system_columns,
-    };
-    let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(&discovery, &sink)? else {
-        anyhow::bail!("Debezium parser output was not recognized as changelog")
-    };
-    assert_eq!(changelog.operations().len(), 3);
-    let runs = changelog.collapsed_runs()?;
-    assert_eq!(runs.len(), 1);
-    assert_eq!(runs[0].action, ChangelogAction::Delete);
     Ok(())
 }
 
 #[test]
-fn json_and_all_schema_registry_formats_normalize_identically() -> anyhow::Result<()> {
+fn all_schema_registry_formats_preserve_their_decoded_row_and_common_metadata() -> anyhow::Result<()> {
     let value = envelope(
         "u",
         &row(7, &Value::from("old")),
         &row(7, &Value::from("new")),
         42,
     );
-    let paths = [
-        jsonpath_lib::Compiled::compile("$.id").map_err(anyhow::Error::msg)?,
-        jsonpath_lib::Compiled::compile("$.payload").map_err(anyhow::Error::msg)?,
-    ];
-    let types = [JsonDataType::Number, JsonDataType::String];
-    let fields = ["id".to_owned(), "payload".to_owned()];
-    let expected = normalize_envelope(&value, &paths, &types, &fields)?;
-
     for (format, decoded) in registry_decoded_values(&value)? {
-        let actual = normalize_envelope(&decoded, &paths, &types, &fields)
-            .with_context(|| format!("normalizing {format:?} Debezium envelope"))?;
-        assert_eq!(actual, expected, "{format:?}");
+        let actual = normalize_envelope(&decoded, br#"{"id":7}"#)?;
+        assert_eq!(actual.0["current"][0], "eyJpZCI6N30=", "{format:?}");
+        assert_eq!(actual.0["current"][1], decoded["after"], "{format:?}");
+        assert_eq!(actual.0["before"][1], decoded["before"], "{format:?}");
+        assert_eq!(actual.0["source"]["lsn"], 42, "{format:?}");
+        assert_eq!(actual.0["op"], "u", "{format:?}");
+        assert_eq!(actual.1, [0b11], "{format:?}");
     }
     Ok(())
 }
 
 #[test]
-fn parser_rejects_unknown_user_fields_and_invalid_event_shapes() -> anyhow::Result<()> {
-    let paths = [jsonpath_lib::Compiled::compile("$.id").map_err(anyhow::Error::msg)?];
-    let types = [JsonDataType::Number];
-    let fields = ["id".to_owned()];
-    let unknown = envelope(
-        "c",
-        &Value::Null,
-        &serde_json::json!({"id": 1, "lost": "must fail"}),
+fn normalization_keeps_full_images_and_injective_message_key() -> anyhow::Result<()> {
+    let input = envelope(
+        "u",
+        &serde_json::json!({"id": 1, "nested": {"old": true}}),
+        &serde_json::json!({"id": 1, "nested": {"new": true}}),
         1,
     );
-    assert!(normalize_envelope(&unknown, &paths, &types, &fields)
-        .unwrap_err()
-        .to_string()
-        .contains("unmapped field 'lost'"));
+    let (normalized, mask) = normalize_envelope(&input, &[0, 255, 65])?;
+    assert_eq!(normalized["current"][0], "AP9B");
+    assert_eq!(normalized["current"][1], input["after"]);
+    assert_eq!(normalized["before"][1], input["before"]);
+    assert_eq!(mask, [0b11]);
+    Ok(())
+}
+
+#[test]
+fn normalization_rejects_invalid_shapes_and_unavailable_values() {
     let invalid = envelope("u", &Value::Null, &row(1, &Value::Null), 1);
-    assert!(normalize_envelope(&invalid, &paths, &types, &fields)
+    assert!(normalize_envelope(&invalid, b"key")
         .unwrap_err()
         .to_string()
         .contains("update before"));
-    Ok(())
-}
-
-#[test]
-fn parser_requires_a_nonnullable_primary_key() {
-    let mut missing_keys = config(DebeziumInput::Json);
-    missing_keys.keys.clear();
-    assert!(missing_keys
-        .schemas()
-        .unwrap_err()
-        .to_string()
-        .contains("primary-key"));
-
-    let mut nullable_key = config(DebeziumInput::Json);
-    nullable_key.columns[0].nullable = true;
-    assert!(nullable_key
-        .schemas()
-        .unwrap_err()
-        .to_string()
-        .contains("must be non-nullable"));
-}
-
-#[test]
-fn unavailable_nonnullable_value_is_nullable_only_in_the_incoming_schema() -> anyhow::Result<()> {
-    let mut config = config(DebeziumInput::Json);
-    config.columns[1].nullable = false;
-    let (incoming, stored) = config.schemas()?;
-    assert!(incoming.columns[1].nullable);
-    assert!(!stored.columns[1].nullable);
-
-    let parser = Arc::new(DebeziumParser::new(&config, Arc::from("accounts"))?);
-    let mut session = parser.create_session(4 * 1024 * 1024);
-    let (batch, _) = session.parse_into(vec![message(&envelope(
-        "u",
-        &row(1, &Value::from("old")),
+    let unavailable = envelope(
+        "c",
+        &Value::Null,
         &row(1, &Value::from(UNAVAILABLE_VALUE)),
-        11,
-    ))])?;
-    assert!(batch.batch.column(1).is_null(0));
-    Ok(())
+        1,
+    );
+    assert!(normalize_envelope(&unavailable, b"key")
+        .unwrap_err()
+        .to_string()
+        .contains("unavailable"));
 }
 
-fn config(input: DebeziumInput) -> DebeziumParserConfig {
+#[test]
+fn message_derived_table_is_revalidated_for_every_envelope() {
+    let value = envelope("c", &Value::Null, &row(1, &Value::Null), 1);
+    validate_message_table(&value, "accounts").unwrap();
+    assert!(validate_message_table(&value, "other")
+        .unwrap_err()
+        .to_string()
+        .contains("does not match discovered table"));
+}
+
+fn config() -> DebeziumParserConfig {
     DebeziumParserConfig {
-        input,
-        columns: vec![
-            mapping("$.id", "id", JsonDataType::Number, "Int64", false),
-            mapping("$.payload", "payload", JsonDataType::String, "Utf8", true),
-        ],
-        keys: vec!["id".to_owned()],
+        connection: SchemaRegistryConnection {
+            url: "http://registry.invalid".to_owned(),
+            request_timeout_ms: 1_000,
+            auth: SchemaRegistryAuth::None,
+            ca_certificate: None,
+        },
     }
-}
-
-fn mapping(
-    jsonpath: &str,
-    column_name: &str,
-    json_data_type: JsonDataType,
-    arrow_type: &str,
-    nullable: bool,
-) -> ColumnMapping {
-    ColumnMapping {
-        jsonpath: jsonpath.to_owned(),
-        column_name: column_name.to_owned(),
-        json_data_type,
-        arrow_type: arrow_type.to_owned(),
-        decimal_precision: None,
-        decimal_scale: None,
-        nullable,
-        time_conversion: None,
-        low_cardinality: false,
-        max_length: None,
-    }
-}
-
-fn message(value: &Value) -> Message {
-    Message::new(Bytes::from(serde_json::to_vec(&value).unwrap()))
 }
 
 fn row(id: i64, payload: &Value) -> Value {

@@ -256,9 +256,12 @@ impl CommonParserConfig {
                 })
             }
             TableNaming::FromTopicName => Ok(topic_path.to_string()),
-            TableNaming::FromMessage => anyhow::bail!(
-                "table_naming type 'from_message' requires a message-aware parser"
-            ),
+            TableNaming::FromMessage => topic_path
+                .trim_end_matches('/')
+                .rsplit('/')
+                .find(|segment| !segment.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| anyhow::anyhow!("message-aware table source name is empty")),
         }
     }
 }

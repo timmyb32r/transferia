@@ -249,6 +249,7 @@ impl ParserPlan {
         let parser = Arc::new(debezium::DebeziumParser::new(
             parser_config,
             Arc::clone(&table),
+            matches!(&common.table_naming, TableNaming::FromMessage),
         )?) as Arc<dyn ParserFactory>;
         Ok(Self {
             parser,
@@ -258,7 +259,7 @@ impl ParserPlan {
             parses_rows: true,
             record_semantics: RecordSemantics::Changelog,
             discovered_system_columns,
-            primary_key: Arc::from(parser_config.keys.clone()),
+            primary_key: Arc::from(["message_key_base64".to_owned()]),
             dlq_dataset_schema: default_dlq_schema(),
         })
     }

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use arrow::array::BinaryArray;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
+use base64::Engine as _;
 use bytes::Bytes;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -95,66 +96,16 @@ const ROLE_COLUMNS: [(&str, &str, &str, JsonDataType); 10] = [
     ),
 ];
 
-#[derive(Clone, Default, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-pub enum DebeziumInput {
-    #[default]
-    #[schemars(title = "JSON")]
-    Json,
-
-    #[schemars(title = "Confluent Schema Registry")]
-    SchemaRegistry {
-        connection: SchemaRegistryConnection,
-    },
-}
-
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DebeziumParserConfig {
-    #[serde(default)]
-    #[schemars(title = "Input format")]
-    pub input: DebeziumInput,
-
-    #[schemars(
-        title = "Data schema",
-        length(min = 1),
-        extend("x-ui" = { "widget": "column_mappings", "initial_items": 1 })
-    )]
-    pub columns: Vec<ColumnMapping>,
-
-    #[schemars(
-        title = "Primary key columns",
-        description = "At least one non-nullable output column that uniquely identifies a row",
-        length(min = 1)
-    )]
-    pub keys: Vec<String>,
+    #[schemars(title = "Schema Registry")]
+    pub connection: SchemaRegistryConnection,
 }
 
 impl DebeziumParserConfig {
     pub fn schemas(&self) -> anyhow::Result<(DatasetSchema, DatasetSchema)> {
         let user = self.user_projection()?.to_dataset_schema()?;
-        anyhow::ensure!(
-            !self.keys.is_empty(),
-            "debezium.keys must contain at least one primary-key column"
-        );
-        let mut keys = HashSet::with_capacity(self.keys.len());
-        for key in &self.keys {
-            anyhow::ensure!(keys.insert(key), "debezium.keys repeats column '{key}'");
-            let column = user
-                .columns
-                .iter()
-                .find(|column| &column.name == key)
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "debezium primary-key column '{key}' is not produced by the parser"
-                    )
-                })?;
-            anyhow::ensure!(
-                !column.nullable,
-                "debezium primary-key column '{key}' must be non-nullable"
-            );
-        }
-
         let mut incoming = user.clone();
         for column in &mut incoming.columns {
             if !column.primary_key {
@@ -183,30 +134,12 @@ impl DebeziumParserConfig {
     }
 
     fn user_projection(&self) -> anyhow::Result<JsonParserConfig> {
-        let mut names = HashSet::with_capacity(self.columns.len());
-        for column in &self.columns {
-            anyhow::ensure!(
-                column.jsonpath.starts_with('$'),
-                "debezium column '{}' JSONPath must start with '$'",
-                column.column_name
-            );
-            anyhow::ensure!(
-                names.insert(column.column_name.as_str()),
-                "debezium.columns repeats column_name '{}'",
-                column.column_name
-            );
-            anyhow::ensure!(
-                !column.column_name.starts_with("_system_"),
-                "debezium user column '{}' conflicts with reserved control columns",
-                column.column_name
-            );
-        }
         Ok(JsonParserConfig {
             json_framing: JsonFramingMode::SingleDocument,
-            columns: self.columns.clone(),
+            columns: debezium_columns(),
             conversion_error: ConversionErrorPolicy::Fail,
             unknown_fields: UnknownFieldPolicy::Fail,
-            keys: self.keys.clone(),
+            keys: vec!["message_key_base64".to_owned()],
         })
     }
 
@@ -214,13 +147,14 @@ impl DebeziumParserConfig {
         let mut projection = self.user_projection()?;
         for (index, mapping) in projection.columns.iter_mut().enumerate() {
             mapping.jsonpath = format!("$.current[{index}]");
-            if !self.keys.iter().any(|key| key == &mapping.column_name) {
+            if mapping.column_name != "message_key_base64" {
                 mapping.nullable = true;
             }
         }
+        let columns = debezium_columns();
         projection
             .columns
-            .extend(self.columns.iter().enumerate().map(|(index, mapping)| {
+            .extend(columns.iter().enumerate().map(|(index, mapping)| {
                 let mut mapping = mapping.clone();
                 mapping.jsonpath = format!("$.before[{index}]");
                 mapping.column_name = old_value_column_name(index);
@@ -257,51 +191,42 @@ impl DebeziumParserConfig {
             JsonDataType::String,
             "Utf8",
         ));
-        projection.keys.clone_from(&self.keys);
+        projection.keys = vec!["message_key_base64".to_owned()];
         projection.unknown_fields = UnknownFieldPolicy::Drop;
         Ok(projection)
     }
 }
 
+fn debezium_columns() -> Vec<ColumnMapping> {
+    vec![
+        primitive_mapping(
+            "message_key_base64",
+            "$.message_key_base64",
+            JsonDataType::String,
+            "Utf8",
+        ),
+        primitive_mapping("data", "$.data", JsonDataType::Json, "Json"),
+    ]
+}
+
 pub struct DebeziumParser {
-    input: DebeziumInput,
     json: Arc<JsonParser>,
     incoming_schema: DatasetSchema,
-    registry: Option<RegistryClient>,
-    user_paths: Arc<[jsonpath_lib::Compiled]>,
-    user_json_types: Arc<[JsonDataType]>,
-    user_top_level_fields: Arc<[String]>,
+    registry: RegistryClient,
     table: Arc<str>,
+    validate_message_table: bool,
 }
 
 impl DebeziumParser {
-    pub fn new(config: &DebeziumParserConfig, table: Arc<str>) -> anyhow::Result<Self> {
+    pub fn new(
+        config: &DebeziumParserConfig,
+        table: Arc<str>,
+        validate_message_table: bool,
+    ) -> anyhow::Result<Self> {
         let (incoming_schema, _) = config.schemas()?;
         let projection = config.normalized_projection()?;
-        let registry = match &config.input {
-            DebeziumInput::Json => None,
-            DebeziumInput::SchemaRegistry { connection } => Some(RegistryClient::new(connection)?),
-        };
-        let user_paths = config
-            .columns
-            .iter()
-            .map(|column| {
-                jsonpath_lib::Compiled::compile(&column.jsonpath).map_err(|error| {
-                    anyhow::anyhow!(
-                        "column '{}': invalid JSONPath '{}': {error}",
-                        column.column_name,
-                        column.jsonpath
-                    )
-                })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        let user_top_level_fields = config
-            .columns
-            .iter()
-            .map(|column| top_level_field(&column.jsonpath).map(str::to_owned))
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let registry = RegistryClient::new(&config.connection)?;
         Ok(Self {
-            input: config.input.clone(),
             json: Arc::new(JsonParser::new(
                 &projection,
                 &SystemColumnsConfig::default(),
@@ -309,15 +234,8 @@ impl DebeziumParser {
             )?),
             incoming_schema,
             registry,
-            user_paths: user_paths.into(),
-            user_json_types: config
-                .columns
-                .iter()
-                .map(|column| column.json_data_type)
-                .collect::<Vec<_>>()
-                .into(),
-            user_top_level_fields: user_top_level_fields.into(),
             table,
+            validate_message_table,
         })
     }
 }
@@ -338,7 +256,7 @@ impl ParserFactory for DebeziumParser {
 struct DebeziumParserSession {
     parser: Arc<DebeziumParser>,
     json: Box<dyn ParserSession>,
-    registry: Option<RegistryClient>,
+    registry: RegistryClient,
     decoder: SchemaDecoder,
     runtime: Option<tokio::runtime::Runtime>,
     memory_limit_bytes: usize,
@@ -362,9 +280,7 @@ impl DebeziumParserSession {
         &mut self,
         messages: &[Message],
     ) -> anyhow::Result<HashMap<i32, crate::schema_registry::RegistrySchema>> {
-        let Some(registry) = self.registry.clone() else {
-            return Ok(HashMap::new());
-        };
+        let registry = self.registry.clone();
         let ids = messages
             .iter()
             .filter(|message| !message.tombstone)
@@ -384,19 +300,14 @@ impl DebeziumParserSession {
         message: &Message,
         schemas: &HashMap<i32, crate::schema_registry::RegistrySchema>,
     ) -> anyhow::Result<Value> {
-        match &self.parser.input {
-            DebeziumInput::Json => Ok(serde_json::from_slice(&message.value)?),
-            DebeziumInput::SchemaRegistry { .. } => {
-                let envelope = ConfluentEnvelope::decode(&message.value)?;
-                let schema = schemas.get(&envelope.schema_id).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "prefetched Schema Registry schema id {} is absent",
-                        envelope.schema_id
-                    )
-                })?;
-                self.decoder.decode(schema, envelope.payload)
-            }
-        }
+        let envelope = ConfluentEnvelope::decode(&message.value)?;
+        let schema = schemas.get(&envelope.schema_id).ok_or_else(|| {
+            anyhow::anyhow!(
+                "prefetched Schema Registry schema id {} is absent",
+                envelope.schema_id
+            )
+        })?;
+        self.decoder.decode(schema, envelope.payload)
     }
 }
 
@@ -433,12 +344,14 @@ impl ParserSession for DebeziumParserSession {
             }
             let decoded = self.decode_value(&message, &schemas)?;
             let envelope = unwrap_payload(decoded)?;
-            let (value, mask) = normalize_envelope(
-                &envelope,
-                &self.parser.user_paths,
-                &self.parser.user_json_types,
-                &self.parser.user_top_level_fields,
-            )?;
+            if self.parser.validate_message_table {
+                validate_message_table(&envelope, &self.parser.table)?;
+            }
+            let key = message
+                .key
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("Debezium message must carry its record key"))?;
+            let (value, mask) = normalize_envelope(&envelope, key)?;
             let value = serde_json::to_vec(&value)?;
             decoded_bytes = decoded_bytes
                 .checked_add(value.len())
@@ -529,12 +442,7 @@ impl ParserSession for DebeziumParserSession {
     }
 }
 
-fn normalize_envelope(
-    value: &Value,
-    paths: &[jsonpath_lib::Compiled],
-    json_types: &[JsonDataType],
-    top_level_fields: &[String],
-) -> anyhow::Result<(Value, Vec<u8>)> {
+fn normalize_envelope(value: &Value, message_key: &[u8]) -> anyhow::Result<(Value, Vec<u8>)> {
     let envelope = value
         .as_object()
         .ok_or_else(|| anyhow::anyhow!("Debezium payload must be a JSON object"))?;
@@ -574,35 +482,17 @@ fn normalize_envelope(
     }
 
     let current_object = if operation == "d" { &before } else { &after };
-    reject_unknown_user_fields(current_object, top_level_fields)?;
-    if before.is_object() {
-        reject_unknown_user_fields(&before, top_level_fields)?;
-    }
-    let mut current = Vec::with_capacity(paths.len());
-    let mut old = Vec::with_capacity(paths.len());
-    let mut unavailable = Vec::with_capacity(paths.len());
-    for ((path, json_type), field) in paths.iter().zip(json_types).zip(top_level_fields) {
-        let value = extract_one(path, current_object, field)?;
-        let is_unavailable = contains_unavailable(&value);
-        current.push(if is_unavailable {
-            Value::Null
-        } else {
-            canonicalize_value(value, *json_type)?
-        });
-        let old_value = extract_one(path, &before, field)?;
-        old.push(if contains_unavailable(&old_value) {
-            Value::Null
-        } else {
-            canonicalize_value(old_value, *json_type)?
-        });
-        unavailable.push(is_unavailable);
-    }
-    if matches!(operation, "c" | "r") {
-        anyhow::ensure!(
-            unavailable.iter().all(|value| !value),
-            "Debezium create/snapshot event contains an unavailable user value"
-        );
-    }
+    anyhow::ensure!(
+        !contains_unavailable(current_object) && !contains_unavailable(&before),
+        "Debezium event contains an unavailable user value"
+    );
+    let key = Value::String(base64::engine::general_purpose::STANDARD.encode(message_key));
+    let current = vec![key.clone(), current_object.clone()];
+    let old = if before.is_object() {
+        vec![key, before]
+    } else {
+        vec![Value::Null, Value::Null]
+    };
     if let Some(transaction) = envelope.get("transaction") {
         anyhow::ensure!(
             transaction.is_null(),
@@ -631,13 +521,7 @@ fn normalize_envelope(
         );
     }
     canonicalize_metadata(&mut normalized)?;
-    let mut changed = vec![0_u8; paths.len().div_ceil(8)];
-    for (index, unavailable) in unavailable.iter().enumerate() {
-        if !unavailable {
-            changed[index / 8] |= 1 << (index % 8);
-        }
-    }
-    Ok((Value::Object(normalized), changed))
+    Ok((Value::Object(normalized), vec![0b11]))
 }
 
 fn protobuf_timestamp_name(field: &str) -> &str {
@@ -647,37 +531,6 @@ fn protobuf_timestamp_name(field: &str) -> &str {
         "ts_ns" => "tsNs",
         _ => field,
     }
-}
-
-fn extract_one(
-    path: &jsonpath_lib::Compiled,
-    object: &Value,
-    field: &str,
-) -> anyhow::Result<Value> {
-    if object.is_null() {
-        return Ok(Value::Null);
-    }
-    let values = path
-        .select(object)
-        .map_err(|error| anyhow::anyhow!("Debezium column '{field}' JSONPath failed: {error}"))?;
-    anyhow::ensure!(
-        values.len() <= 1,
-        "Debezium column '{field}' JSONPath selected multiple values"
-    );
-    Ok(values.first().map_or(Value::Null, |value| (*value).clone()))
-}
-
-fn reject_unknown_user_fields(value: &Value, known: &[String]) -> anyhow::Result<()> {
-    let Some(object) = value.as_object() else {
-        return Ok(());
-    };
-    for field in object.keys() {
-        anyhow::ensure!(
-            known.iter().any(|known| known == field),
-            "Debezium user record contains unmapped field '{field}'"
-        );
-    }
-    Ok(())
 }
 
 fn canonicalize_value(value: Value, json_type: JsonDataType) -> anyhow::Result<Value> {
@@ -767,6 +620,24 @@ fn unwrap_payload(value: Value) -> anyhow::Result<Value> {
         .ok_or_else(|| anyhow::anyhow!("schemaful Debezium wrapper has no payload"))
 }
 
+fn validate_message_table(envelope: &Value, expected_table: &str) -> anyhow::Result<()> {
+    let actual_table = envelope
+        .get("source")
+        .and_then(Value::as_object)
+        .and_then(|source| source.get("table"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Debezium source.table must be a string when table name is derived from the message"
+            )
+        })?;
+    anyhow::ensure!(
+        actual_table == expected_table,
+        "Debezium source.table '{actual_table}' does not match discovered table '{expected_table}'"
+    );
+    Ok(())
+}
+
 fn required_string<'a>(object: &'a Map<String, Value>, key: &str) -> anyhow::Result<&'a str> {
     object
         .get(key)
@@ -801,15 +672,6 @@ fn primitive_mapping(
         low_cardinality: false,
         max_length: None,
     }
-}
-
-fn top_level_field(path: &str) -> anyhow::Result<&str> {
-    let path = path.strip_prefix("$.").ok_or_else(|| {
-        anyhow::anyhow!("Debezium JSONPath '{path}' must begin with a named top-level field")
-    })?;
-    let end = path.find(['.', '[']).unwrap_or(path.len());
-    anyhow::ensure!(end > 0, "Debezium JSONPath '{path}' has no field name");
-    Ok(&path[..end])
 }
 
 fn old_value_column_name(index: usize) -> String {
