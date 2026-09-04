@@ -595,7 +595,7 @@ function detectionDisplayLabel(detection: ParserDetection): string {
         : framing === "single_document"
           ? "Single document"
           : undefined;
-  return label ? `${detection.label} · ${label}` : detection.label;
+  return label ? `${detection.label} (framing: ${label})` : detection.label;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

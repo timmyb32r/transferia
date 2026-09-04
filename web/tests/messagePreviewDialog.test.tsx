@@ -153,7 +153,9 @@ describe("message preview dialog", () => {
     expect(view.container.querySelector(".message-preview-download")).toBe(
       actionBar,
     );
-    expect(view.getByText("JSON parser · JSON lines")).toBeTruthy();
+    expect(
+      view.getByText("JSON parser (framing: JSON lines)"),
+    ).toBeTruthy();
     fireEvent.click(view.getByRole("tab", { name: "Binary" }));
     fireEvent.click(view.getByRole("button", { name: "Copy message" }));
     await waitFor(() =>
