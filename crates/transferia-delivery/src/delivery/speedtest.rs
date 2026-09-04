@@ -541,6 +541,7 @@ async fn measure_destination(
             .connector()
             .build_sink(SinkBuildContext {
                 partition_id,
+                delivery_name: Arc::from(pipeline.config.delivery_name.clone()),
                 replay_identity: None,
                 finite_source: pipeline.finite_source,
                 counters: Arc::clone(&counters),

@@ -311,6 +311,7 @@ async fn deliver_to_iceberg(
     let sink = connector
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            delivery_name: "test delivery".into(),
             replay_identity: Some(replay_identity),
             finite_source: false,
             counters: Arc::new(SinkCounters::new()),

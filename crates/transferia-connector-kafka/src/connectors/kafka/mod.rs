@@ -298,6 +298,7 @@ impl SinkConnector for KafkaSinkConnector {
             let serializer = crate::serializer::DeliverySerializer::new(
                 &self.config.serializer,
                 crate::serializer::QueueMessageMode::KeyedWithTombstones,
+                &context.delivery_name,
             )?;
             Ok(Box::new(KafkaSink::new(
                 Arc::clone(&self.config),

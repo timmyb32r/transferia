@@ -607,6 +607,7 @@ async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyho
     let built = sink
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            delivery_name: "test delivery".into(),
             replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
@@ -693,6 +694,7 @@ async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyho
     let changelog_sink = sink
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            delivery_name: "test delivery".into(),
             replay_identity: None,
             finite_source: false,
             counters: Arc::new(SinkCounters::new()),

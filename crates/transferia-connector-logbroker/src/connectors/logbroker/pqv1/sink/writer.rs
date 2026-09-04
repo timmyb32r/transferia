@@ -33,6 +33,7 @@ pub(super) struct PqV1Sink {
     message_group_id: Arc<str>,
     token: Arc<str>,
     counters: Arc<SinkCounters>,
+    delivery_name: Arc<str>,
     discovery: Arc<transferia_core::delivery::DeliveryDiscovery>,
     limits: Arc<dyn SinkLimits>,
 }
@@ -60,6 +61,7 @@ impl PqV1Sink {
             message_group_id,
             token,
             counters: context.counters,
+            delivery_name: context.delivery_name,
             discovery: context.discovery,
             limits,
         }
@@ -129,7 +131,11 @@ impl PqV1Sink {
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("PQv1 sequence overflow"))?;
         let mut serializer =
-            DeliverySerializer::new(&self.config.serializer, QueueMessageMode::ValuesOnly)?;
+            DeliverySerializer::new(
+                &self.config.serializer,
+                QueueMessageMode::ValuesOnly,
+                &self.delivery_name,
+            )?;
 
         while let Some(delivery) = io.deliveries.recv().await {
             let started = std::time::Instant::now();

@@ -237,6 +237,7 @@ async fn discard_sink_runs_through_the_connector_and_actor_boundary() -> anyhow:
     connector.limits().validate_discovery(&discovery)?;
     let sink = connector
         .build_sink(SinkBuildContext {
+            delivery_name: "test delivery".into(),
             durable: support::durable_context(),
             partition_id: 0,
             replay_identity: None,
@@ -338,6 +339,7 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let sink = connector
         .build_sink(SinkBuildContext {
+            delivery_name: "test delivery".into(),
             durable: support::durable_context(),
             partition_id: 0,
             replay_identity: None,
@@ -404,6 +406,7 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
         .await?;
     let changelog_sink = connector
         .build_sink(SinkBuildContext {
+            delivery_name: "test delivery".into(),
             durable: support::durable_context(),
             partition_id: 0,
             replay_identity: None,
@@ -580,6 +583,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     let memory = PipelineMemory::new(256 * 1024 * 1024);
     let sink = connector
         .build_sink(SinkBuildContext {
+            delivery_name: "test delivery".into(),
             durable: durable.clone(),
             partition_id: 0,
             replay_identity: None,
@@ -690,6 +694,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     let replay_connector = S3SinkConnector::from_config(serde_yaml::from_str(&yaml)?)?;
     let replay_sink = replay_connector
         .build_sink(SinkBuildContext {
+            delivery_name: "test delivery".into(),
             durable: transferia::durable::DurableStorageConfig::LocalFile {
                 path: durable_root.clone(),
             }

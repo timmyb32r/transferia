@@ -410,6 +410,7 @@ const fn role_name(role: DatasetRole) -> &'static str {
 
 #[derive(Clone)]
 struct PipelineDependencies {
+    delivery_name: Arc<str>,
     parser: Arc<dyn ParserFactory>,
     middlewares: Arc<Vec<Box<dyn Middleware>>>,
     source_connector: Arc<dyn SourceConnector>,
@@ -698,6 +699,7 @@ async fn start_pipeline(
     }
 
     let dependencies = PipelineDependencies {
+        delivery_name: Arc::from(config.delivery_name.clone()),
         parser,
         middlewares: Arc::new(middlewares),
         source_connector,
@@ -907,6 +909,7 @@ async fn run_partition_attempt(
         .sink_connector
         .build_sink(SinkBuildContext {
             partition_id,
+            delivery_name: Arc::clone(&dependencies.delivery_name),
             replay_identity: dependencies.replay_identity.clone(),
             finite_source: dependencies.delivery_finite,
             counters: sink_counters,

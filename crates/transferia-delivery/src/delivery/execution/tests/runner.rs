@@ -463,6 +463,7 @@ fn phase_pipeline_plan(
     let config = serde_yaml::from_str(
         r"
 delivery_id: phase-runner-test
+delivery_name: Test delivery
 durable_storage:
   type: local_file
   path: /tmp/phase-runner-test-unused

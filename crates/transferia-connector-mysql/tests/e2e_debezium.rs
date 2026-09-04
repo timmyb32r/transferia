@@ -317,12 +317,11 @@ async fn locked_snapshot_and_cdc_serialize_as_lossless_mysql_debezium_with_ack_r
 
     let serializer_config: SerializerConfig = serde_json::from_value(json!({
         "type": "debezium",
-        "logical_name": "inventory",
         "format": { "type": "json" }
     }))?;
     serializer_config.validate_discovery(&prepared.discovery)?;
     let mut serializer =
-        DeliverySerializer::new(&serializer_config, QueueMessageMode::KeyedWithTombstones)?;
+        DeliverySerializer::new(&serializer_config, QueueMessageMode::KeyedWithTombstones, "Inventory delivery")?;
 
     exec_all(
         &mut admin,

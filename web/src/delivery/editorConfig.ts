@@ -340,6 +340,7 @@ export function freshConfig(catalog: UiCatalog): JsonObject {
 export function clonedConfig(catalog: UiCatalog, current: JsonObject): JsonObject {
   const config = structuredClone(current);
   delete config.delivery_id;
+  delete config.delivery_name;
   config.durable_storage = freshConfig(catalog).durable_storage!;
   return config;
 }

@@ -270,6 +270,7 @@ async fn write_sink_batch(host: &str, port: u16, table: &str, format: &str) -> a
     let sink = connector
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            delivery_name: "test delivery".into(),
             replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),

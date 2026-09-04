@@ -866,12 +866,11 @@ async fn read_changes(
         let mut observed = ObservedChanges::default();
         let serializer_config: SerializerConfig = serde_json::from_value(serde_json::json!({
             "type": "debezium",
-            "logical_name": "inventory",
             "format": { "type": "json" }
         }))?;
         serializer_config.validate_discovery(discovery)?;
         let mut serializer =
-            DeliverySerializer::new(&serializer_config, QueueMessageMode::KeyedWithTombstones)?;
+            DeliverySerializer::new(&serializer_config, QueueMessageMode::KeyedWithTombstones, "Inventory delivery")?;
         let mut delivery_id = 0_u64;
         while observed.rows.len() < expected_rows {
             match source.read_batch().await? {

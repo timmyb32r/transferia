@@ -47,7 +47,7 @@ fn debezium_is_one_serializer_with_four_conditionally_typed_formats() {
             ""
         };
         let yaml = format!(
-            "type: debezium\nlogical_name: inventory\nformat:\n  type: {format}{registry}{indexes}\n"
+            "type: debezium\nformat:\n  type: {format}{registry}{indexes}\n"
         );
         let config: SerializerConfig = serde_yaml::from_str(&yaml).unwrap();
         config.validate().unwrap();
@@ -71,21 +71,30 @@ fn protobuf_serializer_rejects_empty_message_path() {
 }
 
 #[test]
-fn debezium_json_requires_an_explicit_stable_logical_source_name() {
-    for logical_name in ["", " inventory", "inventory "] {
-        assert!(SerializerConfig::Debezium {
-            logical_name: logical_name.to_owned(),
-            format: DebeziumFormat::Json,
-        }
-        .validate()
+fn debezium_uses_delivery_name_instead_of_exposing_a_logical_name_setting() {
+    let schema = serde_json::to_value(schemars::schema_for!(SerializerConfig))
+        .expect("serializer schema serializes");
+    let schema = schema.to_string();
+    assert!(!schema.contains("logical_name"), "{schema}");
+    assert!(!schema.contains("Logical source name"), "{schema}");
+
+    let config = SerializerConfig::Debezium {
+        format: DebeziumFormat::Json,
+    };
+    for invalid_name in ["", " Inventory delivery", "Inventory delivery "] {
+        assert!(DeliverySerializer::new(
+            &config,
+            QueueMessageMode::KeyedWithTombstones,
+            invalid_name,
+        )
         .is_err());
     }
-    assert!(SerializerConfig::Debezium {
-        logical_name: "inventory".to_owned(),
-        format: DebeziumFormat::Json,
-    }
-    .validate()
-    .is_ok());
+    DeliverySerializer::new(
+        &config,
+        QueueMessageMode::KeyedWithTombstones,
+        "Inventory delivery",
+    )
+    .expect("a valid delivery name is the Debezium logical source name");
 }
 
 #[test]
@@ -105,14 +114,12 @@ fn serializers_publish_their_record_semantics() {
         ),
         (
             SerializerConfig::Debezium {
-                logical_name: "inventory".to_owned(),
                 format: DebeziumFormat::Json,
             },
             &[RecordSemantics::AppendOnly, RecordSemantics::Changelog][..],
         ),
         (
             SerializerConfig::Debezium {
-                logical_name: "inventory".to_owned(),
                 format: DebeziumFormat::JsonSchema {
                     connection: registry_connection(),
                     key_subject: Some("inventory.events-key".to_owned()),
@@ -139,7 +146,6 @@ fn serializers_publish_their_record_semantics() {
 #[test]
 fn keyed_debezium_schema_registry_requires_both_subjects() {
     let config = SerializerConfig::Debezium {
-        logical_name: "inventory".to_owned(),
         format: DebeziumFormat::JsonSchema {
             connection: registry_connection(),
             key_subject: None,
@@ -148,18 +154,26 @@ fn keyed_debezium_schema_registry_requires_both_subjects() {
     };
 
     assert!(config.validate().is_ok());
-    let error = DeliverySerializer::new(&config, QueueMessageMode::KeyedWithTombstones)
-        .err()
-        .expect("keyed mode must reject an absent key subject")
-        .to_string();
+    let error = DeliverySerializer::new(
+        &config,
+        QueueMessageMode::KeyedWithTombstones,
+        "Inventory delivery",
+    )
+    .err()
+    .expect("keyed mode must reject an absent key subject")
+    .to_string();
     assert!(error.contains("key_subject"), "{error}");
-    DeliverySerializer::new(&config, QueueMessageMode::ValuesOnly).unwrap();
+    DeliverySerializer::new(
+        &config,
+        QueueMessageMode::ValuesOnly,
+        "Inventory delivery",
+    )
+    .unwrap();
 }
 
 #[test]
 fn debezium_schema_registry_rejects_invalid_subjects_and_protobuf_paths() {
     let mut config = SerializerConfig::Debezium {
-        logical_name: "inventory".to_owned(),
         format: DebeziumFormat::Protobuf {
             connection: registry_connection(),
             key_subject: Some("inventory.accounts-key".to_owned()),
@@ -203,7 +217,6 @@ fn debezium_discovery_fails_closed_without_every_cdc_control() {
     use transferia_core::SystemColumnKind;
 
     let config = SerializerConfig::Debezium {
-        logical_name: "inventory".to_owned(),
         format: DebeziumFormat::Json,
     };
     let id = SchemaColumn::new("id".to_owned(), DataType::Int64, true)
@@ -333,7 +346,6 @@ fn debezium_discovery_accepts_snapshot_metadata_without_cdc_old_values() {
         performance_advice: Vec::new(),
     };
     let config = SerializerConfig::Debezium {
-        logical_name: "inventory".to_owned(),
         format: DebeziumFormat::Json,
     };
 
@@ -359,7 +371,6 @@ fn mysql_debezium_discovery_requires_exact_source_changelog_and_role_contracts()
     use transferia_core::SystemColumnKind;
 
     let config = SerializerConfig::Debezium {
-        logical_name: "inventory".to_owned(),
         format: DebeziumFormat::Json,
     };
     let discovery = mysql_debezium_discovery();
@@ -488,7 +499,6 @@ fn ydb_debezium_discovery_requires_exact_stream_roles_and_full_old_images() {
     use transferia_core::SystemColumnKind;
 
     let config = SerializerConfig::Debezium {
-        logical_name: "inventory".to_owned(),
         format: DebeziumFormat::Json,
     };
     let discovery = ydb_debezium_discovery();

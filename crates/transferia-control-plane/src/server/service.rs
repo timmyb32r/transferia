@@ -939,7 +939,7 @@ impl ControlPlane {
         validate_draft_shape(&config)?;
         let _mutation = self.mutation.lock().await;
         let id = new_transfer_id()?;
-        set_runtime_delivery_id(&mut config, &id)?;
+        set_runtime_delivery_identity(&mut config, &id, &name)?;
         let now = now_ms();
         let record = DeliveryRecord {
             id,
@@ -982,7 +982,7 @@ impl ControlPlane {
             )));
         }
         ensure_record_version(id, record.record_version, expected_record_version)?;
-        set_runtime_delivery_id(&mut config, &record.id)?;
+        set_runtime_delivery_identity(&mut config, &record.id, &name)?;
         record.name = name;
         record.description = description;
         record.config = config;
@@ -2119,13 +2119,21 @@ fn validate_draft_shape(config: &Value) -> Result<(), ServiceError> {
     Ok(())
 }
 
-fn set_runtime_delivery_id(config: &mut Value, delivery_id: &str) -> Result<(), ServiceError> {
+fn set_runtime_delivery_identity(
+    config: &mut Value,
+    delivery_id: &str,
+    delivery_name: &str,
+) -> Result<(), ServiceError> {
     let object = config.as_object_mut().ok_or_else(|| {
         ServiceError::InvalidInput("delivery configuration must be a JSON object".to_owned())
     })?;
     object.insert(
         "delivery_id".to_owned(),
         Value::String(delivery_id.to_owned()),
+    );
+    object.insert(
+        "delivery_name".to_owned(),
+        Value::String(delivery_name.to_owned()),
     );
     Ok(())
 }

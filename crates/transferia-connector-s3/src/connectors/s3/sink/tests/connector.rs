@@ -207,6 +207,7 @@ async fn partition_sinks_share_one_uploader() -> anyhow::Result<()> {
 
     let first = connector
         .build_sink(SinkBuildContext {
+            delivery_name: "test delivery".into(),
             durable: crate::durable::test_support::context(),
             partition_id: 1,
             replay_identity: None,
@@ -218,6 +219,7 @@ async fn partition_sinks_share_one_uploader() -> anyhow::Result<()> {
         .await?;
     let second = connector
         .build_sink(SinkBuildContext {
+            delivery_name: "test delivery".into(),
             durable: crate::durable::test_support::context(),
             partition_id: 2,
             replay_identity: None,

@@ -70,6 +70,7 @@ async fn kafka_sink_source_and_offset_commit_use_a_real_broker() -> anyhow::Resu
     let sink = sink_connector
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            delivery_name: "test delivery".into(),
             replay_identity: None,
             finite_source: false,
             counters: Arc::new(SinkCounters::new()),

@@ -35,9 +35,6 @@ pub enum SerializerConfig {
 
     #[schemars(title = "Debezium", extend("x-ui" = { "capabilities": { "component": "serializer", "key": "debezium", "record_semantics": ["append_only", "changelog"] } }))]
     Debezium {
-        #[schemars(title = "Logical source name")]
-        logical_name: String,
-
         #[schemars(title = "Format")]
         format: DebeziumFormat,
     },
@@ -207,13 +204,7 @@ impl SerializerConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         match self {
             Self::Json => Ok(()),
-            Self::Debezium {
-                logical_name,
-                format,
-            } => {
-                validate_debezium_logical_name(logical_name)?;
-                format.validate()
-            }
+            Self::Debezium { format } => format.validate(),
             Self::SchemaRegistry {
                 connection,
                 subject,
@@ -603,10 +594,10 @@ impl SerializerConfig {
     }
 }
 
-fn validate_debezium_logical_name(logical_name: &str) -> anyhow::Result<()> {
+fn validate_debezium_delivery_name(delivery_name: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
-        logical_name.trim() == logical_name && !logical_name.is_empty(),
-        "Debezium logical source name must be nonempty and must not contain leading or trailing whitespace"
+        delivery_name.trim() == delivery_name && !delivery_name.is_empty(),
+        "Debezium delivery name must be nonempty and must not contain leading or trailing whitespace"
     );
     Ok(())
 }
@@ -707,18 +698,25 @@ enum CompiledWriterSchema {
 }
 
 impl DeliverySerializer {
-    pub fn new(config: &SerializerConfig, mode: QueueMessageMode) -> anyhow::Result<Self> {
+    pub fn new(
+        config: &SerializerConfig,
+        mode: QueueMessageMode,
+        delivery_name: &str,
+    ) -> anyhow::Result<Self> {
         config.validate()?;
         let kind = match config {
             SerializerConfig::Json => SerializerKind::Json,
             SerializerConfig::Debezium {
-                logical_name,
                 format: DebeziumFormat::Json,
-            } => SerializerKind::DebeziumJson(DebeziumJsonEncoder::new(logical_name.clone(), mode)),
-            SerializerConfig::Debezium {
-                logical_name,
-                format,
             } => {
+                validate_debezium_delivery_name(delivery_name)?;
+                SerializerKind::DebeziumJson(DebeziumJsonEncoder::new(
+                    delivery_name.to_owned(),
+                    mode,
+                ))
+            }
+            SerializerConfig::Debezium { format } => {
+                validate_debezium_delivery_name(delivery_name)?;
                 let Some(registry_config) = format.registry() else {
                     anyhow::bail!("Debezium Schema Registry format is required")
                 };
@@ -727,7 +725,7 @@ impl DeliverySerializer {
                     "Debezium Schema Registry serializer requires key_subject for a keyed queue sink"
                 );
                 SerializerKind::DebeziumRegistry {
-                    encoder: DebeziumJsonEncoder::new(logical_name.clone(), mode),
+                    encoder: DebeziumJsonEncoder::new(delivery_name.to_owned(), mode),
                     registry: RegistryClient::new(registry_config.connection)?,
                     key_subject: registry_config.key_subject.map(str::to_owned),
                     value_subject: registry_config.value_subject.to_owned(),

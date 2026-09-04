@@ -10,6 +10,9 @@ pub use transferia_server_contracts::api::UiCatalog;
 #[derive(JsonSchema)]
 #[expect(dead_code, reason = "fields are consumed by the JsonSchema derive")]
 struct CommonConfigSchema {
+    #[schemars(title = "Delivery name", extend("x-ui" = { "widget": "hidden" }))]
+    delivery_name: String,
+
     #[schemars(title = "Delivery type")]
     delivery_type: DeliveryType,
 
@@ -40,6 +43,7 @@ pub fn build_ui_catalog_with(transferia: &Transferia) -> anyhow::Result<UiCatalo
         common_schema,
         initial: serde_json::json!({
             "delivery_id": "demo-delivery",
+            "delivery_name": "Untitled delivery",
             "durable_storage": { "type": "local_file", "path": ".transferia-state" },
             "delivery_type": null,
             "source": {},

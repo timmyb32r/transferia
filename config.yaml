@@ -1,5 +1,6 @@
 # PQv1 partition -> JSON -> S3
 delivery_id: pqv1-s3-demo
+delivery_name: Demo delivery
 delivery_type: stream
 durable_storage: { type: local_file, path: .transferia-state }
 source:

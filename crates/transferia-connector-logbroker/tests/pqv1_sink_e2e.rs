@@ -83,6 +83,7 @@ async fn pqv1_sink_serializes_json_and_commits_only_after_real_grpc_ack() -> any
     connector.limits().validate_discovery(&discovery)?;
     let sink = connector
         .build_sink(SinkBuildContext {
+            delivery_name: "test delivery".into(),
             durable: transferia_test_support::durable_context(),
             partition_id: 0,
             replay_identity: None,

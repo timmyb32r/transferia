@@ -4,6 +4,13 @@
     "title": "CommonConfigSchema",
     "type": "object",
     "properties": {
+      "delivery_name": {
+        "title": "Delivery name",
+        "type": "string",
+        "x-ui": {
+          "widget": "hidden"
+        }
+      },
       "delivery_type": {
         "title": "Delivery type",
         "$ref": "#/$defs/DeliveryType"
@@ -113,6 +120,7 @@
       }
     },
     "required": [
+      "delivery_name",
       "delivery_type",
       "middlewares",
       "pipeline_memory_limit_bytes"
@@ -146,6 +154,7 @@
   },
   "initial": {
     "delivery_id": "demo-delivery",
+    "delivery_name": "Untitled delivery",
     "durable_storage": {
       "type": "local_file",
       "path": ".transferia-state"
@@ -1498,10 +1507,6 @@
                   "title": "Debezium",
                   "type": "object",
                   "properties": {
-                    "logical_name": {
-                      "title": "Logical source name",
-                      "type": "string"
-                    },
                     "format": {
                       "title": "Format",
                       "$ref": "#/$defs/DebeziumFormat"
@@ -1514,7 +1519,6 @@
                   "additionalProperties": false,
                   "required": [
                     "type",
-                    "logical_name",
                     "format"
                   ],
                   "x-ui": {
@@ -3398,10 +3402,6 @@
                   "title": "Debezium",
                   "type": "object",
                   "properties": {
-                    "logical_name": {
-                      "title": "Logical source name",
-                      "type": "string"
-                    },
                     "format": {
                       "title": "Format",
                       "$ref": "#/$defs/DebeziumFormat"
@@ -3414,7 +3414,6 @@
                   "additionalProperties": false,
                   "required": [
                     "type",
-                    "logical_name",
                     "format"
                   ],
                   "x-ui": {

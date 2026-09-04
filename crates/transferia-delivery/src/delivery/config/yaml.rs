@@ -13,6 +13,8 @@ use transferia_registry::durable::DurableStorageConfig;
 pub struct Config {
     pub delivery_id: String,
 
+    pub delivery_name: String,
+
     pub durable_storage: DurableStorageConfig,
 
     pub delivery_type: DeliveryType,

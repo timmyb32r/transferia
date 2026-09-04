@@ -267,6 +267,7 @@ async fn ytsaurus_source_and_arrow_sink_use_the_real_http_api() -> anyhow::Resul
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let arrow_sink = arrow_connector
         .build_sink(SinkBuildContext {
+            delivery_name: "test delivery".into(),
             durable: transferia_test_support::durable_context(),
             partition_id: 0,
             replay_identity: None,

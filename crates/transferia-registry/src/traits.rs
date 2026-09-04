@@ -747,6 +747,9 @@ fn schemas_are_equivalent(original: &DatasetSchema, isolated: &DatasetSchema) ->
 pub struct SinkBuildContext {
     pub partition_id: i64,
 
+    /// User-visible delivery name used by destination formats that identify the source.
+    pub delivery_name: Arc<str>,
+
     /// Stable identity of the prepared source execution, when the source defines one.
     pub replay_identity: Option<Arc<str>>,
 

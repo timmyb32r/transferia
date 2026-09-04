@@ -114,6 +114,7 @@ async fn run_pipeline(
         .await?;
     let sink_actor = sink
         .build_sink(SinkBuildContext {
+            delivery_name: "test delivery".into(),
             durable: support::durable_context(),
             partition_id: 0,
             replay_identity: None,
@@ -327,6 +328,7 @@ async fn postgres_sink_applies_changelog_atomically_and_replay_is_idempotent() -
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let sink = connector
         .build_sink(SinkBuildContext {
+            delivery_name: "test delivery".into(),
             durable: support::durable_context(),
             partition_id: 0,
             replay_identity: None,
@@ -605,6 +607,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
         .await?;
     let sink = postgres_sink
         .build_sink(SinkBuildContext {
+            delivery_name: "test delivery".into(),
             durable: support::durable_context(),
             partition_id: 0,
             replay_identity: None,

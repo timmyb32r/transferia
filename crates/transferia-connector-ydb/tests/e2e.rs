@@ -264,6 +264,7 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
     let built = sink
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            delivery_name: "test delivery".into(),
             replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
@@ -323,6 +324,7 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
     let changelog_sink = sink
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            delivery_name: "test delivery".into(),
             replay_identity: None,
             finite_source: false,
             counters: Arc::new(SinkCounters::new()),

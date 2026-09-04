@@ -90,7 +90,7 @@ fn semantic_errors_short_circuit_sink_limit_validation() {
 #[test]
 fn resolved_worker_document_preserves_the_exact_replay_identity() -> anyhow::Result<()> {
     let config = Config::from_yaml(
-        "delivery_id: replay-test\ndurable_storage: { type: local_file, path: /tmp/replay-test }\ndelivery_type: batch\nsource: { test: {} }\nsink: { test: {} }\n",
+        "delivery_id: replay-test\ndelivery_name: Test delivery\ndurable_storage: { type: local_file, path: /tmp/replay-test }\ndelivery_type: batch\nsource: { test: {} }\nsink: { test: {} }\n",
     )?;
     let document = ResolvedConfigDocument {
         replay_identity: Some("control-plane-delivery:dtt-example:revision:7".to_owned()),
@@ -111,6 +111,7 @@ fn resolved_worker_document_preserves_the_exact_replay_identity() -> anyhow::Res
 async fn plan_rejects_zero_pipeline_memory_before_discovery() -> anyhow::Result<()> {
     let yaml = r"
 delivery_id: plan-test
+delivery_name: Test delivery
 durable_storage: { type: local_file, path: /tmp/transferia-plan-test }
 delivery_type: batch
 source:

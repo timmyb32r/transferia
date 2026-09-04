@@ -144,6 +144,7 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let sink = connector
         .build_sink(SinkBuildContext {
+            delivery_name: "test delivery".into(),
             durable: transferia_test_support::durable_context(),
             partition_id: 0,
             replay_identity: None,

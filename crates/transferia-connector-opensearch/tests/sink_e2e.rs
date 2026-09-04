@@ -211,6 +211,7 @@ async fn opensearch_sink_commits_strict_bulk_rejects_duplicates_and_preserves_ro
     let sink = connector
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            delivery_name: "test delivery".into(),
             replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),
@@ -325,6 +326,7 @@ async fn opensearch_sink_commits_strict_bulk_rejects_duplicates_and_preserves_ro
     let envelope_sink = envelope_connector
         .build_sink(SinkBuildContext {
             partition_id: 0,
+            delivery_name: "test delivery".into(),
             replay_identity: None,
             finite_source: true,
             counters: Arc::new(SinkCounters::new()),

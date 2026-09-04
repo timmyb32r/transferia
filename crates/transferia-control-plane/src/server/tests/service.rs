@@ -444,6 +444,7 @@ async fn first_save_assigns_one_stable_terry_transfer_id() -> anyhow::Result<()>
         .bytes()
         .all(|byte| matches!(byte, b'a'..=b'v' | b'0'..=b'9')));
     assert_eq!(created.config["delivery_id"], created.id);
+    assert_eq!(created.config["delivery_name"], "test");
 
     let updated = service
         .update_draft(
@@ -457,6 +458,7 @@ async fn first_save_assigns_one_stable_terry_transfer_id() -> anyhow::Result<()>
         .await?;
     assert_eq!(updated.id, created.id);
     assert_eq!(updated.config["delivery_id"], created.id);
+    assert_eq!(updated.config["delivery_name"], "renamed");
     Ok(())
 }
 
