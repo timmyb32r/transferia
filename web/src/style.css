@@ -1564,6 +1564,16 @@ input[type="checkbox"]:disabled {
   position: relative;
   min-width: 0;
 }
+.dynamic-select-status {
+  box-sizing: border-box;
+  height: 38px;
+  padding-top: 6px;
+  overflow-y: auto;
+  color: var(--danger-text);
+  font-size: 12px;
+  line-height: 15px;
+  overflow-wrap: anywhere;
+}
 .dynamic-path-input-wrap input {
   width: 100%;
   padding-right: 34px;

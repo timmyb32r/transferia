@@ -973,6 +973,34 @@ describe("schema form", () => {
     options.mockRestore();
   });
 
+  it("keeps a stable status slot when dynamic option loading fails", async () => {
+    const options = vi
+      .spyOn(api, "options")
+      .mockRejectedValue(
+        new Error(
+          "No ready managed-kafka clusters were found in the configured folder.",
+        ),
+      );
+    const view = render(
+      <SchemaForm
+        node={{ kind: "string", xUi: { dynamic_options: "clusters" } }}
+        value=""
+        onChange={() => undefined}
+      />,
+    );
+    const form = within(view.container as HTMLElement);
+    const slot = view.container.querySelector(".dynamic-select-status");
+    expect(slot).toBeTruthy();
+    expect(slot?.textContent).toBe("");
+
+    fireEvent.pointerDown(form.getByRole("button", { name: "Not selected" }));
+
+    const alert = await form.findByRole("alert");
+    expect(alert).toBe(slot);
+    expect(alert.textContent).toContain("No ready managed-kafka clusters");
+    options.mockRestore();
+  });
+
   it("closes an open select when the form becomes read-only", () => {
     const onChange = vi.fn();
     const node: CompiledNode = {

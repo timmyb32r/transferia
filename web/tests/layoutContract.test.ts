@@ -38,4 +38,10 @@ describe("delivery layout contract", () => {
     expect(sourceRule?.[1]).toContain(connectedRadius);
     expect(sinkRule?.[1]).toContain(connectedRadius);
   });
+
+  it("reserves a fixed-height region for dynamic option errors", () => {
+    expect(styles).toMatch(
+      /\.dynamic-select-status\s*\{[^}]*height:\s*38px;[^}]*overflow-y:\s*auto;/s,
+    );
+  });
 });

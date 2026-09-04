@@ -75,9 +75,13 @@ export function DynamicSelectControl({
         onOpen={load}
         onChange={onChange}
       />
-      {status !== undefined && status !== "Loading…" && (
-        <div class="field-hint error">{status}</div>
-      )}
+      <div
+        class={`dynamic-select-status${status !== undefined && status !== "Loading…" ? " error" : ""}`}
+        aria-live="polite"
+        role={status !== undefined && status !== "Loading…" ? "alert" : undefined}
+      >
+        {status !== undefined && status !== "Loading…" ? status : ""}
+      </div>
     </div>
   );
 }
