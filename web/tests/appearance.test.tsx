@@ -188,6 +188,7 @@ describe("appearance preferences", () => {
   it("groups catalog components by their declared properties", () => {
     const catalog = structuredClone(CATALOG);
     catalog.connectors[0]!.source!.partitioned = true;
+    catalog.connectors[0]!.source!.message_preview = true;
     catalog.connectors[1]!.source!.schema = {
       title: "Debezium parser",
       "x-ui": {
@@ -233,6 +234,11 @@ describe("appearance preferences", () => {
         .find((group) => group.key === "partitioned")
         ?.nonMembers.has("destination"),
     ).toBe(false);
+    const messagePreview = groups.find(
+      (group) => group.key === "message_preview",
+    )!;
+    expect(messagePreview.members.has("destination")).toBe(false);
+    expect(messagePreview.nonMembers.has("destination")).toBe(false);
     const combined = groups.find(
       (group) => group.key === "delivery_mode.batch_and_stream",
     );

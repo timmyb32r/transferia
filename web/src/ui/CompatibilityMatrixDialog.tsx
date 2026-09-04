@@ -116,7 +116,8 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
     if (
       property === "record_semantics.changelog" ||
       property === "record_semantics.only_changelog" ||
-      (property === "delivery_mode.batch" && kind === "destination")
+      ((property === "delivery_mode.batch" || property === "message_preview") &&
+        kind === "destination")
     )
       return;
     const group = groups.get(property) ?? {
@@ -182,6 +183,7 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
       ) {
         continue;
       }
+      if (group.key === "message_preview" && kind === "destination") continue;
       const members = group.members.get(kind) ?? new Set<string>();
       const nonMembers = new Set(
         [...(universes.get(kind) ?? [])].filter((title) => !members.has(title)),
