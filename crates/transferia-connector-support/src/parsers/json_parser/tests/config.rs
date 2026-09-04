@@ -115,6 +115,10 @@ fn defaults_unknown_fields_to_the_additional_properties_column() -> anyhow::Resu
         schema.pointer("/properties/unknown_fields/default/column_name"),
         Some(&serde_json::json!("additional_properties"))
     );
+    assert_eq!(
+        schema.pointer("/properties/unknown_fields/x-ui/control_width"),
+        Some(&serde_json::json!("routing"))
+    );
     let dataset = config.to_dataset_schema()?;
     assert_eq!(
         dataset.columns[1].arrow_extension_name,

@@ -29,7 +29,10 @@ pub struct TskvParserConfig {
     pub columns: Vec<TskvColumnMapping>,
 
     #[serde(default)]
-    #[schemars(title = "On Unknown Field")]
+    #[schemars(
+        title = "On Unknown Field",
+        extend("x-ui" = { "control_width": "routing" })
+    )]
     pub unknown_fields: UnknownFieldPolicy,
 
     #[serde(default)]

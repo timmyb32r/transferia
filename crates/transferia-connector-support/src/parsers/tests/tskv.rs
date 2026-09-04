@@ -16,6 +16,10 @@ fn public_schema_omits_json_only_column_fields() -> anyhow::Result<()> {
     assert!(column.get("arrow_type").is_some());
     assert!(column.get("jsonpath").is_none());
     assert!(column.get("json_data_type").is_none());
+    assert_eq!(
+        schema["properties"]["unknown_fields"]["x-ui"]["control_width"],
+        "routing"
+    );
     Ok(())
 }
 

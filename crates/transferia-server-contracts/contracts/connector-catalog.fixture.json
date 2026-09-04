@@ -642,6 +642,9 @@
                   "default": {
                     "action": "send_to_column",
                     "column_name": "additional_properties"
+                  },
+                  "x-ui": {
+                    "control_width": "routing"
                   }
                 },
                 "keys": {
@@ -963,6 +966,9 @@
                   "default": {
                     "action": "send_to_column",
                     "column_name": "additional_properties"
+                  },
+                  "x-ui": {
+                    "control_width": "routing"
                   }
                 },
                 "keys": {
@@ -2597,6 +2603,9 @@
                   "default": {
                     "action": "send_to_column",
                     "column_name": "additional_properties"
+                  },
+                  "x-ui": {
+                    "control_width": "routing"
                   }
                 },
                 "keys": {
@@ -2918,6 +2927,9 @@
                   "default": {
                     "action": "send_to_column",
                     "column_name": "additional_properties"
+                  },
+                  "x-ui": {
+                    "control_width": "routing"
                   }
                 },
                 "keys": {
@@ -6335,6 +6347,9 @@
                   "default": {
                     "action": "send_to_column",
                     "column_name": "additional_properties"
+                  },
+                  "x-ui": {
+                    "control_width": "routing"
                   }
                 },
                 "keys": {

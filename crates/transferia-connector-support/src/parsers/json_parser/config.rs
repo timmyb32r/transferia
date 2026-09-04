@@ -40,7 +40,10 @@ pub struct JsonParserConfig {
     pub conversion_error: ConversionErrorPolicy,
 
     #[serde(default)]
-    #[schemars(title = "On Unknown Field")]
+    #[schemars(
+        title = "On Unknown Field",
+        extend("x-ui" = { "control_width": "routing" })
+    )]
     pub unknown_fields: UnknownFieldPolicy,
 
     #[serde(default)]
