@@ -222,7 +222,11 @@ describe("appearance preferences", () => {
     expect([...appendOnly.nonMembers.get("parser")!]).toEqual(["Debezium parser"]);
     expect(groups.some((group) => group.key === "record_semantics.changelog")).toBe(false);
     expect(groups.some((group) => group.key === "record_semantics.only_changelog")).toBe(false);
-    expect(groups.find((group) => group.key === "delivery_mode.batch")?.members.has("destination")).toBe(false);
+    const batchDelivery = groups.find(
+      (group) => group.key === "delivery_mode.batch",
+    )!;
+    expect(batchDelivery.members.has("destination")).toBe(false);
+    expect(batchDelivery.nonMembers.has("destination")).toBe(false);
     const combined = groups.find(
       (group) => group.key === "delivery_mode.batch_and_stream",
     );
