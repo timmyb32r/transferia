@@ -12,6 +12,7 @@ import type {
   DeliveryMode,
   UiCatalog,
 } from "../generated/apiContract";
+import { AutofillResistantInput } from "./AutofillResistantField";
 import { Button } from "./Button";
 import { InstantTooltip } from "./InstantTooltip";
 import {
@@ -343,6 +344,9 @@ export function CompatibilityMatrixDialog({
     source: string;
     sink: string;
   } | null>(null);
+  const [selectedSource, setSelectedSource] = useState<string | null>(null);
+  const [selectedSink, setSelectedSink] = useState<string | null>(null);
+  const [matrixSearch, setMatrixSearch] = useState("");
   const [activeTab, setActiveTab] = useState<
     "matrix" | "entities" | "properties"
   >("matrix");
@@ -416,6 +420,10 @@ export function CompatibilityMatrixDialog({
       (candidate) =>
         candidate.source.key === source && candidate.sink.key === sink,
     )!;
+  const normalizedMatrixSearch = matrixSearch.trim().toLocaleLowerCase();
+  const matchesMatrixSearch = (title: string) =>
+    normalizedMatrixSearch.length > 0 &&
+    title.toLocaleLowerCase().includes(normalizedMatrixSearch);
 
   useLayoutEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -515,17 +523,28 @@ export function CompatibilityMatrixDialog({
         </div>
 
         {activeTab === "matrix" ? (
-          <div class="compatibility-legend" aria-label="Legend">
-            <DeliveryModeBadge mode="batch" />
-            <span>Batch flow is supported</span>
-            <DeliveryModeBadge mode="stream" />
-            <span>Stream flow is supported</span>
-            <DeliveryModeBadge mode="batch_and_stream" />
-            <span>Combined snapshot and stream flow is supported</span>
-            <span class="compatibility-unavailable" aria-hidden="true">
-              —
-            </span>
-            <span>No compatible data semantics</span>
+          <div class="compatibility-matrix-tools">
+            <div class="compatibility-legend" aria-label="Legend">
+              <DeliveryModeBadge mode="batch" />
+              <span>Batch flow is supported</span>
+              <DeliveryModeBadge mode="stream" />
+              <span>Stream flow is supported</span>
+              <DeliveryModeBadge mode="batch_and_stream" />
+              <span>Combined snapshot and stream flow is supported</span>
+              <span class="compatibility-unavailable" aria-hidden="true">
+                —
+              </span>
+              <span>No compatible data semantics</span>
+            </div>
+            <label class="compatibility-search">
+              <span>Find source or destination</span>
+              <AutofillResistantInput
+                type="search"
+                value={matrixSearch}
+                onInput={(event) => setMatrixSearch(event.currentTarget.value)}
+                placeholder="Search matrix"
+              />
+            </label>
           </div>
         ) : activeTab === "entities" ? (
           <div class="capability-summary">
@@ -553,36 +572,68 @@ export function CompatibilityMatrixDialog({
                       scope="col"
                       key={sink.key}
                       title={sink.title}
-                      class={
-                        activeCell?.sink === sink.key
+                      class={[
+                        activeCell?.sink === sink.key || selectedSink === sink.key
                           ? "active-column"
-                          : undefined
-                      }
+                          : "",
+                        matchesMatrixSearch(sink.title)
+                          ? "search-match-column"
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
                     >
-                      {sink.title}
+                      <button
+                        type="button"
+                        aria-pressed={selectedSink === sink.key}
+                        onClick={() =>
+                          setSelectedSink((current) =>
+                            current === sink.key ? null : sink.key,
+                          )
+                        }
+                      >
+                        {sink.title}
+                      </button>
                     </th>
                   ))}
+                  <th scope="col">Incomplete modes</th>
                 </tr>
               </thead>
               <tbody>
                 {sources.map((source) => (
                   <tr
                     key={source.key}
-                    class={
-                      activeCell?.source === source.key
+                    class={[
+                      activeCell?.source === source.key ||
+                      selectedSource === source.key
                         ? "active-row"
-                        : undefined
-                    }
+                        : "",
+                      matchesMatrixSearch(source.title) ? "search-match-row" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                   >
                     <th scope="row">
-                      <strong>{source.title}</strong>
-                      <small>{source.source!.delivery_modes.join(" · ")}</small>
+                      <button
+                        type="button"
+                        aria-pressed={selectedSource === source.key}
+                        onClick={() =>
+                          setSelectedSource((current) =>
+                            current === source.key ? null : source.key,
+                          )
+                        }
+                      >
+                        <strong>{source.title}</strong>
+                        <small>{source.source!.delivery_modes.join(" · ")}</small>
+                      </button>
                     </th>
                     {sinks.map((sink) => (
                       <CompatibilityCell
                         key={sink.key}
                         route={route(source.key, sink.key)}
                         activeColumn={activeCell?.sink === sink.key}
+                        selectedColumn={selectedSink === sink.key}
+                        searchMatchColumn={matchesMatrixSearch(sink.title)}
                         activeIntersection={
                           activeCell?.source === source.key &&
                           activeCell.sink === sink.key
@@ -592,6 +643,7 @@ export function CompatibilityMatrixDialog({
                         }
                       />
                     ))}
+                    <SourceModeGapCell source={source} />
                   </tr>
                 ))}
               </tbody>
@@ -734,11 +786,15 @@ export function CompatibilityMatrixDialog({
 function CompatibilityCell({
   route,
   activeColumn,
+  selectedColumn,
+  searchMatchColumn,
   activeIntersection,
   onActivate,
 }: {
   route: CompatibilityRoute;
   activeColumn: boolean;
+  selectedColumn: boolean;
+  searchMatchColumn: boolean;
   activeIntersection: boolean;
   onActivate: () => void;
 }) {
@@ -766,7 +822,8 @@ function CompatibilityCell({
         route.unsupported.length > 0 || route.partial.length > 0
           ? "partial"
           : "",
-        activeColumn ? "active-column" : "",
+        activeColumn || selectedColumn ? "active-column" : "",
+        searchMatchColumn ? "search-match-column" : "",
         activeIntersection ? "active-intersection" : "",
       ]
         .filter(Boolean)
@@ -784,6 +841,29 @@ function CompatibilityCell({
           ))}
         </span>
       )}
+    </td>
+  );
+}
+
+function SourceModeGapCell({ source }: { source: ConnectorDefinition }) {
+  const modes = source.source!.delivery_modes;
+  const hasSnapshot = modes.includes("batch") || modes.includes("batch_and_stream");
+  const hasReplication =
+    modes.includes("stream") || modes.includes("batch_and_stream");
+  const gaps = [
+    ...(hasSnapshot ? [] : ["Snapshot is not implemented"]),
+    ...(hasReplication ? [] : ["Replication is not implemented"]),
+  ];
+
+  return (
+    <td class="compatibility-mode-gaps">
+      {gaps.map((gap) => (
+        <InstantTooltip key={gap} content={gap}>
+          <span class="compatibility-gap-check" aria-hidden="true">
+            ✓
+          </span>
+        </InstantTooltip>
+      ))}
     </td>
   );
 }

@@ -258,6 +258,7 @@ describe("appearance preferences", () => {
 
   it("opens a stable accessible compatibility dialog and restores focus", () => {
     const catalog = structuredClone(CATALOG);
+    catalog.connectors[2]!.source = endpoint(["append_only"], ["batch"]);
     catalog.connectors[1]!.source!.schema = {
       title: "JSON parser",
       "x-ui": {
@@ -376,6 +377,35 @@ describe("appearance preferences", () => {
         .getAllByText(/^(B|S|B\+S)$/)
         .map((badge) => badge.textContent),
     ).toEqual(["B", "S", "B+S"]);
+
+    const postgresRowHeader = view.getByRole("rowheader", {
+      name: /PostgreSQL/,
+    });
+    const postgresRowButton = within(postgresRowHeader).getByRole("button");
+    fireEvent.click(postgresRowButton);
+    expect(postgresRowButton.getAttribute("aria-pressed")).toBe("true");
+    const s3ColumnHeader = view.getByRole("columnheader", { name: "S3" });
+    const s3ColumnButton = within(s3ColumnHeader).getByRole("button");
+    fireEvent.click(s3ColumnButton);
+    expect(s3ColumnButton.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.input(view.getByRole("searchbox", { name: "Find source or destination" }), {
+      target: { value: "s3" },
+    });
+    expect(s3ColumnHeader.classList.contains("search-match-column")).toBe(true);
+    expect(
+      view
+        .getByRole("rowheader", { name: /S3/ })
+        .closest("tr")
+        ?.classList.contains("search-match-row"),
+    ).toBe(true);
+    expect(postgresRowButton.getAttribute("aria-pressed")).toBe("true");
+    expect(s3ColumnButton.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(postgresRowButton);
+    fireEvent.click(s3ColumnButton);
+    expect(postgresRowButton.getAttribute("aria-pressed")).toBe("false");
+    expect(s3ColumnButton.getAttribute("aria-pressed")).toBe("false");
+    expect(view.getByRole("tooltip", { name: "Snapshot is not implemented" })).toBeTruthy();
+    expect(view.getByRole("tooltip", { name: "Replication is not implemented" })).toBeTruthy();
 
     const intersection = view.getByLabelText(
       "PostgreSQL to S3: Batch supported; Stream and Batch + stream not supported",

@@ -4363,16 +4363,37 @@ button::after {
   font-size: 13px;
 }
 
+.compatibility-matrix-tools {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 7px 22px;
+  border-bottom: 1px solid var(--line-inner);
+}
+
 .compatibility-legend {
   display: grid;
   grid-template-columns: auto minmax(0, max-content) auto minmax(0, max-content) auto minmax(0, max-content);
   gap: 8px 7px;
   align-items: center;
-  min-height: 48px;
-  padding: 9px 22px;
   color: var(--muted);
   font-size: 12px;
-  border-bottom: 1px solid var(--line-inner);
+}
+
+.compatibility-search {
+  display: grid;
+  flex: 0 1 270px;
+  gap: 3px;
+  min-width: 190px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.compatibility-search input {
+  width: 100%;
+  height: 32px;
 }
 
 .compatibility-table-scroll {
@@ -4422,6 +4443,22 @@ button::after {
   text-overflow: ellipsis;
   white-space: nowrap;
   background: var(--panel2);
+}
+
+.compatibility-table th > button {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  text-overflow: inherit;
+  white-space: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
 }
 
 .compatibility-table thead th:first-child,
@@ -4477,6 +4514,34 @@ button::after {
 .compatibility-table td.active-intersection {
   background: color-mix(in srgb, var(--blue), var(--panel) 84%);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue), transparent 48%);
+}
+
+.compatibility-table th.search-match-column,
+.compatibility-table td.search-match-column,
+.compatibility-table tr.search-match-row > th,
+.compatibility-table tr.search-match-row > td {
+  background: color-mix(in srgb, var(--success-surface), var(--panel) 34%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success-text), transparent 55%);
+}
+
+.compatibility-mode-gaps {
+  white-space: nowrap;
+}
+
+.compatibility-mode-gaps .instant-tooltip-host + .instant-tooltip-host {
+  margin-left: 4px;
+}
+
+.compatibility-gap-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--success-text);
+  background: var(--success-surface);
+  border: 1px solid color-mix(in srgb, var(--success-text), transparent 62%);
+  border-radius: 999px;
 }
 
 .compatibility-badges {
@@ -4544,6 +4609,15 @@ button::after {
 
   .compatibility-legend {
     grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .compatibility-matrix-tools {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .compatibility-search {
+    flex-basis: auto;
   }
 
   .capability-groups,
