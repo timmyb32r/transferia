@@ -326,6 +326,16 @@ describe("appearance preferences", () => {
         "PostgreSQL to PostgreSQL: Batch and Stream and Batch + stream supported",
       ),
     ).toBeTruthy();
+    expect(
+      within(view.getByLabelText("Legend"))
+        .getAllByRole("tooltip")
+        .map((tooltip) => tooltip.textContent),
+    ).toEqual(["Batch", "Stream", "Batch + stream"]);
+    expect(
+      within(view.getByLabelText("Legend"))
+        .getAllByText(/^(B|S|B\+S)$/)
+        .map((badge) => badge.textContent),
+    ).toEqual(["B", "S", "B+S"]);
 
     const intersection = view.getByLabelText(
       "PostgreSQL to S3: Batch supported; Stream and Batch + stream not supported",

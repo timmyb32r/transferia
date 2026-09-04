@@ -7,6 +7,7 @@ import type {
   UiCatalog,
 } from "../generated/apiContract";
 import { Button } from "./Button";
+import { InstantTooltip } from "./InstantTooltip";
 import {
   declaredSourceRecordSemantics,
   routeSupportsDeliveryType,
@@ -17,6 +18,22 @@ const DELIVERY_MODE_LABEL: Record<DeliveryMode, string> = {
   stream: "Stream",
   batch_and_stream: "Batch + stream",
 };
+
+const DELIVERY_MODE_BADGE: Record<DeliveryMode, string> = {
+  batch: "B",
+  stream: "S",
+  batch_and_stream: "B+S",
+};
+
+function DeliveryModeBadge({ mode }: { mode: DeliveryMode }) {
+  return (
+    <InstantTooltip content={DELIVERY_MODE_LABEL[mode]} class="compatibility-badge-tooltip">
+      <span class={`compatibility-badge ${mode}`} aria-hidden="true">
+        {DELIVERY_MODE_BADGE[mode]}
+      </span>
+    </InstantTooltip>
+  );
+}
 
 type CapabilityKind =
   | "source"
@@ -448,13 +465,11 @@ export function CompatibilityMatrixDialog({
 
         {activeTab === "matrix" ? (
           <div class="compatibility-legend" aria-label="Legend">
-            <span class="compatibility-badge batch">Batch</span>
+            <DeliveryModeBadge mode="batch" />
             <span>Batch flow is supported</span>
-            <span class="compatibility-badge stream">Stream</span>
+            <DeliveryModeBadge mode="stream" />
             <span>Stream flow is supported</span>
-            <span class="compatibility-badge batch_and_stream">
-              Batch + stream
-            </span>
+            <DeliveryModeBadge mode="batch_and_stream" />
             <span>Combined snapshot and stream flow is supported</span>
             <span class="compatibility-unavailable" aria-hidden="true">
               —
@@ -686,11 +701,9 @@ function CompatibilityCell({
           —
         </span>
       ) : (
-        <span class="compatibility-badges" aria-hidden="true">
+        <span class="compatibility-badges">
           {route.supported.map((mode) => (
-            <span key={mode} class={`compatibility-badge ${mode}`}>
-              {DELIVERY_MODE_LABEL[mode]}
-            </span>
+            <DeliveryModeBadge key={mode} mode={mode} />
           ))}
         </span>
       )}

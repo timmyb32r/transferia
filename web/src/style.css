@@ -4466,9 +4466,9 @@ button::after {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 34px;
-  height: 20px;
-  padding: 0 7px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   border: 1px solid color-mix(in srgb, var(--success-text), transparent 68%);
   border-radius: 999px;
   color: var(--success-text);
@@ -4477,6 +4477,14 @@ button::after {
   font-weight: 700;
   letter-spacing: 0.045em;
   text-transform: uppercase;
+}
+
+.compatibility-badge.batch_and_stream {
+  width: 36px;
+}
+
+.compatibility-badge-tooltip {
+  display: inline-flex;
 }
 
 .compatibility-badge.stream {
