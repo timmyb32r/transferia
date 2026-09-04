@@ -56,12 +56,6 @@ interface CapabilityGroup {
   nonMembers: Map<CapabilityKind, Set<string>>;
 }
 
-interface CapabilityEntity {
-  key: string;
-  kind: CapabilityKind;
-  title: string;
-}
-
 const ENTITY_GROUPS: ReadonlyArray<{
   key: string;
   kind: CapabilityKind;
@@ -351,7 +345,6 @@ export function CompatibilityMatrixDialog({
     "matrix" | "entities" | "properties"
   >("matrix");
   const [activeProperty, setActiveProperty] = useState<string | null>(null);
-  const [activeEntity, setActiveEntity] = useState<string | null>(null);
   const sources = useMemo(
     () => catalog.connectors.filter((connector) => connector.source),
     [catalog],
@@ -383,33 +376,9 @@ export function CompatibilityMatrixDialog({
   const otherProperties = propertyGroups.filter(
     (group) => !group.key.startsWith("delivery_mode."),
   );
-  const entities = entityGroups.flatMap(({ kind, group }) =>
-    [...(group.members.get(kind) ?? [])]
-      .sort((left, right) => left.localeCompare(right))
-      .map((title): CapabilityEntity => ({
-        key: `${kind}:${title}`,
-        kind,
-        title,
-      })),
-  );
   const selectedProperty =
     propertyGroups.find((group) => group.key === activeProperty) ??
     propertyGroups[0];
-  const propertyEntities = entities.filter((entity) => {
-    if (!selectedProperty) return false;
-    return (
-      selectedProperty.members.get(entity.kind)?.has(entity.title) === true ||
-      selectedProperty.nonMembers.get(entity.kind)?.has(entity.title) === true
-    );
-  });
-  const selectedEntity =
-    propertyEntities.find((entity) => entity.key === activeEntity) ??
-    propertyEntities[0];
-  const selectedEntityHasProperty =
-    selectedProperty !== undefined &&
-    selectedEntity !== undefined &&
-    (selectedProperty.members.get(selectedEntity.kind)?.has(selectedEntity.title) ??
-      false);
   const route = (source: string, sink: string) =>
     routes.find(
       (candidate) =>
@@ -692,59 +661,42 @@ export function CompatibilityMatrixDialog({
                 ))}
               </section>
             </nav>
-            <nav
-              class="property-entity-list always-visible-scrollbar"
-              aria-label="Entities"
-            >
-              {entityGroups.map(({ key, kind, label, group }) => (
-                <section key={key} aria-label={label}>
-                  <h3>{KIND_LABELS[kind]}</h3>
-                  {[...(group.members.get(kind) ?? [])]
-                    .sort((left, right) => left.localeCompare(right))
-                    .filter((title) =>
-                      propertyEntities.some(
-                        (entity) => entity.kind === kind && entity.title === title,
-                      ),
-                    )
-                    .map((title) => {
-                      const entityKey = `${kind}:${title}`;
-                      return (
-                        <Button
-                          key={entityKey}
-                          aria-pressed={selectedEntity?.key === entityKey}
-                          onClick={() => setActiveEntity(entityKey)}
-                        >
-                          {title}
-                        </Button>
-                      );
-                    })}
-                </section>
-              ))}
-            </nav>
             <section
-              class="property-pair"
-              aria-label="Selected capability result"
+              class="property-members"
+              aria-label="Property membership"
               aria-live="polite"
             >
-              {selectedProperty && selectedEntity ? (
+              {selectedProperty ? (
                 <>
-                  <small>SELECTED PAIR</small>
-                  <h3>{selectedEntity.title}</h3>
-                  <p>{selectedProperty.label}</p>
-                  <strong
-                    class={
-                      selectedEntityHasProperty
-                        ? "property-verdict has-property"
-                        : "property-verdict missing-property"
-                    }
-                  >
-                    {selectedEntityHasProperty
-                      ? "Has property"
-                      : "Does not have property"}
-                  </strong>
+                  <div class="property-entity-grid property-entity-headings">
+                    {ENTITY_GROUPS.map(({ kind }) => (
+                      <h3 key={kind}>{KIND_LABELS[kind]}</h3>
+                    ))}
+                  </div>
+                  <div class="property-entity-grid property-has-row">
+                    {ENTITY_GROUPS.map(({ kind }) => (
+                      <EntityNameList
+                        key={kind}
+                        label={`${KIND_LABELS[kind]} with property`}
+                        names={selectedProperty.members.get(kind)}
+                      />
+                    ))}
+                  </div>
+                  <h3 class="property-missing-heading">
+                    Does not have property
+                  </h3>
+                  <div class="property-entity-grid property-missing-row">
+                    {ENTITY_GROUPS.map(({ kind }) => (
+                      <EntityNameList
+                        key={kind}
+                        label={`${KIND_LABELS[kind]} without property`}
+                        names={selectedProperty.nonMembers.get(kind)}
+                      />
+                    ))}
+                  </div>
                 </>
               ) : (
-                <p>No entity-property pair is available.</p>
+                <p>No property is available.</p>
               )}
             </section>
           </div>
@@ -758,6 +710,27 @@ export function CompatibilityMatrixDialog({
       </section>
     </div>,
     document.body,
+  );
+}
+
+function EntityNameList({
+  label,
+  names,
+}: {
+  label: string;
+  names: Set<string> | undefined;
+}) {
+  const sorted = [...(names ?? [])].sort((left, right) =>
+    left.localeCompare(right),
+  );
+  return (
+    <ul aria-label={label} class="property-entity-names">
+      {sorted.length > 0 ? (
+        sorted.map((name) => <li key={name}>{name}</li>)
+      ) : (
+        <li class="entity-empty">None</li>
+      )}
+    </ul>
   );
 }
 

@@ -323,36 +323,37 @@ describe("appearance preferences", () => {
     fireEvent.click(
       view.getByRole("button", { name: "Only append-only records" }),
     );
-    expect(view.getAllByText("Only append-only records")).toHaveLength(2);
-    expect(view.getByText("Has property")).toBeTruthy();
-    const pair = view.getByLabelText("Selected capability result");
-    const entityList = view.getByRole("navigation", { name: "Entities" });
-    expect(entityList.classList.contains("always-visible-scrollbar")).toBe(true);
+    expect(view.getAllByText("Only append-only records")).toHaveLength(1);
+    const membership = view.getByRole("region", { name: "Property membership" });
     expect(
       view
         .getByRole("navigation", { name: "Properties" })
         .classList.contains("always-visible-scrollbar"),
     ).toBe(true);
-    const destinationEntities = within(entityList)
-      .getByRole("heading", { name: "Destinations" })
-      .closest("section")!;
     expect(
-      within(destinationEntities)
-        .getAllByRole("button")
-        .map((button) => button.textContent),
-    ).toEqual(["S3"]);
-    fireEvent.click(
-      within(entityList).getByRole("button", { name: "JSON parser" }),
-    );
-    expect(within(pair).getByText("Has property")).toBeTruthy();
+      within(membership)
+        .getByRole("list", { name: "Destinations with property" })
+        .textContent,
+    ).toBe("S3");
+    expect(
+      within(membership)
+        .getByRole("list", { name: "Parsers with property" })
+        .textContent,
+    ).toBe("JSON parser");
+    expect(within(membership).getByText("Does not have property")).toBeTruthy();
     fireEvent.click(
       view.getByRole("button", { name: "Batch + stream delivery" }),
     );
-    expect(within(pair).getByText("Does not have property")).toBeTruthy();
-    expect(view.getByLabelText("Selected capability result")).toBe(pair);
     expect(
-      within(entityList).queryByRole("button", { name: "JSON parser" }),
-    ).toBeNull();
+      within(membership)
+        .getByRole("list", { name: "Parsers without property" })
+        .textContent,
+    ).toBe("None");
+    expect(
+      within(membership)
+        .getByRole("list", { name: "Sources without property" })
+        .textContent,
+    ).toContain("S3");
     fireEvent.click(view.getByRole("tab", { name: "Matrix" }));
     expect(document.activeElement).toBe(
       view.getByRole("button", { name: "Close compatibility matrix" }),
