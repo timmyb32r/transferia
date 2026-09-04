@@ -173,6 +173,9 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
   }
   for (const group of groups.values()) {
     for (const kind of applicableKinds(group.key)) {
+      if (group.key === "record_semantics.only_append_only") {
+        continue;
+      }
       if (
         (group.key === "delivery_mode.batch" || group.key === "partitioned") &&
         kind === "destination"
@@ -391,8 +394,16 @@ export function CompatibilityMatrixDialog({
   const selectedProperty =
     propertyGroups.find((group) => group.key === activeProperty) ??
     propertyGroups[0];
+  const propertyEntities = entities.filter((entity) => {
+    if (!selectedProperty) return false;
+    return (
+      selectedProperty.members.get(entity.kind)?.has(entity.title) === true ||
+      selectedProperty.nonMembers.get(entity.kind)?.has(entity.title) === true
+    );
+  });
   const selectedEntity =
-    entities.find((entity) => entity.key === activeEntity) ?? entities[0];
+    propertyEntities.find((entity) => entity.key === activeEntity) ??
+    propertyEntities[0];
   const selectedEntityHasProperty =
     selectedProperty !== undefined &&
     selectedEntity !== undefined &&
@@ -652,6 +663,11 @@ export function CompatibilityMatrixDialog({
                   <h3>{KIND_LABELS[kind]}</h3>
                   {[...(group.members.get(kind) ?? [])]
                     .sort((left, right) => left.localeCompare(right))
+                    .filter((title) =>
+                      propertyEntities.some(
+                        (entity) => entity.kind === kind && entity.title === title,
+                      ),
+                    )
                     .map((title) => {
                       const entityKey = `${kind}:${title}`;
                       return (

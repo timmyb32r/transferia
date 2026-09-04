@@ -318,6 +318,14 @@ describe("appearance preferences", () => {
     expect(view.getByText("Has property")).toBeTruthy();
     const pair = view.getByLabelText("Selected capability result");
     const entityList = view.getByRole("navigation", { name: "Entities" });
+    const destinationEntities = within(entityList)
+      .getByRole("heading", { name: "Destinations" })
+      .closest("section")!;
+    expect(
+      within(destinationEntities)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["S3"]);
     fireEvent.click(
       within(entityList).getByRole("button", { name: "JSON parser" }),
     );
@@ -328,10 +336,8 @@ describe("appearance preferences", () => {
     expect(within(pair).getByText("Does not have property")).toBeTruthy();
     expect(view.getByLabelText("Selected capability result")).toBe(pair);
     expect(
-      within(entityList)
-        .getByRole("button", { name: "JSON parser" })
-        .getAttribute("aria-pressed"),
-    ).toBe("true");
+      within(entityList).queryByRole("button", { name: "JSON parser" }),
+    ).toBeNull();
     fireEvent.click(view.getByRole("tab", { name: "Matrix" }));
     expect(document.activeElement).toBe(
       view.getByRole("button", { name: "Close compatibility matrix" }),
