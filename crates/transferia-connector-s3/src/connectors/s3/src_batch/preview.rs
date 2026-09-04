@@ -6,9 +6,7 @@ use futures_util::TryStreamExt as _;
 use object_store::path::Path;
 use object_store::{GetOptions, GetRange, ObjectStore};
 use tokio_util::sync::CancellationToken;
-use transferia_registry::{
-    SourcePreview, SourcePreviewMetadata, SourcePreviewMetadataItem,
-};
+use transferia_registry::{SourcePreview, SourcePreviewMetadata, SourcePreviewMetadataItem};
 
 use super::config::S3SourceConfig;
 
@@ -17,7 +15,10 @@ pub async fn preview_message(
     max_bytes: usize,
     cancellation: CancellationToken,
 ) -> anyhow::Result<SourcePreview> {
-    anyhow::ensure!(max_bytes > 0, "S3 message preview max_bytes must be positive");
+    anyhow::ensure!(
+        max_bytes > 0,
+        "S3 message preview max_bytes must be positive"
+    );
     anyhow::ensure!(!config.bucket.is_empty(), "s3.bucket must not be empty");
     anyhow::ensure!(config.timeout_ms > 0, "s3.timeout_ms must be positive");
     let prefix = if config.path_prefix.is_empty() {

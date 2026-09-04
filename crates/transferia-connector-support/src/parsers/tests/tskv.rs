@@ -46,24 +46,38 @@ keys: [level]
     ))])?;
     assert!(dlq.is_none());
     assert_eq!(
-        table.batch.column(0).as_any().downcast_ref::<StringArray>().unwrap().value(0),
+        table
+            .batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap()
+            .value(0),
         "INFO"
     );
     assert_eq!(
-        table.batch.column(1).as_any().downcast_ref::<Int64Array>().unwrap().value(0),
+        table
+            .batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
         42
     );
-    assert!(
-        table.batch.column(2).as_any().downcast_ref::<BooleanArray>().unwrap().value(0)
-    );
+    assert!(table
+        .batch
+        .column(2)
+        .as_any()
+        .downcast_ref::<BooleanArray>()
+        .unwrap()
+        .value(0));
     Ok(())
 }
 
 #[test]
 fn detector_returns_tskv_columns_without_json_mapping_fields() {
-    let detections = crate::parsers::detection::detect(
-        b"tskv\tlevel=INFO\tcount=42\tready=true",
-    );
+    let detections = crate::parsers::detection::detect(b"tskv\tlevel=INFO\tcount=42\tready=true");
     let detection = detections
         .iter()
         .find(|detection| detection.key == "tskv")
@@ -71,7 +85,9 @@ fn detector_returns_tskv_columns_without_json_mapping_fields() {
     let columns = detection.config["tskv"]["columns"]
         .as_array()
         .expect("TSKV inferred columns");
-    assert!(columns.iter().all(|column| column.get("jsonpath").is_none()));
+    assert!(columns
+        .iter()
+        .all(|column| column.get("jsonpath").is_none()));
     assert!(columns
         .iter()
         .all(|column| column.get("json_data_type").is_none()));

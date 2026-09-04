@@ -82,7 +82,10 @@ async fn check_opensearch_connection(
 async fn check_opensearch_network_connection(
     config: &opensearch::OpenSearchConnectionCheckConfig,
 ) -> anyhow::Result<()> {
-    anyhow::ensure!(!config.hosts.is_empty(), "opensearch.hosts must not be empty");
+    anyhow::ensure!(
+        !config.hosts.is_empty(),
+        "opensearch.hosts must not be empty"
+    );
     transferia_connector_support::address::validate_port("opensearch.port", config.port)?;
     let mut failures = Vec::new();
     for host in &config.hosts {

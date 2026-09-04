@@ -46,9 +46,7 @@ fn debezium_is_one_serializer_with_four_conditionally_typed_formats() {
         } else {
             ""
         };
-        let yaml = format!(
-            "type: debezium\nformat:\n  type: {format}{registry}{indexes}\n"
-        );
+        let yaml = format!("type: debezium\nformat:\n  type: {format}{registry}{indexes}\n");
         let config: SerializerConfig = serde_yaml::from_str(&yaml).unwrap();
         config.validate().unwrap();
     }
@@ -163,12 +161,7 @@ fn keyed_debezium_schema_registry_requires_both_subjects() {
     .expect("keyed mode must reject an absent key subject")
     .to_string();
     assert!(error.contains("key_subject"), "{error}");
-    DeliverySerializer::new(
-        &config,
-        QueueMessageMode::ValuesOnly,
-        "Inventory delivery",
-    )
-    .unwrap();
+    DeliverySerializer::new(&config, QueueMessageMode::ValuesOnly, "Inventory delivery").unwrap();
 }
 
 #[test]

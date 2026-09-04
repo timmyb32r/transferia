@@ -4,8 +4,8 @@ use prost_reflect::DynamicMessage;
 
 use super::*;
 use crate::schema_registry::{
-    encode_message_indexes, json_to_avro, protobuf_descriptor_pool, RegistrySchema,
-    SchemaFormat, SchemaRegistryAuth,
+    encode_message_indexes, json_to_avro, protobuf_descriptor_pool, RegistrySchema, SchemaFormat,
+    SchemaRegistryAuth,
 };
 
 #[test]
@@ -42,7 +42,8 @@ fn schemas_preserve_complete_key_and_row_without_manual_projection() -> anyhow::
 }
 
 #[test]
-fn all_schema_registry_formats_preserve_their_decoded_row_and_common_metadata() -> anyhow::Result<()> {
+fn all_schema_registry_formats_preserve_their_decoded_row_and_common_metadata() -> anyhow::Result<()>
+{
     let value = envelope(
         "u",
         &row(7, &Value::from("old")),

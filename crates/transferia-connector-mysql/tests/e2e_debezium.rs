@@ -320,8 +320,11 @@ async fn locked_snapshot_and_cdc_serialize_as_lossless_mysql_debezium_with_ack_r
         "format": { "type": "json" }
     }))?;
     serializer_config.validate_discovery(&prepared.discovery)?;
-    let mut serializer =
-        DeliverySerializer::new(&serializer_config, QueueMessageMode::KeyedWithTombstones, "Inventory delivery")?;
+    let mut serializer = DeliverySerializer::new(
+        &serializer_config,
+        QueueMessageMode::KeyedWithTombstones,
+        "Inventory delivery",
+    )?;
 
     exec_all(
         &mut admin,

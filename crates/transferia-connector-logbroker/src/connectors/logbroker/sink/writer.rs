@@ -87,12 +87,11 @@ impl YdbTopicSink {
 
     async fn run_session(&self, mut io: SinkIo) -> anyhow::Result<()> {
         let mut sessions = HashMap::<String, YdbWriteSession>::new();
-        let mut serializer =
-            DeliverySerializer::new(
-                &self.config.serializer,
-                QueueMessageMode::ValuesOnly,
-                &self.delivery_name,
-            )?;
+        let mut serializer = DeliverySerializer::new(
+            &self.config.serializer,
+            QueueMessageMode::ValuesOnly,
+            &self.delivery_name,
+        )?;
 
         while let Some(delivery) = io.deliveries.recv().await {
             let started = std::time::Instant::now();

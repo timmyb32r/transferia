@@ -129,7 +129,9 @@ fn sink_account_is_validated_and_added_to_created_tables() -> anyhow::Result<()>
     )?;
     let connector = YTsaurusSinkConnector::from_config(config)?;
     assert_eq!(
-        connector.table_attributes_for_transfer("delivery").get("account"),
+        connector
+            .table_attributes_for_transfer("delivery")
+            .get("account"),
         Some(&serde_json::Value::String("transferia".to_owned()))
     );
 

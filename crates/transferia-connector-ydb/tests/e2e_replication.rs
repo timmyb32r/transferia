@@ -869,8 +869,11 @@ async fn read_changes(
             "format": { "type": "json" }
         }))?;
         serializer_config.validate_discovery(discovery)?;
-        let mut serializer =
-            DeliverySerializer::new(&serializer_config, QueueMessageMode::KeyedWithTombstones, "Inventory delivery")?;
+        let mut serializer = DeliverySerializer::new(
+            &serializer_config,
+            QueueMessageMode::KeyedWithTombstones,
+            "Inventory delivery",
+        )?;
         let mut delivery_id = 0_u64;
         while observed.rows.len() < expected_rows {
             match source.read_batch().await? {

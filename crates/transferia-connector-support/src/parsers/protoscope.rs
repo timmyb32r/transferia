@@ -50,8 +50,7 @@ fn looks_like_cloud_event(fields: &[WireField]) -> bool {
     required_text
         && has_data
         && fields.iter().all(|field| {
-            matches!(field.number, 1..=8)
-                && matches!(field.value, WireValue::LengthDelimited(_))
+            matches!(field.number, 1..=8) && matches!(field.value, WireValue::LengthDelimited(_))
         })
 }
 

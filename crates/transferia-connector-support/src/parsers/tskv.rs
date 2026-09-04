@@ -89,7 +89,11 @@ impl TskvParserConfig {
     fn json_config(&self) -> JsonParserConfig {
         JsonParserConfig {
             json_framing: JsonFramingMode::SingleDocument,
-            columns: self.columns.iter().map(TskvColumnMapping::json_mapping).collect(),
+            columns: self
+                .columns
+                .iter()
+                .map(TskvColumnMapping::json_mapping)
+                .collect(),
             conversion_error: ConversionErrorPolicy::Fail,
             unknown_fields: self.unknown_fields.clone(),
             keys: self.keys.clone(),
@@ -221,7 +225,10 @@ fn transform_message(
 pub(crate) fn parse_record(payload: &[u8]) -> anyhow::Result<BTreeMap<String, String>> {
     let text = std::str::from_utf8(payload).map_err(|_| anyhow::anyhow!("TSKV is not UTF-8"))?;
     let mut parts = text.split('\t');
-    anyhow::ensure!(parts.next() == Some("tskv"), "TSKV record must start with 'tskv'");
+    anyhow::ensure!(
+        parts.next() == Some("tskv"),
+        "TSKV record must start with 'tskv'"
+    );
     let mut fields = BTreeMap::new();
     for field in parts {
         let (key, value) = field

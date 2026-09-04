@@ -33,13 +33,13 @@ pub fn detect_samples(payloads: &[&[u8]], max_rows: usize) -> Vec<ParserDetectio
         &super::protoscope::CloudEventsWireDetector as &dyn ParserDetector,
         &super::protoscope::ProtobufWireDetector as &dyn ParserDetector,
     ]
-        .into_iter()
-        .filter_map(|detector| {
-            detect_with_samples(detector, payloads, max_rows)
-                .ok()
-                .flatten()
-        })
-        .collect()
+    .into_iter()
+    .filter_map(|detector| {
+        detect_with_samples(detector, payloads, max_rows)
+            .ok()
+            .flatten()
+    })
+    .collect()
 }
 
 fn detect_with_samples(
@@ -157,20 +157,19 @@ impl ParserDetector for TskvDetector {
 }
 
 fn infer_tskv_arrow_type(values: &[&String]) -> &'static str {
-    if values.iter().all(|value| matches!(value.as_str(), "true" | "false")) {
+    if values
+        .iter()
+        .all(|value| matches!(value.as_str(), "true" | "false"))
+    {
         "Boolean"
     } else if values.iter().all(|value| value.parse::<i64>().is_ok()) {
         "Int64"
+    } else if values.iter().all(|value| value.parse::<u64>().is_ok()) {
+        "UInt64"
     } else if values
         .iter()
-        .all(|value| value.parse::<u64>().is_ok())
+        .all(|value| value.parse::<f64>().is_ok_and(|number| number.is_finite()))
     {
-        "UInt64"
-    } else if values.iter().all(|value| {
-        value
-            .parse::<f64>()
-            .is_ok_and(|number| number.is_finite())
-    }) {
         "Float64"
     } else {
         "Utf8"
