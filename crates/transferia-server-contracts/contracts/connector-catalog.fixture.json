@@ -9611,6 +9611,15 @@
                 "widget": "hidden"
               }
             },
+            "account": {
+              "title": "Account",
+              "description": "Optional YTsaurus storage account used for newly created destination tables",
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
             "write_target_bytes": {
               "type": "integer",
               "format": "uint",

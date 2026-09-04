@@ -163,6 +163,12 @@ impl YTsaurusSinkConnector {
             "_transfer_id".to_owned(),
             serde_json::Value::String(transfer_id.to_owned()),
         );
+        if let Some(account) = &self.config.account {
+            attributes.insert(
+                "account".to_owned(),
+                serde_json::Value::String(account.clone()),
+            );
+        }
         attributes
     }
 }

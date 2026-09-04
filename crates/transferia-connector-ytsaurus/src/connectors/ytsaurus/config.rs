@@ -43,8 +43,9 @@ const DEFAULT_TABLE_WRITER_GROUP_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_TABLE_WRITER_CHUNK_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const DEFAULT_PRIMARY_KEY_SORT_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1_000;
 
-const RESERVED_TABLE_ATTRIBUTES: [&str; 15] = [
+const RESERVED_TABLE_ATTRIBUTES: [&str; 16] = [
     "_transfer_id",
+    "account",
     "atomicity",
     "auto_compaction_period",
     "chunk_format",
@@ -959,6 +960,13 @@ pub struct YTsaurusSinkConfig {
     #[serde(flatten)]
     pub connection: YTsaurusConnectionConfig,
 
+    #[serde(default)]
+    #[schemars(
+        title = "Account",
+        description = "Optional YTsaurus storage account used for newly created destination tables"
+    )]
+    pub account: Option<String>,
+
     #[serde(default = "default_write_target_bytes")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub write_target_bytes: usize,
@@ -1232,6 +1240,12 @@ impl YTsaurusSinkConfig {
             !self.primary_medium().trim().is_empty(),
             "ytsaurus.primary_medium must not be empty"
         );
+        if let Some(account) = &self.account {
+            anyhow::ensure!(
+                !account.trim().is_empty(),
+                "ytsaurus.account must not be empty when configured"
+            );
+        }
         self.parsed_table_attributes()?;
         self.parsed_writer_spec()?;
         anyhow::ensure!(

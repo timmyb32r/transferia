@@ -118,6 +118,38 @@ fn speedtest_static_config(replace_tables: bool) -> anyhow::Result<YTsaurusSinkC
 }
 
 #[test]
+fn sink_account_is_validated_and_added_to_created_tables() -> anyhow::Result<()> {
+    let config: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: static_tables, replace_tables: true, path: //tmp/output }\n\
+         account: transferia\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n",
+    )?;
+    let connector = YTsaurusSinkConnector::from_config(config)?;
+    assert_eq!(
+        connector.table_attributes_for_transfer("delivery").get("account"),
+        Some(&serde_json::Value::String("transferia".to_owned()))
+    );
+
+    let invalid: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: static_tables, replace_tables: true, path: //tmp/output }\n\
+         account: '   '\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n",
+    )?;
+    assert!(invalid
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("ytsaurus.account"));
+    Ok(())
+}
+
+#[test]
 fn ytsaurus_row_count_verification_requires_lossless_replacement() -> anyhow::Result<()> {
     let replaced = YTsaurusSinkConnector::from_config(speedtest_static_config(true)?)?;
     assert_eq!(
