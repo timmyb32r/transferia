@@ -32,6 +32,36 @@ interface CapabilityGroup {
   nonMembers: Map<CapabilityKind, Set<string>>;
 }
 
+interface CapabilityEntity {
+  key: string;
+  kind: CapabilityKind;
+  title: string;
+}
+
+const ENTITY_GROUPS: ReadonlyArray<{
+  key: string;
+  kind: CapabilityKind;
+  label: string;
+}> = [
+  { key: "component.source", kind: "source", label: "All sources" },
+  {
+    key: "component.destination",
+    kind: "destination",
+    label: "All destinations",
+  },
+  { key: "component.parser", kind: "parser", label: "All parsers" },
+  {
+    key: "component.transformer",
+    kind: "transformer",
+    label: "All transformers",
+  },
+  {
+    key: "component.serializer",
+    kind: "serializer",
+    label: "All serializers",
+  },
+];
+
 const PROPERTY_LABELS: Record<string, string> = {
   "delivery_mode.batch": "Batch delivery",
   "delivery_mode.stream": "Stream delivery",
@@ -40,8 +70,7 @@ const PROPERTY_LABELS: Record<string, string> = {
   "record_semantics.only_append_only": "Only append-only records",
   "component.source": "All sources",
   "component.destination": "All destinations",
-  "component.parser.queue": "Kafka / Logbroker parsers",
-  "component.parser.s3": "S3 parsers",
+  "component.parser": "All parsers",
   "component.serializer": "All serializers",
   "component.transformer": "All transformers",
   partitioned: "Partitioned execution",
@@ -106,7 +135,6 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
       collectSchemaCapabilities(
         endpoint.schema,
         add,
-        kind === "source" ? parserScope(connector.key) : undefined,
       );
     }
   }
@@ -146,19 +174,12 @@ function applicableKinds(property: string): CapabilityKind[] {
   return ["source", "destination"];
 }
 
-function parserScope(connectorKey: string): "queue" | "s3" | undefined {
-  if (connectorKey === "s3") return "s3";
-  if (connectorKey === "kafka" || connectorKey === "logbroker") return "queue";
-  return undefined;
-}
-
 function collectSchemaCapabilities(
   value: unknown,
   add: (property: string, kind: CapabilityKind, title: string) => void,
-  parserGroup?: "queue" | "s3",
 ): void {
   if (Array.isArray(value)) {
-    value.forEach((item) => collectSchemaCapabilities(item, add, parserGroup));
+    value.forEach((item) => collectSchemaCapabilities(item, add));
     return;
   }
   if (value === null || typeof value !== "object") return;
@@ -191,9 +212,7 @@ function collectSchemaCapabilities(
           ? [`record_semantics.only_${declaredSemantics[0]}`]
           : [];
       [
-        kind === "parser"
-          ? parserGroup && `component.parser.${parserGroup}`
-          : `component.${kind}`,
+        `component.${kind}`,
         ...properties,
         ...semantics,
         ...exclusive,
@@ -203,7 +222,7 @@ function collectSchemaCapabilities(
     }
   }
   Object.values(object).forEach((child) =>
-    collectSchemaCapabilities(child, add, parserGroup),
+    collectSchemaCapabilities(child, add),
   );
 }
 
@@ -290,8 +309,13 @@ export function CompatibilityMatrixDialog({
     source: string;
     sink: string;
   } | null>(null);
-  const [activeTab, setActiveTab] = useState<"matrix" | "properties">("matrix");
+  const [activeTab, setActiveTab] = useState<
+    "matrix" | "entities" | "properties"
+  >("matrix");
+  const [activeEntityGroup, setActiveEntityGroup] =
+    useState("component.source");
   const [activeProperty, setActiveProperty] = useState<string | null>(null);
+  const [activeEntity, setActiveEntity] = useState<string | null>(null);
   const sources = useMemo(
     () => catalog.connectors.filter((connector) => connector.source),
     [catalog],
@@ -305,9 +329,40 @@ export function CompatibilityMatrixDialog({
     () => catalogCapabilityGroups(catalog),
     [catalog],
   );
-  const selectedCapabilityGroup =
-    capabilityGroups.find((group) => group.key === activeProperty) ??
-    capabilityGroups[0];
+  const entityGroups = ENTITY_GROUPS.map((definition) => ({
+    ...definition,
+    group: capabilityGroups.find((group) => group.key === definition.key) ?? {
+      key: definition.key,
+      label: definition.label,
+      members: new Map<CapabilityKind, Set<string>>(),
+      nonMembers: new Map<CapabilityKind, Set<string>>(),
+    },
+  }));
+  const propertyGroups = capabilityGroups.filter(
+    (group) => !group.key.startsWith("component."),
+  );
+  const entities = entityGroups.flatMap(({ kind, group }) =>
+    [...(group.members.get(kind) ?? [])]
+      .sort((left, right) => left.localeCompare(right))
+      .map((title): CapabilityEntity => ({
+        key: `${kind}:${title}`,
+        kind,
+        title,
+      })),
+  );
+  const selectedEntityGroup =
+    entityGroups.find((entry) => entry.key === activeEntityGroup) ??
+    entityGroups[0];
+  const selectedProperty =
+    propertyGroups.find((group) => group.key === activeProperty) ??
+    propertyGroups[0];
+  const selectedEntity =
+    entities.find((entity) => entity.key === activeEntity) ?? entities[0];
+  const selectedEntityHasProperty =
+    selectedProperty !== undefined &&
+    selectedEntity !== undefined &&
+    (selectedProperty.members.get(selectedEntity.kind)?.has(selectedEntity.title) ??
+      false);
   const route = (source: string, sink: string) =>
     routes.find(
       (candidate) =>
@@ -377,6 +432,13 @@ export function CompatibilityMatrixDialog({
           </Button>
           <Button
             role="tab"
+            aria-selected={activeTab === "entities"}
+            onClick={() => setActiveTab("entities")}
+          >
+            Entities
+          </Button>
+          <Button
+            role="tab"
             aria-selected={activeTab === "properties"}
             onClick={() => setActiveTab("properties")}
           >
@@ -399,9 +461,14 @@ export function CompatibilityMatrixDialog({
             </span>
             <span>No compatible data semantics</span>
           </div>
+        ) : activeTab === "entities" ? (
+          <div class="capability-summary">
+            Browse every catalog entity in a stable source-to-serializer order.
+          </div>
         ) : (
           <div class="capability-summary">
-            Components grouped by capabilities declared in the live catalog.
+            Select one property and one entity to inspect their exact catalog
+            relationship.
           </div>
         )}
 
@@ -464,44 +531,100 @@ export function CompatibilityMatrixDialog({
               </tbody>
             </table>
           </div>
+        ) : activeTab === "entities" ? (
+          <div class="capability-groups entity-browser">
+            <nav aria-label="Entity categories">
+              {entityGroups.map(({ key, label }) => (
+                <Button
+                  key={key}
+                  aria-pressed={selectedEntityGroup?.key === key}
+                  onClick={() => setActiveEntityGroup(key)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </nav>
+            {selectedEntityGroup && (
+              <section class="capability-group">
+                <h3>{selectedEntityGroup.label}</h3>
+                <ul class="entity-catalog-list">
+                  {(selectedEntityGroup.group.members.get(
+                    selectedEntityGroup.kind,
+                  )?.size ?? 0) > 0 ? (
+                    [
+                      ...(selectedEntityGroup.group.members.get(
+                        selectedEntityGroup.kind,
+                      ) ?? []),
+                    ]
+                      .sort((left, right) => left.localeCompare(right))
+                      .map((entity) => <li key={entity}>{entity}</li>)
+                  ) : (
+                    <li class="entity-empty">None</li>
+                  )}
+                </ul>
+              </section>
+            )}
+          </div>
         ) : (
-          <div class="capability-groups">
-            <nav aria-label="Properties">
-              {capabilityGroups.map((group) => (
+          <div class="property-browser">
+            <nav class="property-list" aria-label="Properties">
+              {propertyGroups.map((group) => (
                 <Button
                   key={group.key}
-                  aria-pressed={selectedCapabilityGroup?.key === group.key}
+                  aria-pressed={selectedProperty?.key === group.key}
                   onClick={() => setActiveProperty(group.key)}
                 >
                   {group.label}
                 </Button>
               ))}
             </nav>
-            {selectedCapabilityGroup && (
-              <section class="capability-group">
-                <h3>{selectedCapabilityGroup.label}</h3>
-                <div
-                  class={`capability-membership-columns${
-                    selectedCapabilityGroup.key.startsWith("component.")
-                      ? " entity-list"
-                      : ""
-                  }`}
-                >
-                  <CapabilityMembership
-                    title="Has property"
-                    property={selectedCapabilityGroup.key}
-                    groups={selectedCapabilityGroup.members}
-                  />
-                  {!selectedCapabilityGroup.key.startsWith("component.") && (
-                    <CapabilityMembership
-                      title="Does not have property"
-                      property={selectedCapabilityGroup.key}
-                      groups={selectedCapabilityGroup.nonMembers}
-                    />
-                  )}
-                </div>
-              </section>
-            )}
+            <nav class="property-entity-list" aria-label="Entities">
+              {entityGroups.map(({ key, kind, label, group }) => (
+                <section key={key} aria-label={label}>
+                  <h3>{KIND_LABELS[kind]}</h3>
+                  {[...(group.members.get(kind) ?? [])]
+                    .sort((left, right) => left.localeCompare(right))
+                    .map((title) => {
+                      const entityKey = `${kind}:${title}`;
+                      return (
+                        <Button
+                          key={entityKey}
+                          aria-pressed={selectedEntity?.key === entityKey}
+                          onClick={() => setActiveEntity(entityKey)}
+                        >
+                          {title}
+                        </Button>
+                      );
+                    })}
+                </section>
+              ))}
+            </nav>
+            <section
+              class="property-pair"
+              aria-label="Selected capability result"
+              aria-live="polite"
+            >
+              {selectedProperty && selectedEntity ? (
+                <>
+                  <small>SELECTED PAIR</small>
+                  <h3>{selectedEntity.title}</h3>
+                  <p>{selectedProperty.label}</p>
+                  <strong
+                    class={
+                      selectedEntityHasProperty
+                        ? "property-verdict has-property"
+                        : "property-verdict missing-property"
+                    }
+                  >
+                    {selectedEntityHasProperty
+                      ? "Has property"
+                      : "Does not have property"}
+                  </strong>
+                </>
+              ) : (
+                <p>No entity-property pair is available.</p>
+              )}
+            </section>
           </div>
         )}
 
@@ -514,56 +637,6 @@ export function CompatibilityMatrixDialog({
     </div>,
     document.body,
   );
-}
-
-function CapabilityMembership({
-  title,
-  property,
-  groups,
-}: {
-  title: string;
-  property: string;
-  groups: Map<CapabilityKind, Set<string>>;
-}) {
-  const populated = [...groups.entries()].filter(
-    ([, members]) => members.size > 0,
-  );
-  const entityList = property.startsWith("component.");
-  return (
-    <section
-      class="capability-membership"
-      aria-label={entityList ? title : undefined}
-    >
-      {!entityList && <h4>{title}</h4>}
-      {populated.length === 0 ? (
-        <p>None</p>
-      ) : (
-        populated.map(([kind, members]) => (
-          <section
-            key={kind}
-            aria-label={entityList ? KIND_LABELS[kind] : undefined}
-          >
-            {!entityList && <h5>{capabilityKindLabel(property, kind)}</h5>}
-            <ul>
-              {[...members].sort().map((member) => (
-                <li key={member}>{member}</li>
-              ))}
-            </ul>
-          </section>
-        ))
-      )}
-    </section>
-  );
-}
-
-function capabilityKindLabel(property: string, kind: CapabilityKind): string {
-  if (property.includes("append_only") && kind === "parser") {
-    return "Parsers — append-only output";
-  }
-  if (property.includes("append_only") && kind === "serializer") {
-    return "Serializers — append-only input";
-  }
-  return KIND_LABELS[kind];
 }
 
 function CompatibilityCell({

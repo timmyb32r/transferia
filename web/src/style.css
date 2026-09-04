@@ -4059,8 +4059,6 @@ button::after {
 }
 
 .capability-group h3,
-.capability-group h4,
-.capability-group h5,
 .capability-group p,
 .capability-group ul {
   margin: 0;
@@ -4072,54 +4070,158 @@ button::after {
   font-size: 15px;
 }
 
-.capability-membership-columns {
+.entity-catalog-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 8px;
+  align-content: start;
 }
 
-.capability-membership-columns.entity-list {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.capability-membership {
-  min-width: 0;
-  padding: 8px;
+.capability-group .entity-catalog-list li {
+  margin: 0;
+  padding: 10px 11px;
+  overflow: hidden;
+  color: var(--text-secondary);
   background: var(--surface-soft);
+  border: 1px solid var(--line-inner);
+  border-radius: var(--radius-control);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-browser {
+  display: grid;
+  grid-template-columns: 220px 260px minmax(260px, 1fr);
+  gap: 10px;
+  min-height: 0;
+  padding: 12px;
+  overflow: hidden;
+  background: var(--surface-soft);
+}
+
+.property-list,
+.property-entity-list {
+  min-width: 0;
+  min-height: 0;
+  padding-right: 3px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.property-list {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+.property-list button,
+.property-entity-list button {
+  justify-content: flex-start;
+  width: 100%;
+  height: 34px;
+  padding-inline: 11px;
+  font-size: 12px;
+}
+
+.property-list button[aria-pressed="true"],
+.property-entity-list button[aria-pressed="true"] {
+  color: var(--blue);
+  background: var(--surface-selected);
+  border-color: color-mix(in srgb, var(--blue), transparent 58%);
+}
+
+.property-entity-list {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.property-entity-list section {
+  display: grid;
+  gap: 4px;
+}
+
+.property-entity-list h3 {
+  margin: 0 0 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.property-pair {
+  min-width: 0;
+  min-height: 190px;
+  padding: 22px;
+  overflow: hidden;
+  background: var(--panel);
   border: 1px solid var(--line-inner);
   border-radius: var(--radius-control);
 }
 
-.capability-membership > h4 {
-  margin-bottom: 7px;
-  color: var(--text-primary);
+.property-pair small,
+.property-pair h3,
+.property-pair p {
+  margin: 0;
+}
+
+.property-pair small {
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+}
+
+.property-pair h3 {
+  margin-top: 10px;
+  overflow: hidden;
+  font-size: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-pair p {
+  margin-top: 4px;
+  color: var(--muted);
   font-size: 13px;
 }
 
-.capability-membership h5 {
-  margin-top: 16px;
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.property-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  margin-top: 24px;
+  padding: 0 12px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 12px;
 }
 
-.capability-membership p {
+.property-verdict::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.property-verdict.has-property {
+  color: var(--success-text);
+  background: var(--success-surface);
+  border-color: color-mix(in srgb, var(--success-text), transparent 68%);
+}
+
+.property-verdict.missing-property {
   color: var(--muted);
-  font-size: 12px;
+  background: var(--surface-soft);
+  border-color: var(--line-inner);
 }
 
 .capability-group ul {
   padding: 0;
   list-style: none;
-}
-
-.capability-group li {
-  overflow: hidden;
-  margin-top: 5px;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .compatibility-dialog > header {
@@ -4329,6 +4431,18 @@ button::after {
 
   .compatibility-legend {
     grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .capability-groups,
+  .property-browser {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+
+  .capability-groups > nav,
+  .property-list,
+  .property-entity-list {
+    overflow: visible;
   }
 }
 

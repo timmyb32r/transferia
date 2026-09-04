@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render } from "@testing-library/preact";
+import { cleanup, fireEvent, render, within } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppearanceSettings } from "../src/ui/AppearanceSettings";
@@ -228,13 +228,16 @@ describe("appearance preferences", () => {
     );
     expect(combined).toMatchObject({ label: "Batch + stream delivery" });
     expect([...combined!.members.get("source")!]).toEqual(["PostgreSQL"]);
-    expect(groups.some((group) => group.key === "component.parser")).toBe(false);
     expect(
-      [...groups.find((group) => group.key === "component.parser.queue")!.members.get("parser")!],
-    ).toEqual(["Debezium parser"]);
+      [
+        ...groups
+          .find((group) => group.key === "component.parser")!
+          .members.get("parser")!,
+      ].sort(),
+    ).toEqual(["Debezium parser", "Parquet parser"]);
     expect(
-      [...groups.find((group) => group.key === "component.parser.s3")!.members.get("parser")!],
-    ).toEqual(["Parquet parser"]);
+      groups.some((group) => group.key.startsWith("component.parser.")),
+    ).toBe(false);
   });
 
   it("opens a stable accessible compatibility dialog and restores focus", () => {
@@ -264,19 +267,49 @@ describe("appearance preferences", () => {
     });
     expect(dialog).toBeTruthy();
     expect(dialog.parentElement?.parentElement).toBe(document.body);
+    fireEvent.click(view.getByRole("tab", { name: "Entities" }));
+    const entityCategories = view.getByRole("navigation", {
+      name: "Entity categories",
+    });
+    expect(
+      within(entityCategories)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual([
+      "All sources",
+      "All destinations",
+      "All parsers",
+      "All transformers",
+      "All serializers",
+    ]);
+    fireEvent.click(
+      within(entityCategories).getByRole("button", { name: "All parsers" }),
+    );
+    expect(view.getByText("JSON parser")).toBeTruthy();
+    expect(view.queryByText("Has property")).toBeNull();
+
     fireEvent.click(view.getByRole("tab", { name: "Properties" }));
     fireEvent.click(
       view.getByRole("button", { name: "Only append-only records" }),
     );
     expect(view.getAllByText("Only append-only records")).toHaveLength(2);
     expect(view.getByText("Has property")).toBeTruthy();
-    expect(view.getByText("Does not have property")).toBeTruthy();
-    expect(view.getByText("Parsers — append-only output")).toBeTruthy();
-    fireEvent.click(view.getByRole("button", { name: "Kafka / Logbroker parsers" }));
-    expect(view.queryByText("Has property")).toBeNull();
-    expect(view.queryByText("Does not have property")).toBeNull();
-    expect(view.queryByText("Parsers")).toBeNull();
-    expect(view.getByText("JSON parser")).toBeTruthy();
+    const pair = view.getByLabelText("Selected capability result");
+    const entityList = view.getByRole("navigation", { name: "Entities" });
+    fireEvent.click(
+      within(entityList).getByRole("button", { name: "JSON parser" }),
+    );
+    expect(within(pair).getByText("Has property")).toBeTruthy();
+    fireEvent.click(
+      view.getByRole("button", { name: "Batch + stream delivery" }),
+    );
+    expect(within(pair).getByText("Does not have property")).toBeTruthy();
+    expect(view.getByLabelText("Selected capability result")).toBe(pair);
+    expect(
+      within(entityList)
+        .getByRole("button", { name: "JSON parser" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
     fireEvent.click(view.getByRole("tab", { name: "Matrix" }));
     expect(document.activeElement).toBe(
       view.getByRole("button", { name: "Close compatibility matrix" }),
