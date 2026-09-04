@@ -228,6 +228,17 @@ expired retained cursor or detected schema drift fails closed without advancing
 the cursor. This is ordinary CDC: it is not DBLog, does not expose
 `batch_and_stream`, and makes no atomic initial-snapshot handoff claim.
 
+The Debezium serializer accepts YDB Changefeed discovery explicitly as the
+`ydb` dialect. It emits complete `before`/`after` images, composite keys,
+`c`/`u`/`d` operations, delete tombstones, and a YDB source block with the
+exact virtual `step` and `txId`; the top-level processing timestamp remains the
+Topic write timestamp. YDB `String`/Yson bytes use Kafka Connect base64,
+`Datetime` uses epoch milliseconds, `Timestamp` and `Interval` use
+microseconds, UUID uses canonical text, and `DyNumber` uses Debezium's lossless
+variable-scale decimal structure. The serializer validates the complete stream
+metadata and full old-image schema before destination work and rejects unknown
+Arrow/extension combinations rather than guessing a representation.
+
 For the demonstration control plane, run:
 
 ```bash

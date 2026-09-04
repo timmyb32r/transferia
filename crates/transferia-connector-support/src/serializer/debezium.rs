@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow::array::{
-    Array as _, BinaryArray, Int32Array, Int64Array, StringArray, UInt64Array,
+    Array as _, BinaryArray, FixedSizeBinaryArray, Int32Array, Int64Array, StringArray,
+    UInt64Array,
 };
 use transferia_core::data::schema::{
     META_OLD_KEY_OF, META_OLD_VALUE_OF, META_PRIMARY_KEY, META_SYSTEM_ROLE,
@@ -66,6 +67,7 @@ pub enum QueueMessageMode {
 pub(super) enum DebeziumSourceDialect {
     Postgres,
     MySql,
+    Ydb,
 }
 
 impl DebeziumSourceDialect {
@@ -73,8 +75,9 @@ impl DebeziumSourceDialect {
         match source_name {
             "postgres" => Ok(Self::Postgres),
             "mysql" => Ok(Self::MySql),
+            "ydb" => Ok(Self::Ydb),
             _ => anyhow::bail!(
-                "Debezium serializer requires source_name to be exactly 'postgres' or 'mysql', got '{source_name}'"
+                "Debezium serializer requires source_name to be exactly 'postgres', 'mysql', or 'ydb', got '{source_name}'"
             ),
         }
     }
@@ -174,15 +177,9 @@ struct DebeziumBatchEncoder {
     changed_columns: Option<BinaryArray>,
     operation: Option<StringArray>,
     database: StringArray,
-    source_schema: StringArray,
     source_table: StringArray,
     source_metadata: DebeziumSourceMetadata,
     source_timestamp_ms: Int64Array,
-    source_timestamp_us: Int64Array,
-    source_timestamp_ns: Int64Array,
-    event_timestamp_ms: Int64Array,
-    event_timestamp_us: Int64Array,
-    event_timestamp_ns: Int64Array,
     user_ordinal_by_source_index: Vec<Option<usize>>,
 }
 
@@ -190,6 +187,12 @@ enum DebeziumSourceMetadata {
     Postgres {
         transaction_id: UInt64Array,
         lsn: Int64Array,
+        source_schema: StringArray,
+        source_timestamp_us: Int64Array,
+        source_timestamp_ns: Int64Array,
+        event_timestamp_ms: Int64Array,
+        event_timestamp_us: Int64Array,
+        event_timestamp_ns: Int64Array,
     },
     MySql {
         transaction_identity: BinaryArray,
@@ -198,6 +201,16 @@ enum DebeziumSourceMetadata {
         binlog_file: StringArray,
         binlog_position: Int64Array,
         binlog_row: Int32Array,
+        _source_schema: StringArray,
+        source_timestamp_us: Int64Array,
+        source_timestamp_ns: Int64Array,
+        event_timestamp_ms: Int64Array,
+        event_timestamp_us: Int64Array,
+        event_timestamp_ns: Int64Array,
+    },
+    Ydb {
+        transaction_identity: FixedSizeBinaryArray,
+        event_timestamp_ms: Int64Array,
     },
 }
 
@@ -227,11 +240,11 @@ impl DebeziumBatchEncoder {
         );
         let old_value = mapped_columns(batch, META_OLD_VALUE_OF)?;
         let old_key = mapped_columns(batch, META_OLD_KEY_OF)?;
-        if dialect == DebeziumSourceDialect::MySql {
+        if matches!(dialect, DebeziumSourceDialect::MySql | DebeziumSourceDialect::Ydb) {
             for (current_index, name) in &user_columns {
                 let old_index = old_value.get(name).copied().ok_or_else(|| {
                     anyhow::anyhow!(
-                        "MySQL Debezium input column '{name}' is missing its full old-value mapping"
+                        "{dialect:?} Debezium input column '{name}' is missing its full old-value mapping"
                     )
                 })?;
                 let current = schema.field(*current_index);
@@ -248,7 +261,7 @@ impl DebeziumBatchEncoder {
                             == current
                                 .metadata()
                                 .get(transferia_core::data::schema::META_ARROW_EXTENSION_METADATA),
-                    "MySQL Debezium input old value for '{name}' does not preserve its exact physical Arrow type and extension metadata"
+                    "{dialect:?} Debezium input old value for '{name}' does not preserve its exact physical Arrow type and extension metadata"
                 );
             }
         }
@@ -320,12 +333,20 @@ impl DebeziumBatchEncoder {
                 batch,
                 SystemColumnKind::ChangedColumns,
             )?),
+            DebeziumSourceDialect::Ydb => Some(system_array::<BinaryArray>(
+                batch,
+                SystemColumnKind::ChangedColumns,
+            )?),
         };
         let operation = match dialect {
             DebeziumSourceDialect::Postgres => {
                 optional_system_array::<StringArray>(batch, SystemColumnKind::ChangeOperation)?
             }
             DebeziumSourceDialect::MySql => Some(system_array::<StringArray>(
+                batch,
+                SystemColumnKind::ChangeOperation,
+            )?),
+            DebeziumSourceDialect::Ydb => Some(system_array::<StringArray>(
                 batch,
                 SystemColumnKind::ChangeOperation,
             )?),
@@ -337,6 +358,27 @@ impl DebeziumBatchEncoder {
                     SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
                 )?,
                 lsn: system_array::<Int64Array>(batch, SystemColumnKind::Offset)?,
+                source_schema: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_SCHEMA)?,
+                source_timestamp_us: role_array::<Int64Array>(
+                    batch,
+                    SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
+                )?,
+                source_timestamp_ns: role_array::<Int64Array>(
+                    batch,
+                    SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+                )?,
+                event_timestamp_ms: role_array::<Int64Array>(
+                    batch,
+                    SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
+                )?,
+                event_timestamp_us: role_array::<Int64Array>(
+                    batch,
+                    SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+                )?,
+                event_timestamp_ns: role_array::<Int64Array>(
+                    batch,
+                    SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
+                )?,
             },
             DebeziumSourceDialect::MySql => DebeziumSourceMetadata::MySql {
                 transaction_identity: role_array::<BinaryArray>(
@@ -351,6 +393,37 @@ impl DebeziumBatchEncoder {
                     SYSTEM_ROLE_SOURCE_BINLOG_POSITION,
                 )?,
                 binlog_row: role_array::<Int32Array>(batch, SYSTEM_ROLE_SOURCE_BINLOG_ROW)?,
+                _source_schema: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_SCHEMA)?,
+                source_timestamp_us: role_array::<Int64Array>(
+                    batch,
+                    SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
+                )?,
+                source_timestamp_ns: role_array::<Int64Array>(
+                    batch,
+                    SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+                )?,
+                event_timestamp_ms: role_array::<Int64Array>(
+                    batch,
+                    SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
+                )?,
+                event_timestamp_us: role_array::<Int64Array>(
+                    batch,
+                    SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+                )?,
+                event_timestamp_ns: role_array::<Int64Array>(
+                    batch,
+                    SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
+                )?,
+            },
+            DebeziumSourceDialect::Ydb => DebeziumSourceMetadata::Ydb {
+                transaction_identity: role_array::<FixedSizeBinaryArray>(
+                    batch,
+                    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+                )?,
+                event_timestamp_ms: system_array::<Int64Array>(
+                    batch,
+                    SystemColumnKind::WriteTimestampMs,
+                )?,
             },
         };
         Ok(Self {
@@ -362,15 +435,9 @@ impl DebeziumBatchEncoder {
             changed_columns,
             operation,
             database: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_DATABASE)?,
-            source_schema: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_SCHEMA)?,
             source_table: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_TABLE)?,
             source_metadata,
             source_timestamp_ms: role_array::<Int64Array>(batch, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS)?,
-            source_timestamp_us: role_array::<Int64Array>(batch, SYSTEM_ROLE_SOURCE_TIMESTAMP_US)?,
-            source_timestamp_ns: role_array::<Int64Array>(batch, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS)?,
-            event_timestamp_ms: role_array::<Int64Array>(batch, SYSTEM_ROLE_EVENT_TIMESTAMP_MS)?,
-            event_timestamp_us: role_array::<Int64Array>(batch, SYSTEM_ROLE_EVENT_TIMESTAMP_US)?,
-            event_timestamp_ns: role_array::<Int64Array>(batch, SYSTEM_ROLE_EVENT_TIMESTAMP_NS)?,
             user_ordinal_by_source_index,
         })
     }
@@ -436,11 +503,26 @@ impl DebeziumBatchEncoder {
         } else {
             output.extend_from_slice(b"null");
         }
-        output.extend_from_slice(b",\"source\":{\"version\":\"transferia\",\"connector\":");
+        output.extend_from_slice(b",\"source\":{\"version\":");
+        write_json_string(
+            &mut output,
+            if self.dialect == DebeziumSourceDialect::Ydb {
+                "1.0.0"
+            } else {
+                "transferia"
+            },
+        );
+        output.extend_from_slice(b",\"connector\":");
         match &self.source_metadata {
             DebeziumSourceMetadata::Postgres {
                 transaction_id,
                 lsn,
+                source_schema,
+                source_timestamp_us,
+                source_timestamp_ns,
+                event_timestamp_ms: _,
+                event_timestamp_us: _,
+                event_timestamp_ns: _,
             } => {
                 output.extend_from_slice(b"\"postgresql\",\"name\":");
                 write_json_string(&mut output, logical_name);
@@ -451,11 +533,11 @@ impl DebeziumBatchEncoder {
                 output.extend_from_slice(b",\"db\":");
                 write_json_string(&mut output, self.database.value(row));
                 output.extend_from_slice(b",\"sequence\":null,\"ts_us\":");
-                write_i64(&mut output, self.source_timestamp_us.value(row));
+                write_i64(&mut output, source_timestamp_us.value(row));
                 output.extend_from_slice(b",\"ts_ns\":");
-                write_i64(&mut output, self.source_timestamp_ns.value(row));
+                write_i64(&mut output, source_timestamp_ns.value(row));
                 output.extend_from_slice(b",\"schema\":");
-                write_json_string(&mut output, self.source_schema.value(row));
+                write_json_string(&mut output, source_schema.value(row));
                 output.extend_from_slice(b",\"table\":");
                 write_json_string(&mut output, self.source_table.value(row));
                 output.extend_from_slice(b",\"txId\":");
@@ -471,6 +553,12 @@ impl DebeziumBatchEncoder {
                 binlog_file,
                 binlog_position,
                 binlog_row,
+                _source_schema: _,
+                source_timestamp_us,
+                source_timestamp_ns,
+                event_timestamp_ms: _,
+                event_timestamp_us: _,
+                event_timestamp_ns: _,
             } => {
                 output.extend_from_slice(b"\"mysql\",\"name\":");
                 write_json_string(&mut output, logical_name);
@@ -481,9 +569,9 @@ impl DebeziumBatchEncoder {
                 output.extend_from_slice(b",\"db\":");
                 write_json_string(&mut output, self.database.value(row));
                 output.extend_from_slice(b",\"sequence\":null,\"ts_us\":");
-                write_i64(&mut output, self.source_timestamp_us.value(row));
+                write_i64(&mut output, source_timestamp_us.value(row));
                 output.extend_from_slice(b",\"ts_ns\":");
-                write_i64(&mut output, self.source_timestamp_ns.value(row));
+                write_i64(&mut output, source_timestamp_ns.value(row));
                 output.extend_from_slice(b",\"table\":");
                 write_json_string(&mut output, self.source_table.value(row));
                 output.extend_from_slice(b",\"server_id\":");
@@ -502,68 +590,147 @@ impl DebeziumBatchEncoder {
                 write_i64(&mut output, i64::from(binlog_row.value(row)));
                 output.extend_from_slice(b",\"thread\":null,\"query\":null}");
             }
+            DebeziumSourceMetadata::Ydb {
+                transaction_identity,
+                event_timestamp_ms: _,
+            } => {
+                let (step, tx_id) = ydb_transaction(transaction_identity.value(row), row)?;
+                output.extend_from_slice(b"\"ydb\",\"name\":");
+                write_json_string(&mut output, logical_name);
+                output.extend_from_slice(b",\"ts_ms\":");
+                write_i64(&mut output, self.source_timestamp_ms.value(row));
+                output.extend_from_slice(b",\"snapshot\":\"false\",\"db\":");
+                write_json_string(&mut output, self.database.value(row));
+                output.extend_from_slice(b",\"table\":");
+                write_json_string(&mut output, self.source_table.value(row));
+                output.extend_from_slice(b",\"step\":");
+                write_u64(&mut output, step);
+                output.extend_from_slice(b",\"txId\":");
+                write_u64(&mut output, tx_id);
+                output.push(b'}');
+            }
         }
         output.extend_from_slice(b",\"op\":");
         write_json_string(&mut output, operation);
         output.extend_from_slice(b",\"ts_ms\":");
-        write_i64(&mut output, self.event_timestamp_ms.value(row));
-        output.extend_from_slice(b",\"ts_us\":");
-        write_i64(&mut output, self.event_timestamp_us.value(row));
-        output.extend_from_slice(b",\"ts_ns\":");
-        write_i64(&mut output, self.event_timestamp_ns.value(row));
+        match &self.source_metadata {
+            DebeziumSourceMetadata::Postgres {
+                event_timestamp_ms,
+                event_timestamp_us,
+                event_timestamp_ns,
+                ..
+            }
+            | DebeziumSourceMetadata::MySql {
+                event_timestamp_ms,
+                event_timestamp_us,
+                event_timestamp_ns,
+                ..
+            } => {
+                write_i64(&mut output, event_timestamp_ms.value(row));
+                output.extend_from_slice(b",\"ts_us\":");
+                write_i64(&mut output, event_timestamp_us.value(row));
+                output.extend_from_slice(b",\"ts_ns\":");
+                write_i64(&mut output, event_timestamp_ns.value(row));
+            }
+            DebeziumSourceMetadata::Ydb {
+                event_timestamp_ms,
+                ..
+            } => write_i64(&mut output, event_timestamp_ms.value(row)),
+        }
         output.extend_from_slice(b",\"transaction\":null}");
         Ok(output)
     }
 
     fn validate_source_metadata(&self, row: usize, operation: &str) -> anyhow::Result<()> {
-        let DebeziumSourceMetadata::MySql {
-            transaction_identity,
-            server_id,
-            gtid,
-            binlog_file,
-            binlog_position,
-            binlog_row,
-        } = &self.source_metadata
-        else {
-            return Ok(());
-        };
-        anyhow::ensure!(
-            !transaction_identity.value(row).is_empty(),
-            "MySQL Debezium transaction identity is empty at row {row}"
-        );
-        let server_id = server_id.value(row);
-        anyhow::ensure!(
-            u32::try_from(server_id).is_ok(),
-            "MySQL Debezium server_id {server_id} is outside the unsigned 32-bit range at row {row}"
-        );
-        anyhow::ensure!(
-            !binlog_file.value(row).is_empty(),
-            "MySQL Debezium binlog filename is empty at row {row}"
-        );
-        let position = binlog_position.value(row);
-        anyhow::ensure!(
-            position >= 4 && u32::try_from(position).is_ok(),
-            "MySQL Debezium binlog position {position} is outside the supported 4..=4294967295 range at row {row}"
-        );
-        let binlog_row = binlog_row.value(row);
-        anyhow::ensure!(
-            binlog_row >= 0,
-            "MySQL Debezium binlog row {binlog_row} is negative at row {row}"
-        );
-        if operation == "r" {
-            anyhow::ensure!(
-                server_id == 0 && gtid.is_null(row) && binlog_row == 0,
-                "MySQL Debezium snapshot row {row} requires server_id=0, gtid=null, and binlog row=0"
-            );
-        } else {
-            anyhow::ensure!(
-                !gtid.is_null(row),
-                "MySQL Debezium stream row {row} requires a GTID"
-            );
-            validate_mysql_gtid(gtid.value(row), row)?;
+        match &self.source_metadata {
+            DebeziumSourceMetadata::Postgres { .. } => Ok(()),
+            DebeziumSourceMetadata::MySql {
+                transaction_identity,
+                server_id,
+                gtid,
+                binlog_file,
+                binlog_position,
+                binlog_row,
+                ..
+            } => {
+                anyhow::ensure!(
+                    !transaction_identity.value(row).is_empty(),
+                    "MySQL Debezium transaction identity is empty at row {row}"
+                );
+                let server_id = server_id.value(row);
+                anyhow::ensure!(
+                    u32::try_from(server_id).is_ok(),
+                    "MySQL Debezium server_id {server_id} is outside the unsigned 32-bit range at row {row}"
+                );
+                anyhow::ensure!(
+                    !binlog_file.value(row).is_empty(),
+                    "MySQL Debezium binlog filename is empty at row {row}"
+                );
+                let position = binlog_position.value(row);
+                anyhow::ensure!(
+                    position >= 4 && u32::try_from(position).is_ok(),
+                    "MySQL Debezium binlog position {position} is outside the supported 4..=4294967295 range at row {row}"
+                );
+                let binlog_row = binlog_row.value(row);
+                anyhow::ensure!(
+                    binlog_row >= 0,
+                    "MySQL Debezium binlog row {binlog_row} is negative at row {row}"
+                );
+                if operation == "r" {
+                    anyhow::ensure!(
+                        server_id == 0 && gtid.is_null(row) && binlog_row == 0,
+                        "MySQL Debezium snapshot row {row} requires server_id=0, gtid=null, and binlog row=0"
+                    );
+                } else {
+                    anyhow::ensure!(
+                        !gtid.is_null(row),
+                        "MySQL Debezium stream row {row} requires a GTID"
+                    );
+                    validate_mysql_gtid(gtid.value(row), row)?;
+                }
+                Ok(())
+            }
+            DebeziumSourceMetadata::Ydb {
+                transaction_identity,
+                event_timestamp_ms,
+            } => {
+                anyhow::ensure!(
+                    operation != "r",
+                    "YDB Debezium does not accept snapshot operations because YDB replication is stream-only"
+                );
+                anyhow::ensure!(
+                    !self.database.value(row).is_empty() && !self.source_table.value(row).is_empty(),
+                    "YDB Debezium source database and table must be nonempty at row {row}"
+                );
+                let (step, _) = ydb_transaction(transaction_identity.value(row), row)?;
+                let source_timestamp = self.source_timestamp_ms.value(row);
+                anyhow::ensure!(
+                    source_timestamp >= 0 && u64::try_from(source_timestamp)? == step,
+                    "YDB Debezium source timestamp {source_timestamp} does not equal transaction step {step} at row {row}"
+                );
+                anyhow::ensure!(
+                    event_timestamp_ms.value(row) >= 0,
+                    "YDB Debezium broker write timestamp is negative at row {row}"
+                );
+                Ok(())
+            }
         }
-        Ok(())
     }
+}
+
+fn ydb_transaction(value: &[u8], row: usize) -> anyhow::Result<(u64, u64)> {
+    let bytes: [u8; 16] = value.try_into().map_err(|_| {
+        anyhow::anyhow!(
+            "YDB Debezium transaction identity must contain exactly 16 bytes at row {row}"
+        )
+    })?;
+    let step = u64::from_be_bytes(bytes[..8].try_into().map_err(|_| {
+        anyhow::anyhow!("YDB Debezium transaction step framing is invalid at row {row}")
+    })?);
+    let tx_id = u64::from_be_bytes(bytes[8..].try_into().map_err(|_| {
+        anyhow::anyhow!("YDB Debezium transaction id framing is invalid at row {row}")
+    })?);
+    Ok((step, tx_id))
 }
 
 fn validate_mysql_gtid(gtid: &str, row: usize) -> anyhow::Result<()> {
@@ -616,6 +783,9 @@ fn projected_debezium(
         }
         DebeziumSourceDialect::MySql => {
             JsonBatchEncoder::projected_debezium_mysql(batch, projection)
+        }
+        DebeziumSourceDialect::Ydb => {
+            JsonBatchEncoder::projected_debezium_ydb(batch, projection)
         }
     }
 }

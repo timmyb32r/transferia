@@ -27,6 +27,9 @@ use transferia_connector_ydb::metrics::MetricsRegistry;
 use transferia_connector_ydb::ydb::{
     self, YdbAuth, YdbConnectionConfig, YdbSourceConfig, YdbSourceConnector,
 };
+use transferia_connector_support::serializer::{
+    DeliverySerializer, QueueMessageMode, SerializerConfig,
+};
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{
     META_OLD_VALUE_OF, META_SYSTEM_ROLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
@@ -36,9 +39,10 @@ use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::data::table_data::TableData;
 use transferia_core::delivery::{
     validate_batch_against_discovery, DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology,
+    NO_LIMITS,
 };
 use transferia_core::memory::PipelineMemory;
-use transferia_core::sink::SinkBatch;
+use transferia_core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch};
 use transferia_core::source::{CommitMarker, Source};
 use transferia_core::{project_sink_batch, ProjectedSinkBatch};
 use transferia_delivery_contracts::DeliveryType;
@@ -119,6 +123,7 @@ struct ObservedChanges {
     rows: Vec<ObservedRow>,
     schemas: BTreeMap<String, Arc<Schema>>,
     markers: Vec<CommitMarker>,
+    serialized: Vec<(Option<Vec<u8>>, Option<Vec<u8>>)>,
 }
 
 impl ObservedChanges {
@@ -322,6 +327,7 @@ WHERE tenant = "acme" AND id = CAST(1 AS Uint64);"#,
 
     let first = read_changes(&mut stream, &discovery, 4).await?;
     assert_expected_changes(&first.rows)?;
+    assert_debezium_changes(&first.serialized)?;
     assert_eq!(
         admin.consumer_offsets(&topic, CONSUMER).await?,
         baseline_offsets,
@@ -374,6 +380,10 @@ WHERE tenant = "acme" AND id = CAST(1 AS Uint64);"#,
         replay.schemas, first.schemas,
         "restart changed the emitted Arrow schema"
     );
+    assert_eq!(
+        replay.serialized, first.serialized,
+        "restart changed the exact YDB Debezium messages before acknowledgement"
+    );
 
     stream.commit_offsets(&replay.markers).await?;
     let committed_offsets = admin.consumer_offsets(&topic, CONSUMER).await?;
@@ -412,6 +422,11 @@ VALUES (
     assert_eq!(after_ack.rows[0].operation, "c");
     assert_eq!(after_ack.rows[0].partition, 0);
     assert_wire_values(&after_ack.rows)?;
+    anyhow::ensure!(
+        after_ack.serialized.len() == 1
+            && debezium_value(&after_ack.serialized[0])?["op"] == "c",
+        "post-ack YDB change did not serialize as one Debezium create"
+    );
     assert!(
         after_ack.rows[0].offset
             >= committed_offsets
@@ -616,6 +631,89 @@ fn assert_expected_changes(rows: &[ObservedRow]) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn assert_debezium_changes(
+    messages: &[(Option<Vec<u8>>, Option<Vec<u8>>)],
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        messages.len() == 5,
+        "YDB c/u/c/d sequence produced {} Debezium messages instead of four values plus one delete tombstone",
+        messages.len()
+    );
+    let operations = messages
+        .iter()
+        .filter_map(|message| message.1.as_deref())
+        .map(|value| {
+            serde_json::from_slice::<serde_json::Value>(value)
+                .map(|json| json["op"].as_str().unwrap_or_default().to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    anyhow::ensure!(operations == ["c", "u", "c", "d"]);
+    anyhow::ensure!(messages[4].1.is_none(), "YDB delete omitted its tombstone");
+    anyhow::ensure!(
+        serde_json::from_slice::<serde_json::Value>(
+            messages[0].0.as_deref().context("YDB create omitted its key")?
+        )? == serde_json::json!({"tenant":"acme","id":1}),
+        "YDB Debezium create key lost its composite primary key"
+    );
+
+    let create = debezium_value(&messages[0])?;
+    anyhow::ensure!(create["before"].is_null());
+    anyhow::ensure!(create["after"]["payload"] == "one");
+    anyhow::ensure!(create["after"]["raw_bytes"] == "AP9B");
+    anyhow::ensure!(create["after"]["event_date"] == EVENT_DATE_DAYS);
+    anyhow::ensure!(
+        create["after"]["event_datetime"] == EVENT_DATETIME_SECONDS * 1_000
+    );
+    anyhow::ensure!(create["after"]["event_timestamp"] == EVENT_TIMESTAMP_MICROS);
+
+    let update = debezium_value(&messages[1])?;
+    anyhow::ensure!(update["before"]["payload"] == "one");
+    anyhow::ensure!(update["after"]["payload"] == "one-updated");
+    anyhow::ensure!(
+        update["after"]["event_timestamp"] != "__debezium_unavailable_value",
+        "YDB full new image was mistaken for a PostgreSQL TOAST mask"
+    );
+
+    let delete = debezium_value(&messages[3])?;
+    anyhow::ensure!(delete["before"]["payload"] == "one-updated");
+    anyhow::ensure!(delete["after"].is_null());
+    anyhow::ensure!(messages[3].0 == messages[4].0);
+
+    for message in messages.iter().filter(|message| message.1.is_some()) {
+        let value = debezium_value(message)?;
+        let source = &value["source"];
+        anyhow::ensure!(source["version"] == "1.0.0");
+        anyhow::ensure!(source["connector"] == "ydb");
+        anyhow::ensure!(source["name"] == "inventory");
+        anyhow::ensure!(source["snapshot"] == "false");
+        anyhow::ensure!(source["db"] == "/local");
+        anyhow::ensure!(source["table"] == EVENTS_TABLE);
+        anyhow::ensure!(source["step"] == source["ts_ms"]);
+        anyhow::ensure!(source["txId"].as_u64().is_some());
+        anyhow::ensure!(value["ts_ms"].as_i64().is_some_and(|value| value > 0));
+        for foreign in [
+            "schema", "lsn", "xmin", "server_id", "gtid", "file", "pos", "row",
+            "thread", "query", "ts_us", "ts_ns",
+        ] {
+            anyhow::ensure!(source.get(foreign).is_none(), "YDB source contains '{foreign}'");
+        }
+        anyhow::ensure!(value.get("ts_us").is_none() && value.get("ts_ns").is_none());
+    }
+    Ok(())
+}
+
+fn debezium_value(
+    message: &(Option<Vec<u8>>, Option<Vec<u8>>),
+) -> anyhow::Result<serde_json::Value> {
+    serde_json::from_slice(
+        message
+            .1
+            .as_deref()
+            .context("expected a YDB Debezium value message")?,
+    )
+    .map_err(Into::into)
+}
+
 fn assert_wire_values(rows: &[ObservedRow]) -> anyhow::Result<()> {
     for row in rows {
         anyhow::ensure!(
@@ -779,6 +877,17 @@ async fn read_changes(
 ) -> anyhow::Result<ObservedChanges> {
     tokio::time::timeout(TEST_TIMEOUT, async {
         let mut observed = ObservedChanges::default();
+        let serializer_config: SerializerConfig = serde_json::from_value(serde_json::json!({
+            "type": "debezium",
+            "logical_name": "inventory",
+            "format": { "type": "json" }
+        }))?;
+        serializer_config.validate_discovery(discovery)?;
+        let mut serializer = DeliverySerializer::new(
+            &serializer_config,
+            QueueMessageMode::KeyedWithTombstones,
+        )?;
+        let mut delivery_id = 0_u64;
         while observed.rows.len() < expected_rows {
             match source.read_batch().await? {
                 SourceBatch::Typed {
@@ -786,6 +895,23 @@ async fn read_changes(
                     commit_marker,
                     ..
                 } => {
+                    let serialized = serialize_tables(
+                        &mut serializer,
+                        discovery,
+                        &tables,
+                        delivery_id,
+                    )
+                    .await?;
+                    delivery_id = delivery_id
+                        .checked_add(1)
+                        .context("YDB Debezium test delivery id overflow")?;
+                    observed.serialized.extend(
+                        serialized
+                            .batches
+                            .into_iter()
+                            .flat_map(|batch| batch.messages)
+                            .map(|message| (message.key, message.value)),
+                    );
                     observe_tables(&mut observed, discovery, tables)?;
                     if let Some(marker) = commit_marker {
                         observed.markers.push(marker);
@@ -809,6 +935,47 @@ async fn read_changes(
     })
     .await
     .context("timed out waiting for YDB changefeed rows")?
+}
+
+async fn serialize_tables(
+    serializer: &mut DeliverySerializer,
+    discovery: &DeliveryDiscovery,
+    tables: &[TableData],
+    delivery_id: u64,
+) -> anyhow::Result<transferia_connector_support::serializer::SerializedDelivery> {
+    let source_messages = tables
+        .iter()
+        .map(|table| u64::try_from(table.batch.num_rows()))
+        .try_fold(0_u64, |total, rows| {
+            total
+                .checked_add(rows?)
+                .context("YDB source message count overflow")
+        })?;
+    let mut outputs = Vec::with_capacity(tables.len());
+    for table in tables {
+        let batch = sink_batch(table);
+        validate_batch_against_discovery(discovery, &batch)?;
+        let ProjectedSinkBatch::Changelog(projected) = project_sink_batch(discovery, &batch)? else {
+            anyhow::bail!("YDB CDC batch crossed the Debezium boundary as append-only data")
+        };
+        anyhow::ensure!(
+            projected.rows().num_rows() == table.batch.num_rows(),
+            "YDB Debezium sink projection changed the row count"
+        );
+        outputs.push(batch);
+    }
+    serializer
+        .serialize(
+            &Delivery {
+                id: DeliveryId::new(delivery_id),
+                outputs,
+                meta: DeliveryMeta { source_messages },
+            },
+            discovery,
+            &NO_LIMITS,
+            1024 * 1024,
+        )
+        .await
 }
 
 fn observe_tables(
@@ -922,16 +1089,7 @@ fn validate_changelog_table(
     discovery: &DeliveryDiscovery,
     table: &TableData,
 ) -> anyhow::Result<()> {
-    let byte_size = table.batch.get_array_memory_size();
-    let memory = PipelineMemory::new(byte_size.max(1));
-    let batch = SinkBatch {
-        table: Arc::clone(&table.table),
-        is_dlq: table.is_dlq,
-        batch: table.batch.clone(),
-        byte_size,
-        memory: memory.reserve_transform(byte_size),
-        system_columns: table.system_columns.clone(),
-    };
+    let batch = sink_batch(table);
     validate_batch_against_discovery(discovery, &batch)?;
     let ProjectedSinkBatch::Changelog(projected) = project_sink_batch(discovery, &batch)? else {
         anyhow::bail!("YDB CDC batch crossed the sink boundary as append-only data")
@@ -941,6 +1099,19 @@ fn validate_changelog_table(
         "YDB CDC sink projection changed the row count"
     );
     Ok(())
+}
+
+fn sink_batch(table: &TableData) -> SinkBatch {
+    let byte_size = table.batch.get_array_memory_size();
+    let memory = PipelineMemory::new(byte_size.max(1));
+    SinkBatch {
+        table: Arc::clone(&table.table),
+        is_dlq: table.is_dlq,
+        batch: table.batch.clone(),
+        byte_size,
+        memory: memory.reserve_transform(byte_size),
+        system_columns: table.system_columns.clone(),
+    }
 }
 
 fn transaction_step(identity: &[u8]) -> anyhow::Result<i64> {

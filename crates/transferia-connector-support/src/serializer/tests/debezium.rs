@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
-use arrow::array::{BinaryArray, Int32Array, Int64Array, StringArray, UInt64Array};
-use arrow::datatypes::{DataType, Field, Schema};
+use arrow::array::{
+    BinaryArray, Date32Array, DurationMicrosecondArray, FixedSizeBinaryBuilder, Int32Array,
+    Int64Array, StringArray, TimestampMicrosecondArray, TimestampSecondArray, UInt64Array,
+};
+use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use transferia_core::data::schema::{
     SchemaColumn, META_ARROW_EXTENSION_METADATA, META_CHANGE_OPERATION, META_OLD_VALUE_OF,
@@ -347,6 +350,363 @@ async fn mysql_rejects_invalid_runtime_source_metadata_before_returning_messages
         .unwrap_err()
         .to_string();
     assert!(error.contains("exact physical Arrow type"), "{error}");
+}
+
+#[tokio::test]
+async fn ydb_emits_exact_source_full_images_and_physical_values() {
+    let batch = ydb_cdc_batch().await;
+    let encoder = DebeziumJsonEncoder::new(
+        "inventory".to_owned(),
+        QueueMessageMode::KeyedWithTombstones,
+    );
+
+    let encoded = encoder
+        .encode_batch(&batch, DebeziumSourceDialect::Ydb, usize::MAX)
+        .unwrap();
+
+    assert_eq!(encoded.messages.len(), 4);
+    assert_eq!(encoded.messages[0].key.as_deref(), Some(br#"{"id":18446744073709551615}"#.as_slice()));
+    let create = json(encoded.messages[0].value.as_deref().unwrap());
+    assert!(create["before"].is_null());
+    assert_eq!(create["after"]["id"], u64::MAX);
+    assert_eq!(create["after"]["payload"], "created");
+    assert_eq!(create["after"]["raw"], "AP9B");
+    assert_eq!(create["after"]["event_date"], 19_782);
+    assert_eq!(create["after"]["event_datetime"], 1_709_210_096_000_i64);
+    assert_eq!(create["after"]["event_timestamp"], 1_709_210_096_123_456_i64);
+    assert_eq!(create["after"]["event_interval"], -123_456_i64);
+    assert_eq!(
+        create["after"]["uuid"],
+        "00112233-4455-6677-8899-aabbccddeeff"
+    );
+    assert_eq!(create["after"]["dynumber"]["scale"], 2);
+    assert_eq!(create["after"]["dynumber"]["value"], "MDk=");
+    assert_eq!(create["after"]["document"], r#"{"a":1}"#);
+    assert_eq!(
+        create["source"],
+        serde_json::json!({
+            "version": "1.0.0",
+            "connector": "ydb",
+            "name": "inventory",
+            "ts_ms": 1_700_000_000_001_i64,
+            "snapshot": "false",
+            "db": "/local",
+            "table": "/local/accounts",
+            "step": 1_700_000_000_001_u64,
+            "txId": 41_u64,
+        })
+    );
+    assert_eq!(create["op"], "c");
+    assert_eq!(create["ts_ms"], 1_700_000_100_001_i64);
+    assert!(create.get("ts_us").is_none());
+    assert!(create.get("ts_ns").is_none());
+
+    let update = json(encoded.messages[1].value.as_deref().unwrap());
+    assert_eq!(update["op"], "u");
+    assert_eq!(update["before"]["payload"], "created");
+    assert_eq!(update["after"]["payload"], "updated");
+    assert_ne!(
+        update["after"]["raw"],
+        "__debezium_unavailable_value"
+    );
+
+    let delete = json(encoded.messages[2].value.as_deref().unwrap());
+    assert_eq!(delete["op"], "d");
+    assert_eq!(delete["before"]["payload"], "updated");
+    assert!(delete["after"].is_null());
+    assert!(encoded.messages[3].value.is_none());
+}
+
+#[tokio::test]
+async fn ydb_values_only_and_runtime_metadata_are_strict() {
+    let encoder = DebeziumJsonEncoder::new("inventory".to_owned(), QueueMessageMode::ValuesOnly);
+    let batch = ydb_cdc_batch().await;
+    let encoded = encoder
+        .encode_batch(&batch, DebeziumSourceDialect::Ydb, usize::MAX)
+        .unwrap();
+    assert_eq!(encoded.messages.len(), 3);
+    assert!(encoded.messages.iter().all(|message| message.key.is_none()));
+
+    let mut mismatched_step = ydb_cdc_batch().await;
+    replace_column(
+        &mut mismatched_step,
+        23,
+        Arc::new(Int64Array::from(vec![1_i64, 2, 3])),
+    );
+    let error = encoder
+        .encode_batch(&mismatched_step, DebeziumSourceDialect::Ydb, usize::MAX)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("does not equal transaction step"), "{error}");
+
+    let mut snapshot_operation = ydb_cdc_batch().await;
+    replace_column(
+        &mut snapshot_operation,
+        29,
+        Arc::new(StringArray::from(vec!["r", "u", "d"])),
+    );
+    let error = encoder
+        .encode_batch(
+            &snapshot_operation,
+            DebeziumSourceDialect::Ydb,
+            usize::MAX,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("stream-only"), "{error}");
+
+    let mut invalid_dynumber = ydb_cdc_batch().await;
+    replace_column(
+        &mut invalid_dynumber,
+        8,
+        Arc::new(StringArray::from(vec![
+            Some("not-a-number"),
+            Some("123.45"),
+            None,
+        ])),
+    );
+    let error = encoder
+        .encode_batch(&invalid_dynumber, DebeziumSourceDialect::Ydb, usize::MAX)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("DyNumber") && error.contains("malformed"), "{error}");
+
+    let mut overflowing_datetime = ydb_cdc_batch().await;
+    replace_column(
+        &mut overflowing_datetime,
+        4,
+        Arc::new(TimestampSecondArray::from(vec![
+            Some(i64::MAX),
+            Some(1_709_210_096),
+            None,
+        ])),
+    );
+    let error = encoder
+        .encode_batch(
+            &overflowing_datetime,
+            DebeziumSourceDialect::Ydb,
+            usize::MAX,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Datetime milliseconds overflow"), "{error}");
+}
+
+async fn ydb_cdc_batch() -> SinkBatch {
+    const USER_COLUMNS: usize = 10;
+    let user = [
+        SchemaColumn::new("id".to_owned(), DataType::UInt64, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("payload".to_owned(), DataType::Utf8, true),
+        SchemaColumn::new("raw".to_owned(), DataType::Binary, true),
+        SchemaColumn::new("event_date".to_owned(), DataType::Date32, true),
+        SchemaColumn::new(
+            "event_datetime".to_owned(),
+            DataType::Timestamp(TimeUnit::Second, None),
+            true,
+        ),
+        SchemaColumn::new(
+            "event_timestamp".to_owned(),
+            DataType::Timestamp(TimeUnit::Microsecond, None),
+            true,
+        ),
+        SchemaColumn::new(
+            "event_interval".to_owned(),
+            DataType::Duration(TimeUnit::Microsecond),
+            true,
+        ),
+        SchemaColumn::new("uuid".to_owned(), DataType::FixedSizeBinary(16), true)
+            .with_arrow_extension("arrow.uuid"),
+        SchemaColumn::new("dynumber".to_owned(), DataType::Utf8, true)
+            .with_arrow_extension("transferia.ydb.dynumber"),
+        SchemaColumn::new("document".to_owned(), DataType::Utf8, false)
+            .with_arrow_extension("arrow.json"),
+    ];
+    let mut fields = user
+        .iter()
+        .map(|column| {
+            Field::new(
+                column.name.clone(),
+                column.data_type.clone(),
+                column.nullable,
+            )
+            .with_metadata(column.arrow_metadata())
+        })
+        .collect::<Vec<_>>();
+    fields.extend(user.iter().enumerate().map(|(index, column)| {
+        let old = SchemaColumn::new(
+            format!("_system_old_value_{index}"),
+            column.data_type.clone(),
+            true,
+        )
+        .with_old_value_of(column.name.clone());
+        let old = if let Some(extension) = column.arrow_extension_name {
+            old.with_arrow_extension(extension)
+        } else {
+            old
+        };
+        Field::new(old.name.clone(), old.data_type.clone(), true).with_metadata(old.arrow_metadata())
+    }));
+    let roles = [
+        (
+            "_system_source_database",
+            SYSTEM_ROLE_SOURCE_DATABASE,
+            DataType::Utf8,
+        ),
+        (
+            "_system_source_table",
+            SYSTEM_ROLE_SOURCE_TABLE,
+            DataType::Utf8,
+        ),
+        (
+            "_system_source_transaction_id",
+            SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+            DataType::FixedSizeBinary(16),
+        ),
+        (
+            "_system_source_timestamp_ms",
+            SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
+            DataType::Int64,
+        ),
+    ];
+    fields.extend(roles.iter().map(|(name, role, data_type)| {
+        Field::new(*name, data_type.clone(), false).with_metadata(
+            SchemaColumn::new((*name).to_owned(), data_type.clone(), false)
+                .with_system_role(*role)
+                .arrow_metadata(),
+        )
+    }));
+    let system_kinds = [
+        SystemColumnKind::Topic,
+        SystemColumnKind::Partition,
+        SystemColumnKind::Offset,
+        SystemColumnKind::MessageIndex,
+        SystemColumnKind::WriteTimestampMs,
+        SystemColumnKind::ChangeOperation,
+        SystemColumnKind::ChangedColumns,
+    ];
+    fields.extend(system_kinds.iter().map(|kind| {
+        Field::new(
+            kind.default_name(),
+            kind.data_type(),
+            false,
+        )
+    }));
+
+    let current_present = [Some(u64::MAX), Some(u64::MAX), None];
+    let old_present = [None, Some(u64::MAX), Some(u64::MAX)];
+    let mut transactions = FixedSizeBinaryBuilder::with_capacity(3, 16);
+    for (step, tx_id) in [
+        (1_700_000_000_001_u64, 41_u64),
+        (1_700_000_000_002, 42),
+        (1_700_000_000_003, 43),
+    ] {
+        let mut value = [0_u8; 16];
+        value[..8].copy_from_slice(&step.to_be_bytes());
+        value[8..].copy_from_slice(&tx_id.to_be_bytes());
+        transactions.append_value(value).unwrap();
+    }
+    let uuid = [
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+        0xdd, 0xee, 0xff,
+    ];
+    let mut current_uuid = FixedSizeBinaryBuilder::with_capacity(3, 16);
+    current_uuid.append_value(uuid).unwrap();
+    current_uuid.append_value(uuid).unwrap();
+    current_uuid.append_null();
+    let mut old_uuid = FixedSizeBinaryBuilder::with_capacity(3, 16);
+    old_uuid.append_null();
+    old_uuid.append_value(uuid).unwrap();
+    old_uuid.append_value(uuid).unwrap();
+    let current_payload = [Some("created"), Some("updated"), None];
+    let old_payload = [None, Some("created"), Some("updated")];
+    let current_raw = [Some(&b"\0\xffA"[..]), Some(&b"\0\xffB"[..]), None];
+    let old_raw = [None, Some(&b"\0\xffA"[..]), Some(&b"\0\xffB"[..])];
+    let current_i32 = [Some(19_782), Some(19_782), None];
+    let old_i32 = [None, Some(19_782), Some(19_782)];
+    let current_i64 = [Some(1_709_210_096_i64), Some(1_709_210_096), None];
+    let old_i64 = [None, Some(1_709_210_096_i64), Some(1_709_210_096)];
+    let current_micros = [
+        Some(1_709_210_096_123_456_i64),
+        Some(1_709_210_096_123_456),
+        None,
+    ];
+    let old_micros = [
+        None,
+        Some(1_709_210_096_123_456_i64),
+        Some(1_709_210_096_123_456),
+    ];
+    let current_interval = [Some(-123_456_i64), Some(-123_456), None];
+    let old_interval = [None, Some(-123_456_i64), Some(-123_456)];
+    let current_text = [Some("123.45"), Some("123.45"), None];
+    let old_text = [None, Some("123.45"), Some("123.45")];
+    let current_json = [Some(r#"{"a":1}"#), Some(r#"{"a":2}"#), None];
+    let old_json = [None, Some(r#"{"a":1}"#), Some(r#"{"a":2}"#)];
+    let columns: Vec<arrow::array::ArrayRef> = vec![
+        Arc::new(UInt64Array::from(current_present.to_vec())),
+        Arc::new(StringArray::from(current_payload.to_vec())),
+        Arc::new(BinaryArray::from(current_raw.to_vec())),
+        Arc::new(Date32Array::from(current_i32.to_vec())),
+        Arc::new(TimestampSecondArray::from(current_i64.to_vec())),
+        Arc::new(TimestampMicrosecondArray::from(current_micros.to_vec())),
+        Arc::new(DurationMicrosecondArray::from(current_interval.to_vec())),
+        Arc::new(current_uuid.finish()),
+        Arc::new(StringArray::from(current_text.to_vec())),
+        Arc::new(StringArray::from(current_json.to_vec())),
+        Arc::new(UInt64Array::from(old_present.to_vec())),
+        Arc::new(StringArray::from(old_payload.to_vec())),
+        Arc::new(BinaryArray::from(old_raw.to_vec())),
+        Arc::new(Date32Array::from(old_i32.to_vec())),
+        Arc::new(TimestampSecondArray::from(old_i64.to_vec())),
+        Arc::new(TimestampMicrosecondArray::from(old_micros.to_vec())),
+        Arc::new(DurationMicrosecondArray::from(old_interval.to_vec())),
+        Arc::new(old_uuid.finish()),
+        Arc::new(StringArray::from(old_text.to_vec())),
+        Arc::new(StringArray::from(old_json.to_vec())),
+        Arc::new(StringArray::from(vec!["/local"; 3])),
+        Arc::new(StringArray::from(vec!["/local/accounts"; 3])),
+        Arc::new(transactions.finish()),
+        Arc::new(Int64Array::from(vec![
+            1_700_000_000_001_i64,
+            1_700_000_000_002,
+            1_700_000_000_003,
+        ])),
+        Arc::new(StringArray::from(vec!["/local/accounts/transferia_cdc"; 3])),
+        Arc::new(Int64Array::from(vec![0_i64; 3])),
+        Arc::new(Int64Array::from(vec![10_i64, 11, 12])),
+        Arc::new(UInt64Array::from(vec![0_u64; 3])),
+        Arc::new(Int64Array::from(vec![
+            1_700_000_100_001_i64,
+            1_700_000_100_002,
+            1_700_000_100_003,
+        ])),
+        Arc::new(StringArray::from(vec!["c", "u", "d"])),
+        Arc::new(BinaryArray::from_iter_values([
+            &[0xff_u8, 0x03][..],
+            &[0x02_u8, 0x00][..],
+            &[0xff_u8, 0x03][..],
+        ])),
+    ];
+    assert_eq!(USER_COLUMNS * 2 + roles.len() + system_kinds.len(), columns.len());
+    let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), columns).unwrap();
+    SinkBatch {
+        table: Arc::from("/local/accounts"),
+        is_dlq: false,
+        byte_size: batch.get_array_memory_size(),
+        batch,
+        memory: PipelineMemory::new(1024 * 1024).reserve(1).await,
+        system_columns: SystemColumns::new(
+            system_kinds
+                .iter()
+                .enumerate()
+                .map(|(offset, kind)| SystemColumn {
+                    kind: *kind,
+                    index: USER_COLUMNS * 2 + roles.len() + offset,
+                    name: Arc::from(kind.default_name()),
+                })
+                .collect::<Vec<_>>(),
+        ),
+    }
 }
 
 fn replace_column(batch: &mut SinkBatch, index: usize, array: arrow::array::ArrayRef) {

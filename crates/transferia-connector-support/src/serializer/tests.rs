@@ -372,7 +372,10 @@ fn mysql_debezium_discovery_requires_exact_source_changelog_and_role_contracts()
         .validate_discovery(&invalid_source)
         .unwrap_err()
         .to_string();
-    assert!(error.contains("exactly 'postgres' or 'mysql'"), "{error}");
+    assert!(
+        error.contains("exactly 'postgres', 'mysql', or 'ydb'"),
+        "{error}"
+    );
 
     let mut missing_changelog = discovery.clone();
     missing_changelog.datasets[0]
@@ -471,6 +474,150 @@ fn mysql_debezium_discovery_requires_exact_source_changelog_and_role_contracts()
         .to_string();
     assert!(error.contains(SYSTEM_ROLE_SOURCE_GTID), "{error}");
     assert!(error.contains("nullable Utf8"), "{error}");
+}
+
+#[test]
+fn ydb_debezium_discovery_requires_exact_stream_roles_and_full_old_images() {
+    use arrow::datatypes::DataType;
+    use transferia_core::data::schema::{
+        SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    };
+    use transferia_core::SystemColumnKind;
+
+    let config = SerializerConfig::Debezium {
+        logical_name: "inventory".to_owned(),
+        format: DebeziumFormat::Json,
+    };
+    let discovery = ydb_debezium_discovery();
+    config.validate_discovery(&discovery).unwrap();
+
+    let mut wrong_identity = discovery.clone();
+    wrong_identity.datasets[0]
+        .incoming_schema
+        .columns
+        .iter_mut()
+        .find(|column| {
+            column.system_role.as_deref() == Some(SYSTEM_ROLE_SOURCE_TRANSACTION_ID)
+        })
+        .unwrap()
+        .data_type = DataType::Binary;
+    let error = config
+        .validate_discovery(&wrong_identity)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("FixedSizeBinary(16)"), "{error}");
+
+    let mut missing_timestamp = discovery.clone();
+    missing_timestamp.datasets[0]
+        .incoming_schema
+        .columns
+        .retain(|column| {
+            column.system_role.as_deref() != Some(SYSTEM_ROLE_SOURCE_TIMESTAMP_MS)
+        });
+    let error = config
+        .validate_discovery(&missing_timestamp)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains(SYSTEM_ROLE_SOURCE_TIMESTAMP_MS), "{error}");
+
+    let mut missing_write_timestamp = discovery.clone();
+    missing_write_timestamp.datasets[0]
+        .system_columns
+        .retain(|column| column.kind != SystemColumnKind::WriteTimestampMs);
+    let error = config
+        .validate_discovery(&missing_write_timestamp)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("WriteTimestampMs"), "{error}");
+
+    let mut missing_old = discovery.clone();
+    missing_old.datasets[0]
+        .incoming_schema
+        .columns
+        .retain(|column| column.old_value_of.as_deref() != Some("payload"));
+    let error = config
+        .validate_discovery(&missing_old)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("full old-value mapping"), "{error}");
+
+    let mut unsupported = discovery;
+    unsupported.datasets[0]
+        .incoming_schema
+        .columns
+        .iter_mut()
+        .find(|column| column.name == "payload")
+        .unwrap()
+        .data_type = DataType::Decimal128(22, 9);
+    let error = config
+        .validate_discovery(&unsupported)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unsupported Arrow type"), "{error}");
+}
+
+fn ydb_debezium_discovery() -> transferia_core::delivery::DeliveryDiscovery {
+    use arrow::datatypes::DataType;
+    use transferia_core::data::schema::{
+        DatasetSchema, SchemaColumn, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_TABLE,
+        SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    };
+    use transferia_core::delivery::{
+        DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
+    };
+    use transferia_core::SystemColumnKind;
+
+    let id = SchemaColumn::new("id".to_owned(), DataType::UInt64, false)
+        .with_constraints(true, false, None);
+    let payload = SchemaColumn::new("payload".to_owned(), DataType::Utf8, true);
+    let old_id = SchemaColumn::new("_system_old_value_0".to_owned(), DataType::UInt64, true)
+        .with_old_value_of("id".to_owned());
+    let old_payload = SchemaColumn::new("_system_old_value_1".to_owned(), DataType::Utf8, true)
+        .with_old_value_of("payload".to_owned());
+    let mut incoming = vec![id.clone(), payload.clone(), old_id, old_payload];
+    incoming.extend(
+        [
+            (SYSTEM_ROLE_SOURCE_DATABASE, DataType::Utf8),
+            (SYSTEM_ROLE_SOURCE_TABLE, DataType::Utf8),
+            (
+                SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+                DataType::FixedSizeBinary(16),
+            ),
+            (SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, DataType::Int64),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (role, data_type))| {
+            SchemaColumn::new(format!("_system_role_{index}"), data_type, false)
+                .with_system_role(role)
+        }),
+    );
+    let system_kinds = [
+        SystemColumnKind::Topic,
+        SystemColumnKind::Partition,
+        SystemColumnKind::Offset,
+        SystemColumnKind::MessageIndex,
+        SystemColumnKind::WriteTimestampMs,
+        SystemColumnKind::ChangeOperation,
+        SystemColumnKind::ChangedColumns,
+    ];
+    incoming.extend(system_kinds.into_iter().map(|kind| {
+        SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
+    }));
+    DeliveryDiscovery {
+        source_name: "ydb".into(),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: "accounts".into(),
+            incoming_schema: DatasetSchema::new(incoming),
+            stored_schema: DatasetSchema::new(vec![id, payload]),
+            system_columns: system_kinds.into_iter().map(Into::into).collect(),
+        }],
+        performance_advice: Vec::new(),
+    }
 }
 
 fn mysql_debezium_discovery() -> transferia_core::delivery::DeliveryDiscovery {

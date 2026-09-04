@@ -24,6 +24,12 @@ const MYSQL_TIME_EXTENSION_NAME: &str = "transferia.mysql.time";
 const MYSQL_TIMESTAMP_EXTENSION_NAME: &str = "transferia.mysql.timestamp";
 const MYSQL_UNSIGNED_INTEGER_EXTENSION_NAME: &str = "transferia.mysql.unsigned_integer";
 const MYSQL_YEAR_EXTENSION_NAME: &str = "transferia.mysql.year";
+const YDB_YSON_EXTENSION_NAME: &str = "transferia.ydb.yson";
+const YDB_TZ_DATE_EXTENSION_NAME: &str = "transferia.ydb.tz_date";
+const YDB_TZ_DATETIME_EXTENSION_NAME: &str = "transferia.ydb.tz_datetime";
+const YDB_TZ_TIMESTAMP_EXTENSION_NAME: &str = "transferia.ydb.tz_timestamp";
+const YDB_DYNUMBER_EXTENSION_NAME: &str = "transferia.ydb.dynumber";
+const YDB_UUID_EXTENSION_NAME: &str = "arrow.uuid";
 
 /// JSON Lines (NDJSON) serializer: one JSON object per row.
 ///
@@ -116,6 +122,35 @@ impl JsonBatchEncoder {
             NonFiniteFloatEncoding::ProtobufJsonString,
             true,
         )
+    }
+
+    pub(crate) fn projected_debezium_ydb(
+        batch: &RecordBatch,
+        projection: impl IntoIterator<Item = JsonColumnProjection>,
+    ) -> anyhow::Result<Self> {
+        let schema = batch.schema();
+        let columns = projection
+            .into_iter()
+            .map(|projection| {
+                let writer = if let Some(index) = projection.source_index {
+                    ColumnWriter::classify_ydb_debezium(
+                        schema.field(index),
+                        batch.column(index).as_ref(),
+                    )?
+                } else {
+                    ColumnWriter::Null
+                };
+                Ok(JsonColumnWriter {
+                    source_index: projection.source_index,
+                    output_name: projection.output_name,
+                    writer,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(Self {
+            columns,
+            non_finite_floats: NonFiniteFloatEncoding::ProtobufJsonString,
+        })
     }
 
     fn projected_with_float_encoding(
@@ -258,6 +293,85 @@ pub(super) fn validate_mysql_debezium_column(column: &SchemaColumn) -> anyhow::R
         column.arrow_extension_metadata.as_deref(),
     )?;
     Ok(())
+}
+
+pub(super) fn validate_ydb_debezium_column(column: &SchemaColumn) -> anyhow::Result<()> {
+    ydb_debezium_encoding(
+        &column.name,
+        &column.data_type,
+        column.arrow_extension_name,
+        column.arrow_extension_metadata.as_deref(),
+    )?;
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum YdbDebeziumEncoding {
+    Generic,
+    DatetimeMilliseconds,
+    DurationMicroseconds,
+    Uuid,
+    DynamicNumber,
+}
+
+fn ydb_debezium_encoding(
+    column_name: &str,
+    arrow_type: &DataType,
+    extension_name: Option<&str>,
+    extension_metadata: Option<&str>,
+) -> anyhow::Result<YdbDebeziumEncoding> {
+    anyhow::ensure!(
+        extension_metadata.is_none(),
+        "YDB Debezium column '{column_name}' has unexpected Arrow extension metadata"
+    );
+    let encoding = match (arrow_type, extension_name) {
+        (
+            DataType::Boolean
+            | DataType::Int8
+            | DataType::UInt8
+            | DataType::Int16
+            | DataType::UInt16
+            | DataType::Int32
+            | DataType::UInt32
+            | DataType::Int64
+            | DataType::UInt64
+            | DataType::Float32
+            | DataType::Float64
+            | DataType::Date32
+            | DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, _),
+            None,
+        ) => YdbDebeziumEncoding::Generic,
+        (DataType::Timestamp(arrow::datatypes::TimeUnit::Second, None), None) => {
+            YdbDebeziumEncoding::DatetimeMilliseconds
+        }
+        (DataType::Duration(arrow::datatypes::TimeUnit::Microsecond), None) => {
+            YdbDebeziumEncoding::DurationMicroseconds
+        }
+        (DataType::Binary, None | Some(YDB_YSON_EXTENSION_NAME)) => {
+            YdbDebeziumEncoding::Generic
+        }
+        (DataType::Utf8, None | Some(ARROW_JSON_EXTENSION_NAME)) => {
+            YdbDebeziumEncoding::Generic
+        }
+        (
+            DataType::Utf8,
+            Some(
+                YDB_TZ_DATE_EXTENSION_NAME
+                | YDB_TZ_DATETIME_EXTENSION_NAME
+                | YDB_TZ_TIMESTAMP_EXTENSION_NAME,
+            ),
+        ) => YdbDebeziumEncoding::Generic,
+        (DataType::Utf8, Some(YDB_DYNUMBER_EXTENSION_NAME)) => {
+            YdbDebeziumEncoding::DynamicNumber
+        }
+        (DataType::FixedSizeBinary(16), Some(YDB_UUID_EXTENSION_NAME)) => {
+            YdbDebeziumEncoding::Uuid
+        }
+        _ => anyhow::bail!(
+            "YDB Debezium column '{column_name}' has unsupported Arrow type {arrow_type:?} and extension {extension_name:?}"
+        ),
+    };
+    Ok(encoding)
 }
 
 fn mysql_debezium_encoding(
@@ -600,6 +714,10 @@ enum ColumnWriter {
     TimestampMillisecond(arrow::array::TimestampMillisecondArray),
     TimestampMicrosecond(arrow::array::TimestampMicrosecondArray),
     TimestampNanosecond(arrow::array::TimestampNanosecondArray),
+    YdbDatetimeMilliseconds(arrow::array::TimestampSecondArray),
+    YdbDurationMicroseconds(arrow::array::DurationMicrosecondArray),
+    YdbUuid(arrow::array::FixedSizeBinaryArray),
+    YdbDynamicNumber(arrow::array::StringArray),
     MySqlBit1(arrow::array::BinaryArray),
     MySqlCp1252Text(arrow::array::BinaryArray),
     MySqlPreciseUnsigned64(arrow::array::UInt64Array),
@@ -650,6 +768,80 @@ fn mysql_string_array(
 }
 
 impl ColumnWriter {
+    fn classify_ydb_debezium(
+        field: &arrow::datatypes::Field,
+        array: &dyn Array,
+    ) -> anyhow::Result<Self> {
+        match ydb_debezium_encoding(
+            field.name(),
+            field.data_type(),
+            field
+                .metadata()
+                .get(META_ARROW_EXTENSION_NAME)
+                .map(String::as_str),
+            field
+                .metadata()
+                .get(META_ARROW_EXTENSION_METADATA)
+                .map(String::as_str),
+        )? {
+            YdbDebeziumEncoding::Generic => Self::classify(array).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "YDB Debezium serializer: unsupported Arrow type {:?} for column '{}'",
+                    field.data_type(),
+                    field.name(),
+                )
+            }),
+            YdbDebeziumEncoding::DatetimeMilliseconds => Ok(Self::YdbDatetimeMilliseconds(
+                array
+                    .as_any()
+                    .downcast_ref::<arrow::array::TimestampSecondArray>()
+                    .cloned()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "YDB Debezium Datetime column '{}' has the wrong runtime Arrow array",
+                            field.name()
+                        )
+                    })?,
+            )),
+            YdbDebeziumEncoding::DurationMicroseconds => Ok(Self::YdbDurationMicroseconds(
+                array
+                    .as_any()
+                    .downcast_ref::<arrow::array::DurationMicrosecondArray>()
+                    .cloned()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "YDB Debezium Interval column '{}' has the wrong runtime Arrow array",
+                            field.name()
+                        )
+                    })?,
+            )),
+            YdbDebeziumEncoding::Uuid => Ok(Self::YdbUuid(
+                array
+                    .as_any()
+                    .downcast_ref::<arrow::array::FixedSizeBinaryArray>()
+                    .cloned()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "YDB Debezium UUID column '{}' has the wrong runtime Arrow array",
+                            field.name()
+                        )
+                    })?,
+            )),
+            YdbDebeziumEncoding::DynamicNumber => Ok(Self::YdbDynamicNumber(
+                array
+                    .as_any()
+                    .downcast_ref::<arrow::array::StringArray>()
+                    .cloned()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "YDB Debezium DyNumber column '{}' has the wrong runtime Arrow array",
+                            field.name()
+                        )
+                    })?,
+            )),
+        }
+    }
+
     fn classify_mysql_debezium(
         field: &arrow::datatypes::Field,
         array: &dyn Array,
@@ -949,6 +1141,16 @@ impl ColumnWriter {
             Self::TimestampMillisecond(a) => write_int(buf, a.value(row)),
             Self::TimestampMicrosecond(a) => write_int(buf, a.value(row)),
             Self::TimestampNanosecond(a) => write_int(buf, a.value(row)),
+            Self::YdbDatetimeMilliseconds(a) => {
+                let milliseconds = a
+                    .value(row)
+                    .checked_mul(1_000)
+                    .ok_or_else(|| anyhow::anyhow!("YDB Debezium Datetime milliseconds overflow"))?;
+                write_int(buf, milliseconds);
+            }
+            Self::YdbDurationMicroseconds(a) => write_int(buf, a.value(row)),
+            Self::YdbUuid(a) => write_ydb_uuid(buf, a.value(row))?,
+            Self::YdbDynamicNumber(a) => write_ydb_dynamic_number(buf, a.value(row))?,
             Self::MySqlBit1(a) => {
                 let value = a.value(row);
                 anyhow::ensure!(
@@ -1061,6 +1263,10 @@ impl ColumnWriter {
             Self::TimestampMillisecond(a) => a.is_null(row),
             Self::TimestampMicrosecond(a) => a.is_null(row),
             Self::TimestampNanosecond(a) => a.is_null(row),
+            Self::YdbDatetimeMilliseconds(a) => a.is_null(row),
+            Self::YdbDurationMicroseconds(a) => a.is_null(row),
+            Self::YdbUuid(a) => a.is_null(row),
+            Self::YdbDynamicNumber(a) => a.is_null(row),
             Self::MySqlBit1(a) => a.is_null(row),
             Self::MySqlCp1252Text(a) => a.is_null(row),
             Self::MySqlPreciseUnsigned64(a) => a.is_null(row),
@@ -1116,6 +1322,18 @@ impl ColumnWriter {
                 left.value(row) == right.value(row)
             }
             (Self::TimestampNanosecond(left), Self::TimestampNanosecond(right)) => {
+                left.value(row) == right.value(row)
+            }
+            (Self::YdbDatetimeMilliseconds(left), Self::YdbDatetimeMilliseconds(right)) => {
+                left.value(row) == right.value(row)
+            }
+            (Self::YdbDurationMicroseconds(left), Self::YdbDurationMicroseconds(right)) => {
+                left.value(row) == right.value(row)
+            }
+            (Self::YdbUuid(left), Self::YdbUuid(right)) => {
+                left.value(row) == right.value(row)
+            }
+            (Self::YdbDynamicNumber(left), Self::YdbDynamicNumber(right)) => {
                 left.value(row) == right.value(row)
             }
             (Self::MySqlBit1(left), Self::MySqlBit1(right)) => {
@@ -1263,6 +1481,48 @@ fn write_mysql_decimal(
         bytes.push(0);
     }
     write_base64(buf, &bytes)
+}
+
+fn write_ydb_dynamic_number(buf: &mut Vec<u8>, value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !value.is_empty() && value.trim() == value,
+        "YDB Debezium DyNumber value must be nonempty canonical numeric text"
+    );
+    let decimal = value.parse::<bigdecimal::BigDecimal>().map_err(|error| {
+        anyhow::anyhow!("YDB Debezium DyNumber value '{value}' is malformed: {error}")
+    })?;
+    let (unscaled, scale) = decimal.as_bigint_and_exponent();
+    let scale = i32::try_from(scale).map_err(|_| {
+        anyhow::anyhow!("YDB Debezium DyNumber value '{value}' has an out-of-range scale")
+    })?;
+    let mut bytes = unscaled.to_signed_bytes_be();
+    if bytes.is_empty() {
+        bytes.push(0);
+    }
+    buf.extend_from_slice(b"{\"scale\":");
+    write_int(buf, scale);
+    buf.extend_from_slice(b",\"value\":");
+    write_base64(buf, &bytes)?;
+    buf.push(b'}');
+    Ok(())
+}
+
+fn write_ydb_uuid(buf: &mut Vec<u8>, value: &[u8]) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        value.len() == 16,
+        "YDB Debezium UUID value must contain exactly 16 bytes"
+    );
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    buf.push(b'"');
+    for (index, byte) in value.iter().copied().enumerate() {
+        if matches!(index, 4 | 6 | 8 | 10) {
+            buf.push(b'-');
+        }
+        buf.push(HEX[usize::from(byte >> 4)]);
+        buf.push(HEX[usize::from(byte & 0x0f)]);
+    }
+    buf.push(b'"');
+    Ok(())
 }
 
 fn mysql_date_days(value: &str) -> anyhow::Result<i64> {
