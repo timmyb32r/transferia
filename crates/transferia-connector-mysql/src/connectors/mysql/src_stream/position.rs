@@ -370,7 +370,7 @@ fn reject_sid_parser_overflow(text: &str) -> Result<(), PositionError> {
     Ok(())
 }
 
-fn format_uuid(sid: [u8; 16]) -> String {
+pub(crate) fn format_uuid(sid: [u8; 16]) -> String {
     let mut out = String::with_capacity(36);
     for (index, byte) in sid.into_iter().enumerate() {
         if matches!(index, 4 | 6 | 8 | 10) {

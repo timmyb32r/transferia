@@ -1,11 +1,13 @@
 use std::mem::size_of;
 
-use arrow::array::Array;
+use arrow::array::{Array, Int32Array, Int64Array, StringArray};
 use arrow::datatypes::DataType;
 use mysql_async::{DriverError, Value};
 use transferia_core::data::schema::{
     DatasetSchema, SchemaColumn, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME,
-    META_MAX_LENGTH, META_OLD_VALUE_OF, META_PRIMARY_KEY,
+    META_MAX_LENGTH, META_OLD_VALUE_OF, META_PRIMARY_KEY, META_SYSTEM_ROLE,
+    SYSTEM_ROLE_SOURCE_BINLOG_FILE, SYSTEM_ROLE_SOURCE_BINLOG_POSITION,
+    SYSTEM_ROLE_SOURCE_BINLOG_ROW, SYSTEM_ROLE_SOURCE_GTID, SYSTEM_ROLE_SOURCE_SERVER_ID,
 };
 use transferia_core::delivery::DeliveryDiscoveryRequest;
 use transferia_core::failure::FailureDisposition;
@@ -656,6 +658,46 @@ fn physical_extension_identity_survives_discovery_and_snapshot_old_values() -> a
     );
     assert!(!old_metadata.contains_key(META_PRIMARY_KEY));
     assert!(!old_metadata.contains_key(META_MAX_LENGTH));
+
+    let role_index = |role: &str| {
+        runtime_schema
+            .fields()
+            .iter()
+            .position(|field| {
+                field.metadata().get(META_SYSTEM_ROLE).map(String::as_str) == Some(role)
+            })
+            .expect("snapshot source role must be present exactly once")
+    };
+    let server_id = batch
+        .column(role_index(SYSTEM_ROLE_SOURCE_SERVER_ID))
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .expect("source server id type");
+    assert_eq!(server_id.value(0), 0);
+    let gtid = batch
+        .column(role_index(SYSTEM_ROLE_SOURCE_GTID))
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .expect("source gtid type");
+    assert!(gtid.is_null(0));
+    let file = batch
+        .column(role_index(SYSTEM_ROLE_SOURCE_BINLOG_FILE))
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .expect("source binlog filename type");
+    assert_eq!(file.value(0), "mysql-bin.000001");
+    let position = batch
+        .column(role_index(SYSTEM_ROLE_SOURCE_BINLOG_POSITION))
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .expect("source binlog position type");
+    assert_eq!(position.value(0), 4);
+    let row = batch
+        .column(role_index(SYSTEM_ROLE_SOURCE_BINLOG_ROW))
+        .as_any()
+        .downcast_ref::<Int32Array>()
+        .expect("source binlog row type");
+    assert_eq!(row.value(0), 0);
     Ok(())
 }
 

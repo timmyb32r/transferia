@@ -73,6 +73,8 @@ pub enum MySqlRowOperation {
 pub struct MySqlRowChange {
     pub before: Option<Vec<BinlogValue<'static>>>,
     pub after: Option<Vec<BinlogValue<'static>>>,
+    /// Zero-based row number within the physical binlog rows event.
+    pub row_in_event: i32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -84,6 +86,10 @@ pub struct DecodedRowsEvent {
     pub after_columns: Vec<bool>,
     pub rows: Vec<MySqlRowChange>,
     pub source_timestamp_seconds: u32,
+    pub source_server_id: u32,
+    /// Exact position of the physical rows event, distinct from the durable
+    /// transaction commit position used for replay.
+    pub event_position: MySqlBinlogPosition,
     /// This is an observed event position, not a durable transaction commit marker.
     pub observed_next_position: MySqlBinlogPosition,
 }
@@ -516,8 +522,9 @@ impl MySqlBinlogDecoder {
             .as_ref()
             .ok_or(BinlogDecodeError::TransactionNotActive(event_type))?
             .decoded_rows;
+        let event_position = self.current_position.clone();
         let mut decoded_rows = Vec::new();
-        for row in rows.rows(&table_map) {
+        for (row_index, row) in rows.rows(&table_map).enumerate() {
             let (before, after) = row.map_err(|error| BinlogDecodeError::MalformedRows {
                 table_id: rows.table_id(),
                 reason: error.to_string(),
@@ -537,7 +544,12 @@ impl MySqlBinlogDecoder {
             }
             let before = binlog_row_values(before, rows.table_id(), "before")?;
             let after = binlog_row_values(after, rows.table_id(), "after")?;
-            decoded_rows.push(MySqlRowChange { before, after });
+            decoded_rows.push(MySqlRowChange {
+                before,
+                after,
+                row_in_event: i32::try_from(row_index)
+                    .map_err(|_| BinlogDecodeError::RowIndexDoesNotFitI32(row_index))?,
+            });
         }
 
         let decoded_row_count = u64::try_from(decoded_rows.len())
@@ -569,6 +581,8 @@ impl MySqlBinlogDecoder {
             after_columns,
             rows: decoded_rows,
             source_timestamp_seconds: header.timestamp(),
+            source_server_id: header.server_id(),
+            event_position,
             observed_next_position: next,
         }))
     }
@@ -1374,6 +1388,7 @@ pub enum BinlogDecodeError {
     },
     TransactionSizeOverflow,
     TransactionRowCountOverflow,
+    RowIndexDoesNotFitI32(usize),
     TransactionCompressionObserved,
     PartialJsonUpdateObserved,
     MissingTableMap(u64),

@@ -4,7 +4,9 @@ use std::mem::size_of;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use arrow::array::{ArrayRef, BinaryArray, Int64Array, StringArray, UInt64Array};
+use arrow::array::{
+    ArrayRef, BinaryArray, Int32Array, Int64Array, StringArray, UInt64Array,
+};
 use arrow::datatypes::{Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
@@ -36,7 +38,7 @@ use super::decoder::{
 };
 use super::identity::encode_transaction_identity;
 use super::offset::MySqlReplicationOffsetTracker;
-use super::position::{GtidSet, MySqlBinlogPosition, MySqlResumePosition};
+use super::position::{format_uuid, GtidSet, MySqlBinlogPosition, MySqlResumePosition};
 use super::MySqlReplicationConfig;
 use crate::connectors::mysql::src_batch::{
     mysql_column_kind, old_value_schema_column, ColumnPlan, DiscoveredTable, MySqlColumnKind,
@@ -87,6 +89,9 @@ struct BufferedRowChange {
     after: Option<Vec<Option<Value>>>,
     message_index: u64,
     source_timestamp_seconds: u32,
+    source_server_id: u32,
+    source_binlog_position: u32,
+    source_row_in_event: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -329,6 +334,10 @@ impl MySqlReplicationSource {
             rows.table.columns,
             table.columns.len()
         );
+        anyhow::ensure!(
+            rows.event_position.filename == active.marker.begin_position.filename,
+            "MySQL rows event filename changed inside an active transaction"
+        );
         for row in rows.rows {
             let before = normalize_binlog_row(table, &rows.table, row.before)?;
             let after = normalize_binlog_row(table, &rows.table, row.after)?;
@@ -343,6 +352,9 @@ impl MySqlReplicationSource {
                 after,
                 message_index,
                 source_timestamp_seconds: rows.source_timestamp_seconds,
+                source_server_id: rows.source_server_id,
+                source_binlog_position: rows.event_position.position,
+                source_row_in_event: row.row_in_event,
             });
         }
         Ok(())
@@ -386,6 +398,11 @@ impl MySqlReplicationSource {
         )?;
         let event_timestamp_us = system_time_micros()?;
         let transaction_identity = encode_transaction_identity(&active.marker.identity)?;
+        let source_gtid = format_transaction_gtid(&active.marker.identity)?;
+        let source_binlog_file = std::str::from_utf8(&active.marker.begin_position.filename)
+            .map_err(|error| {
+                anyhow::anyhow!("MySQL binlog filename is not valid UTF-8: {error}")
+            })?;
         let mut grouped = (0..self.tables.len())
             .map(|_| Vec::<&BufferedRowChange>::new())
             .collect::<Vec<_>>();
@@ -414,6 +431,8 @@ impl MySqlReplicationSource {
                 Arc::clone(schema),
                 &self.database,
                 &transaction_identity,
+                source_binlog_file,
+                &source_gtid,
                 event_timestamp_us,
                 &committed.next_position,
                 &changes,
@@ -955,6 +974,7 @@ fn arrow_materialization_admission_bytes(
     previous_gtids: &GtidSet,
 ) -> anyhow::Result<usize> {
     let transaction_identity_bytes = transaction_identity_encoded_len(&transaction.marker.identity)?;
+    let transaction_gtid_bytes = transaction_gtid_text_len(&transaction.marker.identity)?;
     let mut bytes = transaction
         .changes
         .len()
@@ -964,6 +984,10 @@ fn arrow_materialization_admission_bytes(
             value.checked_add(tables.len().checked_mul(size_of::<Vec<&BufferedRowChange>>())?)
         })
         .ok_or_else(|| anyhow::anyhow!("MySQL CDC grouped-row memory accounting overflow"))?;
+    bytes = bytes
+        .checked_add(size_of::<String>())
+        .and_then(|value| value.checked_add(transaction_gtid_bytes.checked_mul(2)?))
+        .ok_or_else(|| anyhow::anyhow!("MySQL CDC GTID formatting admission overflow"))?;
     for change in &transaction.changes {
         let table = tables.get(change.table_index).ok_or_else(|| {
             anyhow::anyhow!("MySQL transaction refers to an unknown configured table index")
@@ -998,6 +1022,10 @@ fn arrow_materialization_admission_bytes(
             .and_then(|value| value.checked_add(table.config.name.len()))
             .and_then(|value| value.checked_add(transaction_identity_bytes))
             .and_then(|value| value.checked_add(next_position.filename.len()))
+            .and_then(|value| {
+                value.checked_add(transaction.marker.begin_position.filename.len())
+            })
+            .and_then(|value| value.checked_add(transaction_gtid_bytes))
             .and_then(|value| value.checked_add(change.operation.code().len()))
             .and_then(|value| value.checked_add(changed_columns_bytes))
             .ok_or_else(|| anyhow::anyhow!("MySQL CDC metadata payload accounting overflow"))?;
@@ -1308,6 +1336,59 @@ fn transaction_identity_encoded_len(identity: &MySqlTransactionIdentity) -> anyh
         .ok_or_else(|| anyhow::anyhow!("MySQL transaction identity length overflow"))
 }
 
+fn transaction_gtid_text_len(identity: &MySqlTransactionIdentity) -> anyhow::Result<usize> {
+    let MySqlTransactionIdentity::Gtid { tag, gno, .. } = identity else {
+        anyhow::bail!("MySQL GTID-mode replication emitted a row without an exact GTID")
+    };
+    let tag_bytes = tag
+        .as_ref()
+        .map(|tag| {
+            tag.len()
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("MySQL GTID tag length overflow"))
+        })
+        .transpose()?
+        .unwrap_or(0);
+    36_usize
+        .checked_add(tag_bytes)
+        .and_then(|value| value.checked_add(1))
+        .and_then(|value| value.checked_add(decimal_digit_count_u64(*gno)))
+        .ok_or_else(|| anyhow::anyhow!("MySQL GTID text length overflow"))
+}
+
+fn decimal_digit_count_u64(mut value: u64) -> usize {
+    let mut digits = 1;
+    while value >= 10 {
+        value /= 10;
+        digits += 1;
+    }
+    digits
+}
+
+pub(super) fn format_transaction_gtid(
+    identity: &MySqlTransactionIdentity,
+) -> anyhow::Result<String> {
+    let MySqlTransactionIdentity::Gtid { sid, tag, gno } = identity else {
+        anyhow::bail!("MySQL GTID-mode replication emitted a row without an exact GTID")
+    };
+    let capacity = transaction_gtid_text_len(identity)?;
+    let mut gtid = String::new();
+    gtid.try_reserve_exact(capacity)
+        .map_err(|error| anyhow::anyhow!("failed to reserve MySQL GTID text: {error}"))?;
+    gtid.push_str(&format_uuid(*sid));
+    if let Some(tag) = tag {
+        gtid.push(':');
+        gtid.push_str(tag);
+    }
+    gtid.push(':');
+    gtid.push_str(&gno.to_string());
+    anyhow::ensure!(
+        gtid.len() == capacity,
+        "MySQL GTID text length accounting diverged from formatting"
+    );
+    Ok(gtid)
+}
+
 fn replication_marker_admission_bytes(
     previous_position: &MySqlBinlogPosition,
     next_position: &MySqlBinlogPosition,
@@ -1432,10 +1513,14 @@ pub(super) fn build_table_schema(table: &DiscoveredTable) -> anyhow::Result<Arc<
         );
     }
     fields.extend(MYSQL_SOURCE_METADATA_COLUMNS.iter().map(|column| {
-        Field::new(column.name, column.data_type.clone(), false).with_metadata(
-            SchemaColumn::new(column.name.to_owned(), column.data_type.clone(), false)
-                .with_system_role(column.role)
-                .arrow_metadata(),
+        Field::new(column.name, column.data_type.clone(), column.nullable).with_metadata(
+            SchemaColumn::new(
+                column.name.to_owned(),
+                column.data_type.clone(),
+                column.nullable,
+            )
+            .with_system_role(column.role)
+            .arrow_metadata(),
         )
     }));
     fields.extend(MYSQL_REPLICATION_SYSTEM_COLUMNS.iter().map(|kind| {
@@ -1478,6 +1563,8 @@ fn changes_to_table_data(
     schema: Arc<Schema>,
     database: &str,
     transaction_identity: &[u8],
+    source_binlog_file: &str,
+    source_gtid: &str,
     event_timestamp_us: i64,
     position: &MySqlBinlogPosition,
     changes: &[&BufferedRowChange],
@@ -1540,6 +1627,21 @@ fn changes_to_table_data(
         Arc::new(StringArray::from(vec![table.config.name.as_str(); len])) as ArrayRef,
         Arc::new(BinaryArray::from_iter_values(
             std::iter::repeat(transaction_identity).take(len),
+        )) as ArrayRef,
+        Arc::new(Int64Array::from_iter_values(
+            changes
+                .iter()
+                .map(|change| i64::from(change.source_server_id)),
+        )) as ArrayRef,
+        Arc::new(StringArray::from(vec![source_gtid; len])) as ArrayRef,
+        Arc::new(StringArray::from(vec![source_binlog_file; len])) as ArrayRef,
+        Arc::new(Int64Array::from_iter_values(
+            changes
+                .iter()
+                .map(|change| i64::from(change.source_binlog_position)),
+        )) as ArrayRef,
+        Arc::new(Int32Array::from_iter_values(
+            changes.iter().map(|change| change.source_row_in_event),
         )) as ArrayRef,
         Arc::new(Int64Array::from(source_timestamp_ms)) as ArrayRef,
         Arc::new(Int64Array::from(source_timestamp_us)) as ArrayRef,

@@ -73,6 +73,10 @@ fn gtid_row_transaction_preserves_identity_images_and_commit_position() {
     assert_eq!(decoded.rows.len(), 1);
     assert!(decoded.rows[0].before.is_none());
     assert!(decoded.rows[0].after.is_some());
+    assert_eq!(decoded.rows[0].row_in_event, 0);
+    assert_eq!(decoded.source_server_id, 9);
+    assert_eq!(decoded.event_position.filename, b"mysql-bin.000001");
+    assert_eq!(decoded.event_position.position, rows_start);
     assert_eq!(decoded.transaction, marker);
 
     let xid_start = decoder.current_position().position;
@@ -291,7 +295,7 @@ fn gtid_auto_position_rebases_only_the_bootstrap_fake_rotate() {
 #[test]
 fn decoded_row_limit_is_cumulative_across_every_rows_event_in_the_transaction() {
     let mut limited = config();
-    limited.max_events = 5;
+    limited.max_events = 7;
     let mut decoder = MySqlBinlogDecoder::new(
         limited,
         MySqlBinlogPosition::new(b"mysql-bin.000001".to_vec(), 4).unwrap(),
@@ -311,24 +315,56 @@ fn decoded_row_limit_is_cumulative_across_every_rows_event_in_the_transaction() 
             decoder.current_position().position,
         ))
         .unwrap();
-    decoder
+    let first_rows = decoder
         .decode(&raw_event(
             EventType::WRITE_ROWS_EVENT,
             &write_rows_data_many(&[1, 2, 3]),
             decoder.current_position().position,
         ))
         .unwrap();
+    let DecodedBinlogEvent::Rows(first_rows) = first_rows else {
+        panic!("expected decoded rows")
+    };
+    assert_eq!(
+        first_rows
+            .rows
+            .iter()
+            .map(|row| row.row_in_event)
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+    let second_start = decoder.current_position().clone();
+    let second_rows = decoder
+        .decode(&raw_event(
+            EventType::WRITE_ROWS_EVENT,
+            &write_rows_data_many(&[4, 5]),
+            second_start.position,
+        ))
+        .unwrap();
+    let DecodedBinlogEvent::Rows(second_rows) = second_rows else {
+        panic!("expected second decoded rows event")
+    };
+    assert_eq!(second_rows.event_position, second_start);
+    assert_ne!(second_rows.event_position, first_rows.event_position);
+    assert_eq!(
+        second_rows
+            .rows
+            .iter()
+            .map(|row| row.row_in_event)
+            .collect::<Vec<_>>(),
+        vec![0, 1]
+    );
     let before = decoder.current_position().clone();
     let error = decoder
         .decode(&raw_event(
             EventType::WRITE_ROWS_EVENT,
-            &write_rows_data_many(&[4, 5, 6]),
+            &write_rows_data_many(&[6, 7, 8]),
             before.position,
         ))
         .unwrap_err();
     assert!(matches!(
         error,
-        BinlogDecodeError::TooManyTransactionRows { row_count: 6, .. }
+        BinlogDecodeError::TooManyTransactionRows { row_count: 8, .. }
     ));
     assert_eq!(decoder.current_position(), &before);
 }

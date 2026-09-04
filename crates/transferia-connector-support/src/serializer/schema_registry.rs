@@ -10,16 +10,19 @@ use crate::schema_registry::{
 };
 use transferia_core::data::schema::{
     SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
-    SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE,
-    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
-    SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    SYSTEM_ROLE_SOURCE_BINLOG_FILE, SYSTEM_ROLE_SOURCE_BINLOG_POSITION,
+    SYSTEM_ROLE_SOURCE_BINLOG_ROW, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_GTID,
+    SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_SERVER_ID, SYSTEM_ROLE_SOURCE_TABLE,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS, SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
+    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
 use transferia_core::sink::Delivery;
 use transferia_delivery_contracts::semantics::RecordSemantics;
 
-use super::debezium::DebeziumJsonEncoder;
+use super::debezium::{DebeziumJsonEncoder, DebeziumSourceDialect};
+use super::json_serializer::validate_mysql_debezium_column;
 use super::{
     JsonBatchEncoder, QueueMessageMode, SerializedBatch, SerializedDelivery, SerializedMessage,
 };
@@ -286,6 +289,7 @@ impl SerializerConfig {
         if !matches!(self, Self::Debezium { .. }) {
             return Ok(());
         }
+        let dialect = DebeziumSourceDialect::from_source_name(discovery.source_name.as_ref())?;
         let datasets = discovery
             .datasets
             .iter()
@@ -311,6 +315,67 @@ impl SerializerConfig {
                 .system_columns
                 .iter()
                 .any(|column| column.kind == SystemColumnKind::ChangeOperation);
+            if dialect == DebeziumSourceDialect::MySql {
+                anyhow::ensure!(
+                    changelog,
+                    "Debezium MySQL dataset '{}' must use a changelog replication schema",
+                    dataset.name
+                );
+                let current_columns = dataset
+                    .incoming_schema
+                    .columns
+                    .iter()
+                    .filter(|column| {
+                        column.system_role.is_none()
+                            && column.old_value_of.is_none()
+                            && column.old_key_of.is_none()
+                            && !dataset
+                                .system_columns
+                                .iter()
+                                .any(|system| system.name.as_ref() == column.name.as_str())
+                    })
+                    .collect::<Vec<_>>();
+                for current in current_columns {
+                    validate_mysql_debezium_column(current).map_err(|error| {
+                        anyhow::anyhow!(
+                            "Debezium MySQL dataset '{}' column '{}': {error}",
+                            dataset.name,
+                            current.name
+                        )
+                    })?;
+                    let old_values = dataset
+                        .incoming_schema
+                        .columns
+                        .iter()
+                        .filter(|column| {
+                            column.old_value_of.as_deref() == Some(current.name.as_str())
+                        })
+                        .collect::<Vec<_>>();
+                    anyhow::ensure!(
+                        old_values.len() == 1,
+                        "Debezium MySQL dataset '{}' column '{}' must have exactly one full old-value mapping, found {}",
+                        dataset.name,
+                        current.name,
+                        old_values.len()
+                    );
+                    let old = old_values[0];
+                    validate_mysql_debezium_column(old).map_err(|error| {
+                        anyhow::anyhow!(
+                            "Debezium MySQL dataset '{}' old value for '{}': {error}",
+                            dataset.name,
+                            current.name
+                        )
+                    })?;
+                    anyhow::ensure!(
+                        old.data_type == current.data_type
+                            && old.arrow_extension_name == current.arrow_extension_name
+                            && old.arrow_extension_metadata == current.arrow_extension_metadata,
+                        "Debezium MySQL dataset '{}' old value for '{}' does not preserve its exact physical Arrow type and extension metadata",
+                        dataset.name,
+                        current.name
+                    );
+                }
+            }
             if changelog {
                 for key in primary_keys {
                     let mappings = dataset
@@ -349,42 +414,93 @@ impl SerializerConfig {
                     dataset.name
                 );
             }
-            for (role, data_type) in [
+            let mut required_roles = vec![
                 (
                     SYSTEM_ROLE_SOURCE_DATABASE,
                     arrow::datatypes::DataType::Utf8,
+                    false,
                 ),
-                (SYSTEM_ROLE_SOURCE_SCHEMA, arrow::datatypes::DataType::Utf8),
-                (SYSTEM_ROLE_SOURCE_TABLE, arrow::datatypes::DataType::Utf8),
                 (
-                    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
-                    arrow::datatypes::DataType::UInt64,
+                    SYSTEM_ROLE_SOURCE_SCHEMA,
+                    arrow::datatypes::DataType::Utf8,
+                    false,
+                ),
+                (
+                    SYSTEM_ROLE_SOURCE_TABLE,
+                    arrow::datatypes::DataType::Utf8,
+                    false,
                 ),
                 (
                     SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
                     arrow::datatypes::DataType::Int64,
+                    false,
                 ),
                 (
                     SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
                     arrow::datatypes::DataType::Int64,
+                    false,
                 ),
                 (
                     SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
                     arrow::datatypes::DataType::Int64,
+                    false,
                 ),
                 (
                     SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
                     arrow::datatypes::DataType::Int64,
+                    false,
                 ),
                 (
                     SYSTEM_ROLE_EVENT_TIMESTAMP_US,
                     arrow::datatypes::DataType::Int64,
+                    false,
                 ),
                 (
                     SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
                     arrow::datatypes::DataType::Int64,
+                    false,
                 ),
-            ] {
+            ];
+            match dialect {
+                DebeziumSourceDialect::Postgres => required_roles.push((
+                    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+                    arrow::datatypes::DataType::UInt64,
+                    false,
+                )),
+                DebeziumSourceDialect::MySql => required_roles.extend([
+                    (
+                        SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+                        arrow::datatypes::DataType::Binary,
+                        false,
+                    ),
+                    (
+                        SYSTEM_ROLE_SOURCE_SERVER_ID,
+                        arrow::datatypes::DataType::Int64,
+                        false,
+                    ),
+                    (
+                        SYSTEM_ROLE_SOURCE_GTID,
+                        arrow::datatypes::DataType::Utf8,
+                        true,
+                    ),
+                    (
+                        SYSTEM_ROLE_SOURCE_BINLOG_FILE,
+                        arrow::datatypes::DataType::Utf8,
+                        false,
+                    ),
+                    (
+                        SYSTEM_ROLE_SOURCE_BINLOG_POSITION,
+                        arrow::datatypes::DataType::Int64,
+                        false,
+                    ),
+                    (
+                        SYSTEM_ROLE_SOURCE_BINLOG_ROW,
+                        arrow::datatypes::DataType::Int32,
+                        false,
+                    ),
+                ]),
+            }
+            for (role, data_type, nullable) in required_roles {
                 let matches = dataset
                     .incoming_schema
                     .columns
@@ -397,11 +513,19 @@ impl SerializerConfig {
                     dataset.name,
                     matches.len()
                 );
-                anyhow::ensure!(
-                    matches[0].data_type == data_type && !matches[0].nullable,
-                    "Debezium dataset '{}' control role '{role}' must be non-nullable {data_type:?}",
-                    dataset.name,
-                );
+                if nullable {
+                    anyhow::ensure!(
+                        matches[0].data_type == data_type && matches[0].nullable,
+                        "Debezium dataset '{}' control role '{role}' must be nullable {data_type:?}",
+                        dataset.name,
+                    );
+                } else {
+                    anyhow::ensure!(
+                        matches[0].data_type == data_type && !matches[0].nullable,
+                        "Debezium dataset '{}' control role '{role}' must be non-nullable {data_type:?}",
+                        dataset.name,
+                    );
+                }
             }
         }
         Ok(())
@@ -565,6 +689,12 @@ impl DeliverySerializer {
         limits: &dyn SinkLimits,
         message_size_limit: usize,
     ) -> anyhow::Result<SerializedDelivery> {
+        let debezium_dialect = match &self.kind {
+            SerializerKind::DebeziumJson(_) | SerializerKind::DebeziumRegistry { .. } => Some(
+                DebeziumSourceDialect::from_source_name(discovery.source_name.as_ref())?,
+            ),
+            SerializerKind::Json | SerializerKind::SchemaRegistry { .. } => None,
+        };
         if let SerializerKind::SchemaRegistry {
             registry,
             subject,
@@ -613,7 +743,13 @@ impl DeliverySerializer {
         for batch in &delivery.outputs {
             limits.validate_batch(discovery, batch)?;
             if let SerializerKind::DebeziumJson(encoder) = &self.kind {
-                batches.push(encoder.encode_batch(batch, message_size_limit)?);
+                batches.push(encoder.encode_batch(
+                    batch,
+                    debezium_dialect.ok_or_else(|| {
+                        anyhow::anyhow!("internal error: Debezium source dialect was not resolved")
+                    })?,
+                    message_size_limit,
+                )?);
                 rows = rows
                     .checked_add(u64::try_from(batch.rows())?)
                     .ok_or_else(|| anyhow::anyhow!("queue sink row counter overflow"))?;
@@ -628,7 +764,13 @@ impl DeliverySerializer {
                 ..
             } = &self.kind
             {
-                let encoded = encoder.encode_batch(batch, usize::MAX)?;
+                let encoded = encoder.encode_batch(
+                    batch,
+                    debezium_dialect.ok_or_else(|| {
+                        anyhow::anyhow!("internal error: Debezium source dialect was not resolved")
+                    })?,
+                    usize::MAX,
+                )?;
                 batches.push(encode_debezium_registered_batch(
                     encoded,
                     key_schema.as_ref().as_ref(),

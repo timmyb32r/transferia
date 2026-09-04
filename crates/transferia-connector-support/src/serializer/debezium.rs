@@ -1,13 +1,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow::array::{Array as _, BinaryArray, Int64Array, StringArray, UInt64Array};
+use arrow::array::{
+    Array as _, BinaryArray, Int32Array, Int64Array, StringArray, UInt64Array,
+};
 use transferia_core::data::schema::{
     META_OLD_KEY_OF, META_OLD_VALUE_OF, META_PRIMARY_KEY, META_SYSTEM_ROLE,
     SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
-    SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE,
-    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
-    SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    SYSTEM_ROLE_SOURCE_BINLOG_FILE, SYSTEM_ROLE_SOURCE_BINLOG_POSITION,
+    SYSTEM_ROLE_SOURCE_BINLOG_ROW, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_GTID,
+    SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_SERVER_ID, SYSTEM_ROLE_SOURCE_TABLE,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS, SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
+    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::sink::SinkBatch;
@@ -58,6 +62,24 @@ pub enum QueueMessageMode {
     ValuesOnly,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum DebeziumSourceDialect {
+    Postgres,
+    MySql,
+}
+
+impl DebeziumSourceDialect {
+    pub(super) fn from_source_name(source_name: &str) -> anyhow::Result<Self> {
+        match source_name {
+            "postgres" => Ok(Self::Postgres),
+            "mysql" => Ok(Self::MySql),
+            _ => anyhow::bail!(
+                "Debezium serializer requires source_name to be exactly 'postgres' or 'mysql', got '{source_name}'"
+            ),
+        }
+    }
+}
+
 pub(super) struct DebeziumJsonEncoder {
     logical_name: String,
     mode: QueueMessageMode,
@@ -71,9 +93,10 @@ impl DebeziumJsonEncoder {
     pub(super) fn encode_batch(
         &self,
         batch: &SinkBatch,
+        dialect: DebeziumSourceDialect,
         message_size_limit: usize,
     ) -> anyhow::Result<SerializedBatch> {
-        let encoder = DebeziumBatchEncoder::new(batch)?;
+        let encoder = DebeziumBatchEncoder::new(batch, dialect)?;
         let mut messages = Vec::with_capacity(batch.rows());
         for row in 0..batch.rows() {
             let operation = encoder.operation(row)?;
@@ -143,17 +166,17 @@ impl DebeziumJsonEncoder {
 }
 
 struct DebeziumBatchEncoder {
+    dialect: DebeziumSourceDialect,
     current: JsonBatchEncoder,
     before: JsonBatchEncoder,
     current_key: JsonBatchEncoder,
     old_key: JsonBatchEncoder,
     changed_columns: Option<BinaryArray>,
     operation: Option<StringArray>,
-    lsn: Int64Array,
     database: StringArray,
     source_schema: StringArray,
     source_table: StringArray,
-    transaction_id: UInt64Array,
+    source_metadata: DebeziumSourceMetadata,
     source_timestamp_ms: Int64Array,
     source_timestamp_us: Int64Array,
     source_timestamp_ns: Int64Array,
@@ -163,8 +186,23 @@ struct DebeziumBatchEncoder {
     user_ordinal_by_source_index: Vec<Option<usize>>,
 }
 
+enum DebeziumSourceMetadata {
+    Postgres {
+        transaction_id: UInt64Array,
+        lsn: Int64Array,
+    },
+    MySql {
+        transaction_identity: BinaryArray,
+        server_id: Int64Array,
+        gtid: StringArray,
+        binlog_file: StringArray,
+        binlog_position: Int64Array,
+        binlog_row: Int32Array,
+    },
+}
+
 impl DebeziumBatchEncoder {
-    fn new(batch: &SinkBatch) -> anyhow::Result<Self> {
+    fn new(batch: &SinkBatch, dialect: DebeziumSourceDialect) -> anyhow::Result<Self> {
         let schema = batch.batch.schema();
         let system_indexes = batch
             .system_columns
@@ -189,22 +227,47 @@ impl DebeziumBatchEncoder {
         );
         let old_value = mapped_columns(batch, META_OLD_VALUE_OF)?;
         let old_key = mapped_columns(batch, META_OLD_KEY_OF)?;
-        let current = JsonBatchEncoder::projected_debezium(
-            &batch.batch,
-            user_columns
-                .iter()
-                .map(|(index, name)| JsonColumnProjection {
-                    output_name: name.clone(),
-                    source_index: Some(*index),
-                }),
-        )?;
-        let before = JsonBatchEncoder::projected_debezium(
-            &batch.batch,
-            user_columns.iter().map(|(_, name)| JsonColumnProjection {
+        if dialect == DebeziumSourceDialect::MySql {
+            for (current_index, name) in &user_columns {
+                let old_index = old_value.get(name).copied().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "MySQL Debezium input column '{name}' is missing its full old-value mapping"
+                    )
+                })?;
+                let current = schema.field(*current_index);
+                let old = schema.field(old_index);
+                anyhow::ensure!(
+                    old.data_type() == current.data_type()
+                        && old.metadata().get(transferia_core::data::schema::META_ARROW_EXTENSION_NAME)
+                            == current
+                                .metadata()
+                                .get(transferia_core::data::schema::META_ARROW_EXTENSION_NAME)
+                        && old
+                            .metadata()
+                            .get(transferia_core::data::schema::META_ARROW_EXTENSION_METADATA)
+                            == current
+                                .metadata()
+                                .get(transferia_core::data::schema::META_ARROW_EXTENSION_METADATA),
+                    "MySQL Debezium input old value for '{name}' does not preserve its exact physical Arrow type and extension metadata"
+                );
+            }
+        }
+        let current_projection = user_columns
+            .iter()
+            .map(|(index, name)| JsonColumnProjection {
+                output_name: name.clone(),
+                source_index: Some(*index),
+            })
+            .collect::<Vec<_>>();
+        let current = projected_debezium(&batch.batch, current_projection, dialect)?;
+        let before_projection = user_columns
+            .iter()
+            .map(|(_, name)| JsonColumnProjection {
                 output_name: name.clone(),
                 source_index: old_value.get(name).or_else(|| old_key.get(name)).copied(),
-            }),
-        )?;
+            })
+            .collect::<Vec<_>>();
+        let before = projected_debezium(&batch.batch, before_projection, dialect)?;
         let primary_keys = user_columns
             .iter()
             .filter(|(index, _)| {
@@ -220,55 +283,88 @@ impl DebeziumBatchEncoder {
             !primary_keys.is_empty(),
             "Debezium serializer requires at least one primary-key column"
         );
-        let current_key = JsonBatchEncoder::projected_debezium(
-            &batch.batch,
-            primary_keys
-                .iter()
-                .map(|(index, name)| JsonColumnProjection {
-                    output_name: (*name).clone(),
-                    source_index: Some(*index),
-                }),
-        )?;
-        let old_key = JsonBatchEncoder::projected_debezium(
-            &batch.batch,
-            primary_keys
-                .iter()
-                .map(|(index, name)| JsonColumnProjection {
-                    output_name: (*name).clone(),
-                    source_index: old_value
-                        .get(name.as_str())
-                        .or_else(|| old_key.get(name.as_str()))
-                        .copied()
-                        .or_else(|| {
-                            (!batch
-                                .system_columns
-                                .contains(SystemColumnKind::ChangeOperation))
+        let current_key_projection = primary_keys
+            .iter()
+            .map(|(index, name)| JsonColumnProjection {
+                output_name: (*name).clone(),
+                source_index: Some(*index),
+            })
+            .collect::<Vec<_>>();
+        let current_key = projected_debezium(&batch.batch, current_key_projection, dialect)?;
+        let old_key_projection = primary_keys
+            .iter()
+            .map(|(index, name)| JsonColumnProjection {
+                output_name: (*name).clone(),
+                source_index: old_value
+                    .get(name.as_str())
+                    .or_else(|| old_key.get(name.as_str()))
+                    .copied()
+                    .or_else(|| {
+                        (!batch
+                            .system_columns
+                            .contains(SystemColumnKind::ChangeOperation))
                             .then_some(*index)
-                        }),
-                }),
-        )?;
+                    }),
+            })
+            .collect::<Vec<_>>();
+        let old_key = projected_debezium(&batch.batch, old_key_projection, dialect)?;
         let mut user_ordinal_by_source_index = vec![None; batch.batch.num_columns()];
         for (ordinal, (index, _)) in user_columns.iter().enumerate() {
             user_ordinal_by_source_index[*index] = Some(ordinal);
         }
+        let changed_columns = match dialect {
+            DebeziumSourceDialect::Postgres => {
+                optional_system_array::<BinaryArray>(batch, SystemColumnKind::ChangedColumns)?
+            }
+            DebeziumSourceDialect::MySql => Some(system_array::<BinaryArray>(
+                batch,
+                SystemColumnKind::ChangedColumns,
+            )?),
+        };
+        let operation = match dialect {
+            DebeziumSourceDialect::Postgres => {
+                optional_system_array::<StringArray>(batch, SystemColumnKind::ChangeOperation)?
+            }
+            DebeziumSourceDialect::MySql => Some(system_array::<StringArray>(
+                batch,
+                SystemColumnKind::ChangeOperation,
+            )?),
+        };
+        let source_metadata = match dialect {
+            DebeziumSourceDialect::Postgres => DebeziumSourceMetadata::Postgres {
+                transaction_id: role_array::<UInt64Array>(
+                    batch,
+                    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+                )?,
+                lsn: system_array::<Int64Array>(batch, SystemColumnKind::Offset)?,
+            },
+            DebeziumSourceDialect::MySql => DebeziumSourceMetadata::MySql {
+                transaction_identity: role_array::<BinaryArray>(
+                    batch,
+                    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+                )?,
+                server_id: role_array::<Int64Array>(batch, SYSTEM_ROLE_SOURCE_SERVER_ID)?,
+                gtid: nullable_role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_GTID)?,
+                binlog_file: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_BINLOG_FILE)?,
+                binlog_position: role_array::<Int64Array>(
+                    batch,
+                    SYSTEM_ROLE_SOURCE_BINLOG_POSITION,
+                )?,
+                binlog_row: role_array::<Int32Array>(batch, SYSTEM_ROLE_SOURCE_BINLOG_ROW)?,
+            },
+        };
         Ok(Self {
+            dialect,
             current,
             before,
             current_key,
             old_key,
-            changed_columns: optional_system_array::<BinaryArray>(
-                batch,
-                SystemColumnKind::ChangedColumns,
-            )?,
-            operation: optional_system_array::<StringArray>(
-                batch,
-                SystemColumnKind::ChangeOperation,
-            )?,
-            lsn: system_array::<Int64Array>(batch, SystemColumnKind::Offset)?,
+            changed_columns,
+            operation,
             database: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_DATABASE)?,
             source_schema: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_SCHEMA)?,
             source_table: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_TABLE)?,
-            transaction_id: role_array::<UInt64Array>(batch, SYSTEM_ROLE_SOURCE_TRANSACTION_ID)?,
+            source_metadata,
             source_timestamp_ms: role_array::<Int64Array>(batch, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS)?,
             source_timestamp_us: role_array::<Int64Array>(batch, SYSTEM_ROLE_SOURCE_TIMESTAMP_US)?,
             source_timestamp_ns: role_array::<Int64Array>(batch, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS)?,
@@ -301,13 +397,15 @@ impl DebeziumBatchEncoder {
         include_before: bool,
         source_is_update: bool,
     ) -> anyhow::Result<Vec<u8>> {
-        let changed_columns = if source_is_update {
-            Some(self.changed_columns.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("Debezium updates require the changed-column mask")
-            })?)
-        } else {
-            None
-        };
+        self.validate_source_metadata(row, operation)?;
+        let changed_columns =
+            if source_is_update && self.dialect == DebeziumSourceDialect::Postgres {
+                Some(self.changed_columns.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("Debezium updates require the changed-column mask")
+                })?)
+            } else {
+                None
+            };
         let mut output = Vec::with_capacity(512);
         output.extend_from_slice(b"{\"before\":");
         if include_before {
@@ -338,29 +436,74 @@ impl DebeziumBatchEncoder {
         } else {
             output.extend_from_slice(b"null");
         }
-        output.extend_from_slice(
-            b",\"source\":{\"version\":\"transferia\",\"connector\":\"postgresql\",\"name\":",
-        );
-        write_json_string(&mut output, logical_name);
-        output.extend_from_slice(b",\"ts_ms\":");
-        write_i64(&mut output, self.source_timestamp_ms.value(row));
-        output.extend_from_slice(b",\"snapshot\":");
-        write_json_string(&mut output, if operation == "r" { "true" } else { "false" });
-        output.extend_from_slice(b",\"db\":");
-        write_json_string(&mut output, self.database.value(row));
-        output.extend_from_slice(b",\"sequence\":null,\"ts_us\":");
-        write_i64(&mut output, self.source_timestamp_us.value(row));
-        output.extend_from_slice(b",\"ts_ns\":");
-        write_i64(&mut output, self.source_timestamp_ns.value(row));
-        output.extend_from_slice(b",\"schema\":");
-        write_json_string(&mut output, self.source_schema.value(row));
-        output.extend_from_slice(b",\"table\":");
-        write_json_string(&mut output, self.source_table.value(row));
-        output.extend_from_slice(b",\"txId\":");
-        write_u64(&mut output, self.transaction_id.value(row));
-        output.extend_from_slice(b",\"lsn\":");
-        write_i64(&mut output, self.lsn.value(row));
-        output.extend_from_slice(b",\"xmin\":null},\"op\":");
+        output.extend_from_slice(b",\"source\":{\"version\":\"transferia\",\"connector\":");
+        match &self.source_metadata {
+            DebeziumSourceMetadata::Postgres {
+                transaction_id,
+                lsn,
+            } => {
+                output.extend_from_slice(b"\"postgresql\",\"name\":");
+                write_json_string(&mut output, logical_name);
+                output.extend_from_slice(b",\"ts_ms\":");
+                write_i64(&mut output, self.source_timestamp_ms.value(row));
+                output.extend_from_slice(b",\"snapshot\":");
+                write_json_string(&mut output, if operation == "r" { "true" } else { "false" });
+                output.extend_from_slice(b",\"db\":");
+                write_json_string(&mut output, self.database.value(row));
+                output.extend_from_slice(b",\"sequence\":null,\"ts_us\":");
+                write_i64(&mut output, self.source_timestamp_us.value(row));
+                output.extend_from_slice(b",\"ts_ns\":");
+                write_i64(&mut output, self.source_timestamp_ns.value(row));
+                output.extend_from_slice(b",\"schema\":");
+                write_json_string(&mut output, self.source_schema.value(row));
+                output.extend_from_slice(b",\"table\":");
+                write_json_string(&mut output, self.source_table.value(row));
+                output.extend_from_slice(b",\"txId\":");
+                write_u64(&mut output, transaction_id.value(row));
+                output.extend_from_slice(b",\"lsn\":");
+                write_i64(&mut output, lsn.value(row));
+                output.extend_from_slice(b",\"xmin\":null}");
+            }
+            DebeziumSourceMetadata::MySql {
+                transaction_identity: _,
+                server_id,
+                gtid,
+                binlog_file,
+                binlog_position,
+                binlog_row,
+            } => {
+                output.extend_from_slice(b"\"mysql\",\"name\":");
+                write_json_string(&mut output, logical_name);
+                output.extend_from_slice(b",\"ts_ms\":");
+                write_i64(&mut output, self.source_timestamp_ms.value(row));
+                output.extend_from_slice(b",\"snapshot\":");
+                write_json_string(&mut output, if operation == "r" { "true" } else { "false" });
+                output.extend_from_slice(b",\"db\":");
+                write_json_string(&mut output, self.database.value(row));
+                output.extend_from_slice(b",\"sequence\":null,\"ts_us\":");
+                write_i64(&mut output, self.source_timestamp_us.value(row));
+                output.extend_from_slice(b",\"ts_ns\":");
+                write_i64(&mut output, self.source_timestamp_ns.value(row));
+                output.extend_from_slice(b",\"table\":");
+                write_json_string(&mut output, self.source_table.value(row));
+                output.extend_from_slice(b",\"server_id\":");
+                write_i64(&mut output, server_id.value(row));
+                output.extend_from_slice(b",\"gtid\":");
+                if gtid.is_null(row) {
+                    output.extend_from_slice(b"null");
+                } else {
+                    write_json_string(&mut output, gtid.value(row));
+                }
+                output.extend_from_slice(b",\"file\":");
+                write_json_string(&mut output, binlog_file.value(row));
+                output.extend_from_slice(b",\"pos\":");
+                write_i64(&mut output, binlog_position.value(row));
+                output.extend_from_slice(b",\"row\":");
+                write_i64(&mut output, i64::from(binlog_row.value(row)));
+                output.extend_from_slice(b",\"thread\":null,\"query\":null}");
+            }
+        }
+        output.extend_from_slice(b",\"op\":");
         write_json_string(&mut output, operation);
         output.extend_from_slice(b",\"ts_ms\":");
         write_i64(&mut output, self.event_timestamp_ms.value(row));
@@ -370,6 +513,110 @@ impl DebeziumBatchEncoder {
         write_i64(&mut output, self.event_timestamp_ns.value(row));
         output.extend_from_slice(b",\"transaction\":null}");
         Ok(output)
+    }
+
+    fn validate_source_metadata(&self, row: usize, operation: &str) -> anyhow::Result<()> {
+        let DebeziumSourceMetadata::MySql {
+            transaction_identity,
+            server_id,
+            gtid,
+            binlog_file,
+            binlog_position,
+            binlog_row,
+        } = &self.source_metadata
+        else {
+            return Ok(());
+        };
+        anyhow::ensure!(
+            !transaction_identity.value(row).is_empty(),
+            "MySQL Debezium transaction identity is empty at row {row}"
+        );
+        let server_id = server_id.value(row);
+        anyhow::ensure!(
+            u32::try_from(server_id).is_ok(),
+            "MySQL Debezium server_id {server_id} is outside the unsigned 32-bit range at row {row}"
+        );
+        anyhow::ensure!(
+            !binlog_file.value(row).is_empty(),
+            "MySQL Debezium binlog filename is empty at row {row}"
+        );
+        let position = binlog_position.value(row);
+        anyhow::ensure!(
+            position >= 4 && u32::try_from(position).is_ok(),
+            "MySQL Debezium binlog position {position} is outside the supported 4..=4294967295 range at row {row}"
+        );
+        let binlog_row = binlog_row.value(row);
+        anyhow::ensure!(
+            binlog_row >= 0,
+            "MySQL Debezium binlog row {binlog_row} is negative at row {row}"
+        );
+        if operation == "r" {
+            anyhow::ensure!(
+                server_id == 0 && gtid.is_null(row) && binlog_row == 0,
+                "MySQL Debezium snapshot row {row} requires server_id=0, gtid=null, and binlog row=0"
+            );
+        } else {
+            anyhow::ensure!(
+                !gtid.is_null(row),
+                "MySQL Debezium stream row {row} requires a GTID"
+            );
+            validate_mysql_gtid(gtid.value(row), row)?;
+        }
+        Ok(())
+    }
+}
+
+fn validate_mysql_gtid(gtid: &str, row: usize) -> anyhow::Result<()> {
+    let components = gtid.split(':').collect::<Vec<_>>();
+    anyhow::ensure!(
+        matches!(components.len(), 2 | 3),
+        "MySQL Debezium GTID '{gtid}' has non-canonical framing at row {row}"
+    );
+    let sid = components[0].as_bytes();
+    anyhow::ensure!(
+        sid.len() == 36
+            && sid.iter().enumerate().all(|(index, byte)| {
+                if matches!(index, 8 | 13 | 18 | 23) {
+                    *byte == b'-'
+                } else {
+                    byte.is_ascii_digit() || matches!(*byte, b'a'..=b'f')
+                }
+            }),
+        "MySQL Debezium GTID '{gtid}' has a non-canonical SID at row {row}"
+    );
+    if components.len() == 3 {
+        let tag = components[1];
+        anyhow::ensure!(
+            (1..=32).contains(&tag.len())
+                && tag
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+            "MySQL Debezium GTID '{gtid}' has a non-canonical tag at row {row}"
+        );
+    }
+    let gno = components[components.len() - 1];
+    let parsed = gno.parse::<u64>().map_err(|error| {
+        anyhow::anyhow!("MySQL Debezium GTID '{gtid}' has an invalid GNO at row {row}: {error}")
+    })?;
+    anyhow::ensure!(
+        parsed > 0 && parsed.to_string() == gno,
+        "MySQL Debezium GTID '{gtid}' has a non-canonical GNO at row {row}"
+    );
+    Ok(())
+}
+
+fn projected_debezium(
+    batch: &arrow::record_batch::RecordBatch,
+    projection: Vec<JsonColumnProjection>,
+    dialect: DebeziumSourceDialect,
+) -> anyhow::Result<JsonBatchEncoder> {
+    match dialect {
+        DebeziumSourceDialect::Postgres => {
+            JsonBatchEncoder::projected_debezium(batch, projection)
+        }
+        DebeziumSourceDialect::MySql => {
+            JsonBatchEncoder::projected_debezium_mysql(batch, projection)
+        }
     }
 }
 
@@ -461,6 +708,35 @@ where
         "Debezium system role '{role}' column contains null values"
     );
     Ok(array)
+}
+
+fn nullable_role_array<T>(batch: &SinkBatch, role: &str) -> anyhow::Result<T>
+where
+    T: arrow::array::Array + Clone + 'static,
+{
+    let schema = batch.batch.schema();
+    let mut matches = schema.fields().iter().enumerate().filter(|(_, field)| {
+        field.metadata().get(META_SYSTEM_ROLE).map(String::as_str) == Some(role)
+    });
+    let (index, field) = matches
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Debezium input is missing system role '{role}'"))?;
+    anyhow::ensure!(
+        matches.next().is_none(),
+        "Debezium input has duplicate system role '{role}'"
+    );
+    batch
+        .batch
+        .column(index)
+        .as_any()
+        .downcast_ref::<T>()
+        .cloned()
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Debezium system role '{role}' column '{}' has the wrong Arrow type",
+                field.name()
+            )
+        })
 }
 
 fn validate_message_size(

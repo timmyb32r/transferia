@@ -11,6 +11,12 @@ pub const SYSTEM_ROLE_SOURCE_DATABASE: &str = "source.database";
 pub const SYSTEM_ROLE_SOURCE_SCHEMA: &str = "source.schema";
 pub const SYSTEM_ROLE_SOURCE_TABLE: &str = "source.table";
 pub const SYSTEM_ROLE_SOURCE_TRANSACTION_ID: &str = "source.transaction_id";
+/// Exact MySQL binlog-origin metadata, separate from durable replay coordinates.
+pub const SYSTEM_ROLE_SOURCE_SERVER_ID: &str = "source.server_id";
+pub const SYSTEM_ROLE_SOURCE_GTID: &str = "source.gtid";
+pub const SYSTEM_ROLE_SOURCE_BINLOG_FILE: &str = "source.binlog_file";
+pub const SYSTEM_ROLE_SOURCE_BINLOG_POSITION: &str = "source.binlog_position";
+pub const SYSTEM_ROLE_SOURCE_BINLOG_ROW: &str = "source.binlog_row";
 pub const SYSTEM_ROLE_SOURCE_TIMESTAMP_MS: &str = "source.timestamp_ms";
 pub const SYSTEM_ROLE_SOURCE_TIMESTAMP_US: &str = "source.timestamp_us";
 pub const SYSTEM_ROLE_SOURCE_TIMESTAMP_NS: &str = "source.timestamp_ns";

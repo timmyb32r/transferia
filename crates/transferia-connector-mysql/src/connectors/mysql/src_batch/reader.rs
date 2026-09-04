@@ -419,6 +419,7 @@ pub(super) fn estimate_arrow_working_set_bytes(
                 .and_then(|bytes| bytes.checked_add(snapshot.table.len()))
                 .and_then(|bytes| bytes.checked_add(transaction_identity.len()))
                 .and_then(|bytes| bytes.checked_add(snapshot.boundary.filename.len()))
+                .and_then(|bytes| bytes.checked_add(snapshot.boundary.filename.len()))
                 .and_then(|bytes| {
                     bytes.checked_add(transferia_core::ChangeOperation::SnapshotRead.code().len())
                 })
@@ -730,6 +731,8 @@ pub(super) fn rows_to_changelog_snapshot_batch<R: RowValueAccess>(
     let source_timestamp_ns = source_timestamp_us.checked_mul(1_000).ok_or_else(|| {
         anyhow::anyhow!("MySQL snapshot source timestamp nanoseconds overflow")
     })?;
+    let filename = snapshot.boundary.filename.as_str();
+    let position = i64::try_from(snapshot.boundary.position)?;
     let event_timestamp_ns = i64::try_from(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -745,6 +748,13 @@ pub(super) fn rows_to_changelog_snapshot_batch<R: RowValueAccess>(
         Arc::new(BinaryArray::from_iter_values(
             std::iter::repeat(transaction_identity.as_slice()).take(len),
         )) as ArrayRef,
+        Arc::new(Int64Array::from(vec![0_i64; len])) as ArrayRef,
+        Arc::new(StringArray::from_iter(
+            std::iter::repeat(None::<&str>).take(len),
+        )) as ArrayRef,
+        Arc::new(StringArray::from(vec![filename; len])) as ArrayRef,
+        Arc::new(Int64Array::from(vec![position; len])) as ArrayRef,
+        Arc::new(Int32Array::from(vec![0_i32; len])) as ArrayRef,
         Arc::new(Int64Array::from(vec![source_timestamp_ms; len])) as ArrayRef,
         Arc::new(Int64Array::from(vec![source_timestamp_us; len])) as ArrayRef,
         Arc::new(Int64Array::from(vec![source_timestamp_ns; len])) as ArrayRef,
@@ -752,8 +762,6 @@ pub(super) fn rows_to_changelog_snapshot_batch<R: RowValueAccess>(
         Arc::new(Int64Array::from(vec![event_timestamp_us; len])) as ArrayRef,
         Arc::new(Int64Array::from(vec![event_timestamp_ns; len])) as ArrayRef,
     ]);
-    let filename = snapshot.boundary.filename.as_str();
-    let position = i64::try_from(snapshot.boundary.position)?;
     let changed = full_changed_columns_mask(columns.len());
     let len_i64 = i64::try_from(len)?;
     for kind in MYSQL_REPLICATION_SYSTEM_COLUMNS {
@@ -894,9 +902,9 @@ pub(super) fn build_output_schema(
             },
         ));
         fields.extend(MYSQL_SOURCE_METADATA_COLUMNS.iter().map(|column| {
-            Field::new(column.name, column.data_type.clone(), false).with_metadata(HashMap::from([
-                (META_SYSTEM_ROLE.to_owned(), column.role.to_owned()),
-            ]))
+            Field::new(column.name, column.data_type.clone(), column.nullable).with_metadata(
+                HashMap::from([(META_SYSTEM_ROLE.to_owned(), column.role.to_owned())]),
+            )
         }));
     }
     fields.extend(system_columns.iter().map(|kind| {

@@ -31,7 +31,9 @@ use transferia_connector_support::external_request::observe_external_request;
 use transferia_core::data::schema::{
     DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME, SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
     SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
-    SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE,
+    SYSTEM_ROLE_SOURCE_BINLOG_FILE, SYSTEM_ROLE_SOURCE_BINLOG_POSITION,
+    SYSTEM_ROLE_SOURCE_BINLOG_ROW, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_GTID,
+    SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_SERVER_ID, SYSTEM_ROLE_SOURCE_TABLE,
     SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
     SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
@@ -85,6 +87,7 @@ pub struct MySqlSourceMetadataColumn {
     pub(crate) name: &'static str,
     pub(crate) role: &'static str,
     pub(crate) data_type: DataType,
+    pub(crate) nullable: bool,
 }
 
 pub const MYSQL_SOURCE_METADATA_COLUMNS: &[MySqlSourceMetadataColumn] = &[
@@ -92,51 +95,91 @@ pub const MYSQL_SOURCE_METADATA_COLUMNS: &[MySqlSourceMetadataColumn] = &[
         name: "_system_source_database",
         role: SYSTEM_ROLE_SOURCE_DATABASE,
         data_type: DataType::Utf8,
+        nullable: false,
     },
     MySqlSourceMetadataColumn {
         name: "_system_source_schema",
         role: SYSTEM_ROLE_SOURCE_SCHEMA,
         data_type: DataType::Utf8,
+        nullable: false,
     },
     MySqlSourceMetadataColumn {
         name: "_system_source_table",
         role: SYSTEM_ROLE_SOURCE_TABLE,
         data_type: DataType::Utf8,
+        nullable: false,
     },
     MySqlSourceMetadataColumn {
         name: "_system_source_transaction_id",
         role: SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
         data_type: DataType::Binary,
+        nullable: false,
+    },
+    MySqlSourceMetadataColumn {
+        name: "_system_source_server_id",
+        role: SYSTEM_ROLE_SOURCE_SERVER_ID,
+        data_type: DataType::Int64,
+        nullable: false,
+    },
+    MySqlSourceMetadataColumn {
+        name: "_system_source_gtid",
+        role: SYSTEM_ROLE_SOURCE_GTID,
+        data_type: DataType::Utf8,
+        nullable: true,
+    },
+    MySqlSourceMetadataColumn {
+        name: "_system_source_binlog_file",
+        role: SYSTEM_ROLE_SOURCE_BINLOG_FILE,
+        data_type: DataType::Utf8,
+        nullable: false,
+    },
+    MySqlSourceMetadataColumn {
+        name: "_system_source_binlog_position",
+        role: SYSTEM_ROLE_SOURCE_BINLOG_POSITION,
+        data_type: DataType::Int64,
+        nullable: false,
+    },
+    MySqlSourceMetadataColumn {
+        name: "_system_source_binlog_row",
+        role: SYSTEM_ROLE_SOURCE_BINLOG_ROW,
+        data_type: DataType::Int32,
+        nullable: false,
     },
     MySqlSourceMetadataColumn {
         name: "_system_source_timestamp_ms",
         role: SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
         data_type: DataType::Int64,
+        nullable: false,
     },
     MySqlSourceMetadataColumn {
         name: "_system_source_timestamp_us",
         role: SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
         data_type: DataType::Int64,
+        nullable: false,
     },
     MySqlSourceMetadataColumn {
         name: "_system_source_timestamp_ns",
         role: SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
         data_type: DataType::Int64,
+        nullable: false,
     },
     MySqlSourceMetadataColumn {
         name: "_system_event_timestamp_ms",
         role: SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
         data_type: DataType::Int64,
+        nullable: false,
     },
     MySqlSourceMetadataColumn {
         name: "_system_event_timestamp_us",
         role: SYSTEM_ROLE_EVENT_TIMESTAMP_US,
         data_type: DataType::Int64,
+        nullable: false,
     },
     MySqlSourceMetadataColumn {
         name: "_system_event_timestamp_ns",
         role: SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
         data_type: DataType::Int64,
+        nullable: false,
     },
 ];
 
@@ -1187,10 +1230,10 @@ pub(super) fn build_delivery_discovery(
         MYSQL_SNAPSHOT_SYSTEM_COLUMNS
     };
     let discovered_system_columns = system_columns
-                .iter()
-                .copied()
-                .map(Into::into)
-                .collect::<Vec<_>>();
+        .iter()
+        .copied()
+        .map(Into::into)
+        .collect::<Vec<_>>();
     let datasets = tables
         .iter()
         .map(|table| {
@@ -1205,8 +1248,12 @@ pub(super) fn build_delivery_discovery(
                 incoming
                     .columns
                     .extend(MYSQL_SOURCE_METADATA_COLUMNS.iter().map(|column| {
-                        SchemaColumn::new(column.name.to_owned(), column.data_type.clone(), false)
-                            .with_system_role(column.role)
+                        SchemaColumn::new(
+                            column.name.to_owned(),
+                            column.data_type.clone(),
+                            column.nullable,
+                        )
+                        .with_system_role(column.role)
                     }));
             }
             incoming.columns.extend(system_columns.iter().map(|kind| {

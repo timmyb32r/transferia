@@ -351,6 +351,226 @@ fn debezium_discovery_accepts_snapshot_metadata_without_cdc_old_values() {
 }
 
 #[test]
+fn mysql_debezium_discovery_requires_exact_source_changelog_and_role_contracts() {
+    use arrow::datatypes::DataType;
+    use transferia_core::data::schema::{
+        SYSTEM_ROLE_SOURCE_GTID, SYSTEM_ROLE_SOURCE_SERVER_ID,
+        SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    };
+    use transferia_core::SystemColumnKind;
+
+    let config = SerializerConfig::Debezium {
+        logical_name: "inventory".to_owned(),
+        format: DebeziumFormat::Json,
+    };
+    let discovery = mysql_debezium_discovery();
+    config.validate_discovery(&discovery).unwrap();
+
+    let mut invalid_source = discovery.clone();
+    invalid_source.source_name = "MySQL".into();
+    let error = config
+        .validate_discovery(&invalid_source)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("exactly 'postgres' or 'mysql'"), "{error}");
+
+    let mut missing_changelog = discovery.clone();
+    missing_changelog.datasets[0]
+        .system_columns
+        .retain(|column| column.kind != SystemColumnKind::ChangeOperation);
+    let error = config
+        .validate_discovery(&missing_changelog)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("changelog replication schema"), "{error}");
+
+    let mut wrong_transaction_identity = discovery.clone();
+    let transaction = wrong_transaction_identity.datasets[0]
+        .incoming_schema
+        .columns
+        .iter_mut()
+        .find(|column| {
+            column.system_role.as_deref() == Some(SYSTEM_ROLE_SOURCE_TRANSACTION_ID)
+        })
+        .unwrap();
+    transaction.data_type = DataType::UInt64;
+    let error = config
+        .validate_discovery(&wrong_transaction_identity)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains(SYSTEM_ROLE_SOURCE_TRANSACTION_ID), "{error}");
+    assert!(error.contains("Binary"), "{error}");
+
+    let mut missing_server_id = discovery.clone();
+    missing_server_id.datasets[0]
+        .incoming_schema
+        .columns
+        .retain(|column| column.system_role.as_deref() != Some(SYSTEM_ROLE_SOURCE_SERVER_ID));
+    let error = config
+        .validate_discovery(&missing_server_id)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains(SYSTEM_ROLE_SOURCE_SERVER_ID), "{error}");
+
+    let mut missing_extension_metadata = discovery.clone();
+    missing_extension_metadata.datasets[0]
+        .incoming_schema
+        .columns
+        .iter_mut()
+        .find(|column| column.name == "payload")
+        .unwrap()
+        .arrow_extension_metadata = None;
+    let error = config
+        .validate_discovery(&missing_extension_metadata)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("physical Arrow extension metadata"), "{error}");
+
+    let mut wrong_physical_type = discovery.clone();
+    wrong_physical_type.datasets[0]
+        .incoming_schema
+        .columns
+        .iter_mut()
+        .find(|column| column.name == "id")
+        .unwrap()
+        .data_type = DataType::UInt64;
+    let error = config
+        .validate_discovery(&wrong_physical_type)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("requires Arrow Int64"), "{error}");
+
+    let mut mismatched_old_extension = discovery.clone();
+    mismatched_old_extension.datasets[0]
+        .incoming_schema
+        .columns
+        .iter_mut()
+        .find(|column| column.old_value_of.as_deref() == Some("payload"))
+        .unwrap()
+        .arrow_extension_metadata = Some(
+            r#"{"version":1,"data_type":"char","column_type":"char(255)","unsigned":false,"character_set":"utf8mb4"}"#
+                .to_owned(),
+        );
+    let error = config
+        .validate_discovery(&mismatched_old_extension)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("does not preserve its exact physical"), "{error}");
+
+    let mut nonnullable_gtid = discovery;
+    nonnullable_gtid.datasets[0]
+        .incoming_schema
+        .columns
+        .iter_mut()
+        .find(|column| column.system_role.as_deref() == Some(SYSTEM_ROLE_SOURCE_GTID))
+        .unwrap()
+        .nullable = false;
+    let error = config
+        .validate_discovery(&nonnullable_gtid)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains(SYSTEM_ROLE_SOURCE_GTID), "{error}");
+    assert!(error.contains("nullable Utf8"), "{error}");
+}
+
+fn mysql_debezium_discovery() -> transferia_core::delivery::DeliveryDiscovery {
+    use arrow::datatypes::DataType;
+    use transferia_core::data::schema::{
+        DatasetSchema, SchemaColumn, SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
+        SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+        SYSTEM_ROLE_SOURCE_BINLOG_FILE, SYSTEM_ROLE_SOURCE_BINLOG_POSITION,
+        SYSTEM_ROLE_SOURCE_BINLOG_ROW, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_GTID,
+        SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_SERVER_ID, SYSTEM_ROLE_SOURCE_TABLE,
+        SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+        SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    };
+    use transferia_core::delivery::{
+        DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
+    };
+    use transferia_core::SystemColumnKind;
+
+    let id = SchemaColumn::new("id".to_owned(), DataType::Int64, false)
+        .with_constraints(true, false, None)
+        .with_arrow_extension_metadata(
+            "transferia.mysql.signed_integer",
+            r#"{"version":1,"data_type":"bigint","column_type":"bigint","unsigned":false}"#,
+        );
+    let payload = SchemaColumn::new("payload".to_owned(), DataType::Utf8, true)
+        .with_arrow_extension_metadata(
+            "transferia.mysql.text",
+            r#"{"version":1,"data_type":"varchar","column_type":"varchar(255)","unsigned":false,"character_set":"utf8mb4"}"#,
+        );
+    let old_id = SchemaColumn::new("_system_old_value_0".to_owned(), DataType::Int64, true)
+        .with_old_value_of("id".to_owned())
+        .with_arrow_extension_metadata(
+            "transferia.mysql.signed_integer",
+            r#"{"version":1,"data_type":"bigint","column_type":"bigint","unsigned":false}"#,
+        );
+    let old_payload = SchemaColumn::new("_system_old_value_1".to_owned(), DataType::Utf8, true)
+        .with_old_value_of("payload".to_owned())
+        .with_arrow_extension_metadata(
+            "transferia.mysql.text",
+            r#"{"version":1,"data_type":"varchar","column_type":"varchar(255)","unsigned":false,"character_set":"utf8mb4"}"#,
+        );
+    let mut incoming = vec![id.clone(), payload.clone(), old_id, old_payload];
+    incoming.extend(
+        [
+            (SYSTEM_ROLE_SOURCE_DATABASE, DataType::Utf8, false),
+            (SYSTEM_ROLE_SOURCE_SCHEMA, DataType::Utf8, false),
+            (SYSTEM_ROLE_SOURCE_TABLE, DataType::Utf8, false),
+            (SYSTEM_ROLE_SOURCE_TRANSACTION_ID, DataType::Binary, false),
+            (SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, DataType::Int64, false),
+            (SYSTEM_ROLE_SOURCE_TIMESTAMP_US, DataType::Int64, false),
+            (SYSTEM_ROLE_SOURCE_TIMESTAMP_NS, DataType::Int64, false),
+            (SYSTEM_ROLE_EVENT_TIMESTAMP_MS, DataType::Int64, false),
+            (SYSTEM_ROLE_EVENT_TIMESTAMP_US, DataType::Int64, false),
+            (SYSTEM_ROLE_EVENT_TIMESTAMP_NS, DataType::Int64, false),
+            (SYSTEM_ROLE_SOURCE_SERVER_ID, DataType::Int64, false),
+            (SYSTEM_ROLE_SOURCE_GTID, DataType::Utf8, true),
+            (SYSTEM_ROLE_SOURCE_BINLOG_FILE, DataType::Utf8, false),
+            (SYSTEM_ROLE_SOURCE_BINLOG_POSITION, DataType::Int64, false),
+            (SYSTEM_ROLE_SOURCE_BINLOG_ROW, DataType::Int32, false),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (role, data_type, nullable))| {
+            SchemaColumn::new(format!("_system_role_{index}"), data_type, nullable)
+                .with_system_role(role)
+        }),
+    );
+    incoming.extend(
+        [
+            SystemColumnKind::Offset,
+            SystemColumnKind::ChangeOperation,
+            SystemColumnKind::ChangedColumns,
+        ]
+        .into_iter()
+        .map(|kind| SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)),
+    );
+    DeliveryDiscovery {
+        source_name: "mysql".into(),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: "accounts".into(),
+            incoming_schema: DatasetSchema::new(incoming),
+            stored_schema: DatasetSchema::new(vec![id, payload]),
+            system_columns: [
+                SystemColumnKind::Offset,
+                SystemColumnKind::ChangeOperation,
+                SystemColumnKind::ChangedColumns,
+            ]
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        }],
+        performance_advice: Vec::new(),
+    }
+}
+
+#[test]
 fn json_schema_serializer_rejects_values_outside_contract() -> anyhow::Result<()> {
     let schema = compile_writer_schema(
         &crate::schema_registry::RegistrySchema {
@@ -479,6 +699,47 @@ fn debezium_registry_wrapper_supports_json_avro_and_protobuf_without_losing_tomb
         }
         assert!(encoded.messages[1].value.is_none());
     }
+    Ok(())
+}
+
+#[test]
+fn mysql_debezium_envelope_survives_json_schema_registry_wrapper() -> anyhow::Result<()> {
+    let definition = r#"{"type":"object","required":["after","source","op"],"properties":{"after":{"type":"object"},"source":{"type":"object","required":["connector","server_id","gtid","file","pos","row"],"properties":{"connector":{"const":"mysql"},"server_id":{"type":"integer"},"gtid":{"type":"string"},"file":{"type":"string"},"pos":{"type":"integer"},"row":{"type":"integer"}},"additionalProperties":true},"op":{"const":"c"}},"additionalProperties":true}"#;
+    let schema = compile_writer_schema(
+        &crate::schema_registry::RegistrySchema {
+            id: 32,
+            definition: definition.to_owned(),
+            format: crate::schema_registry::SchemaFormat::JsonSchema,
+            references: Arc::from([]),
+        },
+        &[0],
+    )?;
+    let value = br#"{"before":null,"after":{"u64":"AP//////////"},"source":{"version":"transferia","connector":"mysql","name":"inventory","ts_ms":1000,"snapshot":"false","db":"inventory","sequence":null,"ts_us":1000000,"ts_ns":1000000000,"table":"accounts","server_id":4294967295,"gtid":"11111111-1111-1111-1111-111111111111:blue:2","file":"mysql-bin.000001","pos":100,"row":0,"thread":null,"query":null},"op":"c","ts_ms":2000,"ts_us":2000000,"ts_ns":2000000000,"transaction":null}"#;
+    let encoded = encode_debezium_registered_batch(
+        SerializedBatch {
+            table: "accounts".into(),
+            messages: vec![SerializedMessage {
+                key: None,
+                value: Some(value.to_vec()),
+            }],
+        },
+        None,
+        &[0],
+        &schema,
+        &[0],
+        usize::MAX,
+    )?;
+    let envelope = crate::schema_registry::ConfluentEnvelope::decode(
+        encoded.messages[0]
+            .value
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("registry wrapper dropped MySQL value"))?,
+    )?;
+    assert_eq!(envelope.schema_id, 32);
+    let wrapped: serde_json::Value = serde_json::from_slice(envelope.payload)?;
+    assert_eq!(wrapped["source"]["connector"], "mysql");
+    assert_eq!(wrapped["source"]["server_id"], 4_294_967_295_u64);
+    assert_eq!(wrapped["after"]["u64"], "AP//////////");
     Ok(())
 }
 

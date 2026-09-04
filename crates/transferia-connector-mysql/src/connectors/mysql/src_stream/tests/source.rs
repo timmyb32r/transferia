@@ -6,11 +6,13 @@ use transferia_core::data::schema::{
     META_MAX_LENGTH, META_OLD_VALUE_OF, META_PRIMARY_KEY,
 };
 
-use super::super::decoder::{MySqlBinlogColumnIdentity, MySqlTableIdentity};
+use super::super::decoder::{
+    MySqlBinlogColumnIdentity, MySqlTableIdentity, MySqlTransactionIdentity,
+};
 use super::super::source::{
     append_json_array, append_json_object, build_table_schema, format_datetime_text,
-    format_time_text, format_timestamp_text, normalize_binlog_value, normalize_enum, normalize_set,
-    schema_materialization_admission_bytes, serialize_mysql_json,
+    format_time_text, format_timestamp_text, format_transaction_gtid, normalize_binlog_value,
+    normalize_enum, normalize_set, schema_materialization_admission_bytes, serialize_mysql_json,
     validate_replication_column_plan, validate_selected_table_map, verify_binlog_heartbeat,
 };
 use super::super::config::heartbeat_period_nanoseconds;
@@ -30,6 +32,27 @@ fn binlog_heartbeat_is_exact_checked_and_verified_before_stream_handoff() {
     for observed in [None, Some((0, 10_000_000)), Some((10_000_000, 0))] {
         assert!(verify_binlog_heartbeat(10_000_000, observed).is_err());
     }
+}
+
+#[test]
+fn tagged_gtid_metadata_is_canonical_and_never_derived_from_opaque_identity() {
+    let identity = MySqlTransactionIdentity::Gtid {
+        sid: [0x11; 16],
+        tag: Some("blue".to_owned()),
+        gno: 42,
+    };
+    assert_eq!(
+        format_transaction_gtid(&identity).unwrap(),
+        "11111111-1111-1111-1111-111111111111:blue:42"
+    );
+    assert!(format_transaction_gtid(&MySqlTransactionIdentity::FilePosition {
+        begin_position: super::super::MySqlBinlogPosition::new(
+            b"mysql-bin.000001".to_vec(),
+            4,
+        )
+        .unwrap(),
+    })
+    .is_err());
 }
 
 #[test]
