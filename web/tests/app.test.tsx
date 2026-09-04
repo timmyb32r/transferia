@@ -54,6 +54,11 @@ describe("App request orchestration", () => {
 
   it("shows the server-assigned transfer id in a stable header slot after first save", async () => {
     installApiMocks([]);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
     const transferId = "dttabcdefghijklmnopq";
     vi.mocked(api.create).mockResolvedValue(delivery(transferId, "Saved"));
     const view = render(<App />);
@@ -70,6 +75,9 @@ describe("App request orchestration", () => {
     await waitFor(() =>
       expect(slot?.textContent).toBe(`TRANSFER ID · ${transferId}`),
     );
+    fireEvent.click(app.getByRole("button", { name: "Copy transfer ID" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(transferId));
+    expect(app.getByRole("button", { name: "Transfer ID copied" })).toBeTruthy();
     expect(view.container.querySelector(".transfer-id-slot")).toBe(slot);
     expect(api.create).toHaveBeenCalledWith(
       "Saved",

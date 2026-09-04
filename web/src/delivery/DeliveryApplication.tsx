@@ -49,6 +49,7 @@ import { useOperations } from "./useOperations";
 import { useYamlEditor } from "./useYamlEditor";
 import { speedtestAvailability } from "./speedtestAvailability";
 import { RequiredFieldGuide } from "./RequiredFieldGuide";
+import { Button } from "../ui/Button";
 import {
   nextRequiredTarget,
   requestRequiredGuidance,
@@ -105,6 +106,45 @@ type RuntimeActionIntent = "activate" | "pause" | "stop";
 interface PendingRuntimeAction {
   sessionId: EditorSessionId;
   intent: RuntimeActionIntent;
+}
+
+function TransferIdentity({ id }: { id: string | undefined }) {
+  const [copyState, setCopyState] = useState<
+    "idle" | "copying" | "copied" | "error"
+  >("idle");
+  const copy = async () => {
+    if (id === undefined || copyState === "copying") return;
+    setCopyState("copying");
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  };
+
+  return (
+    <div class="transfer-id-line">
+      <small class="transfer-id-slot">
+        {id === undefined ? "TRANSFER ID · assigned on save" : `TRANSFER ID · ${id}`}
+      </small>
+      {id !== undefined && (
+        <Button
+          shape="icon"
+          class="transfer-id-copy"
+          pending={copyState === "copying"}
+          aria-label={copyState === "copied" ? "Transfer ID copied" : "Copy transfer ID"}
+          title={copyState === "error" ? "Copy failed" : "Copy transfer ID"}
+          onClick={() => void copy()}
+        >
+          <svg class="ui-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <rect x="5.5" y="5.5" width="8" height="8" rx="1" />
+            <path d="M10.5 5.5V3.25a.75.75 0 0 0-.75-.75h-6.5a.75.75 0 0 0-.75.75v6.5c0 .41.34.75.75.75H5.5" />
+          </svg>
+        </Button>
+      )}
+    </div>
+  );
 }
 
 export function DeliveryApplication() {
@@ -706,11 +746,7 @@ export function DeliveryApplication() {
         />
         <header class="page-header">
           <div>
-            <small class="transfer-id-slot">
-              {editor.id === undefined
-                ? "TRANSFER ID · assigned on save"
-                : `TRANSFER ID · ${editor.id}`}
-            </small>
+            <TransferIdentity id={editor.id} />
             <h1>{editor.name || "Untitled delivery"}</h1>
           </div>
           <div class="header-controls">
