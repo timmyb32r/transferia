@@ -143,7 +143,7 @@ impl DebeziumParserConfig {
         }
     }
 
-    fn normalized_projection(&self) -> anyhow::Result<JsonParserConfig> {
+    fn normalized_projection(&self) -> JsonParserConfig {
         let mut projection = self.user_projection();
         for (index, mapping) in projection.columns.iter_mut().enumerate() {
             mapping.jsonpath = format!("$.current[{index}]");
@@ -193,7 +193,7 @@ impl DebeziumParserConfig {
         ));
         projection.keys = vec!["message_key_base64".to_owned()];
         projection.unknown_fields = UnknownFieldPolicy::Drop;
-        Ok(projection)
+        projection
     }
 }
 
@@ -224,7 +224,7 @@ impl DebeziumParser {
         validate_message_table: bool,
     ) -> anyhow::Result<Self> {
         let (incoming_schema, _) = config.schemas()?;
-        let projection = config.normalized_projection()?;
+        let projection = config.normalized_projection();
         let registry = RegistryClient::new(&config.connection)?;
         Ok(Self {
             json: Arc::new(JsonParser::new(
