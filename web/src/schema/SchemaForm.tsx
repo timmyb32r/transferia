@@ -1,7 +1,7 @@
 import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useState } from "preact/hooks";
 
-import type { JsonObject, JsonValue, RecordSemantics } from "../types";
+import type { JsonObject, JsonValue } from "../types";
 import { AutofillResistantInput } from "../ui/AutofillResistantField";
 import { FormField } from "../ui/FormField";
 import { ExternalLinkIcon } from "../ui/icons";
@@ -36,7 +36,6 @@ export interface VariantUi {
   selectionOnly?: readonly string[];
   actions?: Readonly<Record<string, ComponentChildren>>;
   onSelected?: (widget: string) => void;
-  requiredRecordSemantics?: readonly RecordSemantics[];
 }
 
 const VariantUiContext = createContext<VariantUi>({});

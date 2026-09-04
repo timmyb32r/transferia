@@ -38,17 +38,7 @@ export function UnionNodeEditor({
   const selectionOnly =
     node.xUi.defer_variant_details === true ||
     (widget !== undefined && variantUi.selectionOnly?.includes(widget) === true);
-  const options = node.branches
-    .map((branch, index) => ({ branch, index }))
-    .filter(({ branch }) => {
-      const capabilities = branch.node.xUi.capabilities;
-      return acceptsRequiredSemantics(
-        capabilities !== undefined && capabilities.component === widget
-          ? capabilities.record_semantics
-          : undefined,
-        variantUi.requiredRecordSemantics,
-      );
-    });
+  const options = node.branches.map((branch, index) => ({ branch, index }));
   return (
     <div class="union-editor">
       <div class={action !== undefined ? "parser-selector-row" : undefined}>
@@ -90,12 +80,4 @@ export function UnionNodeEditor({
         )}
     </div>
   );
-}
-
-function acceptsRequiredSemantics(
-  supported: readonly string[] | undefined,
-  required: readonly string[] | undefined,
-): boolean {
-  if (required === undefined || supported === undefined) return true;
-  return required.every((semantics) => supported.includes(semantics));
 }

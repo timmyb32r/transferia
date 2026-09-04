@@ -105,7 +105,7 @@ describe("App request orchestration", () => {
     ).toEqual(["Not selected", "Batch", "Stream", "Batch + stream"]);
   });
 
-  it("mutually narrows delivery types, sources, and destinations", async () => {
+  it("keeps all route choices visible and explains incompatible selections", async () => {
     installApiMocks([]);
     vi.mocked(api.catalog).mockResolvedValue({
       ...CATALOG,
@@ -140,6 +140,7 @@ describe("App request orchestration", () => {
     chooseFromSelect(app, "Delivery type", "Stream");
     expect(selectOptions(app, "Source")).toEqual([
       "Not selected",
+      "Batch source",
       "Hybrid source",
       "Stream source",
     ]);
@@ -147,6 +148,7 @@ describe("App request orchestration", () => {
     chooseFromSelect(app, "Source", "Stream source");
     expect(selectOptions(app, "Destination")).toEqual([
       "Not selected",
+      "Append sink",
       "Both sink",
       "Change sink",
     ]);
@@ -154,11 +156,22 @@ describe("App request orchestration", () => {
     chooseFromSelect(app, "Destination", "Change sink");
     expect(selectOptions(app, "Delivery type")).toEqual([
       "Not selected",
+      "Batch",
       "Stream",
+      "Batch + stream",
     ]);
+    chooseFromSelect(app, "Delivery type", "Batch");
+    const compatibilityError = app
+      .getByText("Incompatible route")
+      .closest<HTMLElement>(".compatibility-error")!;
+    expect(
+      within(compatibilityError).getByText(
+        "Stream source does not support batch delivery.",
+      ),
+    ).toBeTruthy();
   });
 
-  it("narrows delivery types to the active source capability branch", async () => {
+  it("keeps every delivery type visible for a conditional source", async () => {
     installApiMocks([]);
     vi.mocked(api.catalog).mockResolvedValue({
       ...CATALOG,
@@ -177,10 +190,12 @@ describe("App request orchestration", () => {
     expect(selectOptions(app, "Delivery type")).toEqual([
       "Not selected",
       "Batch",
+      "Stream",
+      "Batch + stream",
     ]);
   });
 
-  it("exposes only replication delivery types for an active replication configuration", async () => {
+  it("keeps every delivery type visible for an active replication configuration", async () => {
     const existing = {
       ...delivery("replication", "MySQL replication"),
       config: {
@@ -209,6 +224,7 @@ describe("App request orchestration", () => {
 
     expect(selectOptions(app, "Delivery type")).toEqual([
       "Not selected",
+      "Batch",
       "Stream",
       "Batch + stream",
     ]);

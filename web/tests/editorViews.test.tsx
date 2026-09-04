@@ -47,7 +47,7 @@ afterEach(() => {
 });
 
 describe("endpoint connection check", () => {
-  it("shows only serializers that accept the selected source semantics", () => {
+  it("keeps incompatible serializers selectable for explicit validation", () => {
     const serializerEndpoint: EndpointDefinition = {
       ...endpoint,
       schema: {
@@ -78,14 +78,13 @@ describe("endpoint connection check", () => {
         config={{ sink: { kafka: { serializer: {} } } }}
         readOnly={false}
         showRequiredErrors={false}
-        requiredRecordSemantics={["changelog"]}
         onChoose={() => undefined}
         onConfig={() => undefined}
       />,
     );
 
     fireEvent.click(view.getByRole("button", { name: "Serializer" }));
-    expect(view.queryByRole("option", { name: "JSON" })).toBeNull();
+    expect(view.getByRole("option", { name: "JSON" })).toBeTruthy();
     expect(view.getByRole("option", { name: "Debezium" })).toBeTruthy();
   });
 
