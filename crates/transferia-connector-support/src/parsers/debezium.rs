@@ -105,7 +105,7 @@ pub struct DebeziumParserConfig {
 
 impl DebeziumParserConfig {
     pub fn schemas(&self) -> anyhow::Result<(DatasetSchema, DatasetSchema)> {
-        let user = self.user_projection()?.to_dataset_schema()?;
+        let user = self.user_projection().to_dataset_schema()?;
         let mut incoming = user.clone();
         for column in &mut incoming.columns {
             if !column.primary_key {
@@ -133,18 +133,18 @@ impl DebeziumParserConfig {
         Ok((incoming, user))
     }
 
-    fn user_projection(&self) -> anyhow::Result<JsonParserConfig> {
-        Ok(JsonParserConfig {
+    fn user_projection(&self) -> JsonParserConfig {
+        JsonParserConfig {
             json_framing: JsonFramingMode::SingleDocument,
             columns: debezium_columns(),
             conversion_error: ConversionErrorPolicy::Fail,
             unknown_fields: UnknownFieldPolicy::Fail,
             keys: vec!["message_key_base64".to_owned()],
-        })
+        }
     }
 
     fn normalized_projection(&self) -> anyhow::Result<JsonParserConfig> {
-        let mut projection = self.user_projection()?;
+        let mut projection = self.user_projection();
         for (index, mapping) in projection.columns.iter_mut().enumerate() {
             mapping.jsonpath = format!("$.current[{index}]");
             if mapping.column_name != "message_key_base64" {

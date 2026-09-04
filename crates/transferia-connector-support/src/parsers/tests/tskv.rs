@@ -26,14 +26,14 @@ fn public_schema_omits_json_only_column_fields() -> anyhow::Result<()> {
 #[test]
 fn parses_strings_and_converts_only_to_configured_arrow_types() -> anyhow::Result<()> {
     let config: TskvParserConfig = serde_yaml::from_str(
-        r#"
+        r"
 columns:
   - { column_name: level, arrow_type: Utf8 }
   - { column_name: count, arrow_type: Int64 }
   - { column_name: ready, arrow_type: Boolean }
 unknown_fields: { action: drop }
 keys: [level]
-"#,
+",
     )?;
     let parser = Arc::new(TskvParser::new(
         &config,

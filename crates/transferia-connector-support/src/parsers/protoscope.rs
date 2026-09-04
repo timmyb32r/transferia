@@ -25,8 +25,8 @@ impl ParserDetector for CloudEventsWireDetector {
         let Some(mut detection) = ProtobufWireDetector.try_parse(payload)? else {
             return Ok(None);
         };
-        detection.key = "cloud_events".to_owned();
-        detection.label = "CloudEvents parser".to_owned();
+        "cloud_events".clone_into(&mut detection.key);
+        "CloudEvents parser".clone_into(&mut detection.label);
         detection.config["protobuf"]["message_name"] =
             serde_json::Value::String("io.cloudevents.v1.CloudEvent".to_owned());
         Ok(Some(detection))

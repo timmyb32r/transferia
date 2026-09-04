@@ -168,7 +168,7 @@ fn infer_tskv_arrow_type(values: &[&String]) -> &'static str {
         "UInt64"
     } else if values
         .iter()
-        .all(|value| value.parse::<f64>().is_ok_and(|number| number.is_finite()))
+        .all(|value| value.parse::<f64>().is_ok_and(f64::is_finite))
     {
         "Float64"
     } else {
