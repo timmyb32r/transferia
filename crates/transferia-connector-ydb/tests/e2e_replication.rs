@@ -658,7 +658,7 @@ fn assert_debezium_changes(messages: &[SerializedMessage]) -> anyhow::Result<()>
         let source = &value["source"];
         anyhow::ensure!(source["version"] == "1.0.0");
         anyhow::ensure!(source["connector"] == "ydb");
-        anyhow::ensure!(source["name"] == "inventory");
+        anyhow::ensure!(source["name"] == "Inventory delivery");
         anyhow::ensure!(source["snapshot"] == "false");
         anyhow::ensure!(source["db"] == "/local");
         anyhow::ensure!(source["table"] == EVENTS_TABLE);
