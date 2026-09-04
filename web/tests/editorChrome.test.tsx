@@ -209,8 +209,9 @@ describe("editor chrome", () => {
     expect(onDataSchemaUnavailable).toHaveBeenCalledOnce();
   });
 
-  it("passes the exact running generation to Stop", () => {
+  it("keeps Deactivate left of Pause and passes the exact run generation", () => {
     const onStop = vi.fn();
+    const onPause = vi.fn();
     const view = render(
       <EditorActions
         editor={editor({ state: "running", run_id: "run-17", pid: 42 })}
@@ -223,13 +224,74 @@ describe("editor chrome", () => {
         onSave={() => undefined}
         onValidate={() => undefined}
         onActivate={() => undefined}
+        onPause={onPause}
         onStop={onStop}
       />,
     );
 
-    fireEvent.click(view.getByRole("button", { name: "Stop" }));
+    const controls = view.getByLabelText("Delivery controls");
+    const deactivate = view.getByRole("button", { name: "Deactivate" });
+    const pause = view.getByRole("button", { name: "Pause" });
+    expect(Array.from(controls.querySelectorAll("button"))).toEqual([
+      deactivate,
+      pause,
+    ]);
+    expect(deactivate.querySelector(".stop-icon")).toBeTruthy();
+    expect(pause.querySelector(".pause-icon")).toBeTruthy();
+
+    fireEvent.click(deactivate);
+    fireEvent.click(pause);
 
     expect(onStop).toHaveBeenCalledWith("run-17");
+    expect(onPause).toHaveBeenCalledWith("run-17");
+  });
+
+  it("keeps the transport control footprint stable while Play becomes Pause", () => {
+    const inactive = editor({ state: "stopped" });
+    const renderActions = (
+      runtimeEditor: EditorState,
+      runtimeActionIntent?: "activate" | "pause",
+    ) => (
+      <EditorActions
+        editor={runtimeEditor}
+        blocked={runtimeActionIntent !== undefined}
+        activatePending={runtimeActionIntent !== undefined}
+        runtimeActionIntent={runtimeActionIntent}
+        requiredFieldsComplete
+        onMissingRequired={() => undefined}
+        onEdit={() => undefined}
+        onClone={() => undefined}
+        onDelete={() => undefined}
+        onSave={() => undefined}
+        onValidate={() => undefined}
+        onActivate={() => undefined}
+        onStop={() => undefined}
+      />
+    );
+    const view = render(renderActions(inactive));
+    const controls = view.getByLabelText("Delivery controls");
+    const deactivate = view.getByRole("button", { name: "Deactivate" });
+    const activate = view.getByRole("button", { name: "Activate" });
+    expect((deactivate as HTMLButtonElement).disabled).toBe(true);
+    expect(activate.querySelector(".play-icon")).toBeTruthy();
+
+    view.rerender(renderActions(inactive, "activate"));
+
+    expect(view.getByLabelText("Delivery controls")).toBe(controls);
+    expect(view.getByRole("button", { name: "Deactivate" })).toBe(deactivate);
+    expect(view.getByRole("button", { name: "Pause" })).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Activate" })).toBeNull();
+
+    view.rerender(
+      renderActions(
+        editor({ state: "running", run_id: "run-17", pid: 42 }),
+        "pause",
+      ),
+    );
+
+    expect(view.getByLabelText("Delivery controls")).toBe(controls);
+    expect(view.getByRole("button", { name: "Activate" })).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Pause" })).toBeNull();
   });
 
   it("keeps delivery actions disabled while a blocking command is pending", () => {

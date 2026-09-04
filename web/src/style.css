@@ -1903,14 +1903,85 @@ button::after {
   background: var(--blue-hover);
   border-color: var(--blue-hover);
 }
-.activate-action:active:not(:disabled) {
-  /* Give the primary activation action an unmistakable physical depth cue
-     without moving its hit area out from under edge clicks. */
-  background: color-mix(in srgb, var(--blue) 68%, #000);
-  border-color: color-mix(in srgb, var(--blue) 58%, #000);
+.transport-controls {
+  display: grid;
+  grid-template-columns: 112px 96px;
+  gap: 6px;
+  flex: 0 0 214px;
+}
+.transport-controls > .instant-tooltip-host {
+  display: block;
+  width: 96px;
+}
+.transport-action {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.transport-icon {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+}
+.play-icon {
+  width: 0;
+  height: 0;
+  margin-left: 2px;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 10px solid currentColor;
+}
+.stop-icon {
+  width: 10px;
+  height: 10px;
+  margin: 1px;
+  border-radius: 1px;
+  background: currentColor;
+}
+.pause-icon::before,
+.pause-icon::after {
+  position: absolute;
+  top: 1px;
+  width: 4px;
+  height: 10px;
+  border-radius: 1px;
+  background: currentColor;
+  content: "";
+}
+.pause-icon::before {
+  left: 1px;
+}
+.pause-icon::after {
+  right: 1px;
+}
+.run-toggle-action {
+  color: var(--success-text);
+  background: var(--success-surface);
+  border-color: color-mix(in srgb, var(--success-text) 48%, transparent);
+}
+.run-toggle-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--success-surface) 76%, var(--success-text));
+  border-color: var(--success-text);
+}
+.deactivate-action {
+  color: var(--danger-text);
+  background: var(--danger-surface);
+  border-color: var(--danger-border);
+}
+.deactivate-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger-surface) 76%, var(--danger-text));
+  border-color: var(--danger-text);
+}
+.run-toggle-action:active:not(:disabled),
+.deactivate-action:active:not(:disabled) {
   box-shadow:
     inset 0 4px 8px color-mix(in srgb, #000 42%, transparent),
-    inset 0 0 0 2px color-mix(in srgb, var(--on-accent) 28%, transparent);
+    inset 0 0 0 2px color-mix(in srgb, currentColor 28%, transparent);
   filter: brightness(0.82) saturate(0.9);
 }
 .danger-button {

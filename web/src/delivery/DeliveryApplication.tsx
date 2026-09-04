@@ -99,6 +99,13 @@ interface ValidatedDiscoverySnapshot {
   result: ValidationCommandResult;
 }
 
+type RuntimeActionIntent = "activate" | "pause" | "stop";
+
+interface PendingRuntimeAction {
+  sessionId: EditorSessionId;
+  intent: RuntimeActionIntent;
+}
+
 export function DeliveryApplication() {
   const api = useControlPlane();
   const widgets = useWidgetRegistry();
@@ -115,6 +122,8 @@ export function DeliveryApplication() {
   const [validatedDiscoverySnapshot, setValidatedDiscoverySnapshot] =
     useState<ValidatedDiscoverySnapshot>();
   const [schemaInspectorVisible, setSchemaInspectorVisible] = useState(false);
+  const [pendingRuntimeAction, setPendingRuntimeAction] =
+    useState<PendingRuntimeAction>();
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_STATE);
   const {
     operations,
@@ -524,6 +533,25 @@ export function DeliveryApplication() {
   const validatePending =
     operationPending("save") || operationPending("validate");
   const activatePending = operationPending("action");
+  const runtimeActionIntent =
+    pendingRuntimeAction?.sessionId === editor.sessionId
+      ? pendingRuntimeAction.intent
+      : undefined;
+  const runRuntimeAction = (
+    intent: RuntimeActionIntent,
+    label: string,
+    action: () => Promise<DeliveryRecord>,
+  ) => {
+    const sessionId = editor.sessionId;
+    setPendingRuntimeAction({ sessionId, intent });
+    void mutations.runAction(label, action).finally(() => {
+      setPendingRuntimeAction((current) =>
+        current?.sessionId === sessionId && current.intent === intent
+          ? undefined
+          : current,
+      );
+    });
+  };
   const revealMissingRequiredFields = (scope: "source" | "all" = "all") =>
     runAfterYaml({ kind: "reveal", scope });
   const openSpeedtest = () => {
@@ -543,6 +571,7 @@ export function DeliveryApplication() {
       blocked={blockingOperation}
       validatePending={validatePending}
       activatePending={activatePending}
+      runtimeActionIntent={runtimeActionIntent}
       requiredFieldsComplete={requiredFieldsComplete}
       onMissingRequired={revealMissingRequiredFields}
       onEdit={() => {
@@ -583,7 +612,7 @@ export function DeliveryApplication() {
       onSave={() => void mutations.save()}
       onValidate={() => runAfterYaml({ kind: "validate" })}
       onActivate={() =>
-        void mutations.runAction("Starting worker…", () =>
+        runRuntimeAction("activate", "Starting worker…", () =>
           api.activate(
             editor.id!,
             editor.persistedRevision!,
@@ -591,8 +620,18 @@ export function DeliveryApplication() {
           ),
         )
       }
+      onPause={(runId) =>
+        runRuntimeAction("pause", "Pausing worker…", () =>
+          api.stop(
+            editor.id!,
+            editor.persistedRevision!,
+            editor.recordVersion!,
+            runId,
+          ),
+        )
+      }
       onStop={(runId) =>
-        void mutations.runAction("Stopping worker…", () =>
+        runRuntimeAction("stop", "Deactivating worker…", () =>
           api.stop(
             editor.id!,
             editor.persistedRevision!,

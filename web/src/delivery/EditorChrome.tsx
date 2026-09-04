@@ -15,6 +15,7 @@ export function EditorActions({
   blocked,
   validatePending = false,
   activatePending = false,
+  runtimeActionIntent,
   requiredFieldsComplete,
   onMissingRequired,
   onEdit,
@@ -23,12 +24,14 @@ export function EditorActions({
   onSave,
   onValidate,
   onActivate,
+  onPause,
   onStop,
 }: {
   editor: EditorState;
   blocked: boolean;
   validatePending?: boolean;
   activatePending?: boolean;
+  runtimeActionIntent?: "activate" | "pause" | "stop" | undefined;
   requiredFieldsComplete: boolean;
   onMissingRequired: () => void;
   onEdit: () => void;
@@ -37,31 +40,37 @@ export function EditorActions({
   onSave: () => void;
   onValidate: () => void;
   onActivate: () => void;
+  onPause?: ((runId: string) => void) | undefined;
   onStop: (runId: string) => void;
 }) {
-  if (editor.runtime.state === "running") {
-    const runId = editor.runtime.run_id;
-    return (
-      <div class="actions">
-        <Button
-          variant="danger"
-          disabled={blocked}
-          onClick={() => onStop(runId)}
-        >
-          Stop
-        </Button>
-      </div>
-    );
-  }
+  const runtimeIsActive =
+    runtimeActionIntent === "activate" ||
+    (runtimeActionIntent === undefined &&
+      (editor.runtime.state === "starting" ||
+        editor.runtime.state === "running"));
+  const runtimeIsTransitioning =
+    editor.runtime.state === "starting" || editor.runtime.state === "stopping";
+  const runId =
+    editor.runtime.state === "starting" ||
+    editor.runtime.state === "running" ||
+    editor.runtime.state === "stopping" ||
+    editor.runtime.state === "failed"
+      ? editor.runtime.run_id
+      : undefined;
   const activationReady =
     editor.id !== undefined &&
     !isDirty(editor) &&
+    !runtimeIsTransitioning &&
     editor.validation.state === "ready" &&
     editor.validation.revision === editor.persistedRevision;
   const activationIsDiagnostic = !activationReady && !requiredFieldsComplete;
   const activationUnavailableReason = blocked
-    ? activatePending
-      ? "Starting the worker…"
+    ? activatePending && runtimeActionIntent !== undefined
+      ? runtimeActionIntent === "pause"
+        ? "Pausing the worker…"
+        : runtimeActionIntent === "stop"
+          ? "Deactivating the worker…"
+          : "Starting the worker…"
       : "Another operation is in progress"
     : !requiredFieldsComplete
       ? "Complete the required delivery, source, and destination fields"
@@ -77,6 +86,21 @@ export function EditorActions({
     activationIsDiagnostic ? onMissingRequired() : onActivate();
   const validate = () =>
     requiredFieldsComplete ? onValidate() : onMissingRequired();
+  const transportControls = (
+    <TransportControls
+      active={runtimeIsActive}
+      runId={runId}
+      activationReady={activationReady}
+      activationIsDiagnostic={activationIsDiagnostic}
+      blocked={blocked || editor.runtime.state === "stopping"}
+      pending={activatePending && runtimeActionIntent !== undefined}
+      pendingIntent={runtimeActionIntent}
+      activationUnavailableReason={activationUnavailableReason}
+      onActivate={activate}
+      onPause={onPause ?? onStop}
+      onStop={onStop}
+    />
+  );
   if (!editor.editing && editor.id !== undefined) {
     const runtimeAllowsEditing =
       editor.runtime.state === "created" ||
@@ -84,45 +108,120 @@ export function EditorActions({
       editor.runtime.state === "failed";
     return (
       <div class="actions">
-        <Button variant="danger" disabled={blocked} onClick={onDelete}>
+        <Button
+          variant="danger"
+          disabled={blocked || runtimeIsActive || runtimeIsTransitioning}
+          onClick={onDelete}
+        >
           Delete
         </Button>
-        <Button disabled={blocked} onClick={onClone}>
+        <Button
+          disabled={blocked || runtimeIsActive || runtimeIsTransitioning}
+          onClick={onClone}
+        >
           Clone
         </Button>
         <Button disabled={blocked || !runtimeAllowsEditing} onClick={onEdit}>
           Edit
         </Button>
-        <Button disabled={blocked} pending={validatePending} onClick={validate}>
+        <Button
+          disabled={blocked || runtimeIsActive || runtimeIsTransitioning}
+          pending={validatePending}
+          onClick={validate}
+        >
           Validate
         </Button>
-        <ActivationButton
-          ready={activationReady}
-          diagnostic={activationIsDiagnostic}
-          blocked={blocked}
-          pending={activatePending}
-          reason={activationUnavailableReason}
-          onClick={activate}
-        />
+        {transportControls}
       </div>
     );
   }
   return (
     <div class="actions">
-      <Button disabled={blocked || !isDirty(editor)} onClick={onSave}>
+      <Button
+        disabled={
+          blocked ||
+          runtimeIsActive ||
+          runtimeIsTransitioning ||
+          !isDirty(editor)
+        }
+        onClick={onSave}
+      >
         Save
       </Button>
-      <Button disabled={blocked} pending={validatePending} onClick={validate}>
+      <Button
+        disabled={blocked || runtimeIsActive || runtimeIsTransitioning}
+        pending={validatePending}
+        onClick={validate}
+      >
         Validate
       </Button>
-      <ActivationButton
-        ready={activationReady}
-        diagnostic={activationIsDiagnostic}
-        blocked={blocked}
-        pending={activatePending}
-        reason={activationUnavailableReason}
-        onClick={activate}
-      />
+      {transportControls}
+    </div>
+  );
+}
+
+function TransportControls({
+  active,
+  runId,
+  activationReady,
+  activationIsDiagnostic,
+  blocked,
+  pending,
+  pendingIntent,
+  activationUnavailableReason,
+  onActivate,
+  onPause,
+  onStop,
+}: {
+  active: boolean;
+  runId: string | undefined;
+  activationReady: boolean;
+  activationIsDiagnostic: boolean;
+  blocked: boolean;
+  pending: boolean;
+  pendingIntent: "activate" | "pause" | "stop" | undefined;
+  activationUnavailableReason: string | undefined;
+  onActivate: () => void;
+  onPause: (runId: string) => void;
+  onStop: (runId: string) => void;
+}) {
+  const deactivate = (
+    <Button
+      class="transport-action deactivate-action"
+      aria-label="Deactivate"
+      disabled={blocked || !active || runId === undefined}
+      pending={pending && pendingIntent === "stop"}
+      onClick={() => runId !== undefined && onStop(runId)}
+    >
+      <span class="transport-icon stop-icon" aria-hidden="true" />
+      <span>Deactivate</span>
+    </Button>
+  );
+  const toggle = active ? (
+    <Button
+      class="transport-action run-toggle-action pause-action"
+      aria-label="Pause"
+      disabled={blocked || runId === undefined}
+      pending={pending && pendingIntent !== "stop"}
+      onClick={() => runId !== undefined && onPause(runId)}
+    >
+      <span class="transport-icon pause-icon" aria-hidden="true" />
+      <span>Pause</span>
+    </Button>
+  ) : (
+    <ActivationButton
+      ready={activationReady}
+      diagnostic={activationIsDiagnostic}
+      blocked={blocked}
+      pending={pending && pendingIntent !== "stop"}
+      reason={activationUnavailableReason}
+      onClick={onActivate}
+    />
+  );
+  return (
+    <div class="transport-controls" aria-label="Delivery controls">
+      {deactivate}
+      {toggle}
     </div>
   );
 }
@@ -144,19 +243,18 @@ function ActivationButton({
 }) {
   const button = (
     <Button
-      variant="primary"
-      class={`activate-action${diagnostic ? " diagnostic-disabled" : ""}`}
+      class={`transport-action run-toggle-action activate-action${diagnostic ? " diagnostic-disabled" : ""}`}
+      aria-label="Activate"
       aria-disabled={!ready || pending}
       disabled={blocked || (!ready && !diagnostic)}
       pending={pending}
       onClick={onClick}
     >
-      Activate
+      <span class="transport-icon play-icon" aria-hidden="true" />
+      <span>Activate</span>
     </Button>
   );
-  return reason === undefined ? (
-    button
-  ) : (
+  return reason === undefined ? button : (
     <InstantTooltip content={reason} class="action-disabled-tooltip">
       {button}
     </InstantTooltip>

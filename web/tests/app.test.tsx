@@ -828,6 +828,56 @@ describe("App request orchestration", () => {
     expect(app.getAllByText("running").length).toBeGreaterThan(0);
   });
 
+  it("switches Play and Pause immediately without moving the transport controls", async () => {
+    const first = delivery("first", "First", true);
+    installApiMocks([first]);
+    vi.mocked(api.delivery).mockResolvedValue(first);
+    const activation = deferred<DeliveryRecord>();
+    const pause = deferred<DeliveryRecord>();
+    vi.mocked(api.activate).mockImplementation(() => activation.promise);
+    vi.mocked(api.stop).mockImplementation(() => pause.promise);
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("First");
+    fireEvent.click(app.getByText("First").closest("button")!);
+    await app.findByRole("heading", { name: "First" });
+    const controls = app.getByLabelText("Delivery controls");
+
+    fireEvent.click(app.getByRole("button", { name: "Activate" }));
+
+    expect(app.getByLabelText("Delivery controls")).toBe(controls);
+    expect(app.getByRole("button", { name: "Pause" })).toBeTruthy();
+    expect(api.activate).toHaveBeenCalledWith("first", 1, "1");
+
+    await act(async () =>
+      activation.resolve({
+        ...first,
+        record_version: "2",
+        runtime: { state: "running", run_id: "run-1", pid: 42 },
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        (app.getByRole("button", { name: "Pause" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+
+    fireEvent.click(app.getByRole("button", { name: "Pause" }));
+
+    expect(app.getByLabelText("Delivery controls")).toBe(controls);
+    expect(app.getByRole("button", { name: "Activate" })).toBeTruthy();
+    expect(api.stop).toHaveBeenCalledWith("first", 1, "2", "run-1");
+
+    await act(async () =>
+      pause.resolve({
+        ...first,
+        record_version: "3",
+        runtime: { state: "stopped" },
+      }),
+    );
+  });
+
   it("keeps YAML from the latest configuration revision", async () => {
     vi.useFakeTimers();
     installApiMocks([]);
