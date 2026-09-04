@@ -1,5 +1,11 @@
 import { createPortal } from "preact/compat";
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "preact/hooks";
 
 import type {
   ConnectorDefinition,
@@ -397,6 +403,26 @@ export function CompatibilityMatrixDialog({
       (candidate) =>
         candidate.source.key === source && candidate.sink.key === sink,
     )!;
+
+  useLayoutEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const previousPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = Math.max(
+      0,
+      window.innerWidth - document.documentElement.clientWidth,
+    );
+    document.body.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      const existingPadding = Number.parseFloat(
+        window.getComputedStyle(document.body).paddingRight,
+      );
+      document.body.style.paddingRight = `${(Number.isFinite(existingPadding) ? existingPadding : 0) + scrollbarWidth}px`;
+    }
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.paddingRight = previousPaddingRight;
+    };
+  }, []);
 
   useEffect(() => {
     restoreFocus.current =

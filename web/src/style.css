@@ -4053,6 +4053,7 @@ button::after {
   padding: 28px;
   background: color-mix(in srgb, var(--shadow) 76%, transparent);
   backdrop-filter: blur(4px);
+  overscroll-behavior: contain;
 }
 
 .compatibility-dialog {
@@ -4185,6 +4186,7 @@ button::after {
   min-height: 0;
   padding-right: 3px;
   overflow: auto;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
 
@@ -4372,7 +4374,8 @@ button::after {
 .compatibility-table-scroll {
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
   background: var(--surface-soft);
 }
 

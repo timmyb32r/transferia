@@ -268,6 +268,7 @@ describe("appearance preferences", () => {
     const launcher = view.getByRole("button", {
       name: "Matrix",
     });
+    const previousBodyPadding = document.body.style.paddingRight;
     launcher.focus();
     fireEvent.mouseDown(launcher);
     fireEvent.click(launcher);
@@ -277,6 +278,7 @@ describe("appearance preferences", () => {
     });
     expect(dialog).toBeTruthy();
     expect(dialog.parentElement?.parentElement).toBe(document.body);
+    expect(document.body.style.overflow).toBe("hidden");
     fireEvent.click(view.getByRole("tab", { name: "Entities" }));
     const entityCategories = view.getByRole("navigation", {
       name: "Entity categories",
@@ -375,6 +377,8 @@ describe("appearance preferences", () => {
     expect(intersection.classList.contains("active-intersection")).toBe(false);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(view.queryByRole("dialog")).toBeNull();
+    expect(document.body.style.overflow).toBe("");
+    expect(document.body.style.paddingRight).toBe(previousBodyPadding);
     expect(document.activeElement).toBe(launcher);
   });
 });
