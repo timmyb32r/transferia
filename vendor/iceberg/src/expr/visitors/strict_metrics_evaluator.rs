@@ -40,6 +40,7 @@ pub(crate) struct StrictMetricsEvaluator<'a> {
     data_file: &'a DataFile,
 }
 
+#[allow(dead_code)]
 impl<'a> StrictMetricsEvaluator<'a> {
     #[allow(dead_code)]
     fn new(data_file: &'a DataFile) -> Self {
