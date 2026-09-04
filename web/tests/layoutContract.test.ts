@@ -51,6 +51,15 @@ describe("delivery layout contract", () => {
     );
   });
 
+  it("never truncates selected dropdown labels", () => {
+    const triggerLabel = styles.match(
+      /\.select-trigger > span:first-child\s*\{([^}]*)\}/,
+    );
+    expect(triggerLabel?.[1]).toContain("white-space: normal");
+    expect(triggerLabel?.[1]).toContain("overflow-wrap: anywhere");
+    expect(triggerLabel?.[1]).not.toContain("text-overflow: ellipsis");
+  });
+
   it("lets the workspace shrink instead of creating page-level horizontal overflow", () => {
     expect(styles).toMatch(
       /\.workspace\s*\{[^}]*width:\s*min\(1680px, 100%\);[^}]*min-width:\s*0;/s,

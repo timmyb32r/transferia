@@ -1446,7 +1446,8 @@ input[type="checkbox"]:disabled {
 }
 .select-trigger {
   width: 100%;
-  height: var(--control-height);
+  min-height: var(--control-height);
+  height: auto;
   border: 1px solid var(--field-border);
   border-radius: var(--radius-control);
   padding: 0 8px 0 10px;
@@ -1475,9 +1476,9 @@ input[type="checkbox"]:disabled {
 }
 .select-trigger > span:first-child {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 7px 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 .select-trigger-indicator {
   display: grid;
