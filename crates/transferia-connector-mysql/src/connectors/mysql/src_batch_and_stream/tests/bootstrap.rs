@@ -146,19 +146,43 @@ fn every_lossless_binlog_prerequisite_fails_closed() {
             "@@GLOBAL.log_bin=ON",
         ),
         (
-            ["ON", "ON", "ON", "STATEMENT", "FULL", "FULL", "", "OFF", "CRC32"],
+            [
+                "ON",
+                "ON",
+                "ON",
+                "STATEMENT",
+                "FULL",
+                "FULL",
+                "",
+                "OFF",
+                "CRC32",
+            ],
             "binlog_format=ROW",
         ),
         (
-            ["ON", "ON", "ON", "ROW", "MINIMAL", "FULL", "", "OFF", "CRC32"],
+            [
+                "ON", "ON", "ON", "ROW", "MINIMAL", "FULL", "", "OFF", "CRC32",
+            ],
             "binlog_row_image=FULL",
         ),
         (
-            ["ON", "ON", "ON", "ROW", "FULL", "MINIMAL", "", "OFF", "CRC32"],
+            [
+                "ON", "ON", "ON", "ROW", "FULL", "MINIMAL", "", "OFF", "CRC32",
+            ],
             "binlog_row_metadata=FULL",
         ),
         (
-            ["ON", "ON", "ON", "ROW", "FULL", "FULL", "PARTIAL_JSON", "OFF", "CRC32"],
+            [
+                "ON",
+                "ON",
+                "ON",
+                "ROW",
+                "FULL",
+                "FULL",
+                "PARTIAL_JSON",
+                "OFF",
+                "CRC32",
+            ],
             "binlog_row_value_options",
         ),
         (
@@ -297,13 +321,8 @@ fn boundary_validation_preserves_exact_gtid_and_server_timestamp() {
 #[test]
 fn locked_gtid_state_requires_the_fence_and_exact_canonical_text() {
     let canonical = format!("{SERVER_UUID}:1-7:10-12");
-    let state = validate_locked_gtid_state(
-        "transferia:mysql:test",
-        Some(1),
-        &canonical,
-        "",
-    )
-    .unwrap();
+    let state =
+        validate_locked_gtid_state("transferia:mysql:test", Some(1), &canonical, "").unwrap();
     assert_eq!(state.executed.0.len(), 1);
     assert_eq!(state.executed.0[0].to_mysql_text(), canonical);
     assert_eq!(state.purged, GtidSet::default());
@@ -316,15 +335,12 @@ fn locked_gtid_state_requires_the_fence_and_exact_canonical_text() {
     );
 
     for held in [None, Some(0), Some(2)] {
-        assert!(validate_locked_gtid_state(
-            "transferia:mysql:test",
-            held,
-            &canonical,
-            "",
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("no longer owned"));
+        assert!(
+            validate_locked_gtid_state("transferia:mysql:test", held, &canonical, "",)
+                .unwrap_err()
+                .to_string()
+                .contains("no longer owned")
+        );
     }
     for invalid in [
         format!(" {SERVER_UUID}:1"),
@@ -332,25 +348,19 @@ fn locked_gtid_state_requires_the_fence_and_exact_canonical_text() {
         format!("{SERVER_UUID}:0"),
         format!("{SERVER_UUID}:1,"),
     ] {
-        assert!(validate_locked_gtid_state(
-            "transferia:mysql:test",
-            Some(1),
-            &invalid,
-            "",
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("invalid executed GTID set"));
+        assert!(
+            validate_locked_gtid_state("transferia:mysql:test", Some(1), &invalid, "",)
+                .unwrap_err()
+                .to_string()
+                .contains("invalid executed GTID set")
+        );
 
-        assert!(validate_locked_gtid_state(
-            "transferia:mysql:test",
-            Some(1),
-            &canonical,
-            &invalid,
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("invalid purged GTID set"));
+        assert!(
+            validate_locked_gtid_state("transferia:mysql:test", Some(1), &canonical, &invalid,)
+                .unwrap_err()
+                .to_string()
+                .contains("invalid purged GTID set")
+        );
     }
 }
 
@@ -369,10 +379,14 @@ fn stream_boundary_rejects_any_authoritative_identity_drift() {
 
     changed = expected.clone();
     changed[0].table = "ACCOUNTS".to_owned();
-    assert!(validate_authoritative_table_selection("inventory", &[table()], &changed)
-        .unwrap_err()
-        .to_string()
-        .contains("does not exactly match"));
-    assert!(validate_authoritative_table_selection("inventory", &[table(), table()], &expected)
-        .is_err());
+    assert!(
+        validate_authoritative_table_selection("inventory", &[table()], &changed)
+            .unwrap_err()
+            .to_string()
+            .contains("does not exactly match")
+    );
+    assert!(
+        validate_authoritative_table_selection("inventory", &[table(), table()], &expected)
+            .is_err()
+    );
 }

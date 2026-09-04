@@ -17,8 +17,9 @@ use transferia_connectors::extension::OptionsRequest;
 use super::api_contract::{
     ApiErrorBody, ApiErrorCode, ApiErrorView, ConfigRequest, ConfigResponse,
     ConnectionCheckRequest, CreateDraftRequest, DeliverySummary, HealthResponse,
-    MessagePreviewRequest, RevisionRequest, SqlPlaygroundRequest, StopRequest, UpdateDraftRequest,
-    SpeedtestEstimateRequest, SpeedtestTuneRequest, WorkerLogReadQuery, YamlRequest, YamlResponse,
+    MessagePreviewRequest, RevisionRequest, SpeedtestEstimateRequest, SpeedtestTuneRequest,
+    SqlPlaygroundRequest, StopRequest, UpdateDraftRequest, WorkerLogReadQuery, YamlRequest,
+    YamlResponse,
 };
 use super::assets::{APP_JS, INDEX_HTML, STYLE_CSS};
 use super::service::{ControlPlane, ServiceError};

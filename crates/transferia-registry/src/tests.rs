@@ -1249,7 +1249,7 @@ async fn deterministic_tuning_result(max_trials: usize) -> anyhow::Result<tuning
             } else {
                 0.0
             };
-            Ok(1_000.0 - (workers - 4.0).powi(2) + mode_bonus)
+            Ok((workers - 4.0).mul_add(-(workers - 4.0), 1_000.0) + mode_bonus)
         },
     )
     .await
@@ -1262,7 +1262,10 @@ async fn optimizer_is_deterministic_and_never_mutates_undeclared_configuration(
     let second = deterministic_tuning_result(12).await?;
 
     assert_eq!(first, second);
-    assert_eq!(first.baseline_rows_per_second, 991.0);
+    assert_eq!(
+        first.baseline_rows_per_second.to_bits(),
+        991.0_f64.to_bits()
+    );
     assert_eq!(first.trials, 8);
     assert_eq!(first.parameters["/workers"], 4);
     assert_eq!(first.parameters["/mode"], "fast");
@@ -1406,7 +1409,10 @@ async fn optimizer_covers_a_last_parameter_independently_of_registration_order(
     let reversed = tune_binary_parameters(parameters, 7, false).await?;
 
     assert_eq!(forward, reversed);
-    assert_eq!(forward.optimized_rows_per_second, 100.0);
+    assert_eq!(
+        forward.optimized_rows_per_second.to_bits(),
+        100.0_f64.to_bits()
+    );
     assert_eq!(forward.parameters["/p5"], true);
     assert_eq!(forward.trials, 7);
     Ok(())
@@ -1421,7 +1427,10 @@ async fn optimizer_covers_every_pair_before_model_acquisition_independently_of_o
     let reversed = tune_binary_parameters(parameters, 11, true).await?;
 
     assert_eq!(forward, reversed);
-    assert_eq!(forward.optimized_rows_per_second, 100.0);
+    assert_eq!(
+        forward.optimized_rows_per_second.to_bits(),
+        100.0_f64.to_bits()
+    );
     assert_eq!(forward.parameters["/p2"], true);
     assert_eq!(forward.parameters["/p3"], true);
     assert_eq!(forward.trials, 11);
@@ -1582,8 +1591,14 @@ async fn source_and_sink_tuning_start_in_parallel() -> anyhow::Result<()> {
     )
     .await??;
 
-    assert_eq!(result.source.baseline_rows_per_second, 10.0);
-    assert_eq!(result.destination.baseline_rows_per_second, 20.0);
+    assert_eq!(
+        result.source.baseline_rows_per_second.to_bits(),
+        10.0_f64.to_bits()
+    );
+    assert_eq!(
+        result.destination.baseline_rows_per_second.to_bits(),
+        20.0_f64.to_bits()
+    );
     Ok(())
 }
 

@@ -214,13 +214,10 @@ fn committed_offset_must_be_inside_the_complete_retained_range() {
     assert!(validate_retained_offset(20, &retained, "local/feed", 0).is_ok());
     assert!(validate_retained_offset(9, &retained, "local/feed", 0).is_err());
     assert!(validate_retained_offset(21, &retained, "local/feed", 0).is_err());
-    assert!(validate_retained_offset(
-        10,
-        &OffsetsRange { start: 20, end: 10 },
-        "local/feed",
-        0,
-    )
-    .is_err());
+    assert!(
+        validate_retained_offset(10, &OffsetsRange { start: 20, end: 10 }, "local/feed", 0,)
+            .is_err()
+    );
 }
 
 #[test]
@@ -326,30 +323,45 @@ fn topic_assignment_must_match_the_single_discovered_partition() {
 
 #[test]
 fn topic_path_comparison_removes_at_most_the_wire_root_slash() {
-    assert_eq!(canonical_topic_path("/local/events/feed"), "local/events/feed");
-    assert_eq!(canonical_topic_path("local/events/feed"), "local/events/feed");
-    assert_eq!(canonical_topic_path("//local/events/feed"), "/local/events/feed");
+    assert_eq!(
+        canonical_topic_path("/local/events/feed"),
+        "local/events/feed"
+    );
+    assert_eq!(
+        canonical_topic_path("local/events/feed"),
+        "local/events/feed"
+    );
+    assert_eq!(
+        canonical_topic_path("//local/events/feed"),
+        "/local/events/feed"
+    );
 }
 
 #[test]
 fn timestamp_conversion_is_checked_and_exact_to_milliseconds() -> anyhow::Result<()> {
     assert_eq!(
-        timestamp_millis(Some(&ydb_grpc::google_proto_workaround::protobuf::Timestamp {
-            seconds: 1_700_000_000,
-            nanos: 123_999_999,
-        }))?,
+        timestamp_millis(Some(
+            &ydb_grpc::google_proto_workaround::protobuf::Timestamp {
+                seconds: 1_700_000_000,
+                nanos: 123_999_999,
+            }
+        ))?,
         1_700_000_000_123
     );
     assert!(timestamp_millis(None).is_err());
-    assert!(timestamp_millis(Some(&ydb_grpc::google_proto_workaround::protobuf::Timestamp {
-        seconds: 0,
-        nanos: 1_000_000_000,
-    }))
+    assert!(timestamp_millis(Some(
+        &ydb_grpc::google_proto_workaround::protobuf::Timestamp {
+            seconds: 0,
+            nanos: 1_000_000_000,
+        }
+    ))
     .is_err());
-    assert!(timestamp_millis(Some(&ydb_grpc::google_proto_workaround::protobuf::Timestamp {
-        seconds: i64::MAX,
-        nanos: 0,
-    }))
+    assert!(timestamp_millis(Some(
+        &ydb_grpc::google_proto_workaround::protobuf::Timestamp {
+            seconds: i64::MAX,
+            nanos: 0,
+        }
+    ))
     .is_err());
     Ok(())
 }
@@ -467,8 +479,7 @@ fn decoded_response_multiplier_covers_generated_topic_node_layouts() {
 }
 
 #[test]
-fn tonic_codec_and_hash_table_retained_bounds_cover_allocation_granularity(
-) -> anyhow::Result<()> {
+fn tonic_codec_and_hash_table_retained_bounds_cover_allocation_granularity() -> anyhow::Result<()> {
     assert_eq!(
         tonic_codec_buffer_bytes(1)?,
         2 * TONIC_CODEC_BUFFER_CHUNK_BYTES

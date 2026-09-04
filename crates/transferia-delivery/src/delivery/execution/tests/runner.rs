@@ -461,7 +461,7 @@ fn phase_pipeline_plan(
     discovery: DeliveryDiscovery,
 ) -> PipelinePlan {
     let config = serde_yaml::from_str(
-        r#"
+        r"
 delivery_id: phase-runner-test
 durable_storage:
   type: local_file
@@ -472,7 +472,7 @@ source:
 sink:
   test: {}
 pipeline_memory_limit_bytes: 1048576
-"#,
+",
     )
     .expect("phase runner test config");
     let semantics = transferia_delivery_contracts::semantics::validate_pipeline(

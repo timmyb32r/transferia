@@ -90,10 +90,7 @@ impl OpenSearchSourceConfig {
                 index.name
             );
         }
-        anyhow::ensure!(
-            self.page_rows > 0,
-            "opensearch.page_rows must be positive"
-        );
+        anyhow::ensure!(self.page_rows > 0, "opensearch.page_rows must be positive");
         anyhow::ensure!(
             self.read_concurrency > 0,
             "opensearch.read_concurrency must be positive"

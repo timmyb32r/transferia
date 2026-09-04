@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use arrow::datatypes::DataType;
@@ -9,13 +10,13 @@ use super::writer::PostgresSink;
 use crate::connectors::postgres::common::{
     arrow_to_postgres, connect, quote_identifier, validate_identifier, MAX_IDENTIFIER_BYTES,
 };
+use transferia_connector_support::external_request::observe_external_request;
 use transferia_core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
     SinkLimitsDescription, TextLimit,
 };
 use transferia_core::sink::Sink;
 use transferia_core::SystemColumnKind;
-use transferia_connector_support::external_request::observe_external_request;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
 use transferia_registry::{
     SinkBuildContext, SinkConnector, SinkPrepare, SinkSpeedtestIsolation,
@@ -159,22 +160,13 @@ impl PostgresSinkConnector {
         for dataset in request.datasets {
             scope.record_attempt(Arc::clone(&dataset.table));
             let create_result = create_owned_postgres_table(client, scope, &dataset).await;
-            let mut verified = verify_owned_postgres_table(
-                client,
-                scope,
-                &dataset.table,
-                &dataset.schema,
-            )
-            .await;
+            let mut verified =
+                verify_owned_postgres_table(client, scope, &dataset.table, &dataset.schema).await;
             if create_result.is_err() || verified.is_err() {
                 let verifier = self.sink_client().await?;
-                verified = verify_owned_postgres_table(
-                    &verifier,
-                    scope,
-                    &dataset.table,
-                    &dataset.schema,
-                )
-                .await;
+                verified =
+                    verify_owned_postgres_table(&verifier, scope, &dataset.table, &dataset.schema)
+                        .await;
             }
             if verified.is_err() {
                 anyhow::bail!(
@@ -283,9 +275,7 @@ impl SinkConnector for PostgresSinkConnector {
         Box::pin(async move {
             let mut client = self.sink_client().await?;
             if let Some(scope) = &self.speedtest_scope {
-                return self
-                    .prepare_speedtest(&mut client, request, scope)
-                    .await;
+                return self.prepare_speedtest(&mut client, request, scope).await;
             }
             for dataset in request.datasets {
                 if self.config.create_tables {
@@ -361,11 +351,7 @@ impl SinkConnector for PostgresSinkConnector {
                         )
                     })?;
                     Ok(SpeedtestPhysicalTarget {
-                        production: postgres_physical_target(
-                            &database,
-                            &schema,
-                            &dataset.name,
-                        ),
+                        production: postgres_physical_target(&database, &schema, &dataset.name),
                         scratch: postgres_physical_target(&database, &schema, scratch),
                     })
                 })
@@ -374,7 +360,7 @@ impl SinkConnector for PostgresSinkConnector {
                 database: Arc::from(database),
                 schema: Arc::from(schema),
                 owner_marker: random_owner_marker()?,
-                tables: tables.clone(),
+                tables,
                 schemas: isolated_discovery
                     .datasets
                     .iter()
@@ -413,7 +399,10 @@ impl SinkConnector for PostgresSinkConnector {
             validate_cleanup_scope(isolation, scope)?;
             let mut failures = Vec::new();
             for table in scope.attempted_tables() {
-                if drop_owned_postgres_table(self, scope, &table).await.is_err() {
+                if drop_owned_postgres_table(self, scope, &table)
+                    .await
+                    .is_err()
+                {
                     failures.push(format!("'{table}'"));
                 }
             }
@@ -429,23 +418,24 @@ impl SinkConnector for PostgresSinkConnector {
 
 const SPEEDTEST_TABLE_PREFIX: &str = "_transferia_st_";
 
-pub(super) fn isolate_discovery(
-    original: &DeliveryDiscovery,
-    isolation_id: &str,
-) -> anyhow::Result<(
+type IsolatedDiscovery = (
     DeliveryDiscovery,
     BTreeMap<Arc<str>, Arc<str>>,
     BTreeSet<Arc<str>>,
-)> {
+);
+
+pub(super) fn isolate_discovery(
+    original: &DeliveryDiscovery,
+    isolation_id: &str,
+) -> anyhow::Result<IsolatedDiscovery> {
     validate_isolation_id(isolation_id)?;
     let mut discovery = original.clone();
     let mut table_names = BTreeMap::new();
     let mut tables = BTreeSet::new();
     for (index, dataset) in discovery.datasets.iter_mut().enumerate() {
         let original_name = Arc::clone(&dataset.name);
-        let scratch: Arc<str> = Arc::from(format!(
-            "{SPEEDTEST_TABLE_PREFIX}{isolation_id}_{index:x}"
-        ));
+        let scratch: Arc<str> =
+            Arc::from(format!("{SPEEDTEST_TABLE_PREFIX}{isolation_id}_{index:x}"));
         validate_identifier("speedtest table", &scratch)?;
         anyhow::ensure!(
             table_names
@@ -551,7 +541,6 @@ fn random_owner_marker() -> anyhow::Result<Arc<str>> {
     let mut random = [0_u8; 16];
     getrandom::fill(&mut random)?;
     let mut marker = String::from("transferia-speedtest-owner:");
-    use std::fmt::Write as _;
     for byte in random {
         write!(&mut marker, "{byte:02x}")?;
     }
@@ -618,12 +607,9 @@ async fn create_owned_postgres_table(
     scope: &PostgresSpeedtestScope,
     dataset: &transferia_registry::DatasetPrepare,
 ) -> anyhow::Result<()> {
-    let transaction = observe_external_request(
-        "postgresql",
-        "speedtest_begin_create",
-        client.transaction(),
-    )
-    .await?;
+    let transaction =
+        observe_external_request("postgresql", "speedtest_begin_create", client.transaction())
+            .await?;
     let ddl = postgres_owned_create_ddl(&scope.schema, dataset, &scope.owner_marker)?;
     if observe_external_request(
         "postgresql",
@@ -633,12 +619,14 @@ async fn create_owned_postgres_table(
     .await
     .is_err()
     {
-        drop(observe_external_request(
-            "postgresql",
-            "speedtest_rollback_create",
-            transaction.rollback(),
-        )
-        .await);
+        drop(
+            observe_external_request(
+                "postgresql",
+                "speedtest_rollback_create",
+                transaction.rollback(),
+            )
+            .await,
+        );
         anyhow::bail!(
             "PostgreSQL exclusive speedtest table creation did not complete successfully"
         );
@@ -660,6 +648,10 @@ pub(super) enum OwnerMarkerEvidence {
     Foreign,
 }
 
+#[allow(
+    clippy::option_option,
+    reason = "the outer option distinguishes a missing table from a present table whose marker is SQL NULL"
+)]
 pub(super) fn classify_owner_marker(
     actual: Option<Option<&str>>,
     expected: &str,
@@ -843,9 +835,7 @@ async fn drop_owned_postgres_table(
         }
         CleanupOwnershipAction::VerifySchemaAndDrop => {}
         CleanupOwnershipAction::Preserve => {
-            anyhow::bail!(
-                "PostgreSQL scratch table '{table}' is not proven owned before cleanup"
-            );
+            anyhow::bail!("PostgreSQL scratch table '{table}' is not proven owned before cleanup");
         }
     }
     let transaction = observe_external_request(
@@ -867,24 +857,28 @@ async fn drop_owned_postgres_table(
     .await
     .is_err()
     {
-        drop(observe_external_request(
-            "postgresql",
-            "speedtest_rollback_cleanup_after_lock_failure",
-            transaction.rollback(),
-        )
-        .await);
+        drop(
+            observe_external_request(
+                "postgresql",
+                "speedtest_rollback_cleanup_after_lock_failure",
+                transaction.rollback(),
+            )
+            .await,
+        );
         anyhow::bail!("PostgreSQL scratch table '{table}' could not be locked before cleanup");
     }
     if verify_owned_postgres_table(&transaction, scope, table, schema)
         .await
         .is_err()
     {
-        drop(observe_external_request(
-            "postgresql",
-            "speedtest_rollback_unowned_cleanup",
-            transaction.rollback(),
-        )
-        .await);
+        drop(
+            observe_external_request(
+                "postgresql",
+                "speedtest_rollback_unowned_cleanup",
+                transaction.rollback(),
+            )
+            .await,
+        );
         anyhow::bail!(
             "PostgreSQL scratch table '{table}' is not proven owned immediately before cleanup"
         );
@@ -897,12 +891,14 @@ async fn drop_owned_postgres_table(
     .await
     .is_err()
     {
-        drop(observe_external_request(
-            "postgresql",
-            "speedtest_rollback_cleanup_after_drop_failure",
-            transaction.rollback(),
-        )
-        .await);
+        drop(
+            observe_external_request(
+                "postgresql",
+                "speedtest_rollback_cleanup_after_drop_failure",
+                transaction.rollback(),
+            )
+            .await,
+        );
         anyhow::bail!("PostgreSQL scratch table '{table}' could not be removed");
     }
     let commit_result = observe_external_request(
@@ -971,11 +967,9 @@ pub(super) fn postgres_sql_type(data_type: &DataType) -> anyhow::Result<&'static
     Ok(match data_type {
         DataType::Boolean => "boolean",
         DataType::Int8 => "\"char\"",
-        DataType::Int16 => "smallint",
-        DataType::Int32 => "integer",
+        DataType::Int16 | DataType::UInt8 => "smallint",
+        DataType::Int32 | DataType::UInt16 => "integer",
         DataType::Int64 => "bigint",
-        DataType::UInt8 => "smallint",
-        DataType::UInt16 => "integer",
         DataType::UInt32 => "oid",
         DataType::UInt64 => "numeric(20,0)",
         DataType::Float32 => "real",

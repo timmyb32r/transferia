@@ -17,15 +17,11 @@ use testcontainers::runners::AsyncRunner as _;
 use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use transferia_connector_opensearch::opensearch::{
-    OpenSearchAuth, OpenSearchConnectionConfig,
-};
 use transferia_connector_opensearch::opensearch::sink::{
     OpenSearchSinkConfig, OpenSearchSinkConnector, RoutedIdentity,
 };
-use transferia_core::data::schema::{
-    DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME,
-};
+use transferia_connector_opensearch::opensearch::{OpenSearchAuth, OpenSearchConnectionConfig};
+use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 use transferia_core::data::system_columns::SystemColumns;
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
@@ -103,8 +99,11 @@ fn sink_batch(
 
 fn envelope_discovery() -> Arc<DeliveryDiscovery> {
     let schema = DatasetSchema::new(vec![
-        SchemaColumn::new("_id".to_owned(), DataType::Utf8, false)
-            .with_constraints(true, false, Some(512)),
+        SchemaColumn::new("_id".to_owned(), DataType::Utf8, false).with_constraints(
+            true,
+            false,
+            Some(512),
+        ),
         SchemaColumn::new("_routing".to_owned(), DataType::Utf8, true),
         SchemaColumn::new("_source".to_owned(), DataType::Utf8, false)
             .with_arrow_extension(ARROW_JSON_EXTENSION_NAME),
@@ -175,7 +174,7 @@ async fn opensearch_sink_commits_strict_bulk_rejects_duplicates_and_preserves_ro
         .with_env_var("DISABLE_INSTALL_DEMO_CONFIG", "true")
         .with_env_var("DISABLE_SECURITY_PLUGIN", "true")
         .with_env_var("OPENSEARCH_JAVA_OPTS", "-Xms512m -Xmx512m")
-        .with_startup_timeout(Duration::from_secs(180))
+        .with_startup_timeout(Duration::from_mins(3))
         .start()
         .await?;
     let host = reachable_host(&container.get_host().await?);
@@ -251,7 +250,9 @@ async fn opensearch_sink_commits_strict_bulk_rejects_duplicates_and_preserves_ro
         })
         .await?;
     drop(delivery_tx);
-    let duplicate = task.await?.expect_err("duplicate primary key must fail closed");
+    let duplicate = task
+        .await?
+        .expect_err("duplicate primary key must fail closed");
     assert!(!duplicate.is_retryable());
 
     let http = reqwest::Client::new();

@@ -135,8 +135,7 @@ impl OpenSearchConnectionConfig {
         let bytes = std::fs::read(path)
             .map_err(|error| anyhow::anyhow!("cannot read OpenSearch TLS CA file: {error}"))?;
         let mut reader = BufReader::new(bytes.as_slice());
-        let certificates = rustls_pemfile::certs(&mut reader)
-            .collect::<Result<Vec<_>, _>>()?;
+        let certificates = rustls_pemfile::certs(&mut reader).collect::<Result<Vec<_>, _>>()?;
         anyhow::ensure!(
             !certificates.is_empty(),
             "OpenSearch TLS CA file contains no certificates"
@@ -163,14 +162,17 @@ impl fmt::Debug for OpenSearchConnectionConfig {
     }
 }
 
-pub(crate) fn validate_index_name(name: &str) -> anyhow::Result<()> {
+pub fn validate_index_name(name: &str) -> anyhow::Result<()> {
     let bytes = name.as_bytes();
     anyhow::ensure!(!bytes.is_empty(), "OpenSearch index name must not be empty");
     anyhow::ensure!(
         bytes.len() <= 255,
         "OpenSearch index name exceeds the 255-byte limit"
     );
-    anyhow::ensure!(name != "." && name != "..", "invalid OpenSearch index name '{name}'");
+    anyhow::ensure!(
+        name != "." && name != "..",
+        "invalid OpenSearch index name '{name}'"
+    );
     anyhow::ensure!(
         !name.starts_with(['-', '_', '+']),
         "OpenSearch index name must not start with '-', '_' or '+'"

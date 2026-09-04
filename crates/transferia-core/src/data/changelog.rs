@@ -108,6 +108,10 @@ impl ChangelogBatch {
         &self,
         changed_columns: &[Vec<bool>],
     ) -> anyhow::Result<Vec<ChangelogRun>> {
+        anyhow::ensure!(
+            changed_columns.len() == self.rows.num_rows(),
+            "changed-column mask row count does not match the changelog batch"
+        );
         let key_columns = self
             .primary_key_indexes
             .iter()
@@ -127,18 +131,45 @@ impl ChangelogBatch {
             .old_primary_keys
             .as_ref()
             .map(|batch| converter.convert_columns(batch.columns()))
-            .transpose()?;
+            .transpose()?
+            .ok_or_else(|| anyhow::anyhow!("old primary-key rows disappeared during collapse"))?;
 
+        let mut selected =
+            self.collapsed_rows_with_old_values(&keys, &old_keys, changed_columns)?;
+        selected.sort_unstable_by_key(|row| row.final_position);
+
+        self.materialize_runs(&selected)
+    }
+
+    fn collapsed_rows_with_old_values(
+        &self,
+        keys: &Rows,
+        old_keys: &Rows,
+        changed_columns: &[Vec<bool>],
+    ) -> anyhow::Result<Vec<CollapsedRow>> {
         let mut latest = HashMap::<Vec<u8>, CollapsedRow>::with_capacity(self.rows.num_rows());
-        for row in 0..self.rows.num_rows() {
+        for (row, changed) in changed_columns.iter().enumerate() {
             let operation = self.operations[row];
-            let changed = &changed_columns[row];
-            if let Some(old_keys) = &old_keys {
-                match operation {
-                    ChangeOperation::Create | ChangeOperation::SnapshotRead => {
+            match operation {
+                ChangeOperation::Create | ChangeOperation::SnapshotRead => {
+                    apply_collapsed_event(
+                        &mut latest,
+                        keys.row(row).as_ref().to_vec(),
+                        row * 2 + 1,
+                        operation,
+                        ValueSource::Current(row),
+                        changed,
+                        &self.primary_key_indexes,
+                        self.source_versions[row],
+                    )?;
+                }
+                ChangeOperation::Update => {
+                    let old_key = old_keys.row(row).as_ref().to_vec();
+                    let current_key = keys.row(row).as_ref().to_vec();
+                    if old_key == current_key {
                         apply_collapsed_event(
                             &mut latest,
-                            keys.row(row).as_ref().to_vec(),
+                            current_key,
                             row * 2 + 1,
                             operation,
                             ValueSource::Current(row),
@@ -146,78 +177,48 @@ impl ChangelogBatch {
                             &self.primary_key_indexes,
                             self.source_versions[row],
                         )?;
-                    }
-                    ChangeOperation::Update => {
-                        let old_key = old_keys.row(row).as_ref().to_vec();
-                        let current_key = keys.row(row).as_ref().to_vec();
-                        if old_key == current_key {
-                            apply_collapsed_event(
-                                &mut latest,
-                                current_key,
-                                row * 2 + 1,
-                                operation,
-                                ValueSource::Current(row),
-                                changed,
-                                &self.primary_key_indexes,
-                                self.source_versions[row],
-                            )?;
-                        } else {
-                            anyhow::ensure!(
-                                changed.iter().all(|changed| *changed),
-                                "primary-key-changing changelog update must carry a complete current row"
-                            );
-                            apply_collapsed_event(
-                                &mut latest,
-                                old_key,
-                                row * 2,
-                                ChangeOperation::Delete,
-                                ValueSource::OldPrimaryKey(row),
-                                changed,
-                                &self.primary_key_indexes,
-                                self.source_versions[row],
-                            )?;
-                            apply_collapsed_event(
-                                &mut latest,
-                                current_key,
-                                row * 2 + 1,
-                                ChangeOperation::Create,
-                                ValueSource::Current(row),
-                                changed,
-                                &self.primary_key_indexes,
-                                self.source_versions[row],
-                            )?;
-                        }
-                    }
-                    ChangeOperation::Delete => {
+                    } else {
+                        anyhow::ensure!(
+                            changed.iter().all(|changed| *changed),
+                            "primary-key-changing changelog update must carry a complete current row"
+                        );
                         apply_collapsed_event(
                             &mut latest,
-                            old_keys.row(row).as_ref().to_vec(),
+                            old_key,
                             row * 2,
-                            operation,
+                            ChangeOperation::Delete,
                             ValueSource::OldPrimaryKey(row),
+                            changed,
+                            &self.primary_key_indexes,
+                            self.source_versions[row],
+                        )?;
+                        apply_collapsed_event(
+                            &mut latest,
+                            current_key,
+                            row * 2 + 1,
+                            ChangeOperation::Create,
+                            ValueSource::Current(row),
                             changed,
                             &self.primary_key_indexes,
                             self.source_versions[row],
                         )?;
                     }
                 }
-            } else {
-                apply_collapsed_event(
-                    &mut latest,
-                    keys.row(row).as_ref().to_vec(),
-                    row,
-                    operation,
-                    ValueSource::Current(row),
-                    changed,
-                    &self.primary_key_indexes,
-                    self.source_versions[row],
-                )?;
+                ChangeOperation::Delete => {
+                    apply_collapsed_event(
+                        &mut latest,
+                        old_keys.row(row).as_ref().to_vec(),
+                        row * 2,
+                        operation,
+                        ValueSource::OldPrimaryKey(row),
+                        changed,
+                        &self.primary_key_indexes,
+                        self.source_versions[row],
+                    )?;
+                }
             }
         }
-        let mut selected = latest.into_values().collect::<Vec<_>>();
-        selected.sort_unstable_by_key(|row| row.final_position);
-
-        self.materialize_runs(&selected)
+        Ok(latest.into_values().collect())
     }
 
     fn collapsed_runs_without_old_values(
@@ -226,9 +227,8 @@ impl ChangelogBatch {
         changed_columns: &[Vec<bool>],
     ) -> anyhow::Result<Vec<ChangelogRun>> {
         let mut latest = HashMap::<Row<'_>, CollapsedRow>::with_capacity(self.rows.num_rows());
-        for row in 0..self.rows.num_rows() {
+        for (row, changed) in changed_columns.iter().enumerate() {
             let operation = self.operations[row];
-            let changed = &changed_columns[row];
             match latest.entry(keys.row(row)) {
                 std::collections::hash_map::Entry::Vacant(entry) => {
                     let source = ValueSource::Current(row);

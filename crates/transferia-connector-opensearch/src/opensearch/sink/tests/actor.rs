@@ -13,7 +13,9 @@ use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
 };
 use transferia_core::memory::PipelineMemory;
-use transferia_core::sink::{Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo};
+use transferia_core::sink::{
+    Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
+};
 use transferia_delivery_contracts::metrics::SinkCounters;
 
 use super::super::actor::OpenSearchSink;
@@ -34,7 +36,7 @@ struct BlockingTransport {
 }
 
 impl BulkTransport for BlockingTransport {
-    fn send<'a>(&'a self, _payload: Vec<u8>) -> BoxFuture<'a, Result<Vec<u16>, BulkFailure>> {
+    fn send(&self, _payload: Vec<u8>) -> BoxFuture<'_, Result<Vec<u16>, BulkFailure>> {
         Box::pin(async move {
             self.started.notify_one();
             self.release.notified().await;
@@ -44,7 +46,7 @@ impl BulkTransport for BlockingTransport {
 }
 
 impl BulkTransport for FakeTransport {
-    fn send<'a>(&'a self, payload: Vec<u8>) -> BoxFuture<'a, Result<Vec<u16>, BulkFailure>> {
+    fn send(&self, payload: Vec<u8>) -> BoxFuture<'_, Result<Vec<u16>, BulkFailure>> {
         Box::pin(async move {
             self.payloads.lock().unwrap().push(payload);
             Ok(self.responses.lock().unwrap().pop_front().unwrap())
@@ -181,11 +183,8 @@ async fn encoded_ndjson_is_accounted_until_bulk_completion() {
     });
     let memory = PipelineMemory::new(128);
     let discovered = discovery();
-    let output = sink_batch_with_payloads(
-        &memory,
-        vec![1],
-        vec![r#""\\"\\"\\"\\"\\"\\"\\"\\"\\"\\"#],
-    );
+    let output =
+        sink_batch_with_payloads(&memory, vec![1], vec![r#""\\"\\"\\"\\"\\"\\"\\"\\"\\"\\"#]);
     let input_bytes = output.memory.bytes();
     let encoded_bytes = encode_batch(
         "logs",
@@ -284,6 +283,7 @@ async fn actor_projects_system_columns_and_commits_only_after_every_item_succeed
         .iter()
         .flat_map(|payload| payload.iter().copied())
         .collect::<Vec<_>>();
+    drop(payloads);
     let text = std::str::from_utf8(&combined).unwrap();
     assert!(!text.contains("secret-topic"));
     assert!(!text.contains(SystemColumnKind::Topic.default_name()));

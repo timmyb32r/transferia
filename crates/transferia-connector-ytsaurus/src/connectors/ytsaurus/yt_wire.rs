@@ -14,7 +14,8 @@ use arrow::array::{
     Float64Builder, Int16Array, Int16Builder, Int32Array, Int32Builder, Int64Array, Int64Builder,
     Int8Array, Int8Builder, LargeBinaryArray, LargeStringArray, StringArray, StringBuilder,
     TimestampMicrosecondArray, TimestampMicrosecondBuilder, TimestampSecondArray, UInt16Array,
-    UInt16Builder, UInt32Array, UInt32Builder, UInt64Array, UInt64Builder, UInt8Array, UInt8Builder,
+    UInt16Builder, UInt32Array, UInt32Builder, UInt64Array, UInt64Builder, UInt8Array,
+    UInt8Builder,
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;

@@ -12,10 +12,7 @@ pub(super) fn destination_type(column: &SchemaColumn) -> anyhow::Result<String> 
         .to_owned())
 }
 
-pub(super) fn strict_mapping(
-    schema: &DatasetSchema,
-    owner: Option<&str>,
-) -> anyhow::Result<Value> {
+pub(super) fn strict_mapping(schema: &DatasetSchema, owner: Option<&str>) -> anyhow::Result<Value> {
     anyhow::ensure!(
         document_shape(schema) == DocumentShape::Flat,
         "OpenSearch cannot create an index for an opaque _source envelope; provide an existing index with its original mapping"
@@ -60,9 +57,9 @@ pub(super) fn validate_index_description(
     schema: &DatasetSchema,
     owner: Option<&str>,
 ) -> anyhow::Result<()> {
-    let root = description
-        .get(index)
-        .ok_or_else(|| anyhow::anyhow!("OpenSearch omitted index '{index}' from its description"))?;
+    let root = description.get(index).ok_or_else(|| {
+        anyhow::anyhow!("OpenSearch omitted index '{index}' from its description")
+    })?;
     let durability = root
         .pointer("/settings/index/translog/durability")
         .and_then(Value::as_str);
@@ -109,12 +106,9 @@ fn mapping_for(column: &SchemaColumn) -> anyhow::Result<Value> {
     let mut value = match &column.data_type {
         DataType::Boolean => json!({ "type": "boolean" }),
         DataType::Int8 => json!({ "type": "byte" }),
-        DataType::Int16 => json!({ "type": "short" }),
-        DataType::Int32 => json!({ "type": "integer" }),
-        DataType::Int64 => json!({ "type": "long" }),
-        DataType::UInt8 => json!({ "type": "short" }),
-        DataType::UInt16 => json!({ "type": "integer" }),
-        DataType::UInt32 => json!({ "type": "long" }),
+        DataType::Int16 | DataType::UInt8 => json!({ "type": "short" }),
+        DataType::Int32 | DataType::UInt16 => json!({ "type": "integer" }),
+        DataType::Int64 | DataType::UInt32 => json!({ "type": "long" }),
         DataType::UInt64 => json!({ "type": "unsigned_long" }),
         DataType::Float32 => json!({ "type": "float" }),
         DataType::Float64 => json!({ "type": "double" }),
@@ -128,22 +122,25 @@ fn mapping_for(column: &SchemaColumn) -> anyhow::Result<Value> {
         DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _) | DataType::Duration(_) => {
             json!({ "type": "long" })
         }
-        other => anyhow::bail!("unsupported Arrow type {other:?} for OpenSearch field '{}'", column.name),
+        other => anyhow::bail!(
+            "unsupported Arrow type {other:?} for OpenSearch field '{}'",
+            column.name
+        ),
     };
     value["meta"] = json!({ "arrow_type": arrow });
     if let DataType::Timestamp(unit, timezone) = &column.data_type {
-        value["meta"]["time_unit"] = Value::String(time_unit(unit).to_owned());
+        value["meta"]["time_unit"] = Value::String(time_unit(*unit).to_owned());
         if let Some(timezone) = timezone {
             value["meta"]["timezone"] = Value::String(timezone.to_string());
         }
     }
     if let DataType::Duration(unit) = &column.data_type {
-        value["meta"]["time_unit"] = Value::String(time_unit(unit).to_owned());
+        value["meta"]["time_unit"] = Value::String(time_unit(*unit).to_owned());
     }
     Ok(value)
 }
 
-const fn time_unit(unit: &TimeUnit) -> &'static str {
+const fn time_unit(unit: TimeUnit) -> &'static str {
     match unit {
         TimeUnit::Second => "second",
         TimeUnit::Millisecond => "millisecond",

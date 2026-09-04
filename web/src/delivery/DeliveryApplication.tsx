@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -176,7 +177,7 @@ export function DeliveryApplication() {
     dispatch(action);
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     jobs.cancelRevisionJobs();
   }, [editor.sessionId, editor.localRevision]);
 

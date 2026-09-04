@@ -22,9 +22,7 @@ use super::connector::{
     MYSQL_REPLICATION_SYSTEM_COLUMNS, MYSQL_SOURCE_METADATA_COLUMNS,
 };
 use super::MYSQL_CANONICAL_SNAPSHOT_SQL_MODE;
-use crate::connectors::mysql::common::{
-    quote_identifier, validate_mysql_client_packet_limit,
-};
+use crate::connectors::mysql::common::{quote_identifier, validate_mysql_client_packet_limit};
 use crate::connectors::mysql::src_batch_and_stream::MySqlBinlogBoundary;
 use crate::connectors::mysql::src_stream::encode_snapshot_boundary_identity;
 use crate::metrics::SourceCounters;
@@ -187,8 +185,7 @@ impl MySqlSource {
     ) -> anyhow::Result<Self> {
         validate_snapshot_memory_limits(batch_rows, batch_target_bytes, max_row_bytes)?;
         validate_snapshot_read_protocol(read_protocol, &columns)?;
-        let max_decoded_row_bytes =
-            max_decoded_row_admission_bytes(max_row_bytes, columns.len())?;
+        let max_decoded_row_bytes = max_decoded_row_admission_bytes(max_row_bytes, columns.len())?;
         let (output_schema, output_schema_memory) = build_output_schema_with_memory(
             &memory,
             &schema,
@@ -363,7 +360,7 @@ pub(super) fn validate_snapshot_batch_growth(
     Ok(())
 }
 
-pub(super) fn should_read_snapshot_row(
+pub(super) const fn should_read_snapshot_row(
     rows: usize,
     retained_row_bytes: usize,
     batch_rows: usize,
@@ -399,11 +396,8 @@ pub(super) fn estimate_arrow_working_set_bytes(
         );
         for value in row.iter().flatten() {
             if let Value::Bytes(value) = value {
-                byte_payload = checked_snapshot_sum(
-                    byte_payload,
-                    value.len(),
-                    "Arrow source payload",
-                )?;
+                byte_payload =
+                    checked_snapshot_sum(byte_payload, value.len(), "Arrow source payload")?;
             }
         }
     }
@@ -433,22 +427,24 @@ pub(super) fn estimate_arrow_working_set_bytes(
                     .checked_mul(2)
                     .and_then(|value| value.checked_add(MYSQL_SOURCE_METADATA_COLUMNS.len()))
                     .and_then(|value| value.checked_add(MYSQL_REPLICATION_SYSTEM_COLUMNS.len()))
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("MySQL snapshot Arrow column count overflow")
-                    })?,
+                    .ok_or_else(|| anyhow::anyhow!("MySQL snapshot Arrow column count overflow"))?,
                 payload,
             )
         }
         None => (
-            columns.len().checked_add(4).ok_or_else(|| {
-                anyhow::anyhow!("MySQL snapshot Arrow column count overflow")
-            })?,
+            columns
+                .len()
+                .checked_add(4)
+                .ok_or_else(|| anyhow::anyhow!("MySQL snapshot Arrow column count overflow"))?,
             "mysql".len(),
         ),
     };
 
-    let generated_payload =
-        checked_snapshot_product(row_count, generated_payload_per_row, "generated Arrow payload")?;
+    let generated_payload = checked_snapshot_product(
+        row_count,
+        generated_payload_per_row,
+        "generated Arrow payload",
+    )?;
     let output_cells = checked_snapshot_product(row_count, output_columns, "Arrow output cells")?;
     let cell_storage = checked_snapshot_product(
         output_cells,
@@ -502,10 +498,7 @@ impl Source for MySqlSource {
                         "MySQL snapshot memory admission overflow"
                     ))
                 })?;
-            let memory = self
-                .memory
-                .reserve_progress_source(initial_admission)
-                .await;
+            let memory = self.memory.reserve_progress_source(initial_admission).await;
             let mut rows: Vec<SnapshotRow> = Vec::new();
             let mut retained_value_bytes = 0_usize;
             let mut retained_row_bytes = 0_usize;
@@ -539,8 +532,8 @@ impl Source for MySqlSource {
                 match next {
                     Some(Ok(row)) => {
                         let row = row.unwrap_raw();
-                        let row_value_bytes = retained_row_value_heap_bytes(&row)
-                            .map_err(DataPlaneFailure::fatal)?;
+                        let row_value_bytes =
+                            retained_row_value_heap_bytes(&row).map_err(DataPlaneFailure::fatal)?;
                         let previous_row_bytes = retained_row_bytes;
                         retained_value_bytes = retained_value_bytes
                             .checked_add(row_value_bytes)
@@ -564,11 +557,9 @@ impl Source for MySqlSource {
                             ))
                         })?;
                         rows.push(row);
-                        retained_row_bytes = retained_rows_heap_bytes(
-                            rows.capacity(),
-                            retained_value_bytes,
-                        )
-                        .map_err(DataPlaneFailure::fatal)?;
+                        retained_row_bytes =
+                            retained_rows_heap_bytes(rows.capacity(), retained_value_bytes)
+                                .map_err(DataPlaneFailure::fatal)?;
                         validate_snapshot_batch_growth(
                             previous_row_bytes,
                             retained_row_bytes,
@@ -591,8 +582,8 @@ impl Source for MySqlSource {
                 self.finished = true;
                 return Ok(SourceBatch::Finished);
             }
-            let source_rows = u64::try_from(rows.len())
-                .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
+            let source_rows =
+                u64::try_from(rows.len()).map_err(|error| DataPlaneFailure::fatal(error.into()))?;
             memory
                 .grow_progress_source_to(
                     retained_row_bytes
@@ -640,9 +631,7 @@ impl Source for MySqlSource {
             let arrow_bytes = batch.get_array_memory_size();
             if arrow_bytes > arrow_working_set {
                 return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
-                    "MySQL snapshot Arrow memory {} exceeded its pre-admitted {}-byte working set",
-                    arrow_bytes,
-                    arrow_working_set
+                    "MySQL snapshot Arrow memory {arrow_bytes} exceeded its pre-admitted {arrow_working_set}-byte working set"
                 )));
             }
             drop(rows);
@@ -728,9 +717,9 @@ pub(super) fn rows_to_changelog_snapshot_batch<R: RowValueAccess>(
     let transaction_identity = encode_snapshot_boundary_identity(&snapshot.boundary)?;
     let source_timestamp_us = snapshot.boundary.source_timestamp_micros;
     let source_timestamp_ms = source_timestamp_us / 1_000;
-    let source_timestamp_ns = source_timestamp_us.checked_mul(1_000).ok_or_else(|| {
-        anyhow::anyhow!("MySQL snapshot source timestamp nanoseconds overflow")
-    })?;
+    let source_timestamp_ns = source_timestamp_us
+        .checked_mul(1_000)
+        .ok_or_else(|| anyhow::anyhow!("MySQL snapshot source timestamp nanoseconds overflow"))?;
     let filename = snapshot.boundary.filename.as_str();
     let position = i64::try_from(snapshot.boundary.position)?;
     let event_timestamp_ns = i64::try_from(
@@ -745,13 +734,12 @@ pub(super) fn rows_to_changelog_snapshot_batch<R: RowValueAccess>(
         Arc::new(StringArray::from(vec![snapshot.database.as_str(); len])) as ArrayRef,
         Arc::new(StringArray::from(vec![snapshot.database.as_str(); len])) as ArrayRef,
         Arc::new(StringArray::from(vec![snapshot.table.as_str(); len])) as ArrayRef,
-        Arc::new(BinaryArray::from_iter_values(
-            std::iter::repeat(transaction_identity.as_slice()).take(len),
-        )) as ArrayRef,
+        Arc::new(BinaryArray::from_iter_values(std::iter::repeat_n(
+            transaction_identity.as_slice(),
+            len,
+        ))) as ArrayRef,
         Arc::new(Int64Array::from(vec![0_i64; len])) as ArrayRef,
-        Arc::new(StringArray::from_iter(
-            std::iter::repeat(None::<&str>).take(len),
-        )) as ArrayRef,
+        Arc::new(std::iter::repeat_n(None::<&str>, len).collect::<StringArray>()) as ArrayRef,
         Arc::new(StringArray::from(vec![filename; len])) as ArrayRef,
         Arc::new(Int64Array::from(vec![position; len])) as ArrayRef,
         Arc::new(Int32Array::from(vec![0_i32; len])) as ArrayRef,
@@ -766,27 +754,25 @@ pub(super) fn rows_to_changelog_snapshot_batch<R: RowValueAccess>(
     let len_i64 = i64::try_from(len)?;
     for kind in MYSQL_REPLICATION_SYSTEM_COLUMNS {
         arrays.push(match kind {
-            SystemColumnKind::Topic => {
-                Arc::new(StringArray::from(vec![filename; len])) as ArrayRef
-            }
+            SystemColumnKind::Topic => Arc::new(StringArray::from(vec![filename; len])) as ArrayRef,
             SystemColumnKind::Partition => {
                 Arc::new(Int64Array::from(vec![snapshot.partition_id; len])) as ArrayRef
             }
-            SystemColumnKind::Offset => {
-                Arc::new(Int64Array::from(vec![position; len])) as ArrayRef
-            }
+            SystemColumnKind::Offset => Arc::new(Int64Array::from(vec![position; len])) as ArrayRef,
             SystemColumnKind::MessageIndex => Arc::new(UInt64Array::from_iter_values(
                 u64::try_from(start_offset)?
-                    ..u64::try_from(start_offset.checked_add(len_i64).ok_or_else(|| {
-                        anyhow::anyhow!("MySQL snapshot offset overflow")
-                    })?)?,
+                    ..u64::try_from(
+                        start_offset
+                            .checked_add(len_i64)
+                            .ok_or_else(|| anyhow::anyhow!("MySQL snapshot offset overflow"))?,
+                    )?,
             )) as ArrayRef,
             SystemColumnKind::ChangeOperation => Arc::new(StringArray::from(vec![
                 transferia_core::ChangeOperation::SnapshotRead.code();
                 len
             ])) as ArrayRef,
             SystemColumnKind::ChangedColumns => Arc::new(BinaryArray::from_iter_values(
-                std::iter::repeat(changed.as_slice()).take(len),
+                std::iter::repeat_n(changed.as_slice(), len),
             )) as ArrayRef,
             SystemColumnKind::WriteTimestampMs => {
                 anyhow::bail!("MySQL snapshot has no write timestamp")
@@ -877,30 +863,34 @@ pub(super) fn build_output_schema(
         );
     }
     if changelog_snapshot {
-        fields.extend(discovered_schema.columns.iter().enumerate().map(
-            |(index, current)| {
-                let mut metadata = HashMap::new();
-                if let Some(extension_name) = current.arrow_extension_name {
-                    metadata.insert(
-                        META_ARROW_EXTENSION_NAME.to_owned(),
-                        extension_name.to_owned(),
-                    );
-                }
-                if let Some(extension_metadata) = &current.arrow_extension_metadata {
-                    metadata.insert(
-                        META_ARROW_EXTENSION_METADATA.to_owned(),
-                        extension_metadata.clone(),
-                    );
-                }
-                metadata.insert(META_OLD_VALUE_OF.to_owned(), current.name.clone());
-                Field::new(
-                    old_value_column_name(index),
-                    current.data_type.clone(),
-                    true,
-                )
-                .with_metadata(metadata)
-            },
-        ));
+        fields.extend(
+            discovered_schema
+                .columns
+                .iter()
+                .enumerate()
+                .map(|(index, current)| {
+                    let mut metadata = HashMap::new();
+                    if let Some(extension_name) = current.arrow_extension_name {
+                        metadata.insert(
+                            META_ARROW_EXTENSION_NAME.to_owned(),
+                            extension_name.to_owned(),
+                        );
+                    }
+                    if let Some(extension_metadata) = &current.arrow_extension_metadata {
+                        metadata.insert(
+                            META_ARROW_EXTENSION_METADATA.to_owned(),
+                            extension_metadata.clone(),
+                        );
+                    }
+                    metadata.insert(META_OLD_VALUE_OF.to_owned(), current.name.clone());
+                    Field::new(
+                        old_value_column_name(index),
+                        current.data_type.clone(),
+                        true,
+                    )
+                    .with_metadata(metadata)
+                }),
+        );
         fields.extend(MYSQL_SOURCE_METADATA_COLUMNS.iter().map(|column| {
             Field::new(column.name, column.data_type.clone(), column.nullable).with_metadata(
                 HashMap::from([(META_SYSTEM_ROLE.to_owned(), column.role.to_owned())]),
@@ -939,7 +929,7 @@ fn existing_string_capacity_bound(value: &String) -> anyhow::Result<usize> {
     Ok(value.capacity().max(string_capacity_bound(value.len())?))
 }
 
-fn decimal_digits(mut value: usize) -> usize {
+const fn decimal_digits(mut value: usize) -> usize {
     let mut digits = 1;
     while value >= 10 {
         value /= 10;
@@ -952,9 +942,9 @@ fn metadata_allocation_bound(column: &SchemaColumn) -> anyhow::Result<(usize, us
     let mut entries = 0_usize;
     let mut strings = 0_usize;
     let mut add = |key: &str, value_capacity: usize| -> anyhow::Result<()> {
-        entries = entries.checked_add(1).ok_or_else(|| {
-            anyhow::anyhow!("MySQL snapshot Arrow field metadata count overflow")
-        })?;
+        entries = entries
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("MySQL snapshot Arrow field metadata count overflow"))?;
         strings = checked_snapshot_sum(
             strings,
             string_capacity_bound(key.len())?,
@@ -967,10 +957,7 @@ fn metadata_allocation_bound(column: &SchemaColumn) -> anyhow::Result<(usize, us
         add(META_PRIMARY_KEY, string_capacity_bound("true".len())?)?;
     }
     if column.low_cardinality {
-        add(
-            META_LOW_CARDINALITY,
-            string_capacity_bound("true".len())?,
-        )?;
+        add(META_LOW_CARDINALITY, string_capacity_bound("true".len())?)?;
     }
     if let Some(max_length) = column.max_length {
         add(
@@ -1105,9 +1092,9 @@ pub(super) fn output_schema_allocation_bound(
                 "Arrow old-value metadata",
             )?;
             if let Some(extension_name) = discovered.arrow_extension_name {
-                metadata_entries = metadata_entries.checked_add(1).ok_or_else(|| {
-                    anyhow::anyhow!("MySQL old-value metadata count overflow")
-                })?;
+                metadata_entries = metadata_entries
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow::anyhow!("MySQL old-value metadata count overflow"))?;
                 metadata_strings = checked_snapshot_sum(
                     metadata_strings,
                     checked_snapshot_sum(
@@ -1119,9 +1106,9 @@ pub(super) fn output_schema_allocation_bound(
                 )?;
             }
             if let Some(extension_metadata) = &discovered.arrow_extension_metadata {
-                metadata_entries = metadata_entries.checked_add(1).ok_or_else(|| {
-                    anyhow::anyhow!("MySQL old-value metadata count overflow")
-                })?;
+                metadata_entries = metadata_entries
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow::anyhow!("MySQL old-value metadata count overflow"))?;
                 metadata_strings = checked_snapshot_sum(
                     metadata_strings,
                     checked_snapshot_sum(
@@ -1246,7 +1233,7 @@ pub(super) fn column_array<R: RowValueAccess>(
     values_to_array(&values, column)
 }
 
-pub(crate) fn optional_value_column_array(
+pub fn optional_value_column_array(
     rows: &[Option<&[Option<Value>]>],
     index: usize,
     column: &ColumnPlan,

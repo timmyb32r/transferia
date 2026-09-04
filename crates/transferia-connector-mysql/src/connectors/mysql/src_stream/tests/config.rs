@@ -49,7 +49,7 @@ fn every_replication_limit_must_satisfy_its_protocol_minimum() {
         MySqlReplicationConfig {
             poll_interval_ms: 2,
             bootstrap_timeout_ms: 2,
-            ..valid.clone()
+            ..valid
         },
     ] {
         assert!(invalid.validate().is_err());
@@ -57,33 +57,29 @@ fn every_replication_limit_must_satisfy_its_protocol_minimum() {
 
     let maximum = MySqlReplicationConfig {
         max_transaction_bytes: super::super::super::MYSQL_CLIENT_PACKET_MAX_BYTES,
-        ..valid.clone()
+        ..valid
     };
     maximum.validate().unwrap();
-    assert!(
-        MySqlReplicationConfig {
-            max_transaction_bytes: super::super::super::MYSQL_CLIENT_PACKET_MAX_BYTES + 1,
-            ..valid
-        }
-        .validate()
-        .is_err()
-    );
+    assert!(MySqlReplicationConfig {
+        max_transaction_bytes: super::super::super::MYSQL_CLIENT_PACKET_MAX_BYTES + 1,
+        ..valid
+    }
+    .validate()
+    .is_err());
 
     let maximum_heartbeat_ms = u64::MAX / 1_000_000;
     MySqlReplicationConfig {
         poll_interval_ms: maximum_heartbeat_ms,
         bootstrap_timeout_ms: maximum_heartbeat_ms + 1,
-        ..valid.clone()
+        ..valid
     }
     .validate()
     .unwrap();
-    assert!(
-        MySqlReplicationConfig {
-            poll_interval_ms: maximum_heartbeat_ms + 1,
-            bootstrap_timeout_ms: maximum_heartbeat_ms + 2,
-            ..valid
-        }
-        .validate()
-        .is_err()
-    );
+    assert!(MySqlReplicationConfig {
+        poll_interval_ms: maximum_heartbeat_ms + 1,
+        bootstrap_timeout_ms: maximum_heartbeat_ms + 2,
+        ..valid
+    }
+    .validate()
+    .is_err());
 }

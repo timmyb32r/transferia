@@ -17,8 +17,8 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use transferia_connector_support::metrics::SourceCounters;
-use transferia_core::data::schema::ARROW_JSON_EXTENSION_NAME;
 use transferia_core::data::message::SourceBatch;
+use transferia_core::data::schema::ARROW_JSON_EXTENSION_NAME;
 use transferia_core::memory::PipelineMemory;
 use transferia_core::source::Source as _;
 
@@ -60,10 +60,7 @@ fn source_config_requires_exact_distinct_indices_and_positive_limits() {
         "retry_initial_ms: 10\nretry_max_ms: 9\n",
         "retry_max_attempts: 0\n",
     ] {
-        let raw = format!(
-            "{}{retry}",
-            source_config("[{name: logs}]", 100, 2, 10_000)
-        );
+        let raw = format!("{}{retry}", source_config("[{name: logs}]", 100, 2, 10_000));
         let config: OpenSearchSourceConfig = serde_yaml::from_str(&raw).unwrap();
         assert!(config.validate().is_err(), "{raw}");
     }
@@ -77,7 +74,9 @@ fn initial_source_configuration_uses_measured_bounded_concurrency() {
     let config: OpenSearchSourceConfig =
         serde_json::from_value(initial).expect("valid initial config");
     assert_eq!(config.read_concurrency, 2);
-    config.validate().expect("complete source config must validate");
+    config
+        .validate()
+        .expect("complete source config must validate");
 }
 
 #[test]
@@ -132,6 +131,10 @@ fn response(hits: Vec<SearchHit>) -> SearchResponse {
     }
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "test fixtures pass owned JSON values that are consumed into raw source text"
+)]
 fn hit(id: &str, index: &str, sort: u64, source: serde_json::Value) -> SearchHit {
     SearchHit {
         index: index.to_owned(),
@@ -210,18 +213,34 @@ fn hits_become_lossless_document_rows_with_routing_columns() {
     let second = hit("doc-2", "logs", 2, json!({"text": "hello"}));
     let batch = super::source::hits_to_batch("logs", 7, 11, vec![first, second]).unwrap();
     assert_eq!(batch.num_rows(), 2);
-    let ids = batch.column(0).as_any().downcast_ref::<StringArray>().unwrap();
+    let ids = batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
     assert_eq!(ids.value(0), "doc-1");
     assert_eq!(ids.value(1), "doc-2");
-    let routing = batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
+    let routing = batch
+        .column(1)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
     assert_eq!(routing.value(0), "tenant-a");
     assert!(routing.is_null(1));
-    let source = batch.column(2).as_any().downcast_ref::<StringArray>().unwrap();
+    let source = batch
+        .column(2)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(source.value(0)).unwrap(),
         json!({"nested": {"n": 1}})
     );
-    let routing_key = batch.column(3).as_any().downcast_ref::<StringArray>().unwrap();
+    let routing_key = batch
+        .column(3)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
     assert_eq!(routing_key.value(0), "tenant-a");
     assert_eq!(routing_key.value(1), "doc-2");
 }
@@ -238,7 +257,11 @@ fn raw_source_preserves_numeric_lexemes_beyond_json_number_precision() {
         sort: vec![json!(1)],
     };
     let batch = super::source::hits_to_batch("logs", 0, 0, vec![hit]).unwrap();
-    let values = batch.column(2).as_any().downcast_ref::<StringArray>().unwrap();
+    let values = batch
+        .column(2)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
     assert_eq!(values.value(0), source);
 }
 
@@ -261,17 +284,15 @@ fn close_response_must_acknowledge_the_exact_pit() {
         &pits,
     )
     .unwrap();
-    assert_eq!(closed, ["pit-1".to_owned()].into_iter().collect());
+    assert_eq!(closed, std::iter::once("pit-1".to_owned()).collect());
     assert!(decode_close_pits(
         br#"{"pits":[{"successful":true,"pit_id":"pit-1"},{"successful":true,"pit_id":"other"}]}"#,
         &pits,
     )
     .is_err());
-    assert!(decode_close_pits(
-        br#"{"pits":[{"successful":true,"pit_id":"pit-1"}]}"#,
-        &pits,
-    )
-    .is_err());
+    assert!(
+        decode_close_pits(br#"{"pits":[{"successful":true,"pit_id":"pit-1"}]}"#, &pits,).is_err()
+    );
 }
 
 #[test]
@@ -361,7 +382,10 @@ async fn repeated_shutdown_retries_only_contexts_not_yet_confirmed_closed() {
             let (mut stream, _) = server.accept().await.unwrap();
             let request = read_http_request(&mut stream).await;
             bodies.push(request_body(&request).to_vec());
-            stream.write_all(http_response(body).as_bytes()).await.unwrap();
+            stream
+                .write_all(http_response(body).as_bytes())
+                .await
+                .unwrap();
         }
         bodies
     });
@@ -407,12 +431,18 @@ async fn cancellation_drains_started_pit_creation_and_closes_the_returned_contex
         request_seen.send(()).unwrap();
         tokio::time::sleep(Duration::from_millis(10)).await;
         let opened = r#"{"pit_id":"pit-cancelled","_shards":{"total":1,"successful":1,"skipped":0,"failed":0}}"#;
-        stream.write_all(http_response(opened).as_bytes()).await.unwrap();
+        stream
+            .write_all(http_response(opened).as_bytes())
+            .await
+            .unwrap();
 
         let (mut stream, _) = server.accept().await.unwrap();
         let close = read_http_request(&mut stream).await;
         let closed = r#"{"pits":[{"successful":true,"pit_id":"pit-cancelled"}]}"#;
-        stream.write_all(http_response(closed).as_bytes()).await.unwrap();
+        stream
+            .write_all(http_response(closed).as_bytes())
+            .await
+            .unwrap();
         (create, close)
     });
     let cancellation = CancellationToken::new();
@@ -452,11 +482,17 @@ async fn incomplete_index_pit_creation_closes_the_returned_context() {
         let (mut stream, _) = server.accept().await.unwrap();
         read_http_request(&mut stream).await;
         let opened = r#"{"pit_id":"pit-incomplete","_shards":{"total":2,"successful":1,"skipped":0,"failed":1}}"#;
-        stream.write_all(http_response(opened).as_bytes()).await.unwrap();
+        stream
+            .write_all(http_response(opened).as_bytes())
+            .await
+            .unwrap();
         let (mut stream, _) = server.accept().await.unwrap();
         let close = read_http_request(&mut stream).await;
         let closed = r#"{"pits":[{"successful":true,"pit_id":"pit-incomplete"}]}"#;
-        stream.write_all(http_response(closed).as_bytes()).await.unwrap();
+        stream
+            .write_all(http_response(closed).as_bytes())
+            .await
+            .unwrap();
         close
     });
 
@@ -487,19 +523,28 @@ async fn concurrency_one_uses_one_pit_and_reads_every_slice_before_continuing() 
         let (mut stream, _) = server.accept().await.unwrap();
         requests.push(read_http_request(&mut stream).await);
         let opened = r#"{"pit_id":"one-index-pit","_shards":{"total":3,"successful":3,"skipped":0,"failed":0}}"#;
-        stream.write_all(http_response(opened).as_bytes()).await.unwrap();
+        stream
+            .write_all(http_response(opened).as_bytes())
+            .await
+            .unwrap();
         for slice in 0..3 {
             let (mut stream, _) = server.accept().await.unwrap();
             requests.push(read_http_request(&mut stream).await);
             let page = format!(
                 "{{\"timed_out\":false,\"_shards\":{{\"total\":3,\"successful\":3,\"skipped\":0,\"failed\":0}},\"hits\":{{\"total\":{{\"value\":2,\"relation\":\"eq\"}},\"hits\":[{{\"_index\":\"logs\",\"_id\":\"slice-{slice}\",\"_source\":{{\"slice\":{slice}}},\"sort\":[0]}}]}}}}"
             );
-            stream.write_all(http_response(&page).as_bytes()).await.unwrap();
+            stream
+                .write_all(http_response(&page).as_bytes())
+                .await
+                .unwrap();
         }
         let (mut stream, _) = server.accept().await.unwrap();
         requests.push(read_http_request(&mut stream).await);
         let closed = r#"{"pits":[{"successful":true,"pit_id":"one-index-pit"}]}"#;
-        stream.write_all(http_response(closed).as_bytes()).await.unwrap();
+        stream
+            .write_all(http_response(closed).as_bytes())
+            .await
+            .unwrap();
         requests
     });
 
@@ -532,7 +577,8 @@ async fn concurrency_one_uses_one_pit_and_reads_every_slice_before_continuing() 
     assert_eq!(
         requests
             .iter()
-            .filter(|request| String::from_utf8_lossy(request).starts_with("POST /logs/_search/point_in_time?"))
+            .filter(|request| String::from_utf8_lossy(request)
+                .starts_with("POST /logs/_search/point_in_time?"))
             .count(),
         1
     );
@@ -548,8 +594,7 @@ async fn concurrency_one_uses_one_pit_and_reads_every_slice_before_continuing() 
     assert_eq!(slice_order, [0, 1, 2]);
 }
 
-const VALID_EMPTY_PAGE: &str =
-    r#"{"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":0,"relation":"eq"},"hits":[]}}"#;
+const VALID_EMPTY_PAGE: &str = r#"{"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":0,"relation":"eq"},"hits":[]}}"#;
 
 fn test_client(port: u16) -> OpenSearchClient {
     OpenSearchClient::new(&OpenSearchConnectionConfig {

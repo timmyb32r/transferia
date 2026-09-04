@@ -11,23 +11,24 @@ use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use bytes::Bytes;
+use futures_util::future::BoxFuture;
 use prost::Message as _;
 use schemars::schema_for;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
-use futures_util::future::BoxFuture;
 
 use super::client::{
     dynamic_conversion_attributes, dynamic_table_attributes, json_header_value,
-    normalize_rpc_proxy_roles, resolved_link_suggestion, rich_read_path, rpc_proxy_discovery_url,
-    recursive_removal_parameters, sort_operation_parameters, speedtest_directory_parameters,
-    static_table_attributes, suggestion_directory, table_path_suggestions, table_writer_spec,
-    uniform_reshard_parameters, yson_header_value, ListedNode,
+    normalize_rpc_proxy_roles, recursive_removal_parameters, resolved_link_suggestion,
+    rich_read_path, rpc_proxy_discovery_url, sort_operation_parameters,
+    speedtest_directory_parameters, static_table_attributes, suggestion_directory,
+    table_path_suggestions, table_writer_spec, uniform_reshard_parameters, yson_header_value,
+    ListedNode,
 };
 use super::config::{
     YTsaurusAtomicity, YTsaurusBigValuePolicy, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics,
@@ -72,8 +73,7 @@ use transferia_core::delivery::{
 use transferia_core::memory::PipelineMemory;
 use transferia_core::sink::SinkBatch;
 use transferia_registry::{
-    SinkConnector as _, SinkSpeedtestIsolation, SnapshotRowCountStrategy,
-    SpeedtestPhysicalTarget,
+    SinkConnector as _, SinkSpeedtestIsolation, SnapshotRowCountStrategy, SpeedtestPhysicalTarget,
 };
 
 fn speedtest_sink_discovery() -> DeliveryDiscovery {
@@ -172,10 +172,7 @@ impl YTsaurusRowCountClient for FakeYTsaurusRowCountClient {
         Box::pin(async move { Ok(self.rows.contains_key(path)) })
     }
 
-    fn row_count<'a>(
-        &'a self,
-        path: &'a str,
-    ) -> BoxFuture<'a, anyhow::Result<serde_json::Value>> {
+    fn row_count<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<serde_json::Value>> {
         Box::pin(async move {
             self.row_reads
                 .lock()
@@ -194,14 +191,12 @@ async fn ytsaurus_snapshot_probe_reports_every_dataset_without_scanning_missing_
 ) -> anyhow::Result<()> {
     let config = speedtest_static_config(true)?;
     let client = FakeYTsaurusRowCountClient {
-        rows: BTreeMap::from([(
-            "//tmp/production/events".to_owned(),
-            serde_json::json!(41),
-        )]),
+        rows: BTreeMap::from([("//tmp/production/events".to_owned(), serde_json::json!(41))]),
         row_reads: Mutex::new(Vec::new()),
     };
 
-    let counts = snapshot_ytsaurus_row_counts(&client, &config, &speedtest_sink_discovery()).await?;
+    let counts =
+        snapshot_ytsaurus_row_counts(&client, &config, &speedtest_sink_discovery()).await?;
 
     assert_eq!(counts.len(), 2);
     assert_eq!(counts[0].role, DatasetRole::Main);
@@ -312,7 +307,9 @@ fn speedtest_root_is_a_canonical_128_bit_sibling_namespace() -> anyhow::Result<(
 async fn speedtest_isolation_preserves_logical_datasets_and_never_mutates_production_config(
 ) -> anyhow::Result<()> {
     let production_config = speedtest_static_config(false)?;
-    let connector = Arc::new(YTsaurusSinkConnector::from_config(production_config.clone())?);
+    let connector = Arc::new(YTsaurusSinkConnector::from_config(
+        production_config.clone(),
+    )?);
     let original = Arc::new(speedtest_sink_discovery());
     let isolation = Arc::clone(&connector)
         .isolate_speedtest(
@@ -358,10 +355,7 @@ fn dynamic_via_static_clone_forces_replacement_and_keeps_every_artifact_inside_o
     )?;
     assert!(production.stages_dynamic_snapshots());
     assert!(!production.replace_tables());
-    let root = speedtest_scratch_root(
-        production.path(),
-        "0123456789abcdef0123456789abcdef",
-    )?;
+    let root = speedtest_scratch_root(production.path(), "0123456789abcdef0123456789abcdef")?;
     let isolated = production.clone_for_speedtest(root.clone())?;
     assert!(isolated.stages_dynamic_snapshots());
     assert!(isolated.replace_tables());
@@ -388,10 +382,7 @@ fn dynamic_via_static_clone_forces_replacement_and_keeps_every_artifact_inside_o
 fn speedtest_cleanup_refuses_tampered_root_discovery_or_physical_proof() -> anyhow::Result<()> {
     let production = speedtest_static_config(false)?;
     let discovery = speedtest_sink_discovery();
-    let root = speedtest_scratch_root(
-        production.path(),
-        "0123456789abcdef0123456789abcdef",
-    )?;
+    let root = speedtest_scratch_root(production.path(), "0123456789abcdef0123456789abcdef")?;
     let isolated_config = production.clone_for_speedtest(root.clone())?;
     let mapping = discovery
         .datasets
@@ -408,9 +399,8 @@ fn speedtest_cleanup_refuses_tampered_root_discovery_or_physical_proof() -> anyh
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let connector: Arc<dyn transferia_registry::SinkConnector> = Arc::new(
-        YTsaurusSinkConnector::from_config(isolated_config.clone())?,
-    );
+    let connector: Arc<dyn transferia_registry::SinkConnector> =
+        Arc::new(YTsaurusSinkConnector::from_config(isolated_config.clone())?);
     let isolation = SinkSpeedtestIsolation::scratch(
         connector,
         &discovery,
@@ -419,7 +409,7 @@ fn speedtest_cleanup_refuses_tampered_root_discovery_or_physical_proof() -> anyh
         targets.clone(),
     )?;
     let scope = YTsaurusSpeedtestScope {
-        root: Arc::from(root.clone()),
+        root: Arc::from(root),
         owner: Arc::from("owner"),
         create_mutation_id: Arc::from("1-2-3-4"),
         remove_mutation_id: Arc::from("4-3-2-1"),
@@ -567,7 +557,9 @@ impl YTsaurusSpeedtestClient for FakeYtSpeedtestClient {
             );
             state.remove_calls += 1;
             state.attributes = None;
-            if state.lose_remove_response {
+            let lose_remove_response = state.lose_remove_response;
+            drop(state);
+            if lose_remove_response {
                 anyhow::bail!("remove response lost")
             }
             Ok(())
@@ -584,14 +576,12 @@ impl YTsaurusSpeedtestClient for FakeYtSpeedtestClient {
 
 fn fake_yt_scope() -> YTsaurusSpeedtestScope {
     YTsaurusSpeedtestScope {
-        root: Arc::from(
-            "//tmp/.transferia-speedtest-0123456789abcdef0123456789abcdef",
-        ),
+        root: Arc::from("//tmp/.transferia-speedtest-0123456789abcdef0123456789abcdef"),
         owner: Arc::from("owner"),
         create_mutation_id: Arc::from("1-2-3-4"),
         remove_mutation_id: Arc::from("4-3-2-1"),
-        datasets: Default::default(),
-        physical_targets: Default::default(),
+        datasets: BTreeSet::default(),
+        physical_targets: BTreeSet::default(),
         creation_attempted: AtomicBool::new(false),
         cleaned: AtomicBool::new(false),
     }
@@ -607,6 +597,7 @@ async fn yt_lost_create_response_is_cleaned_after_exact_owner_proof() -> anyhow:
     let state = client.state.lock().unwrap();
     assert_eq!(state.remove_calls, 1);
     assert!(state.attributes.is_none());
+    drop(state);
     Ok(())
 }
 
@@ -652,6 +643,7 @@ async fn yt_revision_prerequisite_preserves_replacement() -> anyhow::Result<()> 
         state.attributes.as_ref().unwrap()["transferia_speedtest_owner"],
         "replacement"
     );
+    drop(state);
     Ok(())
 }
 
@@ -666,6 +658,7 @@ async fn yt_lost_remove_response_is_success_only_after_absence_proof() -> anyhow
     let state = client.state.lock().unwrap();
     assert_eq!(state.remove_calls, 1);
     assert!(state.attributes.is_none());
+    drop(state);
     Ok(())
 }
 
@@ -681,6 +674,7 @@ async fn yt_cleanup_is_idempotent_when_the_owned_root_is_already_absent() -> any
     let state = client.state.lock().unwrap();
     assert_eq!(state.remove_calls, 0);
     assert!(state.attributes.is_none());
+    drop(state);
     Ok(())
 }
 

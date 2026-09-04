@@ -25,7 +25,7 @@ pub struct MySqlReplicationConfig {
     #[schemars(
         title = "Maximum transaction bytes",
         description = "Maximum encoded binlog bytes buffered for one transaction before failing closed",
-        range(min = 19, max = 1073741824),
+        range(min = 19, max = 1_073_741_824),
         extend("x-ui" = { "section": "advanced" })
     )]
     pub max_transaction_bytes: usize,
@@ -86,7 +86,7 @@ impl MySqlReplicationConfig {
     }
 }
 
-pub(crate) fn heartbeat_period_nanoseconds(poll_interval_ms: u64) -> anyhow::Result<u64> {
+pub fn heartbeat_period_nanoseconds(poll_interval_ms: u64) -> anyhow::Result<u64> {
     poll_interval_ms.checked_mul(1_000_000).ok_or_else(|| {
         anyhow::anyhow!(
             "mysql.replication.poll_interval_ms does not fit MySQL's unsigned 64-bit heartbeat period in nanoseconds"

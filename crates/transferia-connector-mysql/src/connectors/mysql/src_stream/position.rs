@@ -12,7 +12,7 @@ pub struct MySqlBinlogPosition {
     /// Exact binlog filename bytes. They are deliberately not decoded lossily.
     pub filename: Vec<u8>,
 
-    /// MySQL's non-GTID dump command and event header both carry a 32-bit position.
+    /// `MySQL`'s non-GTID dump command and event header both carry a 32-bit position.
     pub position: u32,
 }
 
@@ -82,7 +82,8 @@ impl MySqlResumePosition {
         }
     }
 
-    pub fn fallback_position(&self) -> &MySqlBinlogPosition {
+    #[must_use]
+    pub const fn fallback_position(&self) -> &MySqlBinlogPosition {
         match self {
             Self::FilePosition { position } => position,
             Self::Gtid {
@@ -116,12 +117,12 @@ impl GtidSet {
                 return Err(PositionError::EmptyGtidSetEntry(index));
             }
             reject_sid_parser_overflow(text)?;
-            let parsed = text.parse::<Sid<'static>>().map_err(|error| {
-                PositionError::InvalidGtidSid {
-                    text: text.to_owned(),
-                    reason: error.to_string(),
-                }
-            })?;
+            let parsed =
+                text.parse::<Sid<'static>>()
+                    .map_err(|error| PositionError::InvalidGtidSid {
+                        text: text.to_owned(),
+                        reason: error.to_string(),
+                    })?;
             let sid = GtidSid {
                 sid: parsed.uuid(),
                 tag: parsed.tag().map(|tag| tag.as_str().to_owned()),
@@ -166,7 +167,7 @@ impl GtidSet {
 
     pub fn to_mysql_sids<'a>(&self) -> Result<Vec<Sid<'a>>, PositionError> {
         self.validate()?;
-        self.0.iter().map(|sid| sid.to_mysql_sid()).collect()
+        self.0.iter().map(GtidSid::to_mysql_sid).collect()
     }
 
     /// Adds one newly committed transaction while preserving canonical interval
@@ -280,6 +281,7 @@ impl GtidSid {
         self.parse_mysql_sid()
     }
 
+    #[must_use]
     pub fn to_mysql_text(&self) -> String {
         let mut out = format_uuid(self.sid);
         if let Some(tag) = &self.tag {
@@ -370,7 +372,7 @@ fn reject_sid_parser_overflow(text: &str) -> Result<(), PositionError> {
     Ok(())
 }
 
-pub(crate) fn format_uuid(sid: [u8; 16]) -> String {
+pub fn format_uuid(sid: [u8; 16]) -> String {
     let mut out = String::with_capacity(36);
     for (index, byte) in sid.into_iter().enumerate() {
         if matches!(index, 4 | 6 | 8 | 10) {

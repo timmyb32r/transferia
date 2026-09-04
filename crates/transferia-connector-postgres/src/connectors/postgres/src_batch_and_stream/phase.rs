@@ -48,7 +48,7 @@ struct PersistedTable {
     name: String,
 }
 
-pub(crate) enum SnapshotStreamPreparation {
+pub enum SnapshotStreamPreparation {
     Create(SnapshotStreamTracker),
     Streaming {
         tracker: SnapshotStreamTracker,
@@ -56,7 +56,7 @@ pub(crate) enum SnapshotStreamPreparation {
     },
 }
 
-pub(crate) struct SnapshotStreamTracker {
+pub struct SnapshotStreamTracker {
     storage: Arc<dyn DurableStorage>,
     key: String,
     revision: u64,
@@ -228,7 +228,7 @@ impl SnapshotStreamTracker {
         Ok(())
     }
 
-    pub(crate) fn streaming_lsn(&self) -> Option<u64> {
+    pub(crate) const fn streaming_lsn(&self) -> Option<u64> {
         match &self.identity.state {
             PersistedPhase::Streaming { start_lsn } => Some(*start_lsn),
             PersistedPhase::Claimed | PersistedPhase::Snapshot { .. } => None,
@@ -241,8 +241,8 @@ impl SnapshotStreamTracker {
         authoritative_tables: Option<Vec<AuthoritativeTableIdentity>>,
     ) -> anyhow::Result<()> {
         let next = PersistedState {
-            state,
             authoritative_tables,
+            state,
             ..self.identity.clone()
         };
         let payload = serde_json::to_vec(&next)?;

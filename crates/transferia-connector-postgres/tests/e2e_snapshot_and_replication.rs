@@ -278,7 +278,9 @@ async fn pgoutput_runtime_publication_drift_is_fatal_without_offset_progress() -
     let failure = match tokio::time::timeout(Duration::from_secs(10), stream.read_batch()).await {
         Ok(Err(failure)) => failure,
         Ok(Ok(_)) => panic!("publication drift emitted a batch instead of failing closed"),
-        Err(_) => panic!("publication drift was not detected before the read deadline"),
+        Err(error) => {
+            panic!("publication drift was not detected before the read deadline: {error}")
+        }
     };
     assert!(
         !failure.is_retryable(),
@@ -392,8 +394,7 @@ async fn interrupted_snapshot_stays_failed_closed_after_the_user_drops_the_exact
     )
     .await
     .context("timed out checking the interrupted slot")?
-    .err()
-    .expect("an interrupted snapshot with its slot intact must fail closed");
+    .expect_err("an interrupted snapshot with its slot intact must fail closed");
     let diagnostic = format!("{error:#}");
     assert!(diagnostic.contains(slot), "{diagnostic}");
     assert!(
@@ -426,8 +427,7 @@ async fn interrupted_snapshot_stays_failed_closed_after_the_user_drops_the_exact
     )
     .await
     .context("timed out checking slot-free interrupted snapshot state")?
-    .err()
-    .expect("an interrupted Snapshot must not be recycled after slot removal");
+    .expect_err("an interrupted Snapshot must not be recycled after slot removal");
     let diagnostic = format!("{error:#}");
     assert_eq!(
         durable.storage.read(&state_key).await?,
@@ -519,8 +519,7 @@ async fn global_slot_owner_fences_a_different_delivery_concurrently_and_sequenti
     )
     .await
     .context("timed out waiting for PostgreSQL-side slot fencing")?
-    .err()
-    .expect("an independent durable root must still be fenced by PostgreSQL");
+    .expect_err("an independent durable root must still be fenced by PostgreSQL");
     assert!(
         isolated_error
             .to_string()
@@ -571,8 +570,7 @@ async fn global_slot_owner_fences_a_different_delivery_concurrently_and_sequenti
     )
     .await
     .context("timed out waiting for connector lease fencing")?
-    .err()
-    .expect("a second connector must be fenced while the first holds the execution lease");
+    .expect_err("a second connector must be fenced while the first holds the execution lease");
     assert!(
         error
             .to_string()
@@ -616,8 +614,7 @@ async fn global_slot_owner_fences_a_different_delivery_concurrently_and_sequenti
     )
     .await
     .context("timed out checking persistent cross-delivery slot ownership")?
-    .err()
-    .expect("a different delivery must remain fenced after the live lease is released");
+    .expect_err("a different delivery must remain fenced after the live lease is released");
     let diagnostic = format!("{error:#}");
     assert!(
         diagnostic.contains("already owned by delivery 'slot-owner'"),

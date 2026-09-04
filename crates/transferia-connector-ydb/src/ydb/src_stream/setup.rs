@@ -30,14 +30,9 @@ use super::super::types::{column_plans, dataset_schema, ColumnPlan};
 use super::decoder::{validate_cdc_column_plans, YdbCdcDecoder};
 use transferia_connector_support::external_request::observe_external_request;
 use transferia_core::failure::DataPlaneFailure;
-use transferia_registry::durable::{
-    CompareExchangeResult, DurableContext, DurableLease,
-};
+use transferia_registry::durable::{CompareExchangeResult, DurableContext, DurableLease};
 
 const RESOURCE_OWNER_VERSION: u8 = 1;
-const DELIVERY_ID_ATTRIBUTE: &str = "transferia.delivery_id";
-const COORDINATION_NODE_ATTRIBUTE: &str = "transferia.coordination_node_path";
-
 #[derive(Clone)]
 pub(in crate::ydb) struct ReplicationResources {
     pub(super) tables: Arc<Vec<DiscoveredTable>>,
@@ -193,7 +188,7 @@ struct CoordinationFence {
 struct ReplicationConflictDomain<'a> {
     database: &'a str,
     coordination_node_path: &'a str,
-    delivery_id: &'a str,
+    consumer_name: &'a str,
 }
 
 struct CoordinationHeartbeat {
@@ -218,22 +213,16 @@ pub(in crate::ydb) async fn discover_replication_resources(
     config: &YdbSourceConfig,
     cancellation: &CancellationToken,
 ) -> anyhow::Result<ReplicationResources> {
-    discover_replication_resources_for_owner(config, cancellation, None).await
+    discover_replication_resources_inner(config, cancellation).await
 }
 
-async fn discover_replication_resources_for_owner(
+async fn discover_replication_resources_inner(
     config: &YdbSourceConfig,
     cancellation: &CancellationToken,
-    expected_delivery_id: Option<&str>,
 ) -> anyhow::Result<ReplicationResources> {
-    let replication = config
-        .replication
-        .as_ref()
-        .ok_or_else(|| {
-            replication_contract_violation(anyhow::anyhow!(
-                "YDB replication configuration is missing"
-            ))
-        })?;
+    let replication = config.replication.as_ref().ok_or_else(|| {
+        replication_contract_violation(anyhow::anyhow!("YDB replication configuration is missing"))
+    })?;
     replication
         .validate()
         .map_err(replication_contract_violation)?;
@@ -266,21 +255,12 @@ async fn discover_replication_resources_for_owner(
         let topic_path = table_identity.topic_path.clone();
         let topic = describe_topic(&client, &topic_path, cancellation).await?;
         let (topic_created_at, topic_topology, topic_supported_codecs, topic_attributes, consumer) =
-            validate_topic_and_consumer(
-                &topic_path,
-                &replication.consumer_name,
-                &replication.coordination_node_path,
-                expected_delivery_id,
-                topic,
-            )
-            .map_err(replication_contract_violation)?;
+            validate_topic_and_consumer(&topic_path, &replication.consumer_name, topic)
+                .map_err(replication_contract_violation)?;
 
         let columns = table_identity.columns;
-        let decoder = YdbCdcDecoder::new(
-            Arc::from(columns.clone()),
-            replication.max_message_bytes,
-        )
-        .map_err(replication_contract_violation)?;
+        let decoder = YdbCdcDecoder::new(Arc::from(columns.clone()), replication.max_message_bytes)
+            .map_err(replication_contract_violation)?;
         decoder
             .decode_admission_bytes(replication.max_message_bytes)
         .map_err(|error| {
@@ -342,27 +322,17 @@ pub(in crate::ydb) async fn prepare_replication(
             "YDB replication requires a non-empty replay identity bound to the complete replay-affecting delivery configuration"
         )));
     }
-    let resources = discover_replication_resources_for_owner(
-        config,
-        cancellation,
-        Some(durable.delivery_id.as_ref()),
-    )
-    .await?;
-    let replication = config
-        .replication
-        .as_ref()
-        .ok_or_else(|| {
-            replication_contract_violation(anyhow::anyhow!(
-                "YDB replication configuration is missing"
-            ))
-        })?;
+    let resources = discover_replication_resources_inner(config, cancellation).await?;
+    let replication = config.replication.as_ref().ok_or_else(|| {
+        replication_contract_violation(anyhow::anyhow!("YDB replication configuration is missing"))
+    })?;
     let aggregate = aggregate_identity(
         config,
         replication.coordination_node_path.clone(),
         &resources,
     )
     .map_err(replication_contract_violation)?;
-    let resource_key = replication_resource_key(&aggregate, durable.delivery_id.as_ref())
+    let resource_key = replication_resource_key(&aggregate, &replication.consumer_name)
         .map_err(replication_contract_violation)?;
     let local_lease = durable
         .resource_storage
@@ -389,9 +359,8 @@ pub(in crate::ydb) async fn prepare_replication(
         &client,
         &replication.coordination_node_path,
         &resource_key,
-        serde_json::to_vec(&owner).map_err(|error| {
-            replication_contract_violation(anyhow::Error::new(error))
-        })?,
+        serde_json::to_vec(&owner)
+            .map_err(|error| replication_contract_violation(anyhow::Error::new(error)))?,
         durable.delivery_id.as_ref(),
         cancellation,
     )
@@ -424,17 +393,15 @@ fn claim_active_source(active: &Arc<AtomicBool>) -> anyhow::Result<ActiveReplica
 
 fn replication_resource_key(
     identity: &ReplicationAggregateIdentity,
-    delivery_id: &str,
+    consumer_name: &str,
 ) -> anyhow::Result<String> {
     let conflict_domain = ReplicationConflictDomain {
         database: &identity.database,
         coordination_node_path: &identity.coordination_node_path,
-        delivery_id,
+        consumer_name,
     };
-    let digest = murmur3::murmur3_x64_128(
-        &mut Cursor::new(serde_json::to_vec(&conflict_domain)?),
-        0,
-    )?;
+    let digest =
+        murmur3::murmur3_x64_128(&mut Cursor::new(serde_json::to_vec(&conflict_domain)?), 0)?;
     Ok(format!("ydb-replication-{digest:032x}"))
 }
 
@@ -621,7 +588,7 @@ impl Drop for CoordinationFence {
     }
 }
 
-fn coordination_request(request: CoordinationRequest) -> SessionRequest {
+const fn coordination_request(request: CoordinationRequest) -> SessionRequest {
     SessionRequest {
         request: Some(request),
     }
@@ -661,8 +628,8 @@ async fn next_coordination_response(
                     .await?;
                 }
                 CoordinationResponse::Failure(failure) => {
-                    let status = StatusCode::try_from(failure.status)
-                        .unwrap_or(StatusCode::Unspecified);
+                    let status =
+                        StatusCode::try_from(failure.status).unwrap_or(StatusCode::Unspecified);
                     anyhow::bail!(
                         "YDB Coordination session failed with {}: {}",
                         status.as_str_name(),
@@ -684,7 +651,7 @@ async fn wait_for_session_started(
 ) -> anyhow::Result<std::time::Duration> {
     match next_coordination_response(responses, sender, timeout).await? {
         CoordinationResponse::SessionStarted(started) => {
-            negotiated_session_timeout(started.session_id, started.timeout_millis)
+            negotiated_session_timeout(started.session_id, started.timeout_millis, timeout)
         }
         response => anyhow::bail!(
             "YDB Coordination returned {:?} while starting a session",
@@ -696,13 +663,18 @@ async fn wait_for_session_started(
 fn negotiated_session_timeout(
     session_id: u64,
     timeout_millis: u64,
+    requested_timeout: std::time::Duration,
 ) -> anyhow::Result<std::time::Duration> {
     anyhow::ensure!(session_id != 0, "YDB Coordination returned session id zero");
     anyhow::ensure!(
-        timeout_millis > 0,
-        "YDB Coordination returned session timeout zero"
+        !requested_timeout.is_zero(),
+        "YDB Coordination session timeout must be positive"
     );
-    Ok(std::time::Duration::from_millis(timeout_millis))
+    Ok(if timeout_millis == 0 {
+        requested_timeout
+    } else {
+        std::time::Duration::from_millis(timeout_millis)
+    })
 }
 
 async fn create_semaphore(
@@ -792,11 +764,17 @@ async fn acquire_semaphore(
     )
     .await?;
     loop {
-        match next_coordination_response(responses, sender, timeout).await? {
+        match next_coordination_response(responses, sender, timeout)
+            .await
+            .map_err(|error| {
+                error.context(
+                    "YDB replication could not acquire its Coordination semaphore; another execution may own it",
+                )
+            })?
+        {
             CoordinationResponse::AcquireSemaphorePending(pending) if pending.req_id == 3 => {}
             CoordinationResponse::AcquireSemaphoreResult(result) if result.req_id == 3 => {
-                let status =
-                    StatusCode::try_from(result.status).unwrap_or(StatusCode::Unspecified);
+                let status = StatusCode::try_from(result.status).unwrap_or(StatusCode::Unspecified);
                 anyhow::ensure!(
                     status == StatusCode::Success && result.acquired,
                     "YDB replication Coordination semaphore is owned by another execution or acquisition failed with {}: {}",
@@ -847,10 +825,9 @@ fn acknowledged_heartbeat_deadline(
         acknowledged_opaque == probe.opaque,
         "YDB Coordination acknowledged an unexpected heartbeat"
     );
-    let deadline = probe
-        .sent_at
-        .checked_add(window)
-        .ok_or_else(|| anyhow::anyhow!("YDB Coordination heartbeat deadline exceeds clock range"))?;
+    let deadline = probe.sent_at.checked_add(window).ok_or_else(|| {
+        anyhow::anyhow!("YDB Coordination heartbeat deadline exceeds clock range")
+    })?;
     anyhow::ensure!(
         observed_at < deadline,
         "YDB Coordination acknowledged a heartbeat after its conservative deadline"
@@ -869,45 +846,43 @@ async fn establish_coordination_heartbeat(
         .filter(|period| !period.is_zero())
         .ok_or_else(|| anyhow::anyhow!("YDB Coordination heartbeat period is too short"))?;
     let sent_at = tokio::time::Instant::now();
-    let proof_deadline = sent_at
-        .checked_add(window)
-        .ok_or_else(|| anyhow::anyhow!("YDB Coordination heartbeat deadline exceeds clock range"))?;
+    let proof_deadline = sent_at.checked_add(window).ok_or_else(|| {
+        anyhow::anyhow!("YDB Coordination heartbeat deadline exceeds clock range")
+    })?;
     send_heartbeat(sender, 1, proof_deadline).await?;
-    loop {
-        let remaining = proof_deadline.saturating_duration_since(tokio::time::Instant::now());
-        anyhow::ensure!(
-            !remaining.is_zero(),
-            "YDB Coordination did not acknowledge the initial fence heartbeat before its conservative deadline"
-        );
-        match next_coordination_response(responses, sender, remaining).await? {
-            CoordinationResponse::Pong(pong) => {
-                let probe = HeartbeatProbe { opaque: 1, sent_at };
-                let acknowledged_deadline = acknowledged_heartbeat_deadline(
-                    &probe,
-                    pong.opaque,
-                    window,
-                    tokio::time::Instant::now(),
-                )?;
-                anyhow::ensure!(
-                    acknowledged_deadline == proof_deadline,
-                    "YDB Coordination initial heartbeat deadline changed unexpectedly"
-                );
-                return Ok(CoordinationHeartbeat {
-                    window,
-                    period,
-                    proof_deadline,
-                    next_send: sent_at
-                        .checked_add(period)
-                        .ok_or_else(|| anyhow::anyhow!("YDB Coordination heartbeat schedule exceeds clock range"))?,
-                    next_opaque: 2,
-                    outstanding: None,
-                });
-            }
-            response => anyhow::bail!(
-                "YDB Coordination returned {:?} while proving the acquired replication fence",
-                coordination_response_name(&response)
-            ),
+    let remaining = proof_deadline.saturating_duration_since(tokio::time::Instant::now());
+    anyhow::ensure!(
+        !remaining.is_zero(),
+        "YDB Coordination did not acknowledge the initial fence heartbeat before its conservative deadline"
+    );
+    match next_coordination_response(responses, sender, remaining).await? {
+        CoordinationResponse::Pong(pong) => {
+            let probe = HeartbeatProbe { opaque: 1, sent_at };
+            let acknowledged_deadline = acknowledged_heartbeat_deadline(
+                &probe,
+                pong.opaque,
+                window,
+                tokio::time::Instant::now(),
+            )?;
+            anyhow::ensure!(
+                acknowledged_deadline == proof_deadline,
+                "YDB Coordination initial heartbeat deadline changed unexpectedly"
+            );
+            Ok(CoordinationHeartbeat {
+                window,
+                period,
+                proof_deadline,
+                next_send: sent_at.checked_add(period).ok_or_else(|| {
+                    anyhow::anyhow!("YDB Coordination heartbeat schedule exceeds clock range")
+                })?,
+                next_opaque: 2,
+                outstanding: None,
+            })
         }
+        response => anyhow::bail!(
+            "YDB Coordination returned {:?} while proving the acquired replication fence",
+            coordination_response_name(&response)
+        ),
     }
 }
 
@@ -1115,8 +1090,7 @@ fn validate_table_and_changefeed(
     let entry = description
         .self_
         .ok_or_else(|| anyhow::anyhow!("YDB table '{table_path}' has no scheme identity"))?;
-    let entry_type = entry::Type::try_from(entry.r#type)
-        .unwrap_or(entry::Type::Unspecified);
+    let entry_type = entry::Type::try_from(entry.r#type).unwrap_or(entry::Type::Unspecified);
     anyhow::ensure!(
         entry_type == entry::Type::Table,
         "YDB replication path '{table_path}' is {entry_type:?}, not a row table"
@@ -1127,9 +1101,9 @@ fn validate_table_and_changefeed(
         "YDB DescribeTable returned scheme entry '{}' for requested path '{table_path}'",
         entry.name
     );
-    let created_at = entry.created_at.ok_or_else(|| {
-        anyhow::anyhow!("YDB table '{table_path}' has no creation timestamp")
-    })?;
+    let created_at = entry
+        .created_at
+        .ok_or_else(|| anyhow::anyhow!("YDB table '{table_path}' has no creation timestamp"))?;
     let matching = description
         .changefeeds
         .into_iter()
@@ -1192,7 +1166,10 @@ fn validate_table_and_changefeed(
     );
 
     let columns = column_plans(description.columns, &description.primary_key)?;
-    anyhow::ensure!(!columns.is_empty(), "YDB table '{table_path}' has no columns");
+    anyhow::ensure!(
+        !columns.is_empty(),
+        "YDB table '{table_path}' has no columns"
+    );
     validate_cdc_column_plans(&columns)?;
     Ok(ValidatedTable {
         table_path: table_path.to_owned(),
@@ -1206,12 +1183,12 @@ fn validate_table_and_changefeed(
         changefeed_state: changefeed.state,
         changefeed_virtual_timestamps: changefeed.virtual_timestamps,
         changefeed_schema_changes: changefeed.schema_changes,
-        changefeed_resolved_timestamps_interval: changefeed
-            .resolved_timestamps_interval
-            .map(|period| DurationIdentity {
+        changefeed_resolved_timestamps_interval: changefeed.resolved_timestamps_interval.map(
+            |period| DurationIdentity {
                 seconds: period.seconds,
                 nanos: period.nanos,
-            }),
+            },
+        ),
         changefeed_aws_region: changefeed.aws_region,
         changefeed_initial_scan_progress_present: changefeed.initial_scan_progress.is_some(),
         changefeed_attributes: changefeed.attributes.into_iter().collect(),
@@ -1250,7 +1227,10 @@ fn decode_topic_operation<T: Message + Default>(
     name: &str,
 ) -> anyhow::Result<T> {
     let operation = operation.ok_or_else(|| anyhow::anyhow!("YDB {name} returned no operation"))?;
-    anyhow::ensure!(operation.ready, "YDB {name} returned an asynchronous operation");
+    anyhow::ensure!(
+        operation.ready,
+        "YDB {name} returned an asynchronous operation"
+    );
     let status = StatusCode::try_from(operation.status).unwrap_or(StatusCode::Unspecified);
     anyhow::ensure!(
         status == StatusCode::Success,
@@ -1263,29 +1243,28 @@ fn decode_topic_operation<T: Message + Default>(
     Ok(T::decode(result.value.as_slice())?)
 }
 
-fn validate_topic_and_consumer(
-    topic_path: &str,
-    consumer_name: &str,
-    coordination_node_path: &str,
-    expected_delivery_id: Option<&str>,
-    topic: DescribeTopicResult,
-) -> anyhow::Result<(
+type ValidatedTopicAndConsumer = (
     VirtualTimestampIdentity,
     ValidatedTopicTopology,
     Vec<i32>,
     BTreeMap<String, String>,
     ConsumerIdentity,
-)> {
+);
+
+fn validate_topic_and_consumer(
+    topic_path: &str,
+    consumer_name: &str,
+    topic: DescribeTopicResult,
+) -> anyhow::Result<ValidatedTopicAndConsumer> {
     let topology = validate_single_partition_topology(
         topic_path,
         topic.partitioning_settings.as_ref(),
         &topic.partitions,
     )?;
-    let entry = topic
-        .self_
-        .ok_or_else(|| anyhow::anyhow!("YDB changefeed topic '{topic_path}' has no scheme identity"))?;
-    let entry_type = entry::Type::try_from(entry.r#type)
-        .unwrap_or(entry::Type::Unspecified);
+    let entry = topic.self_.ok_or_else(|| {
+        anyhow::anyhow!("YDB changefeed topic '{topic_path}' has no scheme identity")
+    })?;
+    let entry_type = entry::Type::try_from(entry.r#type).unwrap_or(entry::Type::Unspecified);
     anyhow::ensure!(
         entry_type == entry::Type::Topic,
         "YDB changefeed path '{topic_path}' is {entry_type:?}, not a topic"
@@ -1328,7 +1307,12 @@ fn validate_topic_and_consumer(
         "YDB changefeed consumer '{topic_path}/{consumer_name}' must be important so unread records cannot expire"
     );
     anyhow::ensure!(
-        consumer.read_from.is_none(),
+        consumer_read_from_is_beginning(
+            consumer
+                .read_from
+                .as_ref()
+                .map(|timestamp| (timestamp.seconds, timestamp.nanos)),
+        ),
         "YDB changefeed consumer '{topic_path}/{consumer_name}' must not set read_from because it can skip source records"
     );
     let consumer_context = format!("YDB changefeed consumer '{topic_path}/{consumer_name}'");
@@ -1342,37 +1326,6 @@ fn validate_topic_and_consumer(
         .map_or_else(Vec::new, |codecs| codecs.codecs.clone());
     consumer_supported_codecs.sort_unstable();
     validate_raw_only_codecs(&consumer_context, &consumer_supported_codecs)?;
-    validate_consumer_owner_attribute_keys(&consumer_context, &consumer.attributes)?;
-    let delivery_id = consumer
-        .attributes
-        .get(DELIVERY_ID_ATTRIBUTE)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "YDB changefeed consumer '{topic_path}/{consumer_name}' must set persistent attribute '{DELIVERY_ID_ATTRIBUTE}'"
-            )
-        })?;
-    anyhow::ensure!(
-        !delivery_id.is_empty(),
-        "YDB changefeed consumer '{topic_path}/{consumer_name}' has an empty '{DELIVERY_ID_ATTRIBUTE}' attribute"
-    );
-    if let Some(expected_delivery_id) = expected_delivery_id {
-        anyhow::ensure!(
-            delivery_id == expected_delivery_id,
-            "YDB changefeed consumer '{topic_path}/{consumer_name}' is bound to a different delivery id"
-        );
-    }
-    let bound_node = consumer
-        .attributes
-        .get(COORDINATION_NODE_ATTRIBUTE)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "YDB changefeed consumer '{topic_path}/{consumer_name}' must set persistent attribute '{COORDINATION_NODE_ATTRIBUTE}'"
-            )
-        })?;
-    anyhow::ensure!(
-        bound_node == coordination_node_path,
-        "YDB changefeed consumer '{topic_path}/{consumer_name}' is bound to coordination node '{bound_node}', not configured node '{coordination_node_path}'"
-    );
     Ok((
         VirtualTimestampIdentity {
             plan_step: created_at.plan_step,
@@ -1385,7 +1338,17 @@ fn validate_topic_and_consumer(
     ))
 }
 
-#[allow(deprecated, reason = "the exact server topology identity includes the legacy field")]
+const fn consumer_read_from_is_beginning(read_from: Option<(i64, i32)>) -> bool {
+    match read_from {
+        None => true,
+        Some((seconds, nanos)) => seconds == 0 && nanos == 0,
+    }
+}
+
+#[allow(
+    deprecated,
+    reason = "the exact server topology identity includes the legacy field"
+)]
 fn validate_single_partition_topology(
     topic_path: &str,
     partitioning: Option<&PartitioningSettings>,
@@ -1404,8 +1367,8 @@ fn validate_single_partition_topology(
                 "YDB changefeed topic '{topic_path}' has no auto-partitioning settings to prove topology growth is disabled"
             )
         })?;
-    let strategy = AutoPartitioningStrategy::try_from(auto_partitioning.strategy)
-        .map_err(|_| {
+    let strategy =
+        AutoPartitioningStrategy::try_from(auto_partitioning.strategy).map_err(|_| {
             anyhow::anyhow!(
                 "YDB changefeed topic '{topic_path}' has unknown auto-partitioning strategy {}",
                 auto_partitioning.strategy
@@ -1442,10 +1405,12 @@ fn validate_single_partition_topology(
 
     let write_speed = auto_partitioning.partition_write_speed.map(|settings| {
         AutoPartitioningWriteSpeedIdentity {
-            stabilization_window: settings.stabilization_window.map(|duration| DurationIdentity {
-                seconds: duration.seconds,
-                nanos: duration.nanos,
-            }),
+            stabilization_window: settings
+                .stabilization_window
+                .map(|duration| DurationIdentity {
+                    seconds: duration.seconds,
+                    nanos: duration.nanos,
+                }),
             up_utilization_percent: settings.up_utilization_percent,
             down_utilization_percent: settings.down_utilization_percent,
         }
@@ -1499,19 +1464,6 @@ fn validate_topic_codecs(context: &str, codecs: &[i32]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_consumer_owner_attribute_keys(
-    context: &str,
-    attributes: &std::collections::HashMap<String, String>,
-) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        attributes.len() == 2
-            && attributes.contains_key(DELIVERY_ID_ATTRIBUTE)
-            && attributes.contains_key(COORDINATION_NODE_ATTRIBUTE),
-        "{context} must have exactly the persistent attributes '{DELIVERY_ID_ATTRIBUTE}' and '{COORDINATION_NODE_ATTRIBUTE}'"
-    );
-    Ok(())
-}
-
 fn validate_consumer_availability_period(
     context: &str,
     availability_period: Option<&ydb_grpc::google_proto_workaround::protobuf::Duration>,
@@ -1561,23 +1513,23 @@ async fn persist_resource_owner(
         return validate_resource_owner(&current.payload, expected)
             .map_err(replication_contract_violation);
     }
-    let payload = serde_json::to_vec(expected).map_err(|error| {
-        replication_contract_violation(anyhow::Error::new(error))
-    })?;
+    let payload = serde_json::to_vec(expected)
+        .map_err(|error| replication_contract_violation(anyhow::Error::new(error)))?;
     match durable
         .resource_storage
         .compare_exchange(resource_key, None, &payload)
         .await?
     {
         CompareExchangeResult::Applied(_) => Ok(()),
-        CompareExchangeResult::Conflict(Some(current)) =>
+        CompareExchangeResult::Conflict(Some(current)) => {
             validate_resource_owner(&current.payload, expected)
-                .map_err(replication_contract_violation),
-        CompareExchangeResult::Conflict(None) => Err(replication_contract_violation(
-            anyhow::anyhow!(
+                .map_err(replication_contract_violation)
+        }
+        CompareExchangeResult::Conflict(None) => {
+            Err(replication_contract_violation(anyhow::anyhow!(
                 "YDB replication resource ownership changed while it was being claimed"
-            ),
-        )),
+            )))
+        }
     }
 }
 

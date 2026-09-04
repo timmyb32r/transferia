@@ -149,14 +149,13 @@ async fn splits_create_read_update_and_delete_without_storing_operation() {
 #[tokio::test]
 async fn runtime_schema_rejects_missing_arrow_extension_metadata() {
     let mut expected = discovery();
-    expected.datasets[0].incoming_schema.columns[0] = expected.datasets[0]
-        .incoming_schema
-        .columns[0]
-        .clone()
-        .with_arrow_extension_metadata(
-            "transferia.mysql.signed_integer",
-            r#"{"version":1,"column_type":"bigint"}"#,
-        );
+    expected.datasets[0].incoming_schema.columns[0] = expected.datasets[0].incoming_schema.columns
+        [0]
+    .clone()
+    .with_arrow_extension_metadata(
+        "transferia.mysql.signed_integer",
+        r#"{"version":1,"column_type":"bigint"}"#,
+    );
     let actual = batch(vec![Some("c")], vec![Some(1)]).await;
 
     assert!(validate_batch_against_discovery(&expected, &actual).is_err());
@@ -374,7 +373,10 @@ async fn full_image_collapse_keeps_columns_whose_values_did_not_change() {
         panic!("operation column must produce a changelog batch")
     };
 
-    assert_eq!(changelog.collapsed_runs().unwrap()[0].batch.num_columns(), 1);
+    assert_eq!(
+        changelog.collapsed_runs().unwrap()[0].batch.num_columns(),
+        1
+    );
     let full = changelog.collapsed_full_image_runs().unwrap();
     assert_eq!(full[0].batch.num_columns(), 2);
     assert_eq!(

@@ -685,11 +685,12 @@ pub fn validate_speedtest_prepare(
         "speedtest prepare changed the isolated dataset count"
     );
     for (expected, actual) in expected.datasets.iter().zip(&request.datasets) {
+        let same_table = expected.name == actual.table;
         let changelog = expected.system_columns.iter().any(|column| {
             column.kind == transferia_core::data::system_columns::SystemColumnKind::ChangeOperation
         });
         anyhow::ensure!(
-            expected.name == actual.table
+            same_table
                 && expected.role == actual.role
                 && schemas_are_equivalent(&expected.stored_schema, &actual.schema)
                 && changelog == actual.changelog,

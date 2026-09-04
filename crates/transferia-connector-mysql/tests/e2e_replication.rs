@@ -18,9 +18,7 @@ use testcontainers::runners::AsyncRunner as _;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt as _};
 use tokio_util::sync::CancellationToken;
 use transferia_connector_mysql::metrics::MetricsRegistry;
-use transferia_connector_mysql::mysql::{
-    connect, MySqlConnectionConfig, MySqlSourceConnector,
-};
+use transferia_connector_mysql::mysql::{connect, MySqlConnectionConfig, MySqlSourceConnector};
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{
     META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME, META_CHANGE_OPERATION,
@@ -75,29 +73,33 @@ impl MySqlFixture {
             .with_env_var("MYSQL_ROOT_PASSWORD", ROOT_PASSWORD)
             .with_env_var("MYSQL_DATABASE", DATABASE);
         let container = match mode {
-            MySqlServerMode::ReplicationReady => image
-                .with_cmd([
-                    "--server-id=1",
-                    "--log-bin=mysql-bin",
-                    "--binlog-format=ROW",
-                    "--binlog-row-image=FULL",
-                    "--binlog-row-metadata=FULL",
-                    "--binlog-transaction-compression=OFF",
-                    "--gtid-mode=ON",
-                    "--enforce-gtid-consistency=ON",
-                    "--sync-binlog=1",
-                    "--binlog-expire-logs-seconds=0",
-                ])
-                .start()
-                .await?,
-            MySqlServerMode::BinlogDisabled => image
-                .with_cmd([
-                    "--skip-log-bin",
-                    "--gtid-mode=ON",
-                    "--enforce-gtid-consistency=ON",
-                ])
-                .start()
-                .await?,
+            MySqlServerMode::ReplicationReady => {
+                image
+                    .with_cmd([
+                        "--server-id=1",
+                        "--log-bin=mysql-bin",
+                        "--binlog-format=ROW",
+                        "--binlog-row-image=FULL",
+                        "--binlog-row-metadata=FULL",
+                        "--binlog-transaction-compression=OFF",
+                        "--gtid-mode=ON",
+                        "--enforce-gtid-consistency=ON",
+                        "--sync-binlog=1",
+                        "--binlog-expire-logs-seconds=0",
+                    ])
+                    .start()
+                    .await?
+            }
+            MySqlServerMode::BinlogDisabled => {
+                image
+                    .with_cmd([
+                        "--skip-log-bin",
+                        "--gtid-mode=ON",
+                        "--enforce-gtid-consistency=ON",
+                    ])
+                    .start()
+                    .await?
+            }
         };
         let host = reachable_host(&container.get_host().await?);
         let port = container.get_host_port_ipv4(MYSQL_PORT.tcp()).await?;
@@ -219,6 +221,7 @@ impl DurableStorage for RecordingDurableStorage {
                 payload: payload.to_vec(),
             };
             values.insert(key.to_owned(), value.clone());
+            drop(values);
             Ok(CompareExchangeResult::Applied(value))
         })
     }
@@ -426,7 +429,8 @@ async fn exact_snapshot_boundary_has_no_gap_overlap_or_duplicate() -> anyhow::Re
         ))
         .await?
         .expect("completed exact snapshot must resume as stream-only");
-    let resumed_phases = resumed.execution_phases(DeliveryType::BatchAndStream, &resumed_preview)?;
+    let resumed_phases =
+        resumed.execution_phases(DeliveryType::BatchAndStream, &resumed_preview)?;
     assert_eq!(prepared.remaining_phases, vec![resumed_phases[1].clone()]);
     assert!(
         resumed
@@ -477,14 +481,7 @@ async fn exact_snapshot_boundary_has_no_gap_overlap_or_duplicate() -> anyhow::Re
                 Some(1),
                 Some("a-one"),
             ),
-            row(
-                "exact_accounts",
-                "d",
-                2,
-                "a-two",
-                Some(2),
-                Some("a-two"),
-            ),
+            row("exact_accounts", "d", 2, "a-two", Some(2), Some("a-two"),),
             row("exact_aux", "c", 20, "b-twenty", None, None),
             row("exact_aux", "c", 21, "b-twenty-one", None, None),
         ]),
@@ -699,22 +696,13 @@ async fn exhaustive_physical_types_match_snapshot_and_binlog_exactly() -> anyhow
         "transferia.mysql.date",
         &[],
     )?;
-    assert_mysql_extension(
-        &snapshot,
-        "json_value",
-        &DataType::Utf8,
-        "arrow.json",
-        &[],
-    )?;
+    assert_mysql_extension(&snapshot, "json_value", &DataType::Utf8, "arrow.json", &[])?;
     assert_mysql_extension(
         &snapshot,
         "enum_empty",
         &DataType::UInt16,
         "transferia.mysql.enum",
-        &[(
-            "enum_set_values",
-            serde_json::json!(["", "plain"]),
-        )],
+        &[("enum_set_values", serde_json::json!(["", "plain"]))],
     )?;
     assert_mysql_extension(
         &snapshot,
@@ -738,10 +726,7 @@ async fn exhaustive_physical_types_match_snapshot_and_binlog_exactly() -> anyhow
         "stored_generated",
         &DataType::Int64,
         "transferia.mysql.signed_integer",
-        &[(
-            "generation",
-            serde_json::Value::String("stored".to_owned()),
-        )],
+        &[("generation", serde_json::Value::String("stored".to_owned()))],
     )?;
     assert_mysql_extension(
         &snapshot,
@@ -791,7 +776,9 @@ async fn exhaustive_physical_types_match_snapshot_and_binlog_exactly() -> anyhow
     assert_operation(&updated_table, 0, "u")?;
     stream.commit_offsets(&[updated.marker]).await?;
 
-    admin.query_drop("DELETE FROM type_parity WHERE id = 3").await?;
+    admin
+        .query_drop("DELETE FROM type_parity WHERE id = 3")
+        .await?;
     let deleted = read_nonempty(&mut stream).await?;
     let deleted_table = take_only_table(deleted.tables, "type_parity")?;
     assert_user_columns_equal(&updated_table, 0, &deleted_table, 0, &[])?;
@@ -889,8 +876,7 @@ async fn durable_offset_replays_until_commit_and_filtered_transactions_checkpoin
             "mysql-replication-e2e-revision-2",
         ))
         .await
-        .err()
-        .expect("a changed replay identity was allowed to read the existing binlog state");
+        .expect_err("a changed replay identity was allowed to read the existing binlog state");
     let diagnostic = format!("{mismatch:#}").to_lowercase();
     assert!(
         diagnostic.contains("replay") && diagnostic.contains("identity"),
@@ -924,14 +910,7 @@ async fn durable_offset_replays_until_commit_and_filtered_transactions_checkpoin
     observe_tables(&mut observed, after.tables)?;
     assert_eq!(
         observed.rows,
-        vec![row(
-            "replay_events",
-            "c",
-            2,
-            "after-checkpoint",
-            None,
-            None,
-        )],
+        vec![row("replay_events", "c", 2, "after-checkpoint", None, None,)],
         "restart replayed a committed selected or filtered transaction"
     );
     stream.commit_offsets(&[after.marker]).await?;
@@ -977,9 +956,12 @@ async fn runtime_schema_drift_is_fatal_without_offset_progress() -> anyhow::Resu
     let failure = match tokio::time::timeout(TEST_TIMEOUT, stream.read_batch()).await {
         Ok(Err(failure)) => failure,
         Ok(Ok(batch)) => panic!("schema drift emitted {batch:?} instead of failing closed"),
-        Err(_) => panic!("schema drift was not detected before the read deadline"),
+        Err(error) => panic!("schema drift was not detected before the read deadline: {error}"),
     };
-    assert!(!failure.is_retryable(), "schema drift was retryable: {failure}");
+    assert!(
+        !failure.is_retryable(),
+        "schema drift was retryable: {failure}"
+    );
     let diagnostic = failure.to_string().to_lowercase();
     assert!(
         diagnostic.contains("unsupportedstatement") && diagnostic.contains("schema"),
@@ -1046,14 +1028,7 @@ async fn rotation_resumes_exactly_and_purged_required_history_is_fatal() -> anyh
     observe_tables(&mut observed, after_rotate.tables)?;
     assert_eq!(
         observed.rows,
-        vec![row(
-            "rotate_events",
-            "c",
-            2,
-            "after-rotate",
-            None,
-            None,
-        )],
+        vec![row("rotate_events", "c", 2, "after-rotate", None, None,)],
         "restart across rotation replayed a committed transaction or skipped the new file"
     );
     stream.commit_offsets(&[after_rotate.marker]).await?;
@@ -1084,8 +1059,7 @@ async fn rotation_resumes_exactly_and_purged_required_history_is_fatal() -> anyh
             &cancellation,
         ))
         .await
-        .err()
-        .expect("a purged required transaction was silently skipped");
+        .expect_err("a purged required transaction was silently skipped");
     let diagnostic = format!("{error:#}").to_lowercase();
     assert!(
         diagnostic.contains("purged")
@@ -1139,8 +1113,7 @@ async fn mysql_named_lock_fences_independent_durable_roots_without_disrupting_ow
     )
     .await
     .context("timed out waiting for MySQL-side ownership fencing")?
-    .err()
-    .expect("an independent durable root acquired an already-active replica server id");
+    .expect_err("an independent durable root acquired an already-active replica server id");
     let diagnostic = format!("{error:#}").to_lowercase();
     assert!(
         diagnostic.contains("active")
@@ -1161,14 +1134,7 @@ async fn mysql_named_lock_fences_independent_durable_roots_without_disrupting_ow
     observe_tables(&mut observed, batch.tables)?;
     assert_eq!(
         observed.rows,
-        vec![row(
-            "fenced_events",
-            "c",
-            1,
-            "owner-alive",
-            None,
-            None,
-        )],
+        vec![row("fenced_events", "c", 1, "owner-alive", None, None,)],
         "contender disconnected or stole the active binlog reader"
     );
     owner_stream.commit_offsets(&[batch.marker]).await?;
@@ -1194,8 +1160,8 @@ async fn invalid_server_contracts_fail_before_durable_state() -> anyhow::Result<
         &["no_binlog_events"],
         Some(FIRST_REPLICA_SERVER_ID + 4),
     );
-    let error = reject_before_execution(&config, DeliveryType::Stream, &durable, &cancellation)
-        .await?;
+    let error =
+        reject_before_execution(&config, DeliveryType::Stream, &durable, &cancellation).await?;
     assert!(error.to_lowercase().contains("log_bin"), "{error}");
     assert!(durable.is_empty());
     admin.disconnect().await?;
@@ -1240,8 +1206,8 @@ async fn invalid_server_contracts_fail_before_durable_state() -> anyhow::Result<
         &["minimal_events"],
         Some(FIRST_REPLICA_SERVER_ID + 6),
     );
-    let error = reject_before_execution(&config, DeliveryType::Stream, &durable, &cancellation)
-        .await?;
+    let error =
+        reject_before_execution(&config, DeliveryType::Stream, &durable, &cancellation).await?;
     let diagnostic = error.to_lowercase();
     assert!(
         diagnostic.contains("binlog_transaction_compression"),
@@ -1264,8 +1230,8 @@ async fn invalid_server_contracts_fail_before_durable_state() -> anyhow::Result<
         &["no_primary_key"],
         Some(FIRST_REPLICA_SERVER_ID + 7),
     );
-    let error = reject_before_execution(&config, DeliveryType::Stream, &durable, &cancellation)
-        .await?;
+    let error =
+        reject_before_execution(&config, DeliveryType::Stream, &durable, &cancellation).await?;
     let diagnostic = error.to_lowercase();
     assert!(diagnostic.contains("primary key"), "{diagnostic}");
     assert!(durable.is_empty());
@@ -1339,8 +1305,7 @@ async fn interrupted_snapshot_is_not_silently_restarted() -> anyhow::Result<()> 
             &cancellation,
         ))
         .await
-        .err()
-        .expect("interrupted snapshot was silently recycled");
+        .expect_err("interrupted snapshot was silently recycled");
     let diagnostic = format!("{error:#}").to_lowercase();
     assert!(diagnostic.contains("snapshot"), "{diagnostic}");
     assert!(
@@ -1410,15 +1375,11 @@ async fn mariadb_rejects_replication_early_while_batch_snapshot_remains_supporte
         let durable = TestDurable::new(match delivery_type {
             DeliveryType::Stream => "mariadb-stream",
             DeliveryType::BatchAndStream => "mariadb-combined",
-            DeliveryType::Batch => unreachable!(),
+            DeliveryType::Batch => panic!("batch is not part of the replication test matrix"),
         });
-        let error = reject_before_execution(
-            &replication_config,
-            delivery_type,
-            &durable,
-            &cancellation,
-        )
-        .await?;
+        let error =
+            reject_before_execution(&replication_config, delivery_type, &durable, &cancellation)
+                .await?;
         let diagnostic = error.to_lowercase();
         assert!(diagnostic.contains("mariadb"), "{diagnostic}");
         assert!(
@@ -1740,7 +1701,9 @@ fn assert_user_columns_equal(
             expected_field.name()
         );
         anyhow::ensure!(
-            expected_field.metadata().contains_key(META_ARROW_EXTENSION_NAME)
+            expected_field
+                .metadata()
+                .contains_key(META_ARROW_EXTENSION_NAME)
                 && expected_field
                     .metadata()
                     .contains_key(META_ARROW_EXTENSION_METADATA),
@@ -1810,7 +1773,11 @@ fn assert_mysql_extension(
 
 fn assert_old_values_are_null_and_typed(table: &TableData, row: usize) -> anyhow::Result<()> {
     let schema = table.batch.schema();
-    for current in schema.fields().iter().filter(|field| is_mysql_user_current_field(field)) {
+    for current in schema
+        .fields()
+        .iter()
+        .filter(|field| is_mysql_user_current_field(field))
+    {
         let old_index = old_value_index(table, current.name())?;
         let old = schema.field(old_index);
         assert_old_field_matches_current(current, old)?;
@@ -1875,8 +1842,7 @@ fn assert_old_field_matches_current(
         );
     }
     anyhow::ensure!(
-        old.metadata().get(META_OLD_VALUE_OF).map(String::as_str)
-            == Some(current.name().as_str()),
+        old.metadata().get(META_OLD_VALUE_OF).map(String::as_str) == Some(current.name().as_str()),
         "old-value field is not paired with '{}'",
         current.name()
     );
@@ -2095,12 +2061,7 @@ fn execution_context(
     durable: &DurableContext,
     cancellation: &CancellationToken,
 ) -> SourceExecutionContext {
-    execution_context_with_replay_identity(
-        delivery_type,
-        durable,
-        cancellation,
-        REPLAY_IDENTITY,
-    )
+    execution_context_with_replay_identity(delivery_type, durable, cancellation, REPLAY_IDENTITY)
 }
 
 fn execution_context_with_replay_identity(
@@ -2156,7 +2117,7 @@ fn connection_config(
 }
 
 async fn wait_for_mysql(config: &MySqlConnectionConfig) -> anyhow::Result<mysql_async::Conn> {
-    tokio::time::timeout(Duration::from_secs(60), async {
+    tokio::time::timeout(Duration::from_mins(1), async {
         loop {
             match connect(config).await {
                 Ok(connection) => return connection,

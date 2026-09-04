@@ -92,10 +92,7 @@ fn encode_envelope(
     let mut actions = Vec::with_capacity(batch.num_rows());
     for row in 0..batch.num_rows() {
         anyhow::ensure!(!ids.is_null(row), "OpenSearch _id must not be null");
-        anyhow::ensure!(
-            !sources.is_null(row),
-            "OpenSearch _source must not be null"
-        );
+        anyhow::ensure!(!sources.is_null(row), "OpenSearch _source must not be null");
         anyhow::ensure!(
             !routing_keys.is_null(row),
             "OpenSearch _routing_key must not be null"
@@ -119,8 +116,9 @@ fn encode_envelope(
             RoutedIdentity::EncodeIdentity => routed_document_id(id, routing_key)?,
         };
         let source = sources.value(row);
-        let parsed: Box<RawValue> = serde_json::from_str(source)
-            .map_err(|error| anyhow::anyhow!("OpenSearch _source for _id '{id}' is invalid JSON: {error}"))?;
+        let parsed: Box<RawValue> = serde_json::from_str(source).map_err(|error| {
+            anyhow::anyhow!("OpenSearch _source for _id '{id}' is invalid JSON: {error}")
+        })?;
         anyhow::ensure!(
             parsed
                 .get()
@@ -140,7 +138,11 @@ fn encode_envelope(
 }
 
 fn routed_document_id(id: &str, routing_key: &str) -> anyhow::Result<String> {
-    let mut encoded = Vec::with_capacity(id.len().saturating_add(routing_key.len()).saturating_add(64));
+    let mut encoded = Vec::with_capacity(
+        id.len()
+            .saturating_add(routing_key.len())
+            .saturating_add(64),
+    );
     append_bytes(&mut encoded, b"transferia:opensearch:routed-identity:v1")?;
     append_bytes(&mut encoded, id.as_bytes())?;
     append_bytes(&mut encoded, routing_key.as_bytes())?;
@@ -203,8 +205,14 @@ fn encode_flat(
             if column.name == "_id" || column.name == "_routing" {
                 continue;
             }
-            let value = arrow_json_value(batch.column(position).as_ref(), row, column.arrow_extension_name)
-                .map_err(|error| anyhow::anyhow!("cannot encode OpenSearch field '{}': {error}", column.name))?;
+            let value = arrow_json_value(
+                batch.column(position).as_ref(),
+                row,
+                column.arrow_extension_name,
+            )
+            .map_err(|error| {
+                anyhow::anyhow!("cannot encode OpenSearch field '{}': {error}", column.name)
+            })?;
             object.insert(column.name.clone(), value);
         }
         let source = serde_json::to_vec(&Value::Object(object))?;
@@ -260,7 +268,8 @@ fn composite_document_id(
             schema.columns[*position].arrow_extension_name,
         )?;
         append_bytes(&mut encoded, type_tag.as_bytes())?;
-        let value = stable_scalar_bytes(array, row, schema.columns[*position].arrow_extension_name)?;
+        let value =
+            stable_scalar_bytes(array, row, schema.columns[*position].arrow_extension_name)?;
         append_bytes(&mut encoded, &value)?;
     }
     Ok(URL_SAFE_NO_PAD.encode(encoded))
@@ -286,11 +295,17 @@ fn stable_scalar_bytes(
     }
     Ok(match array.data_type() {
         DataType::Boolean => vec![u8::from(downcast::<BooleanArray>(array)?.value(row))],
-        DataType::Int8 => downcast::<Int8Array>(array)?.value(row).to_be_bytes().to_vec(),
+        DataType::Int8 => downcast::<Int8Array>(array)?
+            .value(row)
+            .to_be_bytes()
+            .to_vec(),
         DataType::Int16 => bytes!(Int16Array),
         DataType::Int32 => bytes!(Int32Array),
         DataType::Int64 => bytes!(Int64Array),
-        DataType::UInt8 => downcast::<UInt8Array>(array)?.value(row).to_be_bytes().to_vec(),
+        DataType::UInt8 => downcast::<UInt8Array>(array)?
+            .value(row)
+            .to_be_bytes()
+            .to_vec(),
         DataType::UInt16 => bytes!(UInt16Array),
         DataType::UInt32 => bytes!(UInt32Array),
         DataType::UInt64 => bytes!(UInt64Array),
@@ -304,8 +319,14 @@ fn stable_scalar_bytes(
             anyhow::ensure!(value.is_finite(), "non-finite primary-key value {value}");
             value.to_bits().to_be_bytes().to_vec()
         }
-        DataType::Utf8 => downcast::<StringArray>(array)?.value(row).as_bytes().to_vec(),
-        DataType::LargeUtf8 => downcast::<LargeStringArray>(array)?.value(row).as_bytes().to_vec(),
+        DataType::Utf8 => downcast::<StringArray>(array)?
+            .value(row)
+            .as_bytes()
+            .to_vec(),
+        DataType::LargeUtf8 => downcast::<LargeStringArray>(array)?
+            .value(row)
+            .as_bytes()
+            .to_vec(),
         DataType::Binary => downcast::<BinaryArray>(array)?.value(row).to_vec(),
         DataType::LargeBinary => downcast::<LargeBinaryArray>(array)?.value(row).to_vec(),
         DataType::FixedSizeBinary(_) => {
@@ -315,8 +336,8 @@ fn stable_scalar_bytes(
         DataType::Decimal256(_, _) => bytes!(Decimal256Array),
         DataType::Date32 => bytes!(Date32Array),
         DataType::Date64 => bytes!(Date64Array),
-        DataType::Timestamp(unit, _) => timestamp_value(array, row, unit)?.to_be_bytes().to_vec(),
-        DataType::Duration(unit) => duration_value(array, row, unit)?.to_be_bytes().to_vec(),
+        DataType::Timestamp(unit, _) => timestamp_value(array, row, *unit)?.to_be_bytes().to_vec(),
+        DataType::Duration(unit) => duration_value(array, row, *unit)?.to_be_bytes().to_vec(),
         other => anyhow::bail!("unsupported primary-key Arrow type {other:?}"),
     })
 }
@@ -348,10 +369,10 @@ pub(super) fn stable_type_tag(
         DataType::Date64 => "date64".to_owned(),
         DataType::Timestamp(unit, timezone) => format!(
             "timestamp:{}:{}",
-            stable_time_unit(unit),
+            stable_time_unit(*unit),
             timezone.as_deref().unwrap_or("")
         ),
-        DataType::Duration(unit) => format!("duration:{}", stable_time_unit(unit)),
+        DataType::Duration(unit) => format!("duration:{}", stable_time_unit(*unit)),
         other => anyhow::bail!("unsupported primary-key Arrow type {other:?}"),
     };
     Ok(match extension {
@@ -360,7 +381,7 @@ pub(super) fn stable_type_tag(
     })
 }
 
-const fn stable_time_unit(unit: &TimeUnit) -> &'static str {
+const fn stable_time_unit(unit: TimeUnit) -> &'static str {
     match unit {
         TimeUnit::Second => "s",
         TimeUnit::Millisecond => "ms",
@@ -386,7 +407,10 @@ pub(super) fn validate_document_id(id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_lines, reason = "all supported Arrow scalars are validated at one lossless boundary")]
+#[allow(
+    clippy::too_many_lines,
+    reason = "all supported Arrow scalars are validated at one lossless boundary"
+)]
 fn arrow_json_value(
     array: &dyn Array,
     row: usize,
@@ -404,7 +428,10 @@ fn arrow_json_value(
         return serde_json::from_str(text)
             .map_err(|error| anyhow::anyhow!("arrow.json value is invalid: {error}"));
     }
-    anyhow::ensure!(extension.is_none(), "unsupported Arrow extension '{:?}'", extension);
+    anyhow::ensure!(
+        extension.is_none(),
+        "unsupported Arrow extension '{extension:?}'"
+    );
     macro_rules! integer {
         ($array:ty) => {
             Value::Number(Number::from(downcast::<$array>(array)?.value(row)))
@@ -426,7 +453,9 @@ fn arrow_json_value(
         DataType::LargeUtf8 => {
             Value::String(downcast::<LargeStringArray>(array)?.value(row).to_owned())
         }
-        DataType::Binary => Value::String(STANDARD.encode(downcast::<BinaryArray>(array)?.value(row))),
+        DataType::Binary => {
+            Value::String(STANDARD.encode(downcast::<BinaryArray>(array)?.value(row)))
+        }
         DataType::LargeBinary => {
             Value::String(STANDARD.encode(downcast::<LargeBinaryArray>(array)?.value(row)))
         }
@@ -443,20 +472,22 @@ fn arrow_json_value(
         )),
         DataType::Date32 => integer!(Date32Array),
         DataType::Date64 => integer!(Date64Array),
-        DataType::Timestamp(unit, _) => Value::Number(Number::from(timestamp_value(array, row, unit)?)),
-        DataType::Duration(unit) => Value::Number(Number::from(duration_value(array, row, unit)?)),
+        DataType::Timestamp(unit, _) => {
+            Value::Number(Number::from(timestamp_value(array, row, *unit)?))
+        }
+        DataType::Duration(unit) => Value::Number(Number::from(duration_value(array, row, *unit)?)),
         other => anyhow::bail!("unsupported Arrow type {other:?}"),
     })
 }
 
 fn finite_number(value: f64) -> anyhow::Result<Value> {
     anyhow::ensure!(value.is_finite(), "non-finite floating-point value {value}");
-    Ok(Value::Number(
-        Number::from_f64(value).ok_or_else(|| anyhow::anyhow!("invalid floating-point value"))?,
-    ))
+    Ok(Value::Number(Number::from_f64(value).ok_or_else(|| {
+        anyhow::anyhow!("invalid floating-point value")
+    })?))
 }
 
-fn timestamp_value(array: &dyn Array, row: usize, unit: &TimeUnit) -> anyhow::Result<i64> {
+fn timestamp_value(array: &dyn Array, row: usize, unit: TimeUnit) -> anyhow::Result<i64> {
     Ok(match unit {
         TimeUnit::Second => downcast::<TimestampSecondArray>(array)?.value(row),
         TimeUnit::Millisecond => downcast::<TimestampMillisecondArray>(array)?.value(row),
@@ -465,7 +496,7 @@ fn timestamp_value(array: &dyn Array, row: usize, unit: &TimeUnit) -> anyhow::Re
     })
 }
 
-fn duration_value(array: &dyn Array, row: usize, unit: &TimeUnit) -> anyhow::Result<i64> {
+fn duration_value(array: &dyn Array, row: usize, unit: TimeUnit) -> anyhow::Result<i64> {
     Ok(match unit {
         TimeUnit::Second => downcast::<DurationSecondArray>(array)?.value(row),
         TimeUnit::Millisecond => downcast::<DurationMillisecondArray>(array)?.value(row),
@@ -479,7 +510,10 @@ fn decimal_text(unscaled: &str, scale: i8) -> String {
         return unscaled.to_owned();
     }
     if scale < 0 {
-        return format!("{unscaled}{}", "0".repeat(usize::from(scale.unsigned_abs())));
+        return format!(
+            "{unscaled}{}",
+            "0".repeat(usize::from(scale.unsigned_abs()))
+        );
     }
     let negative = unscaled.starts_with('-');
     let digits = unscaled.strip_prefix('-').unwrap_or(unscaled);

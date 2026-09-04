@@ -140,9 +140,10 @@ fn postgres_and_mysql_changelogs_to_iceberg_are_exactly_once() {
         );
         assert_eq!(report.guarantee, DeliveryGuarantee::ExactlyOnce);
         assert!(report.ensure_valid().is_ok());
-        assert!(report.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == DiagnosticCode::DeterministicIcebergReplica
-        }));
+        assert!(report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code == DiagnosticCode::DeterministicIcebergReplica }));
     }
 }
 

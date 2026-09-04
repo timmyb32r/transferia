@@ -312,8 +312,7 @@ fn mysql_debezium_projects_exact_physical_values() -> anyhow::Result<()> {
 }
 
 #[test]
-fn mysql_debezium_tinyint_one_stays_numeric_across_the_full_signed_domain(
-) -> anyhow::Result<()> {
+fn mysql_debezium_tinyint_one_stays_numeric_across_the_full_signed_domain() -> anyhow::Result<()> {
     let field = mysql_field(
         "tinyint1",
         DataType::Int8,
@@ -345,8 +344,7 @@ fn mysql_debezium_tinyint_one_stays_numeric_across_the_full_signed_domain(
 }
 
 #[test]
-fn mysql_debezium_temporal_precision_matrix_matches_connect_logical_units(
-) -> anyhow::Result<()> {
+fn mysql_debezium_temporal_precision_matrix_matches_connect_logical_units() -> anyhow::Result<()> {
     for (precision, datetime, expected_datetime, time, expected_time) in [
         (0, "1970-01-01 00:00:01", 1_000, "04:05:06", 14_706_000_000),
         (
@@ -406,10 +404,7 @@ fn mysql_debezium_temporal_precision_matrix_matches_connect_logical_units(
         );
     }
 
-    assert_eq!(
-        mysql_time_timestamp("-123:27:36.123", 3)?,
-        -444_456_123_000
-    );
+    assert_eq!(mysql_time_timestamp("-123:27:36.123", 3)?, -444_456_123_000);
     assert_eq!(
         mysql_time_timestamp("838:59:59.999999", 6)?,
         3_020_399_999_999
@@ -452,12 +447,9 @@ fn mysql_debezium_rejects_noninjective_or_unsupported_physical_values() {
         } else {
             DataType::Binary
         };
-        let column = transferia_core::data::schema::SchemaColumn::new(
-            "unsafe".to_owned(),
-            data_type,
-            false,
-        )
-        .with_arrow_extension_metadata(extension, metadata);
+        let column =
+            transferia_core::data::schema::SchemaColumn::new("unsafe".to_owned(), data_type, false)
+                .with_arrow_extension_metadata(extension, metadata);
         let error = validate_mysql_debezium_column(&column)
             .unwrap_err()
             .to_string();

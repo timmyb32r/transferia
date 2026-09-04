@@ -1,9 +1,7 @@
 use mysql_async::binlog::events::{BinlogEventFooter, Event, FormatDescriptionEvent};
 use mysql_async::binlog::{BinlogChecksumAlg, BinlogVersion, EventType};
 
-use super::super::{
-    verify_event_checksum, BinlogChecksumError, BinlogChecksumVerifier,
-};
+use super::super::{verify_event_checksum, BinlogChecksumError, BinlogChecksumVerifier};
 
 #[test]
 fn crc32_is_verified_and_corruption_fails_closed() {
@@ -99,9 +97,9 @@ fn artificial_rotate_uses_header_position_then_crc32_fde_establishes_checksum_st
 pub(super) fn raw_event(event_type: EventType, data: &[u8], start: u32) -> Event {
     let bytes = raw_event_bytes(event_type, data, start, true);
     Event::read(
-        &FormatDescriptionEvent::new(BinlogVersion::Version4).with_footer(
-            BinlogEventFooter::new(BinlogChecksumAlg::BINLOG_CHECKSUM_ALG_CRC32),
-        ),
+        &FormatDescriptionEvent::new(BinlogVersion::Version4).with_footer(BinlogEventFooter::new(
+            BinlogChecksumAlg::BINLOG_CHECKSUM_ALG_CRC32,
+        )),
         bytes.as_slice(),
     )
     .unwrap()

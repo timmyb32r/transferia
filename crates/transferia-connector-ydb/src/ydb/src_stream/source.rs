@@ -6,9 +6,8 @@ use std::time::Instant;
 use arrow::array::{
     ArrayRef, BinaryBuilder, BooleanArray, Date32Array, DurationMicrosecondArray,
     FixedSizeBinaryBuilder, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
-    Int64Builder, Int8Array, StringArray, StringBuilder,
-    TimestampMicrosecondArray, TimestampSecondArray, UInt16Array, UInt32Array, UInt64Array,
-    UInt8Array,
+    Int64Builder, Int8Array, StringArray, StringBuilder, TimestampMicrosecondArray,
+    TimestampSecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
@@ -61,7 +60,7 @@ struct SourceMetadataColumn {
     data_type: DataType,
 }
 
-fn source_metadata_columns() -> [SourceMetadataColumn; 4] {
+const fn source_metadata_columns() -> [SourceMetadataColumn; 4] {
     [
         SourceMetadataColumn {
             name: "_system_source_database",
@@ -112,11 +111,14 @@ pub(in crate::ydb) fn replication_discovery(
                     column
                 })
                 .collect::<Vec<_>>();
-            incoming_columns.extend(table.schema.columns.iter().enumerate().map(
-                |(index, column)| {
-                    old_schema_column(index, column)
-                },
-            ));
+            incoming_columns.extend(
+                table
+                    .schema
+                    .columns
+                    .iter()
+                    .enumerate()
+                    .map(|(index, column)| old_schema_column(index, column)),
+            );
             incoming_columns.extend(source_metadata_columns().map(|column| {
                 SchemaColumn::new(column.name.to_owned(), column.data_type, false)
                     .with_system_role(column.role)
@@ -166,12 +168,8 @@ pub(in crate::ydb) fn replication_discovery(
 }
 
 fn old_schema_column(index: usize, column: &SchemaColumn) -> SchemaColumn {
-    let mut old = SchemaColumn::new(
-        old_value_column_name(index),
-        column.data_type.clone(),
-        true,
-    )
-    .with_old_value_of(column.name.clone());
+    let mut old = SchemaColumn::new(old_value_column_name(index), column.data_type.clone(), true)
+        .with_old_value_of(column.name.clone());
     if let Some(extension) = column.arrow_extension_name {
         old = old.with_arrow_extension(extension);
     }
@@ -240,14 +238,9 @@ impl YdbReplicationSource {
         memory: PipelineMemory,
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
-        let replication = config
-            .replication
-            .as_ref()
-            .ok_or_else(|| {
-                fatal_connector_error(anyhow::anyhow!(
-                    "YDB replication configuration is missing"
-                ))
-            })?;
+        let replication = config.replication.as_ref().ok_or_else(|| {
+            fatal_connector_error(anyhow::anyhow!("YDB replication configuration is missing"))
+        })?;
         let active_source = prepared.claim_source()?;
         if prepared.resources.tables.len() != prepared.resources.topics.len()
             || prepared.resources.tables.len() != prepared.resources.topic_partition_ids.len()
@@ -593,13 +586,9 @@ fn decode_and_materialization_admission_bytes(
     let mut initial = size_of::<Vec<Vec<DecodedRecord>>>()
         .checked_add(size_of::<Vec<usize>>())
         .and_then(|value| {
-            value.checked_add(
-                tables.len().checked_mul(
-                    size_of::<Vec<DecodedRecord>>()
-                        + size_of::<TableData>()
-                        + size_of::<usize>(),
-                )?,
-            )
+            value.checked_add(tables.len().checked_mul(
+                size_of::<Vec<DecodedRecord>>() + size_of::<TableData>() + size_of::<usize>(),
+            )?)
         })
         .and_then(|value| value.checked_add(3 * size_of::<MemoryReservation>()))
         .ok_or_else(|| anyhow::anyhow!("YDB CDC output container admission overflow"))?;
@@ -607,15 +596,15 @@ fn decode_and_materialization_admission_bytes(
         let field_count = table.schema.fields().len();
         initial = initial
             .checked_add(table.table.config.name().len() + 2 * size_of::<usize>())
-            .and_then(|value| value.checked_add(size_of::<RecordBatch>() + size_of::<Arc<Schema>>()))
             .and_then(|value| {
-                value.checked_add(
-                    field_count.checked_mul(
-                        size_of::<ArrayRef>()
-                            + size_of::<arrow::array::ArrayData>()
-                            + 2 * size_of::<usize>(),
-                    )?,
-                )
+                value.checked_add(size_of::<RecordBatch>() + size_of::<Arc<Schema>>())
+            })
+            .and_then(|value| {
+                value.checked_add(field_count.checked_mul(
+                    size_of::<ArrayRef>()
+                        + size_of::<arrow::array::ArrayData>()
+                        + 2 * size_of::<usize>(),
+                )?)
             })
             .and_then(|value| {
                 value.checked_add(
@@ -844,20 +833,10 @@ fn schema_column_metadata_shape(column: &SchemaColumn) -> anyhow::Result<(usize,
         add_metadata_shape(&mut entries, &mut payload, META_SYSTEM_ROLE, role.len())?;
     }
     if let Some(current) = &column.old_value_of {
-        add_metadata_shape(
-            &mut entries,
-            &mut payload,
-            META_OLD_VALUE_OF,
-            current.len(),
-        )?;
+        add_metadata_shape(&mut entries, &mut payload, META_OLD_VALUE_OF, current.len())?;
     }
     if let Some(current) = &column.old_key_of {
-        add_metadata_shape(
-            &mut entries,
-            &mut payload,
-            META_OLD_KEY_OF,
-            current.len(),
-        )?;
+        add_metadata_shape(&mut entries, &mut payload, META_OLD_KEY_OF, current.len())?;
     }
     Ok((entries, payload))
 }
@@ -966,7 +945,9 @@ fn retained_source_batch_bytes(
                         .name
                         .len()
                         .checked_add(2 * size_of::<usize>())
-                        .ok_or_else(|| anyhow::anyhow!("YDB CDC system-column name accounting overflow"))?,
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("YDB CDC system-column name accounting overflow")
+                        })?,
                 )
                 .ok_or_else(|| anyhow::anyhow!("YDB CDC system-column name accounting overflow"))?;
         }
@@ -990,12 +971,7 @@ fn materialize_table(
         )?);
     }
     for (index, column) in table.columns.iter().enumerate() {
-        arrays.push(cdc_column_array(
-            rows,
-            column,
-            index,
-            ValueProjection::Old,
-        )?);
+        arrays.push(cdc_column_array(rows, column, index, ValueProjection::Old)?);
     }
     for metadata in source_metadata_columns() {
         arrays.push(source_metadata_array(metadata.role, database, table, rows)?);
@@ -1177,9 +1153,10 @@ fn source_metadata_array(
         SYSTEM_ROLE_SOURCE_DATABASE => {
             Arc::new(StringArray::from(vec![database; rows.len()])) as ArrayRef
         }
-        SYSTEM_ROLE_SOURCE_TABLE => {
-            Arc::new(StringArray::from(vec![table.config.path.as_str(); rows.len()])) as ArrayRef
-        }
+        SYSTEM_ROLE_SOURCE_TABLE => Arc::new(StringArray::from(vec![
+            table.config.path.as_str();
+            rows.len()
+        ])) as ArrayRef,
         SYSTEM_ROLE_SOURCE_TRANSACTION_ID => {
             let mut builder = FixedSizeBinaryBuilder::with_capacity(rows.len(), 16);
             for row in rows {

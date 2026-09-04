@@ -10,8 +10,11 @@ use super::super::RoutedIdentity;
 
 fn envelope_schema() -> DatasetSchema {
     DatasetSchema::new(vec![
-        SchemaColumn::new("_id".to_owned(), DataType::Utf8, false)
-            .with_constraints(true, false, Some(512)),
+        SchemaColumn::new("_id".to_owned(), DataType::Utf8, false).with_constraints(
+            true,
+            false,
+            Some(512),
+        ),
         SchemaColumn::new("_routing".to_owned(), DataType::Utf8, true),
         SchemaColumn::new("_source".to_owned(), DataType::Utf8, false)
             .with_arrow_extension(ARROW_JSON_EXTENSION_NAME),
@@ -43,7 +46,10 @@ fn exact_envelope_preserves_source_bytes_and_routes_in_metadata() {
     );
     assert_eq!(document_shape(&envelope_schema()), DocumentShape::Envelope);
     let actions = encode_batch("logs", &envelope_schema(), &batch, RoutedIdentity::Fail).unwrap();
-    let lines = actions[0].ndjson.split(|byte| *byte == b'\n').collect::<Vec<_>>();
+    let lines = actions[0]
+        .ndjson
+        .split(|byte| *byte == b'\n')
+        .collect::<Vec<_>>();
     let metadata: serde_json::Value = serde_json::from_slice(lines[0]).unwrap();
     assert_eq!(metadata["index"]["_id"], "raw-id");
     assert!(metadata["index"].get("routing").is_none());
@@ -67,13 +73,8 @@ fn routed_envelope_requires_explicit_injective_identity_encoding() {
             Arc::new(StringArray::from(vec!["route-a", "route-b"])),
         ],
     );
-    let default_error = encode_batch(
-        "logs",
-        &envelope_schema(),
-        &batch,
-        RoutedIdentity::Fail,
-    )
-    .unwrap_err();
+    let default_error =
+        encode_batch("logs", &envelope_schema(), &batch, RoutedIdentity::Fail).unwrap_err();
     assert!(default_error.to_string().contains("encode_identity"));
 
     let actions = encode_batch(
@@ -86,14 +87,9 @@ fn routed_envelope_requires_explicit_injective_identity_encoding() {
     assert_ne!(actions[0].id, actions[1].id);
     for (action, route) in actions.iter().zip(["route-a", "route-b"]) {
         assert!(action.id.len() <= 512);
-        let metadata: serde_json::Value = serde_json::from_slice(
-            action
-                .ndjson
-                .split(|byte| *byte == b'\n')
-                .next()
-                .unwrap(),
-        )
-        .unwrap();
+        let metadata: serde_json::Value =
+            serde_json::from_slice(action.ndjson.split(|byte| *byte == b'\n').next().unwrap())
+                .unwrap();
         assert_eq!(metadata["index"]["routing"], route);
     }
 }
@@ -148,8 +144,12 @@ fn envelope_preserves_huge_json_numbers_byte_for_byte() {
             Arc::new(StringArray::from(vec!["raw-id"])),
         ],
     );
-    let action = &encode_batch("logs", &envelope_schema(), &batch, RoutedIdentity::Fail).unwrap()[0];
-    let lines = action.ndjson.split(|byte| *byte == b'\n').collect::<Vec<_>>();
+    let action =
+        &encode_batch("logs", &envelope_schema(), &batch, RoutedIdentity::Fail).unwrap()[0];
+    let lines = action
+        .ndjson
+        .split(|byte| *byte == b'\n')
+        .collect::<Vec<_>>();
     assert_eq!(lines[1], source.as_bytes());
 }
 
@@ -190,8 +190,7 @@ fn envelope_rejects_runtime_nulls_before_array_access() {
 
 #[test]
 fn envelope_rejects_non_object_json_and_oversized_ids() {
-    for (id, source) in [("id".to_owned(), "[]"), ("x".repeat(513), "{}")]
-    {
+    for (id, source) in [("id".to_owned(), "[]"), ("x".repeat(513), "{}")] {
         let batch = batch(
             vec![
                 Field::new("_id", DataType::Utf8, false),
@@ -238,7 +237,9 @@ fn composite_ids_are_stable_and_tuple_injective() {
             Arc::new(StringArray::from(vec!["c"])),
         ],
     );
-    let id = encode_batch("logs", &schema, &one, RoutedIdentity::Fail).unwrap()[0].id.clone();
+    let id = encode_batch("logs", &schema, &one, RoutedIdentity::Fail).unwrap()[0]
+        .id
+        .clone();
     assert_eq!(
         id.as_ref(),
         "AAAAAAAAAAR1dGY4AAAAAAAAAAFhAAAAAAAAAAR1dGY4AAAAAAAAAAJiYw"
@@ -311,8 +312,11 @@ fn flat_rows_reject_non_finite_values_before_request() {
 #[test]
 fn flat_custom_routing_requires_explicit_composite_identity_encoding() {
     let schema = DatasetSchema::new(vec![
-        SchemaColumn::new("_id".to_owned(), DataType::Utf8, false)
-            .with_constraints(true, false, Some(512)),
+        SchemaColumn::new("_id".to_owned(), DataType::Utf8, false).with_constraints(
+            true,
+            false,
+            Some(512),
+        ),
         SchemaColumn::new("_routing".to_owned(), DataType::Utf8, true),
         SchemaColumn::new("payload".to_owned(), DataType::Utf8, false),
     ]);
@@ -330,23 +334,12 @@ fn flat_custom_routing_requires_explicit_composite_identity_encoding() {
     );
     assert!(encode_batch("logs", &schema, &batch, RoutedIdentity::Fail).is_err());
 
-    let actions = encode_batch(
-        "logs",
-        &schema,
-        &batch,
-        RoutedIdentity::EncodeIdentity,
-    )
-    .unwrap();
+    let actions = encode_batch("logs", &schema, &batch, RoutedIdentity::EncodeIdentity).unwrap();
     assert_ne!(actions[0].id, actions[1].id);
     for (action, route) in actions.iter().zip(["route-a", "route-b"]) {
-        let metadata: serde_json::Value = serde_json::from_slice(
-            action
-                .ndjson
-                .split(|byte| *byte == b'\n')
-                .next()
-                .unwrap(),
-        )
-        .unwrap();
+        let metadata: serde_json::Value =
+            serde_json::from_slice(action.ndjson.split(|byte| *byte == b'\n').next().unwrap())
+                .unwrap();
         assert_eq!(metadata["index"]["routing"], route);
     }
 }
@@ -354,8 +347,11 @@ fn flat_custom_routing_requires_explicit_composite_identity_encoding() {
 #[test]
 fn explicit_routed_identity_mode_uses_one_disjoint_id_domain_for_flat_rows() {
     let schema = DatasetSchema::new(vec![
-        SchemaColumn::new("_id".to_owned(), DataType::Utf8, false)
-            .with_constraints(true, false, Some(512)),
+        SchemaColumn::new("_id".to_owned(), DataType::Utf8, false).with_constraints(
+            true,
+            false,
+            Some(512),
+        ),
         SchemaColumn::new("_routing".to_owned(), DataType::Utf8, true),
     ]);
     let batch = batch(
@@ -368,13 +364,7 @@ fn explicit_routed_identity_mode_uses_one_disjoint_id_domain_for_flat_rows() {
             Arc::new(StringArray::from(vec![None, Some("route")])),
         ],
     );
-    let actions = encode_batch(
-        "logs",
-        &schema,
-        &batch,
-        RoutedIdentity::EncodeIdentity,
-    )
-    .unwrap();
+    let actions = encode_batch("logs", &schema, &batch, RoutedIdentity::EncodeIdentity).unwrap();
     assert_ne!(actions[0].id.as_ref(), "plain");
     assert_ne!(actions[1].id.as_ref(), "routed");
     assert_ne!(actions[0].id, actions[1].id);

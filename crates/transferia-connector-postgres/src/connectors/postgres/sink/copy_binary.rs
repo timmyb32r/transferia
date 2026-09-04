@@ -84,10 +84,7 @@ fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow
             output,
             downcast::<UInt32Array>(column)?.value(row).to_be_bytes(),
         ),
-        DataType::UInt64 => encode_u64_numeric(
-            output,
-            downcast::<UInt64Array>(column)?.value(row),
-        ),
+        DataType::UInt64 => encode_u64_numeric(output, downcast::<UInt64Array>(column)?.value(row)),
         DataType::Float32 => fixed(
             output,
             downcast::<Float32Array>(column)?
@@ -104,19 +101,24 @@ fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow
         ),
         DataType::Utf8 => {
             let value = downcast::<StringArray>(column)?.value(row).as_bytes();
-            anyhow::ensure!(!value.contains(&0), "PostgreSQL text cannot store a NUL byte");
+            anyhow::ensure!(
+                !value.contains(&0),
+                "PostgreSQL text cannot store a NUL byte"
+            );
             field(output, value)
         }
         DataType::Binary => field(output, downcast::<BinaryArray>(column)?.value(row)),
         DataType::Date32 => fixed(
             output,
-            unix_days_to_postgres_date(downcast::<Date32Array>(column)?.value(row))?
-                .to_be_bytes(),
+            unix_days_to_postgres_date(downcast::<Date32Array>(column)?.value(row))?.to_be_bytes(),
         ),
         DataType::Timestamp(unit, _) => {
             timestamp_has_timezone(column.data_type())?;
-            let micros = timestamp_micros(column, row, unit)?;
-            fixed(output, unix_micros_to_postgres_timestamp(micros)?.to_be_bytes())
+            let micros = timestamp_micros(column, row, *unit)?;
+            fixed(
+                output,
+                unix_micros_to_postgres_timestamp(micros)?.to_be_bytes(),
+            )
         }
         data_type => {
             anyhow::bail!("unsupported Arrow type {data_type:?} for PostgreSQL binary COPY")
@@ -133,11 +135,12 @@ fn encode_u64_numeric(output: &mut BytesMut, mut value: u64) -> anyhow::Result<(
         value /= BASE;
         digits += 1;
     }
-    let payload_bytes = 8_usize
-        .checked_add(digits.checked_mul(2).ok_or_else(|| {
-            anyhow::anyhow!("PostgreSQL numeric binary payload length overflow")
-        })?)
-        .ok_or_else(|| anyhow::anyhow!("PostgreSQL numeric binary payload length overflow"))?;
+    let payload_bytes =
+        8_usize
+            .checked_add(digits.checked_mul(2).ok_or_else(|| {
+                anyhow::anyhow!("PostgreSQL numeric binary payload length overflow")
+            })?)
+            .ok_or_else(|| anyhow::anyhow!("PostgreSQL numeric binary payload length overflow"))?;
     output.put_i32(i32::try_from(payload_bytes)?);
     output.put_i16(i16::try_from(digits)?);
     output.put_i16(if digits == 0 {

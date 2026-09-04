@@ -1204,7 +1204,7 @@ impl SourceConnector for PostgresSourceConnector {
     }
 }
 
-pub(crate) fn incoming_user_schema(stored: &DatasetSchema) -> DatasetSchema {
+pub fn incoming_user_schema(stored: &DatasetSchema) -> DatasetSchema {
     // Snapshot and CDC expose one stable Arrow user schema. CDC needs nullable
     // incoming fields for unchanged TOAST values; snapshots use the same
     // representation so consumers cannot distinguish the modes by data fields.
@@ -1215,7 +1215,7 @@ pub(crate) fn incoming_user_schema(stored: &DatasetSchema) -> DatasetSchema {
     incoming
 }
 
-pub(crate) async fn discover_table(
+pub async fn discover_table(
     client: &tokio_postgres::Client,
     table: TableConfig,
 ) -> anyhow::Result<DiscoveredTable> {

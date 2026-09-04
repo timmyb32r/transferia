@@ -90,11 +90,11 @@ pub(super) struct YdbCdcDecoder {
 }
 
 impl YdbCdcDecoder {
-    pub(super) fn new(
-        columns: Arc<[ColumnPlan]>,
-        max_event_bytes: usize,
-    ) -> anyhow::Result<Self> {
-        anyhow::ensure!(max_event_bytes > 0, "YDB CDC max event bytes must be positive");
+    pub(super) fn new(columns: Arc<[ColumnPlan]>, max_event_bytes: usize) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            max_event_bytes > 0,
+            "YDB CDC max event bytes must be positive"
+        );
         validate_cdc_column_plans(&columns)?;
 
         let mut columns_by_name = (0..columns.len()).collect::<Vec<_>>();
@@ -155,9 +155,9 @@ impl YdbCdcDecoder {
             envelope.reset.is_some(),
             envelope.erase.is_some(),
         ]
-            .into_iter()
-            .filter(|present| *present)
-            .count();
+        .into_iter()
+        .filter(|present| *present)
+        .count();
         anyhow::ensure!(
             operation_shapes == 1,
             "YDB CDC envelope must contain exactly one of update, reset, or erase"
@@ -166,11 +166,7 @@ impl YdbCdcDecoder {
         let mut current = vec![YdbCdcValue::Absent; self.columns.len()];
         let mut old = vec![YdbCdcValue::Absent; self.columns.len()];
         let mut changed_columns = vec![0_u8; self.columns.len().div_ceil(8)];
-        for ((raw, &index), ordinal) in envelope
-            .key
-            .iter()
-            .zip(&self.primary_key_indexes)
-            .zip(0..)
+        for ((raw, &index), ordinal) in envelope.key.iter().zip(&self.primary_key_indexes).zip(0..)
         {
             let value = decode_value(raw, &self.columns[index]).map_err(|error| {
                 anyhow::anyhow!(
@@ -196,9 +192,9 @@ impl YdbCdcDecoder {
                 envelope.new_image.is_none(),
                 "YDB CDC erase must not contain newImage"
             );
-            let old_image = envelope.old_image.ok_or_else(|| {
-                anyhow::anyhow!("YDB CDC erase has no required oldImage")
-            })?;
+            let old_image = envelope
+                .old_image
+                .ok_or_else(|| anyhow::anyhow!("YDB CDC erase has no required oldImage"))?;
             self.copy_primary_key(&current, &mut old);
             self.decode_image(old_image, &mut old, None, "oldImage")?;
             anyhow::ensure!(
@@ -217,9 +213,9 @@ impl YdbCdcDecoder {
                 write.entries.is_empty(),
                 "YDB CDC NEW_AND_OLD_IMAGES {write_name} flag must be an empty object"
             );
-            let new_image = envelope.new_image.ok_or_else(|| {
-                anyhow::anyhow!("YDB CDC {write_name} has no required newImage")
-            })?;
+            let new_image = envelope
+                .new_image
+                .ok_or_else(|| anyhow::anyhow!("YDB CDC {write_name} has no required newImage"))?;
             self.decode_image(
                 new_image,
                 &mut current,
@@ -392,7 +388,10 @@ fn decode_value(raw: &RawValue, column: &ColumnPlan) -> anyhow::Result<YdbCdcVal
         PrimitiveTypeId::Float => {
             let value = json_float(raw)?;
             let narrowed = value as f32;
-            anyhow::ensure!(narrowed.is_finite(), "Float value is outside the finite f32 range");
+            anyhow::ensure!(
+                narrowed.is_finite(),
+                "Float value is outside the finite f32 range"
+            );
             YdbCdcValue::Float32(narrowed)
         }
         PrimitiveTypeId::Double => YdbCdcValue::Float64(json_float(raw)?),
@@ -409,15 +408,19 @@ fn decode_value(raw: &RawValue, column: &ColumnPlan) -> anyhow::Result<YdbCdcVal
         PrimitiveTypeId::Datetime | PrimitiveTypeId::Datetime64 => {
             let seconds = parse_datetime(&json_string(raw)?, false)?;
             if primitive == PrimitiveTypeId::Datetime {
-                u32::try_from(seconds)
-                    .map_err(|_| anyhow::anyhow!("Datetime value is outside the YDB Datetime range"))?;
+                u32::try_from(seconds).map_err(|_| {
+                    anyhow::anyhow!("Datetime value is outside the YDB Datetime range")
+                })?;
             }
             YdbCdcValue::TimestampSecond(seconds)
         }
         PrimitiveTypeId::Timestamp | PrimitiveTypeId::Timestamp64 => {
             let micros = parse_datetime(&json_string(raw)?, true)?;
             if primitive == PrimitiveTypeId::Timestamp {
-                anyhow::ensure!(micros >= 0, "Timestamp value is outside the YDB Timestamp range");
+                anyhow::ensure!(
+                    micros >= 0,
+                    "Timestamp value is outside the YDB Timestamp range"
+                );
             }
             YdbCdcValue::TimestampMicrosecond(micros)
         }
@@ -455,9 +458,7 @@ where
 {
     let text = raw.get();
     anyhow::ensure!(
-        !text
-            .bytes()
-            .any(|byte| matches!(byte, b'.' | b'e' | b'E')),
+        !text.bytes().any(|byte| matches!(byte, b'.' | b'e' | b'E')),
         "integer value must not contain a fraction or exponent"
     );
     Ok(text.parse()?)
@@ -472,7 +473,7 @@ fn json_float(raw: &RawValue) -> anyhow::Result<f64> {
 fn parse_date(value: &str) -> anyhow::Result<i64> {
     let first_separator = value
         .char_indices()
-        .skip(if value.starts_with('-') { 1 } else { 0 })
+        .skip(usize::from(value.starts_with('-')))
         .find_map(|(index, character)| (character == '-').then_some(index))
         .ok_or_else(|| anyhow::anyhow!("date must use year-month-day format"))?;
     let year = value[..first_separator].parse::<i64>()?;
@@ -487,8 +488,7 @@ fn parse_date(value: &str) -> anyhow::Result<i64> {
     let month = month.parse::<u32>()?;
     let day = day.parse::<u32>()?;
     anyhow::ensure!((1..=12).contains(&month), "date month is outside 1..=12");
-    let leap = year.rem_euclid(4) == 0
-        && (year.rem_euclid(100) != 0 || year.rem_euclid(400) == 0);
+    let leap = year.rem_euclid(4) == 0 && (year.rem_euclid(100) != 0 || year.rem_euclid(400) == 0);
     let days_in_month = match month {
         2 if leap => 29,
         2 => 28,
@@ -528,13 +528,11 @@ fn parse_date(value: &str) -> anyhow::Result<i64> {
 }
 
 fn parse_cdc_date(value: &str) -> anyhow::Result<i64> {
-    let date = value
-        .strip_suffix("T00:00:00.000000Z")
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "YDB CDC Date must use the exact midnight UTC form YYYY-MM-DDT00:00:00.000000Z"
-            )
-        })?;
+    let date = value.strip_suffix("T00:00:00.000000Z").ok_or_else(|| {
+        anyhow::anyhow!(
+            "YDB CDC Date must use the exact midnight UTC form YYYY-MM-DDT00:00:00.000000Z"
+        )
+    })?;
     parse_date(date)
 }
 
@@ -556,19 +554,14 @@ fn parse_datetime(value: &str, fractional: bool) -> anyhow::Result<i64> {
             (whole, None)
         }
         None if fractional => (time, None),
-        None => anyhow::bail!(
-            "YDB CDC Datetime must carry exactly six zero fractional digits"
-        ),
+        None => anyhow::bail!("YDB CDC Datetime must carry exactly six zero fractional digits"),
     };
     let mut time_parts = whole_time.split(':');
     let hour = time_parts.next().unwrap_or_default();
     let minute = time_parts.next().unwrap_or_default();
     let second = time_parts.next().unwrap_or_default();
     anyhow::ensure!(
-        time_parts.next().is_none()
-            && hour.len() == 2
-            && minute.len() == 2
-            && second.len() == 2,
+        time_parts.next().is_none() && hour.len() == 2 && minute.len() == 2 && second.len() == 2,
         "time must use hour:minute:second with two digits per field"
     );
     let hour = hour.parse::<u32>()?;
@@ -579,9 +572,7 @@ fn parse_datetime(value: &str, fractional: bool) -> anyhow::Result<i64> {
     anyhow::ensure!(second < 60, "timestamp second is outside 0..60");
     let seconds = days
         .checked_mul(86_400)
-        .and_then(|value| {
-            value.checked_add(i64::from(hour * 3_600 + minute * 60 + second))
-        })
+        .and_then(|value| value.checked_add(i64::from(hour * 3_600 + minute * 60 + second)))
         .ok_or_else(|| anyhow::anyhow!("timestamp seconds overflow i64"))?;
     if !fractional {
         return Ok(seconds);
@@ -609,11 +600,7 @@ fn decode_base64(value: &str) -> anyhow::Result<Vec<u8>> {
         input.len().is_multiple_of(4),
         "base64 length is not divisible by four"
     );
-    let padding = input
-        .iter()
-        .rev()
-        .take_while(|byte| **byte == b'=')
-        .count();
+    let padding = input.iter().rev().take_while(|byte| **byte == b'=').count();
     anyhow::ensure!(padding <= 2, "base64 has invalid padding");
     let capacity = input
         .len()
@@ -637,13 +624,19 @@ fn decode_base64(value: &str) -> anyhow::Result<Vec<u8>> {
         output.push((first << 2) | (second >> 4));
         if group[2] == b'=' {
             anyhow::ensure!(group[3] == b'=', "base64 has invalid padding order");
-            anyhow::ensure!(second & 0x0f == 0, "base64 has non-zero unused bits");
+            anyhow::ensure!(
+                second.trailing_zeros() >= 4,
+                "base64 has non-zero unused bits"
+            );
             continue;
         }
         let third = base64_digit(group[2])?;
         output.push((second << 4) | (third >> 2));
         if group[3] == b'=' {
-            anyhow::ensure!(third & 0x03 == 0, "base64 has non-zero unused bits");
+            anyhow::ensure!(
+                third.trailing_zeros() >= 2,
+                "base64 has non-zero unused bits"
+            );
             continue;
         }
         let fourth = base64_digit(group[3])?;
@@ -694,10 +687,7 @@ impl<'de> Deserialize<'de> for RawObject {
                     entries.push((name, map.next_value()?));
                 }
                 entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
-                if let Some(duplicate) = entries
-                    .windows(2)
-                    .find(|pair| pair[0].0 == pair[1].0)
-                {
+                if let Some(duplicate) = entries.windows(2).find(|pair| pair[0].0 == pair[1].0) {
                     return Err(de::Error::custom(format_args!(
                         "duplicate image column '{}'",
                         duplicate[0].0
@@ -803,10 +793,9 @@ impl<'de> Visitor<'de> for NoDuplicateJsonVisitor {
             map.next_value::<NoDuplicateJson>()?;
         }
         keys.sort_unstable();
-        if let Some(duplicate) = keys.windows(2).find(|pair| pair[0] == pair[1]) {
+        if let Some([duplicate, ..]) = keys.windows(2).find(|pair| pair[0] == pair[1]) {
             return Err(de::Error::custom(format_args!(
-                "duplicate JSON object key '{}'",
-                duplicate[0]
+                "duplicate JSON object key '{duplicate}'"
             )));
         }
         Ok(NoDuplicateJson)

@@ -9,7 +9,7 @@ use super::super::OpenSearchConnectionConfig;
 #[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RoutedIdentity {
-    /// Reject custom-routed source documents because OpenSearch does not make
+    /// Reject custom-routed source documents because `OpenSearch` does not make
     /// (`_id`, `_routing`) globally unique across shards.
     #[default]
     #[schemars(title = "Fail on custom routing")]

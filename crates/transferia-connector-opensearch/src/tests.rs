@@ -80,7 +80,11 @@ fn tuning_contract(
                 transferia_registry::tuning::TuningParameter::UnsignedInteger {
                     candidates,
                     ..
-                } => candidates.iter().copied().map(serde_json::Value::from).collect(),
+                } => candidates
+                    .iter()
+                    .copied()
+                    .map(serde_json::Value::from)
+                    .collect(),
                 other => anyhow::bail!("unexpected OpenSearch tuning parameter: {other:?}"),
             };
             Ok((parameter.pointer(), parameter.baseline(), candidates))
@@ -114,8 +118,8 @@ fn registration_publishes_batch_source_and_append_only_sink() -> anyhow::Result<
     assert_eq!(source.initial["auth"]["type"], "basic");
     assert_eq!(sink.initial["auth"]["type"], "basic");
     assert_eq!(
-        source.schema["$defs"]["OpenSearchAuth"]["oneOf"][0]["properties"]["password"]
-            ["x-ui"]["widget"],
+        source.schema["$defs"]["OpenSearchAuth"]["oneOf"][0]["properties"]["password"]["x-ui"]
+            ["widget"],
         "password"
     );
     Ok(())

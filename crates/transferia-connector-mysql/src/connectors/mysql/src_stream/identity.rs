@@ -1,5 +1,5 @@
-use super::decoder::MySqlTransactionIdentity;
 use super::super::src_batch_and_stream::MySqlBinlogBoundary;
+use super::decoder::MySqlTransactionIdentity;
 
 const IDENTITY_DOMAIN: &[u8] = b"transferia.mysql.source-transaction-id";
 const IDENTITY_VERSION: u8 = 1;
@@ -9,7 +9,7 @@ const FILE_POSITION_TRANSACTION_TAG: u8 = 3;
 const SNAPSHOT_BOUNDARY_TAG: u8 = 4;
 
 /// Encodes an exact, injective source transaction identity without hashing.
-pub(crate) fn encode_transaction_identity(
+pub fn encode_transaction_identity(
     identity: &MySqlTransactionIdentity,
 ) -> Result<Vec<u8>, IdentityEncodingError> {
     let mut encoded = identity_prefix(match identity {
@@ -33,7 +33,7 @@ pub(crate) fn encode_transaction_identity(
 }
 
 /// Encodes the exact snapshot transaction boundary in the same identity domain.
-pub(crate) fn encode_snapshot_boundary_identity(
+pub fn encode_snapshot_boundary_identity(
     boundary: &MySqlBinlogBoundary,
 ) -> Result<Vec<u8>, IdentityEncodingError> {
     let mut encoded = identity_prefix(SNAPSHOT_BOUNDARY_TAG);
@@ -56,11 +56,7 @@ fn identity_prefix(kind: u8) -> Vec<u8> {
     encoded
 }
 
-fn push_field(
-    encoded: &mut Vec<u8>,
-    tag: u8,
-    value: &[u8],
-) -> Result<(), IdentityEncodingError> {
+fn push_field(encoded: &mut Vec<u8>, tag: u8, value: &[u8]) -> Result<(), IdentityEncodingError> {
     let length = u64::try_from(value.len()).map_err(|_| IdentityEncodingError::FieldTooLong)?;
     encoded.push(tag);
     encoded.extend_from_slice(&length.to_be_bytes());
@@ -88,7 +84,7 @@ fn push_optional_field(
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum IdentityEncodingError {
+pub enum IdentityEncodingError {
     FieldTooLong,
 }
 

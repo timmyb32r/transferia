@@ -27,7 +27,7 @@ pub struct PostgresSourceConfig {
     )]
     pub copy_to_format: PostgresCopyFormat,
 
-    /// Configures logical replication for stream and batch_and_stream deliveries.
+    /// Configures logical replication for stream and `batch_and_stream` deliveries.
     #[serde(default)]
     pub replication: Option<PostgresReplicationConfig>,
 }

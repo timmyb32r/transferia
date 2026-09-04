@@ -6,9 +6,7 @@ use crate::connectors::discard::sink::DiscardSink;
 use transferia_core::delivery::{SinkLimits, NO_LIMITS};
 use transferia_core::sink::Sink;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
-use transferia_registry::{
-    SinkBuildContext, SinkConnector, SinkPrepare, SinkSpeedtestIsolation,
-};
+use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare, SinkSpeedtestIsolation};
 
 pub struct DiscardSinkConnector;
 
@@ -60,8 +58,7 @@ impl SinkConnector for DiscardSinkConnector {
         let connector: Arc<dyn SinkConnector> = self;
         Box::pin(async move {
             Ok(SinkSpeedtestIsolation::no_external_writes(
-                connector,
-                discovery,
+                connector, discovery,
             ))
         })
     }

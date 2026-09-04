@@ -21,6 +21,7 @@ use super::types::{
     YDB_TZ_DATETIME_EXTENSION, YDB_TZ_DATE_EXTENSION, YDB_TZ_TIMESTAMP_EXTENSION,
     YDB_YSON_EXTENSION,
 };
+use transferia_connector_support::external_request::observe_external_request;
 use transferia_core::data::changelog::{project_sink_batch, ProjectedSinkBatch};
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 use transferia_core::delivery::{
@@ -29,7 +30,6 @@ use transferia_core::delivery::{
 };
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
-use transferia_connector_support::external_request::observe_external_request;
 use transferia_delivery_contracts::metrics::SinkCounters;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
 use transferia_registry::{
@@ -57,10 +57,7 @@ pub(super) struct YdbSpeedtestScope {
 }
 
 pub(super) trait YdbSpeedtestTableClient {
-    fn create_owned<'a>(
-        &'a mut self,
-        request: CreateTableRequest,
-    ) -> BoxFuture<'a, anyhow::Result<()>>;
+    fn create_owned(&mut self, request: CreateTableRequest) -> BoxFuture<'_, anyhow::Result<()>>;
 
     fn describe_owned<'a>(
         &'a mut self,
@@ -73,10 +70,7 @@ pub(super) trait YdbSpeedtestTableClient {
 }
 
 impl YdbSpeedtestTableClient for YdbClient {
-    fn create_owned<'a>(
-        &'a mut self,
-        request: CreateTableRequest,
-    ) -> BoxFuture<'a, anyhow::Result<()>> {
+    fn create_owned(&mut self, request: CreateTableRequest) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(self.create_table(request))
     }
 
@@ -244,21 +238,12 @@ impl SinkConnector for YdbSinkConnector {
                 let path = self.config.table_path(&dataset.table)?;
                 if let Some(scope) = &self.speedtest_scope {
                     scope.record_attempted(path)?;
-                    prepare_ydb_speedtest_table(
-                        &mut client,
-                        path,
-                        &dataset.schema,
-                        &scope.owner,
-                    )
-                    .await?;
+                    prepare_ydb_speedtest_table(&mut client, path, &dataset.schema, &scope.owner)
+                        .await?;
                 } else if self.config.create_tables {
                     let query = create_table_query(path, &dataset.schema)?;
-                    execute_scheme_query_with_retry(
-                        &mut client,
-                        query,
-                        self.config.retry_max_ms,
-                    )
-                    .await?;
+                    execute_scheme_query_with_retry(&mut client, query, self.config.retry_max_ms)
+                        .await?;
                 }
                 let description =
                     describe_table_with_retry(&mut client, path, self.config.retry_max_ms).await?;
@@ -344,7 +329,9 @@ impl SinkConnector for YdbSinkConnector {
     ) -> BoxFuture<'a, anyhow::Result<()>> {
         Box::pin(async move {
             let scope = self.speedtest_scope.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("refusing to clean YDB speedtest tables with a production connector")
+                anyhow::anyhow!(
+                    "refusing to clean YDB speedtest tables with a production connector"
+                )
             })?;
             validate_ydb_cleanup_scope(&self.config, isolation, scope)?;
 
@@ -410,8 +397,7 @@ pub(super) fn isolate_ydb_discovery(
             table_names
                 .insert(Arc::clone(&original_name), Arc::clone(&scratch_name))
                 .is_none(),
-            "YDB speedtest discovery repeats dataset '{}'",
-            original_name
+            "YDB speedtest discovery repeats dataset '{original_name}'"
         );
         anyhow::ensure!(
             tables
@@ -568,8 +554,7 @@ fn validate_ydb_connector_scope(
     );
     anyhow::ensure!(
         scope.tables.iter().all(|(name, path)| {
-            is_ydb_speedtest_table_name(name)
-                && path.rsplit('/').next() == Some(name.as_ref())
+            is_ydb_speedtest_table_name(name) && path.rsplit('/').next() == Some(name.as_ref())
         }),
         "refusing to use a YDB table outside the speedtest namespace"
     );
@@ -716,21 +701,16 @@ pub(super) async fn cleanup_ydb_speedtest_table<C: YdbSpeedtestTableClient>(
         Ok(description) => description,
         Err(error) if client.is_not_found(&error) => return Ok(()),
         Err(error) => {
-            anyhow::bail!(
-                "refusing to drop because current ownership could not be read: {error:#}"
-            )
+            anyhow::bail!("refusing to drop because current ownership could not be read: {error:#}")
         }
     };
     verify_ydb_speedtest_description(path, schema, owner, &description)
         .map_err(|error| anyhow::anyhow!("refusing to drop: {error:#}"))?;
 
-    let drop_error = observe_external_request(
-        "ydb",
-        "speedtest_drop_table",
-        client.drop_owned(path),
-    )
-    .await
-    .err();
+    let drop_error =
+        observe_external_request("ydb", "speedtest_drop_table", client.drop_owned(path))
+            .await
+            .err();
     let Some(drop_error) = drop_error else {
         return Ok(());
     };

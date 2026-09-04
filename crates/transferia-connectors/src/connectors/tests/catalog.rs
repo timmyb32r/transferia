@@ -198,8 +198,7 @@ fn every_endpoint_has_a_schema_and_object_initial_value() -> anyhow::Result<()> 
 }
 
 #[test]
-fn high_throughput_connectors_expose_only_explicit_safe_tuning_parameters(
-) -> anyhow::Result<()> {
+fn high_throughput_connectors_expose_only_explicit_safe_tuning_parameters() -> anyhow::Result<()> {
     let catalog = build_connector_catalog(&Arc::new(MetricsRegistry::new()))?;
     let cases: [(&str, EndpointRole, &[&str]); 8] = [
         (
@@ -300,13 +299,13 @@ fn high_throughput_connectors_expose_only_explicit_safe_tuning_parameters(
             }
             match parameter {
                 TuningParameter::SignedInteger { candidates, .. } => {
-                    assert!(!candidates.is_empty())
+                    assert!(!candidates.is_empty());
                 }
                 TuningParameter::UnsignedInteger { candidates, .. } => {
-                    assert!(!candidates.is_empty())
+                    assert!(!candidates.is_empty());
                 }
                 TuningParameter::Number { candidates, .. } => {
-                    assert!(!candidates.is_empty())
+                    assert!(!candidates.is_empty());
                 }
                 TuningParameter::Choice { values, .. } => assert!(!values.is_empty()),
             }
@@ -342,7 +341,10 @@ fn catalog_publishes_the_same_changelog_boundary_as_runtime_validation() -> anyh
         .map(|definition| definition.key)
         .collect::<Vec<_>>();
 
-    assert_eq!(changelog_sources, ["logbroker", "kafka", "postgres"]);
+    assert_eq!(
+        changelog_sources,
+        ["logbroker", "kafka", "mysql", "postgres", "ydb"]
+    );
     assert_eq!(
         changelog_sinks,
         [
@@ -351,6 +353,7 @@ fn catalog_publishes_the_same_changelog_boundary_as_runtime_validation() -> anyh
             "mysql",
             "postgres",
             "clickhouse",
+            "iceberg",
             "ydb",
             "ytsaurus",
             "discard"

@@ -207,7 +207,7 @@ fn column_kind(value: &Type) -> anyhow::Result<(ColumnKind, bool)> {
             let precision = u8::try_from(decimal.precision)?;
             let scale = i8::try_from(decimal.scale)?;
             anyhow::ensure!(
-                (1..=38).contains(&precision) && scale >= 0 && scale <= precision as i8,
+                (1..=38).contains(&precision) && scale >= 0 && scale <= precision.cast_signed(),
                 "YDB Decimal({precision},{scale}) requires precision 1..=38 and scale 0..=precision"
             );
             Ok((ColumnKind::Decimal { precision, scale }, false))
@@ -286,8 +286,7 @@ pub(super) fn result_set_to_batch(
                     .all(|(actual, expected)| {
                         actual.name == expected.name
                             && actual.r#type.as_ref().is_some_and(|actual| {
-                                same_declared_type(actual, &expected.declared_type)
-                                    .unwrap_or(false)
+                                same_declared_type(actual, &expected.declared_type).unwrap_or(false)
                             })
                     }),
             "YDB result schema changed after discovery"

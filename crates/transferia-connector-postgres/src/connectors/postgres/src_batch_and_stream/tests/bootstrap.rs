@@ -157,7 +157,7 @@ async fn scram_path_never_sends_the_plaintext_password_and_surfaces_server_error
             .unwrap();
     });
 
-    let error = match bootstrap_session(
+    let Err(error) = bootstrap_session(
         Box::new(client),
         "alice",
         "secret",
@@ -168,9 +168,8 @@ async fn scram_path_never_sends_the_plaintext_password_and_surfaces_server_error
         request_marker(),
     )
     .await
-    {
-        Ok(_) => panic!("rejected SCRAM authentication unexpectedly succeeded"),
-        Err(error) => error,
+    else {
+        panic!("rejected SCRAM authentication unexpectedly succeeded");
     };
     assert!(error.to_string().contains("28P01"));
     assert!(!error.to_string().contains("authentication rejected"));
@@ -584,7 +583,7 @@ async fn tls_refusal_is_not_downgraded_to_plaintext() {
         stream.write_all(b"N").await.unwrap();
     });
     let config = connection_config(port, false);
-    let error = match ReplicationSlotBootstrap::create(
+    let Err(error) = ReplicationSlotBootstrap::create(
         &config,
         SLOT,
         PLUGIN,
@@ -593,9 +592,8 @@ async fn tls_refusal_is_not_downgraded_to_plaintext() {
         Duration::from_secs(1),
     )
     .await
-    {
-        Ok(_) => panic!("TLS refusal unexpectedly downgraded to plaintext"),
-        Err(error) => error,
+    else {
+        panic!("TLS refusal unexpectedly downgraded to plaintext");
     };
     assert!(error.to_string().contains("refused required TLS"));
     server.await.unwrap();
@@ -609,7 +607,7 @@ async fn invalid_identifiers_and_zero_timeout_fail_before_opening_a_socket() {
         (SLOT, "plugin-name", Duration::from_secs(1)),
         (SLOT, PLUGIN, Duration::ZERO),
     ] {
-        let error = match ReplicationSlotBootstrap::create(
+        let Err(error) = ReplicationSlotBootstrap::create(
             &config,
             slot,
             plugin,
@@ -618,9 +616,8 @@ async fn invalid_identifiers_and_zero_timeout_fail_before_opening_a_socket() {
             timeout,
         )
         .await
-        {
-            Ok(_) => panic!("invalid bootstrap input unexpectedly opened a session"),
-            Err(error) => error,
+        else {
+            panic!("invalid bootstrap input unexpectedly opened a session");
         };
         assert!(
             !error.to_string().contains("connect"),
@@ -693,7 +690,7 @@ async fn run_scripted_identity_response(response: Vec<u8>) -> (anyhow::Error, bo
         assert_eq!(server.read(&mut byte).await.unwrap(), 0);
     });
     let request_marker = request_marker();
-    let error = match bootstrap_session(
+    let Err(error) = bootstrap_session(
         Box::new(client),
         "alice",
         "secret",
@@ -704,9 +701,8 @@ async fn run_scripted_identity_response(response: Vec<u8>) -> (anyhow::Error, bo
         Arc::clone(&request_marker),
     )
     .await
-    {
-        Ok(_) => panic!("invalid PostgreSQL identity unexpectedly created a slot"),
-        Err(error) => error,
+    else {
+        panic!("invalid PostgreSQL identity unexpectedly created a slot");
     };
     server_task.await.unwrap();
     (

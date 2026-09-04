@@ -3,12 +3,10 @@ mod phase;
 
 pub use bootstrap::{
     acquire_execution_lock, begin_locked_snapshot, inspect_mysql8_gtid_source,
-    replication_lock_name, LockedSnapshotBootstrap, MySqlExecutionLock,
-    MySqlGtidState, MySqlReplicationPreflight, MySqlSnapshotSession, PreparedMySqlSnapshot,
+    replication_lock_name, LockedSnapshotBootstrap, MySqlExecutionLock, MySqlGtidState,
+    MySqlReplicationPreflight, MySqlSnapshotSession, PreparedMySqlSnapshot,
 };
-pub use phase::{
-    SnapshotStreamPreparation, SnapshotStreamTracker, SNAPSHOT_STREAM_STATE_KEY,
-};
+pub use phase::{SnapshotStreamPreparation, SnapshotStreamTracker, SNAPSHOT_STREAM_STATE_KEY};
 
 use serde::{Deserialize, Serialize};
 
@@ -67,7 +65,7 @@ pub struct AuthoritativeTableIdentity {
 
     /// Ordered physical row layout and exact primary-key membership.
     ///
-    /// This deliberately does not persist `SHOW CREATE TABLE`: MySQL embeds
+    /// This deliberately does not persist `SHOW CREATE TABLE`: `MySQL` embeds
     /// volatile table state such as the next `AUTO_INCREMENT` value in that
     /// statement, so ordinary inserts would otherwise look like schema drift.
     pub columns: Vec<AuthoritativeColumnIdentity>,
@@ -75,6 +73,10 @@ pub struct AuthoritativeTableIdentity {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "the flags persist independent authoritative MySQL column modifiers"
+)]
 pub struct AuthoritativeColumnIdentity {
     pub name: String,
 
@@ -107,13 +109,13 @@ pub struct AuthoritativeColumnIdentity {
 
     pub collation: Option<String>,
 
-    /// Numeric MySQL collation id carried by binlog table-map metadata.
+    /// Numeric `MySQL` collation id carried by binlog table-map metadata.
     pub collation_id: Option<u16>,
 
     /// Exact `information_schema.COLLATIONS.PAD_ATTRIBUTE` semantics.
     pub collation_padding: Option<MySqlCollationPadding>,
 
-    /// Declared ENUM/SET members in declaration order after decoding MySQL's
+    /// Declared ENUM/SET members in declaration order after decoding `MySQL`'s
     /// quoted `COLUMN_TYPE` representation. `None` for every other family.
     pub enum_set_values: Option<Vec<String>>,
 
@@ -129,7 +131,7 @@ pub struct AuthoritativeColumnIdentity {
     pub extra: String,
 
     /// Exact nullable `information_schema.COLUMNS.GENERATION_EXPRESSION`.
-    /// MySQL reports an empty string for ordinary columns while MariaDB may report NULL.
+    /// `MySQL` reports an empty string for ordinary columns while `MariaDB` may report NULL.
     pub generation_expression: Option<String>,
 
     /// One-based position in the PRIMARY index, or `None` for non-key columns.
@@ -137,7 +139,7 @@ pub struct AuthoritativeColumnIdentity {
 
     pub primary_key_prefix_length: Option<u64>,
 
-    /// Exact PRIMARY-index direction (`A`/`D`) when reported by MySQL.
+    /// Exact PRIMARY-index direction (`A`/`D`) when reported by `MySQL`.
     pub primary_key_direction: Option<String>,
 }
 
@@ -171,7 +173,7 @@ pub fn replication_safety_violation(error: anyhow::Error) -> anyhow::Error {
 pub fn is_replication_safety_violation(error: &anyhow::Error) -> bool {
     error
         .chain()
-        .any(|cause| cause.is::<MySqlReplicationSafetyViolation>())
+        .any(<dyn std::error::Error + 'static>::is::<MySqlReplicationSafetyViolation>)
 }
 
 fn validate_server_uuid(server_uuid: &str) -> anyhow::Result<()> {

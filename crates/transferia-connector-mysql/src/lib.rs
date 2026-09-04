@@ -34,7 +34,7 @@ pub fn register(
                         "host": "", "port": 3306, "database": "", "username": "",
                         "password": "", "trusted_plaintext": true,
                         "tables": [{ "name": "" }], "batch_rows": 16384,
-                        "batch_target_bytes": 8388608, "max_row_bytes": 1073741824,
+                        "batch_target_bytes": 8_388_608, "max_row_bytes": 1_073_741_824,
                         "read_protocol": "binary", "replication": null
                     })
                 },

@@ -25,7 +25,7 @@ pub fn register(
                         "auth": { "type": "token", "token": "" },
                         "tables": [{ "path": "" }], "batch_rows": 65536,
                         "request_timeout_ms": 30000,
-                        "max_rpc_message_bytes": 268435456,
+                        "max_rpc_message_bytes": 268_435_456,
                         "replication": null
                     })
                 },
@@ -51,7 +51,7 @@ pub fn register(
                         "tables": [{ "path": "" }], "create_tables": true,
                         "retry_max_ms": 30000,
                         "request_timeout_ms": 30000,
-                        "max_rpc_message_bytes": 268435456
+                        "max_rpc_message_bytes": 268_435_456
                     })
                 },
                 |config| Ok(Box::new(ydb::YdbSinkConnector::from_config(config)?)),

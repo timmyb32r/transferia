@@ -32,10 +32,9 @@ impl OpenSearchHttpError {
     pub const fn retryable(&self) -> bool {
         match self {
             Self::Transport => true,
-            Self::Status { status } => matches!(
-                status.as_u16(),
-                408 | 425 | 429 | 500 | 502 | 503 | 504
-            ),
+            Self::Status { status } => {
+                matches!(status.as_u16(), 408 | 425 | 429 | 500 | 502 | 503 | 504)
+            }
             Self::Boundary | Self::ResponseTooLarge { .. } | Self::InvalidJson => false,
         }
     }
@@ -101,13 +100,13 @@ impl OpenSearchClient {
                 path,
                 query,
                 "application/json",
-                body.map(serde_json::to_vec).transpose().map_err(|_| {
-                    OpenSearchHttpError::InvalidJson
-                })?,
+                body.map(serde_json::to_vec)
+                    .transpose()
+                    .map_err(|_| OpenSearchHttpError::InvalidJson)?,
             )
             .await?;
-        let value = serde_json::from_slice(&response.body)
-            .map_err(|_| OpenSearchHttpError::InvalidJson)?;
+        let value =
+            serde_json::from_slice(&response.body).map_err(|_| OpenSearchHttpError::InvalidJson)?;
         Ok(value)
     }
 
@@ -131,22 +130,22 @@ impl OpenSearchClient {
         }
         let auth = self.auth.basic();
         let max_response_bytes = self.max_response_bytes;
-        let request = self
-            .http
-            .request(method, url)
-            .configure(move |request| {
-                let request = request.query(query).header("Accept", "application/json");
-                let request = if let Some((username, password)) = auth {
-                    request.basic_auth(username, Some(password))
-                } else {
-                    request
-                };
-                match body {
-                    Some(body) => request.header("Content-Type", content_type).body(body),
-                    None => request,
-                }
-            });
-        let response = request.send().await.map_err(map_boundary_error)?;
+        let request = self.http.request(method, url).configure(move |request| {
+            let request = request.query(query).header("Accept", "application/json");
+            let request = if let Some((username, password)) = auth {
+                request.basic_auth(username, Some(password))
+            } else {
+                request
+            };
+            match body {
+                Some(body) => request.header("Content-Type", content_type).body(body),
+                None => request,
+            }
+        });
+        let response = request
+            .send()
+            .await
+            .map_err(|error| map_boundary_error(&error))?;
         let status = response.status();
         if !status.is_success() {
             return Err(OpenSearchHttpError::Status { status });
@@ -181,7 +180,7 @@ impl OpenSearchClient {
     }
 }
 
-fn map_boundary_error(error: OutboundHttpError) -> OpenSearchHttpError {
+const fn map_boundary_error(error: &OutboundHttpError) -> OpenSearchHttpError {
     match error {
         OutboundHttpError::InvalidUrl { .. } | OutboundHttpError::RedirectRejected { .. } => {
             OpenSearchHttpError::Boundary

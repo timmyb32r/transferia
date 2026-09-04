@@ -8,6 +8,7 @@ mod mapping;
 pub use config::{OpenSearchSinkConfig, RoutedIdentity};
 pub use connector::OpenSearchSinkConnector;
 
+#[must_use]
 pub fn initial_config() -> serde_json::Value {
     serde_json::json!({
         "hosts": [""],

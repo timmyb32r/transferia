@@ -14,7 +14,7 @@ use crate::connectors::postgres::src_batch_and_stream::ReplicationSlotBootstrap;
 /// The owning transaction deliberately remains open while any table source can
 /// exist. Every table reader imports this identifier into its own repeatable-read
 /// transaction, so tables cannot observe different points in database history.
-pub(crate) struct ExportedSnapshot {
+pub struct ExportedSnapshot {
     owner: AsyncMutex<Option<Client>>,
 
     replication_owner: Mutex<Option<ReplicationSlotBootstrap>>,
@@ -171,8 +171,7 @@ async fn import_snapshot(client: &Client, id: &str) -> anyhow::Result<()> {
         .map_err(|error| transferia_core::failure::DataPlaneFailure::retryable(error.into()))?;
     client
         .batch_execute(
-            &set_snapshot_sql(id)
-                .map_err(|error| transferia_core::failure::DataPlaneFailure::fatal(error))?,
+            &set_snapshot_sql(id).map_err(transferia_core::failure::DataPlaneFailure::fatal)?,
         )
         .await
         .map_err(classify_snapshot_import_error)?;

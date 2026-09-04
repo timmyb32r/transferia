@@ -13,7 +13,7 @@ use std::time::Duration;
 use arrow::array::{
     ArrayRef, BinaryArray, Date32Array, Int64Array, StringArray, TimestampMicrosecondArray,
 };
-use arrow::datatypes::{DataType, Field, Schema};
+use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use futures_util::StreamExt as _;
 use object_store::path::Path;
@@ -40,7 +40,7 @@ use transferia::delivery::execution::run_partition_pipeline;
 use transferia::metrics::{MetricsRegistry, ParseCounters, SinkCounters};
 use transferia::registry::{
     SinkBuildContext, SinkConnector as _, SinkPrepare, SourceBuildContext, SourceConnector as _,
-    SourceDiscoveryContext,
+    SourceDiscoveryContext, SourceExecutionContext,
 };
 
 const POSTGRES_IMAGE: &str = "postgres";
@@ -97,9 +97,7 @@ async fn run_pipeline(
     discovery: Arc<DeliveryDiscovery>,
 ) -> anyhow::Result<()> {
     sink.limits().validate_discovery(&discovery)?;
-    if let Some(prepare) =
-        SinkPrepare::from_discovery(&discovery, true, "test-transfer", None)?
-    {
+    if let Some(prepare) = SinkPrepare::from_discovery(&discovery, true, "test-transfer", None)? {
         sink.prepare(prepare).await?;
     }
     let memory = PipelineMemory::new(256 * 1024 * 1024);
@@ -743,23 +741,39 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
             domain_value transferia_positive NOT NULL,
             composite_value transferia_pair NOT NULL
         );
+        ALTER TABLE all_types REPLICA IDENTITY FULL;
         CREATE PUBLICATION transferia_all_types FOR TABLE all_types
             WITH (publish = 'insert, update, delete');
         "#,
     )
     .await?;
-    pg.query_one(
-        "SELECT * FROM pg_create_logical_replication_slot('transferia_all_types', 'pgoutput')",
-        &[],
-    )
-    .await?;
+    let replay_identity: Arc<str> = Arc::from("postgres-all-types-revision-1");
+    let durable = support::durable_context();
+    let replication = PostgresSourceConnector::from_config(
+        serde_yaml::from_str(&format!(
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 128\ntables:\n  - name: all_types\nreplication:\n  slot: transferia_all_types\n  decoder: {{ type: pgoutput, publication: transferia_all_types }}\n  poll_interval_ms: 10\n"
+        ))?,
+        Arc::new(MetricsRegistry::new()),
+    )?;
+    replication
+        .prepare_execution(SourceExecutionContext {
+            request: DeliveryDiscoveryRequest {
+                keep_system_columns: false,
+            },
+            cancellation: CancellationToken::new(),
+            delivery_type: transferia::delivery::config::yaml::DeliveryType::Stream,
+            replay_identity: Some(Arc::clone(&replay_identity)),
+            durable: durable.clone(),
+        })
+        .await?;
     pg.batch_execute(
         r#"
         INSERT INTO all_types VALUES (
             true, 'A', -2, 3, 4, 5, 1.25, -2.5,
             decode('00ff10', 'hex'), 'text', 'varchar', 'xy', 'identifier',
             '123456789012345678901234567890.12345678901234567890', '$12.34',
-            'infinity', '24:00:00', '04:05:06.123456-08', '-infinity',
+            '2024-01-01', '24:00:00', '04:05:06.123456-08',
+            '2024-01-01 00:00:00.123456',
             '2004-10-19 10:23:54+02', '1 year 2 mons 3 days 04:05:06.789',
             '{ "preserve" : "spacing" }', '{"canonical": true}',
             '<root attr="value">text</root>', '550e8400-e29b-41d4-a716-446655440000',
@@ -809,6 +823,15 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
     assert_eq!(data_type("float8_value"), &DataType::Float64);
     assert_eq!(data_type("bytea_value"), &DataType::Binary);
     assert_eq!(data_type("domain_value"), &DataType::Int32);
+    assert_eq!(data_type("date_value"), &DataType::Date32);
+    assert_eq!(
+        data_type("timestamp_value"),
+        &DataType::Timestamp(TimeUnit::Microsecond, None)
+    );
+    assert_eq!(
+        data_type("timestamptz_value"),
+        &DataType::Timestamp(TimeUnit::Microsecond, Some(Arc::from("UTC")))
+    );
     for column in &dataset.stored_schema.columns {
         if [
             "bool_value",
@@ -821,6 +844,9 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
             "float8_value",
             "bytea_value",
             "domain_value",
+            "date_value",
+            "timestamp_value",
+            "timestamptz_value",
         ]
         .contains(&column.name.as_str())
         {
@@ -873,19 +899,31 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
         text("numeric_value"),
         "123456789012345678901234567890.12345678901234567890"
     );
-    assert_eq!(text("date_value"), "infinity");
-    assert_eq!(text("timestamp_value"), "-infinity");
+    assert_eq!(
+        batch
+            .column_by_name("date_value")
+            .expect("date")
+            .as_any()
+            .downcast_ref::<Date32Array>()
+            .expect("date32")
+            .value(0),
+        19_723
+    );
+    assert_eq!(
+        batch
+            .column_by_name("timestamp_value")
+            .expect("timestamp")
+            .as_any()
+            .downcast_ref::<TimestampMicrosecondArray>()
+            .expect("timestamp micros")
+            .value(0),
+        1_704_067_200_123_456
+    );
     assert_eq!(text("int_array"), "[0:1]={10,20}");
     assert_eq!(text("text_array"), "{\"NULL\",NULL}");
     assert_eq!(text("enum_value"), "busy");
     assert_eq!(text("composite_value"), "(0.99,value)");
 
-    let replication = PostgresSourceConnector::from_config(
-        serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 128\ntables:\n  - name: all_types\nreplication:\n  slot: transferia_all_types\n  decoder: {{ type: pgoutput, publication: transferia_all_types }}\n  poll_interval_ms: 10\n"
-        ))?,
-        Arc::new(MetricsRegistry::new()),
-    )?;
     replication
         .delivery_discovery(SourceDiscoveryContext {
             request: DeliveryDiscoveryRequest {
@@ -900,10 +938,10 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
             partition_id: 0,
             delivery_type: transferia::delivery::config::yaml::DeliveryType::Stream,
             phase: transferia::registry::SourcePhase::Stream,
-            replay_identity: Some(Arc::from("postgres-all-types-revision-1")),
+            replay_identity: Some(replay_identity),
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(256 * 1024 * 1024),
-            durable: support::durable_context(),
+            durable,
         })
         .await?;
     let SourceBatch::Typed {

@@ -12,10 +12,9 @@ use ydb_grpc::ydb_proto::status_ids::StatusCode;
 use ydb_grpc::ydb_proto::topic::stream_read_message::from_client::ClientMessage;
 use ydb_grpc::ydb_proto::topic::stream_read_message::from_server::ServerMessage;
 use ydb_grpc::ydb_proto::topic::stream_read_message::{
-    commit_offset_request::PartitionCommitOffset,
-    commit_offset_response::PartitionCommittedOffset, init_request::TopicReadSettings,
-    CommitOffsetRequest, FromClient, FromServer, InitRequest, ReadRequest,
-    StartPartitionSessionResponse, StopPartitionSessionResponse,
+    commit_offset_request::PartitionCommitOffset, commit_offset_response::PartitionCommittedOffset,
+    init_request::TopicReadSettings, CommitOffsetRequest, FromClient, FromServer, InitRequest,
+    ReadRequest, StartPartitionSessionResponse, StopPartitionSessionResponse,
 };
 use ydb_grpc::ydb_proto::topic::{Codec, OffsetsRange};
 
@@ -134,7 +133,10 @@ impl TopicSession {
         memory: PipelineMemory,
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
-        anyhow::ensure!(!topics.is_empty(), "YDB changefeed topic list must not be empty");
+        anyhow::ensure!(
+            !topics.is_empty(),
+            "YDB changefeed topic list must not be empty"
+        );
         let mut configured_topics = HashMap::with_capacity(topics.len());
         for (topic, partition_id) in &topics {
             anyhow::ensure!(
@@ -143,10 +145,7 @@ impl TopicSession {
             );
             anyhow::ensure!(
                 configured_topics
-                    .insert(
-                        Arc::<str>::from(canonical_topic_path(topic)),
-                        *partition_id,
-                    )
+                    .insert(Arc::<str>::from(canonical_topic_path(topic)), *partition_id,)
                     .is_none(),
                 "YDB replication repeats changefeed topic '{topic}'"
             );
@@ -198,7 +197,7 @@ impl TopicSession {
                 }
                 response = topic_service.stream_read(request) => {
                     response
-                        .map(|response| response.into_inner())
+                        .map(tonic::Response::into_inner)
                         .map_err(|status| tonic_failure("StreamRead open", &status))
                 }
             }
@@ -246,22 +245,18 @@ impl TopicSession {
 
     async fn await_init(&mut self) -> anyhow::Result<()> {
         tokio::time::timeout(self.request_timeout, async {
-            loop {
-                let response = self.next_response().await?;
-                validate_status(&response)?;
-                match response.server_message {
-                    Some(ServerMessage::InitResponse(response)) => {
-                        anyhow::ensure!(
-                            !response.session_id.is_empty(),
-                            "YDB Topic returned an empty changefeed read session id"
-                        );
-                        return Ok(());
-                    }
-                    Some(_) => anyhow::bail!(
-                        "YDB Topic sent a non-init message before InitResponse"
-                    ),
-                    None => anyhow::bail!("YDB Topic init response has no server message"),
+            let response = self.next_response().await?;
+            validate_status(&response)?;
+            match response.server_message {
+                Some(ServerMessage::InitResponse(response)) => {
+                    anyhow::ensure!(
+                        !response.session_id.is_empty(),
+                        "YDB Topic returned an empty changefeed read session id"
+                    );
+                    Ok(())
                 }
+                Some(_) => anyhow::bail!("YDB Topic sent a non-init message before InitResponse"),
+                None => anyhow::bail!("YDB Topic init response has no server message"),
             }
         })
         .await
@@ -303,10 +298,7 @@ impl TopicSession {
         }
     }
 
-    pub(super) async fn commit_offsets(
-        &mut self,
-        markers: &[CommitMarker],
-    ) -> anyhow::Result<()> {
+    pub(super) async fn commit_offsets(&mut self, markers: &[CommitMarker]) -> anyhow::Result<()> {
         if markers.is_empty() {
             return Ok(());
         }
@@ -382,7 +374,8 @@ impl TopicSession {
             .retained_batch_bytes
             .checked_add(self.session_state_heap_bytes()?)
             .ok_or_else(|| fatal(anyhow!("YDB Topic retained memory accounting overflow")))?;
-        let processing_peak = response_processing_bytes(self.response_buffer_bytes, retained_bytes)?;
+        let processing_peak =
+            response_processing_bytes(self.response_buffer_bytes, retained_bytes)?;
         self.credit_memory
             .grow_progress_source_to(processing_peak)
             .map_err(|error| fatal(error.context("admit YDB Topic response processing")))?;
@@ -430,8 +423,10 @@ impl TopicSession {
 
     async fn send_read_credit(&mut self, bytes: i64) -> anyhow::Result<()> {
         anyhow::ensure!(bytes > 0, "YDB Topic read credit must be positive");
-        self.send(ClientMessage::ReadRequest(ReadRequest { bytes_size: bytes }))
-            .await?;
+        self.send(ClientMessage::ReadRequest(ReadRequest {
+            bytes_size: bytes,
+        }))
+        .await?;
         self.available_credit = self
             .available_credit
             .checked_add(bytes)
@@ -439,6 +434,10 @@ impl TopicSession {
         Ok(())
     }
 
+    #[allow(
+        clippy::suspicious_operation_groupings,
+        reason = "the server committed offset must remain between the local committed and read cursors"
+    )]
     async fn process_message(&mut self, message: ServerMessage) -> anyhow::Result<SessionEvent> {
         match message {
             ServerMessage::InitResponse(_) => {
@@ -499,7 +498,7 @@ impl TopicSession {
                 .await?;
                 Ok(SessionEvent::Continue)
             }
-            ServerMessage::ReadResponse(response) => self.decode_response(response).await,
+            ServerMessage::ReadResponse(response) => self.decode_response(response),
             ServerMessage::CommitOffsetResponse(response) => {
                 anyhow::ensure!(
                     !response.partitions_committed_offsets.is_empty(),
@@ -553,10 +552,7 @@ impl TopicSession {
                 Ok(SessionEvent::Continue)
             }
             ServerMessage::EndPartitionSession(request) => {
-                reject_fixed_partition_end(
-                    &self.partition_sessions,
-                    request.partition_session_id,
-                )
+                reject_fixed_partition_end(&self.partition_sessions, request.partition_session_id)
             }
             ServerMessage::UpdatePartitionSession(update) => {
                 anyhow::ensure!(
@@ -576,9 +572,7 @@ impl TopicSession {
         let session_ids = self
             .partition_sessions
             .iter()
-            .filter_map(|(session_id, state)| {
-                graceful_stop_ready(state).then_some(*session_id)
-            })
+            .filter_map(|(session_id, state)| graceful_stop_ready(state).then_some(*session_id))
             .collect::<Vec<_>>();
         for session_id in session_ids {
             self.send(ClientMessage::StopPartitionSessionResponse(
@@ -598,7 +592,7 @@ impl TopicSession {
         Ok(())
     }
 
-    async fn decode_response(
+    fn decode_response(
         &mut self,
         response: ydb_grpc::ydb_proto::topic::stream_read_message::ReadResponse,
     ) -> anyhow::Result<SessionEvent> {
@@ -686,25 +680,22 @@ impl TopicSession {
             }
             if state.read_through > range_start {
                 commit_markers.push(PartitionCommitMarker {
-                        topic_path: Arc::clone(&state.topic_path),
-                        partition_id: state.partition_id,
-                        partition_session_id: partition.partition_session_id,
-                        range: OffsetsRange {
-                            start: range_start,
-                            end: state.read_through,
-                        },
-                    });
+                    topic_path: Arc::clone(&state.topic_path),
+                    partition_id: state.partition_id,
+                    partition_session_id: partition.partition_session_id,
+                    range: OffsetsRange {
+                        start: range_start,
+                        end: state.read_through,
+                    },
+                });
             }
         }
         if records.is_empty() {
             return Ok(SessionEvent::Continue);
         }
         let marker_partitions = commit_markers;
-        let batch_retained_bytes = topic_batch_retained_bytes(
-            &records,
-            records.capacity(),
-            marker_partitions.capacity(),
-        )?;
+        let batch_retained_bytes =
+            topic_batch_retained_bytes(&records, records.capacity(), marker_partitions.capacity())?;
         let retained_batch_bytes = self
             .retained_batch_bytes
             .checked_add(batch_retained_bytes)
@@ -762,17 +753,17 @@ impl TopicSession {
     }
 
     fn push_buffered_batch(&mut self, batch: TopicBatch) -> anyhow::Result<()> {
-        let prospective_capacity = if self.buffered_batches.len() == self.buffered_batches.capacity()
-        {
-            if self.buffered_batches.capacity() == 0 {
-                Some(MIN_BUFFERED_BATCH_CAPACITY)
+        let prospective_capacity =
+            if self.buffered_batches.len() == self.buffered_batches.capacity() {
+                if self.buffered_batches.capacity() == 0 {
+                    Some(MIN_BUFFERED_BATCH_CAPACITY)
+                } else {
+                    self.buffered_batches.capacity().checked_mul(2)
+                }
             } else {
-                self.buffered_batches.capacity().checked_mul(2)
+                Some(self.buffered_batches.capacity())
             }
-        } else {
-            Some(self.buffered_batches.capacity())
-        }
-        .ok_or_else(|| fatal(anyhow!("YDB Topic buffered-batch capacity overflow")))?;
+            .ok_or_else(|| fatal(anyhow!("YDB Topic buffered-batch capacity overflow")))?;
         let prospective_queue_bytes = prospective_capacity
             .checked_mul(size_of::<TopicBatch>())
             .ok_or_else(|| fatal(anyhow!("YDB Topic buffered-batch accounting overflow")))?;
@@ -791,10 +782,9 @@ impl TopicSession {
     }
 
     fn session_state_heap_bytes_without_queue(&self) -> anyhow::Result<usize> {
-        configured_topics_heap_bytes(&self.configured_topics)?.checked_add(
-            partition_sessions_heap_bytes(&self.partition_sessions)?,
-        )
-        .ok_or_else(|| fatal(anyhow!("YDB Topic session-state accounting overflow")))
+        configured_topics_heap_bytes(&self.configured_topics)?
+            .checked_add(partition_sessions_heap_bytes(&self.partition_sessions)?)
+            .ok_or_else(|| fatal(anyhow!("YDB Topic session-state accounting overflow")))
     }
 
     fn session_state_heap_bytes(&self) -> anyhow::Result<usize> {
@@ -803,7 +793,9 @@ impl TopicSession {
                 self.buffered_batches
                     .capacity()
                     .checked_mul(size_of::<TopicBatch>())
-                    .ok_or_else(|| fatal(anyhow!("YDB Topic buffered-batch accounting overflow")))?,
+                    .ok_or_else(|| {
+                        fatal(anyhow!("YDB Topic buffered-batch accounting overflow"))
+                    })?,
             )
             .ok_or_else(|| fatal(anyhow!("YDB Topic session-state accounting overflow")))
     }
@@ -893,10 +885,7 @@ fn tonic_codec_buffer_bytes(max_response_bytes: usize) -> anyhow::Result<usize> 
 }
 
 fn configured_topics_heap_bytes(topics: &HashMap<Arc<str>, i64>) -> anyhow::Result<usize> {
-    let mut bytes = hash_table_allocation_bytes(
-        topics.capacity(),
-        size_of::<(Arc<str>, i64)>(),
-    )?;
+    let mut bytes = hash_table_allocation_bytes(topics.capacity(), size_of::<(Arc<str>, i64)>())?;
     for topic in topics.keys() {
         bytes = bytes
             .checked_add(ARC_STRONG_WEAK_COUNTER_BYTES)
@@ -1017,10 +1006,7 @@ fn topic_batch_retained_layout_bytes(
         .and_then(|bytes| bytes.checked_add(size_of::<TopicCommitMarker>()))
         .and_then(|bytes| bytes.checked_add(ARC_STRONG_WEAK_COUNTER_BYTES))
         .and_then(|bytes| {
-            bytes.checked_add(
-                partitions_capacity
-                    .checked_mul(size_of::<PartitionCommitMarker>())?,
-            )
+            bytes.checked_add(partitions_capacity.checked_mul(size_of::<PartitionCommitMarker>())?)
         })
         .map(|bytes| bytes.max(1))
         .ok_or_else(|| fatal(anyhow!("YDB Topic retained batch accounting overflow")))
@@ -1100,9 +1086,10 @@ fn read_response_heap_bytes(
                 })
                 .and_then(|value| {
                     value.checked_add(
-                        batch.write_session_meta.capacity().checked_mul(
-                            size_of::<(String, String)>() + size_of::<usize>(),
-                        )?,
+                        batch
+                            .write_session_meta
+                            .capacity()
+                            .checked_mul(size_of::<(String, String)>() + size_of::<usize>())?,
                     )
                 })
                 .ok_or_else(|| fatal(anyhow!("YDB Topic batch heap accounting overflow")))?;
@@ -1115,22 +1102,18 @@ fn read_response_heap_bytes(
                     })?;
             }
             for message in &batch.message_data {
-                bytes = bytes
-                    .checked_add(message.data.capacity())
-                    .and_then(|value| value.checked_add(message.message_group_id.capacity()))
-                    .and_then(|value| {
-                        value.checked_add(
-                            message
-                                .metadata_items
-                                .capacity()
-                                .checked_mul(size_of::<
-                                    ydb_grpc::ydb_proto::topic::MetadataItem,
-                                >())?,
-                        )
-                    })
-                    .ok_or_else(|| {
-                        fatal(anyhow!("YDB Topic message heap accounting overflow"))
-                    })?;
+                bytes =
+                    bytes
+                        .checked_add(message.data.capacity())
+                        .and_then(|value| value.checked_add(message.message_group_id.capacity()))
+                        .and_then(|value| {
+                            value.checked_add(message.metadata_items.capacity().checked_mul(
+                                size_of::<ydb_grpc::ydb_proto::topic::MetadataItem>(),
+                            )?)
+                        })
+                        .ok_or_else(|| {
+                            fatal(anyhow!("YDB Topic message heap accounting overflow"))
+                        })?;
                 for metadata in &message.metadata_items {
                     bytes = bytes
                         .checked_add(metadata.key.capacity())
@@ -1145,10 +1128,12 @@ fn read_response_heap_bytes(
     Ok(bytes)
 }
 
+type CommitRequestParts = (Vec<PartitionCommitOffset>, Vec<(i64, i64)>, usize);
+
 fn build_commit_request(
     markers: &[CommitMarker],
     sessions: &HashMap<i64, PartitionSessionState>,
-) -> anyhow::Result<(Vec<PartitionCommitOffset>, Vec<(i64, i64)>, usize)> {
+) -> anyhow::Result<CommitRequestParts> {
     let entry_count = commit_marker_partition_count(markers)?;
     let mut entries = Vec::<(i64, OffsetsRange)>::with_capacity(entry_count);
     let mut committed_bytes = 0usize;
@@ -1283,6 +1268,10 @@ fn ensure_targets_live(
     Ok(())
 }
 
+#[allow(
+    clippy::suspicious_operation_groupings,
+    reason = "an acknowledged offset is bounded independently by local read progress and the in-flight target"
+)]
 fn apply_commit_ack(
     targets: &[(i64, i64)],
     sessions: &mut HashMap<i64, PartitionSessionState>,
@@ -1306,14 +1295,12 @@ fn apply_commit_ack(
                     offset.partition_session_id
                 ))
             })?;
-        let state = sessions
-            .get(&offset.partition_session_id)
-            .ok_or_else(|| {
-                fatal(anyhow!(
-                    "YDB Topic acknowledged unknown partition session {}",
-                    offset.partition_session_id
-                ))
-            })?;
+        let state = sessions.get(&offset.partition_session_id).ok_or_else(|| {
+            fatal(anyhow!(
+                "YDB Topic acknowledged unknown partition session {}",
+                offset.partition_session_id
+            ))
+        })?;
         anyhow::ensure!(
             offset.committed_offset >= state.committed_offset
                 && offset.committed_offset <= state.read_through
@@ -1378,8 +1365,7 @@ const fn settled_invalidated(state: &PartitionSessionState) -> bool {
 }
 
 const fn graceful_stop_ready(state: &PartitionSessionState) -> bool {
-    state.pending_graceful_stop.is_some()
-        && state.commit_response_offset >= state.read_through
+    state.pending_graceful_stop.is_some() && state.commit_response_offset >= state.read_through
 }
 
 fn canonical_topic_path(path: &str) -> &str {

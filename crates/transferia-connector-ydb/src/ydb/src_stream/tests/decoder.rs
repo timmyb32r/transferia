@@ -61,14 +61,17 @@ fn decoder(
 }
 
 #[test]
-fn create_preserves_composite_key_order_null_mask_and_transaction_identity(
-) -> anyhow::Result<()> {
+fn create_preserves_composite_key_order_null_mask_and_transaction_identity() -> anyhow::Result<()> {
     let decoder = decoder(
         vec![
             column("payload", optional(primitive(PrimitiveTypeId::Utf8)), None),
             column("region", primitive(PrimitiveTypeId::Utf8), Some(true)),
             column("id", primitive(PrimitiveTypeId::Uint64), Some(true)),
-            column("untouched", optional(primitive(PrimitiveTypeId::Int64)), None),
+            column(
+                "untouched",
+                optional(primitive(PrimitiveTypeId::Int64)),
+                None,
+            ),
         ],
         &["id", "region"],
         1_024,
@@ -101,9 +104,7 @@ fn create_preserves_composite_key_order_null_mask_and_transaction_identity(
     assert_eq!(event.transaction.transaction_id(), 0x1112_1314_1516_1718);
     assert_eq!(
         event.transaction.as_bytes(),
-        &[
-            1, 2, 3, 4, 5, 6, 7, 8, 17, 18, 19, 20, 21, 22, 23, 24,
-        ]
+        &[1, 2, 3, 4, 5, 6, 7, 8, 17, 18, 19, 20, 21, 22, 23, 24,]
     );
     Ok(())
 }
@@ -166,7 +167,11 @@ fn temporal_uuid_and_json_values_match_snapshot_logical_representations() -> any
                 Some(true),
             ),
             column("event_id", primitive(PrimitiveTypeId::Uuid), Some(true)),
-            column("document", primitive(PrimitiveTypeId::JsonDocument), Some(true)),
+            column(
+                "document",
+                primitive(PrimitiveTypeId::JsonDocument),
+                Some(true),
+            ),
         ],
         &["id"],
         4_096,
@@ -178,10 +183,7 @@ fn temporal_uuid_and_json_values_match_snapshot_logical_representations() -> any
     assert_eq!(event.current[1], YdbCdcValue::Date32(0));
     assert_eq!(event.current[2], YdbCdcValue::TimestampSecond(-1));
     assert_eq!(event.current[3], YdbCdcValue::TimestampMicrosecond(1));
-    assert_eq!(
-        event.current[4],
-        YdbCdcValue::DurationMicrosecond(i64::MIN)
-    );
+    assert_eq!(event.current[4], YdbCdcValue::DurationMicrosecond(i64::MIN));
     assert_eq!(
         event.current[5],
         YdbCdcValue::Uuid(
@@ -221,7 +223,7 @@ fn strict_envelope_rejects_duplicates_unknowns_conflicts_bad_timestamp_and_overs
     for payload in invalid {
         assert!(decoder.decode(payload).is_err(), "accepted {payload:?}");
     }
-    assert!(decoder.decode(&vec![b' '; 129]).is_err());
+    assert!(decoder.decode(&[b' '; 129]).is_err());
     Ok(())
 }
 
@@ -241,19 +243,11 @@ fn invalid_base64_decimal_temporal_uuid_and_nested_json_fail_closed() -> anyhow:
             r#""1970-01-01""#,
         ),
         (
-            column(
-                "value",
-                primitive(PrimitiveTypeId::Datetime64),
-                Some(true),
-            ),
+            column("value", primitive(PrimitiveTypeId::Datetime64), Some(true)),
             r#""1970-01-01T00:00:00.000001Z""#,
         ),
         (
-            column(
-                "value",
-                primitive(PrimitiveTypeId::Datetime64),
-                Some(true),
-            ),
+            column("value", primitive(PrimitiveTypeId::Datetime64), Some(true)),
             r#""1970-01-01T00:00:00Z""#,
         ),
         (
@@ -286,9 +280,8 @@ fn invalid_base64_decimal_temporal_uuid_and_nested_json_fail_closed() -> anyhow:
             &["id"],
             1_024,
         )?;
-        let payload = format!(
-            r#"{{"key":[1],"update":{{}},"newImage":{{"value":{value}}},"ts":[1,2]}}"#
-        );
+        let payload =
+            format!(r#"{{"key":[1],"update":{{}},"newImage":{{"value":{value}}},"ts":[1,2]}}"#);
         assert!(
             decoder.decode(payload.as_bytes()).is_err(),
             "accepted {payload}"
@@ -313,7 +306,9 @@ fn nullable_json_is_rejected_before_runtime_decoding() -> anyhow::Result<()> {
     let error = YdbCdcDecoder::new(Arc::from(columns), 1_024)
         .err()
         .expect("nullable JSON must be rejected");
-    assert!(error.to_string().contains("cannot distinguish SQL NULL from JSON null"));
+    assert!(error
+        .to_string()
+        .contains("cannot distinguish SQL NULL from JSON null"));
     Ok(())
 }
 
@@ -335,7 +330,8 @@ fn decimal_is_rejected_before_runtime_decoding() -> anyhow::Result<()> {
 
 #[test]
 fn physically_distinct_date_aliases_do_not_share_cdc_validation() -> anyhow::Result<()> {
-    let payload = br#"{"key":[1],"update":{},"newImage":{"day":"1969-12-31T00:00:00.000000Z"},"ts":[1,2]}"#;
+    let payload =
+        br#"{"key":[1],"update":{},"newImage":{"day":"1969-12-31T00:00:00.000000Z"},"ts":[1,2]}"#;
     let narrow = decoder(
         vec![
             column("id", primitive(PrimitiveTypeId::Uint64), Some(true)),
@@ -368,11 +364,13 @@ fn replacement_flag_preserves_create_and_update_identity() -> anyhow::Result<()>
         &["id"],
         512,
     )?;
-    let created = decoder.decode(
-        br#"{"key":[1],"reset":{},"newImage":{"value":"created"},"ts":[1,2]}"#,
-    )?;
+    let created =
+        decoder.decode(br#"{"key":[1],"reset":{},"newImage":{"value":"created"},"ts":[1,2]}"#)?;
     assert_eq!(created.operation, ChangeOperation::Create);
-    assert!(created.old.iter().all(|value| matches!(value, YdbCdcValue::Absent)));
+    assert!(created
+        .old
+        .iter()
+        .all(|value| matches!(value, YdbCdcValue::Absent)));
 
     let updated = decoder.decode(
         br#"{"key":[1],"reset":{},"newImage":{"value":"new"},"oldImage":{"value":"old"},"ts":[3,4]}"#,
@@ -402,7 +400,11 @@ fn large_unique_json_objects_decode_without_quadratic_duplicate_scans() -> anyho
     let decoder = decoder(
         vec![
             column("id", primitive(PrimitiveTypeId::Uint64), Some(true)),
-            column("document", primitive(PrimitiveTypeId::JsonDocument), Some(true)),
+            column(
+                "document",
+                primitive(PrimitiveTypeId::JsonDocument),
+                Some(true),
+            ),
         ],
         &["id"],
         2 * 1024 * 1024,
@@ -411,9 +413,8 @@ fn large_unique_json_objects_decode_without_quadratic_duplicate_scans() -> anyho
         .map(|index| format!(r#""key_{index}":{index}"#))
         .collect::<Vec<_>>()
         .join(",");
-    let payload = format!(
-        r#"{{"key":[1],"update":{{}},"newImage":{{"document":{{{fields}}}}},"ts":[1,2]}}"#
-    );
+    let payload =
+        format!(r#"{{"key":[1],"update":{{}},"newImage":{{"document":{{{fields}}}}},"ts":[1,2]}}"#);
     let event = decoder.decode(payload.as_bytes())?;
     assert_eq!(event.operation, ChangeOperation::Create);
     Ok(())
@@ -448,9 +449,8 @@ fn deletes_require_only_the_positional_key_and_mark_key_columns() -> anyhow::Res
         &["id"],
         256,
     )?;
-    let event = decoder.decode(
-        br#"{"key":[7],"erase":{},"oldImage":{"value":"old"},"ts":[8,9]}"#,
-    )?;
+    let event =
+        decoder.decode(br#"{"key":[7],"erase":{},"oldImage":{"value":"old"},"ts":[8,9]}"#)?;
     assert_eq!(event.operation, ChangeOperation::Delete);
     assert_eq!(
         event.current,
@@ -458,10 +458,7 @@ fn deletes_require_only_the_positional_key_and_mark_key_columns() -> anyhow::Res
     );
     assert_eq!(
         event.old,
-        vec![
-            YdbCdcValue::Utf8("old".to_owned()),
-            YdbCdcValue::UInt64(7),
-        ]
+        vec![YdbCdcValue::Utf8("old".to_owned()), YdbCdcValue::UInt64(7),]
     );
     assert_eq!(event.changed_columns, vec![0b0000_0010]);
     Ok(())

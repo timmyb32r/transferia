@@ -119,11 +119,7 @@ fn stored_projection_rejects_partial_or_user_column_loss() {
         .stored_schema
         .columns
         .push(repeated);
-    assert!(validate_stored_projection(
-        &duplicate_names,
-        &duplicate_names.datasets[0]
-    )
-    .is_err());
+    assert!(validate_stored_projection(&duplicate_names, &duplicate_names.datasets[0]).is_err());
 
     let mut wrong_type = projection_discovery(false);
     wrong_type.datasets[0].incoming_schema.columns[1].data_type = DataType::Utf8;
@@ -148,11 +144,9 @@ fn stored_projection_rejects_partial_or_user_column_loss() {
                 "transferia.mysql.signed_integer",
                 r#"{"version":1,"column_type":"bigint"}"#,
             );
-    assert!(validate_stored_projection(
-        &extension_mismatch,
-        &extension_mismatch.datasets[0]
-    )
-    .is_err());
+    assert!(
+        validate_stored_projection(&extension_mismatch, &extension_mismatch.datasets[0]).is_err()
+    );
 }
 
 #[test]
@@ -162,9 +156,8 @@ fn cdc_control_columns_preserve_the_exact_arrow_extension_identity() -> anyhow::
             "transferia.mysql.text_bytes",
             r#"{"version":1,"character_set":"latin1"}"#,
         );
-    let missing_extension =
-        SchemaColumn::new("_system_old_value_0".into(), DataType::Binary, true)
-            .with_old_value_of("value".into());
+    let missing_extension = SchemaColumn::new("_system_old_value_0".into(), DataType::Binary, true)
+        .with_old_value_of("value".into());
     let matching = SchemaColumn::new("_system_old_value_0".into(), DataType::Binary, true)
         .with_arrow_extension_metadata(
             "transferia.mysql.text_bytes",
@@ -179,13 +172,7 @@ fn cdc_control_columns_preserve_the_exact_arrow_extension_identity() -> anyhow::
         system_columns: Vec::new(),
     };
 
-    assert!(validate_cdc_control_column(
-        &dataset,
-        &missing_extension,
-        "value",
-        &current
-    )
-    .is_err());
+    assert!(validate_cdc_control_column(&dataset, &missing_extension, "value", &current).is_err());
     validate_cdc_control_column(&dataset, &matching, "value", &current)?;
     Ok(())
 }

@@ -4,15 +4,15 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use arrow::array::{
-    new_null_array, Array, ArrayRef, BinaryArray, Int64Array, StringArray,
-    TimestampMicrosecondBuilder, TimestampSecondArray, UInt64Array,
+    Array, ArrayRef, BinaryArray, Int64Array, StringArray, TimestampMicrosecondBuilder,
+    TimestampSecondArray, UInt64Array,
 };
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
-use iceberg::table::Table;
 use iceberg::spec::FormatVersion;
+use iceberg::table::Table;
 use iceberg::transaction::{ApplyTransactionAction, Transaction};
 use iceberg::writer::base_writer::data_file_writer::DataFileWriterBuilder;
 use iceberg::writer::base_writer::equality_delete_writer::{
@@ -46,8 +46,8 @@ use transferia_core::sink::{Delivery, Sink, SinkBatch, SinkEvent, SinkIo};
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
 use transferia_registry::durable::{CompareExchangeResult, DurableContext};
 use transferia_registry::{
-    SinkBuildContext, SinkConnector, SinkPrepare, SinkSpeedtestIsolation,
-    SnapshotDatasetRowCount, SnapshotRowCountStrategy,
+    SinkBuildContext, SinkConnector, SinkPrepare, SinkSpeedtestIsolation, SnapshotDatasetRowCount,
+    SnapshotRowCountStrategy,
 };
 
 use super::catalog::{build_catalog, table_ident};
@@ -157,7 +157,11 @@ fn dataset_is_changelog(dataset: &DiscoveredDataset) -> bool {
 
 fn validate_replica_dataset(dataset: &DiscoveredDataset) -> anyhow::Result<()> {
     anyhow::ensure!(
-        dataset.stored_schema.columns.iter().any(|column| column.primary_key),
+        dataset
+            .stored_schema
+            .columns
+            .iter()
+            .any(|column| column.primary_key),
         "Iceberg replica dataset '{}' requires a non-empty primary key",
         dataset.name
     );
@@ -170,7 +174,10 @@ fn validate_replica_dataset(dataset: &DiscoveredDataset) -> anyhow::Result<()> {
         SystemColumnKind::ChangedColumns,
     ] {
         anyhow::ensure!(
-            dataset.system_columns.iter().any(|column| column.kind == kind),
+            dataset
+                .system_columns
+                .iter()
+                .any(|column| column.kind == kind),
             "Iceberg replica dataset '{}' is missing required {:?} metadata",
             dataset.name,
             kind
@@ -187,7 +194,13 @@ fn validate_replica_dataset(dataset: &DiscoveredDataset) -> anyhow::Result<()> {
         "Iceberg replica dataset '{}' requires exactly one source transaction identity column",
         dataset.name
     );
-    for current in &dataset.stored_schema.columns {
+    for current in dataset.stored_schema.columns.iter().filter(|column| {
+        column.system_role.is_none()
+            && !dataset
+                .system_columns
+                .iter()
+                .any(|system| system.name.as_ref() == column.name)
+    }) {
         let old_values = dataset
             .incoming_schema
             .columns
@@ -340,10 +353,8 @@ impl SinkConnector for IcebergSinkConnector {
 }
 
 pub(super) trait IcebergRowCountCatalog: Sync {
-    fn row_count<'a>(
-        &'a self,
-        table: &'a TableIdent,
-    ) -> BoxFuture<'a, anyhow::Result<Option<u64>>>;
+    fn row_count<'a>(&'a self, table: &'a TableIdent)
+        -> BoxFuture<'a, anyhow::Result<Option<u64>>>;
 }
 
 impl IcebergRowCountCatalog for Arc<dyn Catalog> {
@@ -410,14 +421,10 @@ pub(super) fn exact_iceberg_total_records(
     value: Option<&str>,
 ) -> anyhow::Result<u64> {
     let value = value.ok_or_else(|| {
-        anyhow::anyhow!(
-            "Iceberg current snapshot {snapshot_id} has no exact total-records summary"
-        )
+        anyhow::anyhow!("Iceberg current snapshot {snapshot_id} has no exact total-records summary")
     })?;
     value.parse::<u64>().map_err(|_| {
-        anyhow::anyhow!(
-            "Iceberg current snapshot {snapshot_id} has invalid total-records summary"
-        )
+        anyhow::anyhow!("Iceberg current snapshot {snapshot_id} has invalid total-records summary")
     })
 }
 
@@ -433,6 +440,10 @@ struct IcebergSink {
     replay_identity: Option<Arc<str>>,
 }
 
+#[allow(
+    clippy::large_enum_variant,
+    reason = "boxing the hot replica variant would add an allocation to every exactly-once write"
+)]
 enum DatasetWrite {
     Append {
         batches: Vec<RecordBatch>,
@@ -454,10 +465,9 @@ impl DatasetWrite {
 
     fn bytes(&self) -> usize {
         match self {
-            Self::Append { batches, .. } => batches
-                .iter()
-                .map(RecordBatch::get_array_memory_size)
-                .sum(),
+            Self::Append { batches, .. } => {
+                batches.iter().map(RecordBatch::get_array_memory_size).sum()
+            }
             Self::Replica { changelog, .. } => changelog.rows().get_array_memory_size(),
         }
     }
@@ -466,7 +476,9 @@ impl DatasetWrite {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum StableCommitSource {
-    FiniteDelivery { delivery_ids: Vec<u64> },
+    FiniteDelivery {
+        delivery_ids: Vec<u64>,
+    },
     Replica {
         transaction: StableTransactionIdentity,
         coordinates: Vec<StableCoordinate>,
@@ -510,15 +522,12 @@ fn replica_source_identity(
     let offset = system_array::<Int64Array>(batch, SystemColumnKind::Offset, "Int64")?;
     let message_index =
         system_array::<UInt64Array>(batch, SystemColumnKind::MessageIndex, "UInt64")?;
-    let operation =
-        system_array::<StringArray>(batch, SystemColumnKind::ChangeOperation, "Utf8")?;
+    let operation = system_array::<StringArray>(batch, SystemColumnKind::ChangeOperation, "Utf8")?;
     let transaction_index = dataset
         .incoming_schema
         .columns
         .iter()
-        .position(|column| {
-            column.system_role.as_deref() == Some(SYSTEM_ROLE_SOURCE_TRANSACTION_ID)
-        })
+        .position(|column| column.system_role.as_deref() == Some(SYSTEM_ROLE_SOURCE_TRANSACTION_ID))
         .ok_or_else(|| anyhow::anyhow!("Iceberg replica source transaction identity is absent"))?;
     let transaction = stable_transaction_identity(batch, transaction_index)?;
     let mut grouped = BTreeMap::<(String, i64, i64), Vec<u64>>::new();
@@ -543,9 +552,10 @@ fn replica_source_identity(
         let code = operation.value(row);
         match operations.last_mut() {
             Some(run) if run.operation == code => {
-                run.count = run.count.checked_add(1).ok_or_else(|| {
-                    anyhow::anyhow!("Iceberg replica operation count overflow")
-                })?;
+                run.count = run
+                    .count
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow::anyhow!("Iceberg replica operation count overflow"))?;
             }
             _ => operations.push(StableOperationRun {
                 operation: code.to_owned(),
@@ -595,10 +605,16 @@ fn stable_transaction_identity(
 ) -> anyhow::Result<StableTransactionIdentity> {
     let array = batch.batch.column(index);
     let first = if let Some(values) = array.as_any().downcast_ref::<UInt64Array>() {
-        anyhow::ensure!(!values.is_null(0), "Iceberg source transaction identity is null");
+        anyhow::ensure!(
+            !values.is_null(0),
+            "Iceberg source transaction identity is null"
+        );
         StableTransactionIdentity::UInt64(values.value(0))
     } else if let Some(values) = array.as_any().downcast_ref::<BinaryArray>() {
-        anyhow::ensure!(!values.is_null(0), "Iceberg source transaction identity is null");
+        anyhow::ensure!(
+            !values.is_null(0),
+            "Iceberg source transaction identity is null"
+        );
         StableTransactionIdentity::Binary(hex_bytes(values.value(0)))
     } else {
         anyhow::bail!(
@@ -748,7 +764,10 @@ impl IcebergSink {
                     batches,
                     delivery_ids,
                 } => self.append(&dataset, batches, &delivery_ids).await?,
-                DatasetWrite::Replica { changelog, identity } => {
+                DatasetWrite::Replica {
+                    changelog,
+                    identity,
+                } => {
                     self.apply_replica_delta(&dataset, changelog, identity)
                         .await?;
                 }
@@ -769,18 +788,21 @@ impl IcebergSink {
     ) -> anyhow::Result<()> {
         let table_ref = self.config.table_for_dataset(dataset)?;
         let table = self.catalog.load_table(&table_ident(&table_ref)?).await?;
-        let commit = self.idempotent_snapshot_replay.then(|| {
-            IcebergCommitIdentity::new(
-                self.durable.delivery_id.as_ref(),
-                self.replay_identity.as_deref(),
-                self.partition_id,
-                dataset,
-                table.metadata().uuid(),
-                StableCommitSource::FiniteDelivery {
-                    delivery_ids: delivery_ids.to_vec(),
-                },
-            )
-        }).transpose()?;
+        let commit = self
+            .idempotent_snapshot_replay
+            .then(|| {
+                IcebergCommitIdentity::new(
+                    self.durable.delivery_id.as_ref(),
+                    self.replay_identity.as_deref(),
+                    self.partition_id,
+                    dataset,
+                    table.metadata().uuid(),
+                    StableCommitSource::FiniteDelivery {
+                        delivery_ids: delivery_ids.to_vec(),
+                    },
+                )
+            })
+            .transpose()?;
         let delivery_id = delivery_ids.last().copied().ok_or_else(|| {
             anyhow::anyhow!("Iceberg append requires at least one source delivery id")
         })?;
@@ -937,11 +959,11 @@ impl IcebergSink {
                     data_batches.push(batch);
                 }
                 ChangelogAction::Delete => {
-                    delete_batches.push(full_delete_batch(
-                        &run.batch,
-                        Arc::clone(&table_arrow_schema),
-                    )
-                    .map_err(DataPlaneFailure::fatal)?);
+                    // EqualityDeleteWriter projects only identifier columns from
+                    // this batch. Keep the nullable collapsed schema so null
+                    // placeholders for non-key values never violate the table's
+                    // required-field contract before that projection.
+                    delete_batches.push(run.batch);
                 }
             }
         }
@@ -1011,11 +1033,8 @@ impl IcebergSink {
             table.metadata().current_schema(),
         )?);
         let location = DefaultLocationGenerator::new(table.metadata().clone())?;
-        let names = DefaultFileNameGenerator::new(
-            prefix,
-            None,
-            iceberg::spec::DataFileFormat::Parquet,
-        );
+        let names =
+            DefaultFileNameGenerator::new(prefix, None, iceberg::spec::DataFileFormat::Parquet);
         let properties = WriterProperties::builder()
             .set_compression(parquet_compression(self.config.parquet_compression))
             .set_max_row_group_size(self.config.parquet_row_group_rows)
@@ -1058,17 +1077,12 @@ impl IcebergSink {
         prefix: String,
     ) -> anyhow::Result<Vec<iceberg::spec::DataFile>> {
         let location = DefaultLocationGenerator::new(table.metadata().clone())?;
-        let names = DefaultFileNameGenerator::new(
-            prefix,
-            None,
-            iceberg::spec::DataFileFormat::Parquet,
-        );
+        let names =
+            DefaultFileNameGenerator::new(prefix, None, iceberg::spec::DataFileFormat::Parquet);
         let properties = WriterProperties::builder()
             .set_compression(parquet_compression(self.config.parquet_compression))
             .set_max_row_group_size(self.config.parquet_row_group_rows)
             .build();
-        let parquet =
-            ParquetWriterBuilder::new(properties, table.metadata().current_schema().clone());
         let equality_ids = table
             .metadata()
             .current_schema()
@@ -1077,22 +1091,25 @@ impl IcebergSink {
         let shards = distribute_batches(batches, self.config.write_concurrency);
         let mut writers = JoinSet::new();
         for shard in shards {
+            let config = EqualityDeleteWriterConfig::new(
+                equality_ids.clone(),
+                table.metadata().current_schema().clone(),
+            )?;
+            let delete_schema = Arc::new(iceberg::arrow::arrow_schema_to_schema(
+                config.projected_arrow_schema_ref(),
+            )?);
+            let parquet = ParquetWriterBuilder::new(properties.clone(), delete_schema);
             let rolling = RollingFileWriterBuilder::new(
-                parquet.clone(),
+                parquet,
                 self.config.target_file_size_bytes,
                 table.file_io().clone(),
                 location.clone(),
                 names.clone(),
             );
-            let config = EqualityDeleteWriterConfig::new(
-                equality_ids.clone(),
-                table.metadata().current_schema().clone(),
-            )?;
             writers.spawn(async move {
-                let mut writer =
-                    EqualityDeleteFileWriterBuilder::new(rolling, config)
-                        .build(None)
-                        .await?;
+                let mut writer = EqualityDeleteFileWriterBuilder::new(rolling, config)
+                    .build(None)
+                    .await?;
                 for batch in shard {
                     writer.write(batch).await?;
                 }
@@ -1154,9 +1171,8 @@ where
             }
             Err(error) => {
                 if first_error.is_none() {
-                    first_error = Some(
-                        anyhow::Error::new(error).context("Iceberg file writer task failed"),
-                    );
+                    first_error =
+                        Some(anyhow::Error::new(error).context("Iceberg file writer task failed"));
                 }
             }
         }
@@ -1510,8 +1526,14 @@ pub(super) fn with_schema(batch: &RecordBatch, schema: Arc<Schema>) -> anyhow::R
         .zip(batch.columns())
         .map(|((actual, expected), column)| {
             anyhow::ensure!(
-                actual.name() == expected.name() && actual.is_nullable() == expected.is_nullable(),
+                actual.name() == expected.name(),
                 "runtime Arrow field '{}' does not match Iceberg field '{}'",
+                actual.name(),
+                expected.name()
+            );
+            anyhow::ensure!(
+                expected.is_nullable() || column.null_count() == 0,
+                "runtime Arrow field '{}' contains NULL values but Iceberg field '{}' is required",
                 actual.name(),
                 expected.name()
             );
@@ -1525,28 +1547,6 @@ pub(super) fn with_schema(batch: &RecordBatch, schema: Arc<Schema>) -> anyhow::R
     Ok(RecordBatch::try_new(schema, columns)?)
 }
 
-fn full_delete_batch(
-    keys: &RecordBatch,
-    schema: Arc<Schema>,
-) -> anyhow::Result<RecordBatch> {
-    let arrays = schema
-        .fields()
-        .iter()
-        .map(|field| match keys.schema().index_of(field.name()) {
-            Ok(index) => {
-                let column = keys.column(index);
-                if column.data_type() == field.data_type() {
-                    Ok(Arc::clone(column))
-                } else {
-                    cast_losslessly(column, field.data_type())
-                }
-            }
-            Err(_) => Ok(new_null_array(field.data_type(), keys.num_rows())),
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    Ok(RecordBatch::try_new(schema, arrays)?)
-}
-
 fn cast_losslessly(column: &ArrayRef, target: &DataType) -> anyhow::Result<ArrayRef> {
     if column.data_type() == &DataType::Timestamp(TimeUnit::Second, None)
         && target == &DataType::Timestamp(TimeUnit::Microsecond, None)
@@ -1556,15 +1556,15 @@ fn cast_losslessly(column: &ArrayRef, target: &DataType) -> anyhow::Result<Array
             .downcast_ref::<TimestampSecondArray>()
             .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?;
         let mut widened = TimestampMicrosecondBuilder::with_capacity(values.len());
-        for value in values.iter() {
+        for value in values {
             match value {
-                Some(value) => widened.append_value(value.checked_mul(1_000_000).ok_or_else(
-                    || {
+                Some(value) => {
+                    widened.append_value(value.checked_mul(1_000_000).ok_or_else(|| {
                         anyhow::anyhow!(
                             "Iceberg timestamp seconds value cannot be widened to microseconds"
                         )
-                    },
-                )?),
+                    })?);
+                }
                 None => widened.append_null(),
             }
         }

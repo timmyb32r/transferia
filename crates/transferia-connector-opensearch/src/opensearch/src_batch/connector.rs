@@ -7,9 +7,7 @@ use reqwest::Method;
 use serde::Deserialize;
 use transferia_connector_support::metrics::{MetricsRegistry, SourceCounters};
 use transferia_connector_support::parsers::ParserPlan;
-use transferia_core::data::schema::{
-    DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME,
-};
+use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
@@ -22,9 +20,9 @@ use transferia_registry::{
     ConnectionCheckResult, SourceBuildContext, SourceConnector, SourceDiscoveryContext,
 };
 
+use super::super::OpenSearchClient;
 use super::config::OpenSearchSourceConfig;
 use super::source::OpenSearchSource;
-use super::super::OpenSearchClient;
 
 const SOURCE_COLUMNS: usize = 4;
 const OPEN_SEARCH_ID_MAX_BYTES: usize = 512;

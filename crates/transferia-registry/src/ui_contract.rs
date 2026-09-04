@@ -200,7 +200,7 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
     Ok(())
 }
 
-pub(crate) fn validate_endpoint_capabilities(
+pub fn validate_endpoint_capabilities(
     value: &Value,
     role: EndpointRole,
     delivery_modes: &[DeliveryMode],
@@ -328,7 +328,9 @@ fn validate_one_endpoint_capability(
         ),
         UiCapabilityComponent::Parser
         | UiCapabilityComponent::Serializer
-        | UiCapabilityComponent::Transformer => unreachable!(),
+        | UiCapabilityComponent::Transformer => {
+            anyhow::bail!("{path}: non-endpoint capabilities reached endpoint validation")
+        }
     }
     Ok(())
 }

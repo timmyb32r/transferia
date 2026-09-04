@@ -4,6 +4,7 @@ use arrow::array::Array;
 use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatch;
 use base64::Engine as _;
+use chrono::Datelike as _;
 use serde::Deserialize;
 use transferia_core::data::schema::{
     SchemaColumn, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME,
@@ -30,6 +31,7 @@ const YDB_TZ_DATETIME_EXTENSION_NAME: &str = "transferia.ydb.tz_datetime";
 const YDB_TZ_TIMESTAMP_EXTENSION_NAME: &str = "transferia.ydb.tz_timestamp";
 const YDB_DYNUMBER_EXTENSION_NAME: &str = "transferia.ydb.dynumber";
 const YDB_UUID_EXTENSION_NAME: &str = "arrow.uuid";
+const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
 
 /// JSON Lines (NDJSON) serializer: one JSON object per row.
 ///
@@ -92,12 +94,7 @@ impl JsonBatchEncoder {
         batch: &RecordBatch,
         projection: impl IntoIterator<Item = JsonColumnProjection>,
     ) -> anyhow::Result<Self> {
-        Self::projected_with_float_encoding(
-            batch,
-            projection,
-            NonFiniteFloatEncoding::Null,
-            false,
-        )
+        Self::projected_with_float_encoding(batch, projection, NonFiniteFloatEncoding::Null, false)
     }
 
     pub(crate) fn projected_debezium(
@@ -166,10 +163,7 @@ impl JsonBatchEncoder {
                 let writer = if let Some(index) = projection.source_index {
                     let field = schema.field(index);
                     if mysql_debezium_extensions {
-                        ColumnWriter::classify_mysql_debezium(
-                            field,
-                            batch.column(index).as_ref(),
-                        )?
+                        ColumnWriter::classify_mysql_debezium(field, batch.column(index).as_ref())?
                     } else {
                         ColumnWriter::classify(batch.column(index).as_ref()).ok_or_else(|| {
                             anyhow::anyhow!(
@@ -277,9 +271,15 @@ enum MySqlDebeziumEncoding {
         unsigned: bool,
     },
     Date,
-    DateTime { precision: u32 },
-    Timestamp { precision: u32 },
-    Time { precision: u32 },
+    DateTime {
+        precision: u32,
+    },
+    Timestamp {
+        precision: u32,
+    },
+    Time {
+        precision: u32,
+    },
     Year,
     Enum(Arc<[String]>),
     Set(Arc<[String]>),
@@ -314,6 +314,10 @@ enum YdbDebeziumEncoding {
     DynamicNumber,
 }
 
+#[allow(
+    clippy::match_same_arms,
+    reason = "explicit Arrow and extension pairs document the fail-closed YDB wire contract"
+)]
 fn ydb_debezium_encoding(
     column_name: &str,
     arrow_type: &DataType,
@@ -624,7 +628,7 @@ fn mysql_debezium_encoding(
                 anyhow::anyhow!("MySQL Debezium ENUM column '{column_name}' omits its members")
             })?;
             anyhow::ensure!(
-                members.len() <= usize::from(u16::MAX),
+                u16::try_from(members.len()).is_ok(),
                 "MySQL Debezium ENUM column '{column_name}' has too many members"
             );
             validate_member_projection(column_name, "ENUM", &members, false)?;
@@ -1142,10 +1146,9 @@ impl ColumnWriter {
             Self::TimestampMicrosecond(a) => write_int(buf, a.value(row)),
             Self::TimestampNanosecond(a) => write_int(buf, a.value(row)),
             Self::YdbDatetimeMilliseconds(a) => {
-                let milliseconds = a
-                    .value(row)
-                    .checked_mul(1_000)
-                    .ok_or_else(|| anyhow::anyhow!("YDB Debezium Datetime milliseconds overflow"))?;
+                let milliseconds = a.value(row).checked_mul(1_000).ok_or_else(|| {
+                    anyhow::anyhow!("YDB Debezium Datetime milliseconds overflow")
+                })?;
                 write_int(buf, milliseconds);
             }
             Self::YdbDurationMicroseconds(a) => write_int(buf, a.value(row)),
@@ -1170,13 +1173,7 @@ impl ColumnWriter {
                 scale,
                 unsigned,
             } => {
-                write_mysql_decimal(
-                    buf,
-                    values.value(row),
-                    *precision,
-                    *scale,
-                    *unsigned,
-                )?;
+                write_mysql_decimal(buf, values.value(row), *precision, *scale, *unsigned)?;
             }
             Self::MySqlDate(a) => write_int(buf, mysql_date_days(a.value(row))?),
             Self::MySqlDateTime { values, precision } => {
@@ -1238,6 +1235,10 @@ impl ColumnWriter {
 
     /// Check if the value is null at the given row.
     #[inline]
+    #[allow(
+        clippy::match_same_arms,
+        reason = "each source encoding intentionally dispatches to its exact Arrow array type"
+    )]
     fn is_null_at(&self, row: usize) -> bool {
         match self {
             Self::Null => true,
@@ -1280,6 +1281,10 @@ impl ColumnWriter {
         }
     }
 
+    #[allow(
+        clippy::match_same_arms,
+        reason = "each matching source encoding is listed explicitly to reject cross-type comparisons"
+    )]
     fn value_equals(&self, other: &Self, row: usize) -> bool {
         if self.is_null_at(row) || other.is_null_at(row) {
             return self.is_null_at(row) == other.is_null_at(row);
@@ -1330,15 +1335,11 @@ impl ColumnWriter {
             (Self::YdbDurationMicroseconds(left), Self::YdbDurationMicroseconds(right)) => {
                 left.value(row) == right.value(row)
             }
-            (Self::YdbUuid(left), Self::YdbUuid(right)) => {
-                left.value(row) == right.value(row)
-            }
+            (Self::YdbUuid(left), Self::YdbUuid(right)) => left.value(row) == right.value(row),
             (Self::YdbDynamicNumber(left), Self::YdbDynamicNumber(right)) => {
                 left.value(row) == right.value(row)
             }
-            (Self::MySqlBit1(left), Self::MySqlBit1(right)) => {
-                left.value(row) == right.value(row)
-            }
+            (Self::MySqlBit1(left), Self::MySqlBit1(right)) => left.value(row) == right.value(row),
             (Self::MySqlCp1252Text(left), Self::MySqlCp1252Text(right)) => {
                 left.value(row) == right.value(row)
             }
@@ -1407,9 +1408,7 @@ impl ColumnWriter {
                     values: right_values,
                     members: right_members,
                 },
-            ) => {
-                left_members == right_members && left_values.value(row) == right_values.value(row)
-            }
+            ) => left_members == right_members && left_values.value(row) == right_values.value(row),
             (
                 Self::MySqlSet {
                     values: left_values,
@@ -1419,9 +1418,7 @@ impl ColumnWriter {
                     values: right_values,
                     members: right_members,
                 },
-            ) => {
-                left_members == right_members && left_values.value(row) == right_values.value(row)
-            }
+            ) => left_members == right_members && left_values.value(row) == right_values.value(row),
             _ => false,
         }
     }
@@ -1512,14 +1509,13 @@ fn write_ydb_uuid(buf: &mut Vec<u8>, value: &[u8]) -> anyhow::Result<()> {
         value.len() == 16,
         "YDB Debezium UUID value must contain exactly 16 bytes"
     );
-    const HEX: &[u8; 16] = b"0123456789abcdef";
     buf.push(b'"');
     for (index, byte) in value.iter().copied().enumerate() {
         if matches!(index, 4 | 6 | 8 | 10) {
             buf.push(b'-');
         }
-        buf.push(HEX[usize::from(byte >> 4)]);
-        buf.push(HEX[usize::from(byte & 0x0f)]);
+        buf.push(HEX_DIGITS[usize::from(byte >> 4)]);
+        buf.push(HEX_DIGITS[usize::from(byte & 0x0f)]);
     }
     buf.push(b'"');
     Ok(())
@@ -1644,7 +1640,6 @@ fn write_mysql_zoned_timestamp(
     let timestamp = chrono::NaiveDateTime::parse_from_str(value, format).map_err(|error| {
         anyhow::anyhow!("MySQL Debezium TIMESTAMP value '{value}' is invalid: {error}")
     })?;
-    use chrono::Datelike as _;
     anyhow::ensure!(
         timestamp.year() > 0,
         "MySQL Debezium TIMESTAMP value '{value}' cannot represent a zero year"

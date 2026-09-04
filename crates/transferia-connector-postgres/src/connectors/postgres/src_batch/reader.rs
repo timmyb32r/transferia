@@ -35,6 +35,10 @@ use transferia_core::data::table_data::TableData;
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::source::{CommitMarker, Source};
 
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "these flags independently track snapshot and changelog lifecycle guarantees"
+)]
 pub struct PostgresSource {
     client: Client,
 
@@ -304,7 +308,7 @@ fn routing_system_columns(base: usize, kinds: &[SystemColumnKind]) -> SystemColu
     )
 }
 
-fn snapshot_system_columns(changelog: bool) -> &'static [SystemColumnKind] {
+const fn snapshot_system_columns(changelog: bool) -> &'static [SystemColumnKind] {
     if changelog {
         POSTGRES_REPLICATION_SYSTEM_COLUMNS
     } else {
@@ -435,7 +439,7 @@ fn rows_to_batch(
                 len
             ])) as ArrayRef,
             SystemColumnKind::ChangedColumns => Arc::new(BinaryArray::from_iter_values(
-                std::iter::repeat(changed_mask.as_slice()).take(len),
+                std::iter::repeat_n(changed_mask.as_slice(), len),
             )) as ArrayRef,
             SystemColumnKind::WriteTimestampMs => {
                 anyhow::bail!("PostgreSQL snapshot has no write timestamp")
@@ -635,7 +639,7 @@ pub(super) fn decode_i8(value: &[u8], format: PostgresCopyFormat) -> anyhow::Res
                 .iter()
                 .fold(0_u16, |decoded, byte| decoded * 8 + u16::from(*byte - b'0'));
             anyhow::ensure!(
-                decoded <= u16::from(u8::MAX),
+                u8::try_from(decoded).is_ok(),
                 "invalid PostgreSQL text char octal value"
             );
             Ok(i8::from_ne_bytes([u8::try_from(decoded)?]))

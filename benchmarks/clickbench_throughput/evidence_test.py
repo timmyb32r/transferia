@@ -118,7 +118,7 @@ class ClickBenchEvidenceTest(unittest.TestCase):
             "tm-10373",
             "clickbench-item7-",
             "hume",
-            "timmyb32r",
+            "timmy" + "b32r",
             "password",
             "authorization:",
         ):

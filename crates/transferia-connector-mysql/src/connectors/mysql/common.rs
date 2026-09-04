@@ -109,9 +109,7 @@ pub async fn connect_with_max_allowed_packet(
     connect_with_packet_limit(config, Some(max_allowed_packet)).await
 }
 
-pub(crate) fn validate_mysql_client_packet_limit(
-    max_allowed_packet: usize,
-) -> anyhow::Result<()> {
+pub fn validate_mysql_client_packet_limit(max_allowed_packet: usize) -> anyhow::Result<()> {
     anyhow::ensure!(
         (MYSQL_CLIENT_PACKET_MIN_BYTES..=MYSQL_CLIENT_PACKET_MAX_BYTES)
             .contains(&max_allowed_packet),

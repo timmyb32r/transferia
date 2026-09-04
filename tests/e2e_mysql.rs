@@ -273,11 +273,20 @@ async fn assert_mysql_family_source(image: GenericImage, password_env: &str) -> 
         2
     );
     assert_eq!(
-        text_parity_discovery.datasets[0].stored_schema.columns.len(),
-        binary_parity_discovery.datasets[0].stored_schema.columns.len()
+        text_parity_discovery.datasets[0]
+            .stored_schema
+            .columns
+            .len(),
+        binary_parity_discovery.datasets[0]
+            .stored_schema
+            .columns
+            .len()
     );
     assert_user_batches_equal(
-        text_parity_discovery.datasets[0].stored_schema.columns.len(),
+        text_parity_discovery.datasets[0]
+            .stored_schema
+            .columns
+            .len(),
         text_parity_batches,
         binary_parity_batches,
     );

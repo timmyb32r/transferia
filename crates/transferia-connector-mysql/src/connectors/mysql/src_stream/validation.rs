@@ -3,8 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub const LOG_BIN_QUERY: &str = "SELECT @@GLOBAL.log_bin";
 pub const GTID_MODE_QUERY: &str = "SELECT @@GLOBAL.gtid_mode";
-pub const ENFORCE_GTID_CONSISTENCY_QUERY: &str =
-    "SELECT @@GLOBAL.enforce_gtid_consistency";
+pub const ENFORCE_GTID_CONSISTENCY_QUERY: &str = "SELECT @@GLOBAL.enforce_gtid_consistency";
 pub const BINLOG_FORMAT_QUERY: &str = "SELECT @@GLOBAL.binlog_format";
 pub const BINLOG_CHECKSUM_QUERY: &str = "SELECT @@GLOBAL.binlog_checksum";
 pub const BINLOG_ROW_IMAGE_QUERY: &str = "SELECT @@GLOBAL.binlog_row_image";
@@ -45,7 +44,11 @@ pub fn validate_replication_prerequisites(
         &prerequisites.enforce_gtid_consistency,
         "ON",
     )?;
-    require_value("@@GLOBAL.binlog_format", &prerequisites.binlog_format, "ROW")?;
+    require_value(
+        "@@GLOBAL.binlog_format",
+        &prerequisites.binlog_format,
+        "ROW",
+    )?;
     require_value(
         "@@GLOBAL.binlog_checksum",
         &prerequisites.binlog_checksum,

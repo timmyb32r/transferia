@@ -8,8 +8,8 @@ use tokio_util::sync::CancellationToken;
 use transferia_connector_support::external_request::observe_external_request;
 
 use super::{
-    replication_safety_violation, AuthoritativeColumnIdentity, AuthoritativeTableIdentity,
-    MySqlBinlogBoundary, MySqlSourceIdentity, SnapshotStreamTracker, validate_server_uuid,
+    replication_safety_violation, validate_server_uuid, AuthoritativeColumnIdentity,
+    AuthoritativeTableIdentity, MySqlBinlogBoundary, MySqlSourceIdentity, SnapshotStreamTracker,
 };
 use crate::connectors::mysql::common::{
     connect, connect_with_max_allowed_packet, quote_identifier, validate_identifier,
@@ -52,14 +52,14 @@ pub struct MySqlSnapshotSession {
 
 impl MySqlSnapshotSession {
     #[must_use]
-    pub fn table(&self) -> &TableConfig {
+    pub const fn table(&self) -> &TableConfig {
         &self.table
     }
 
-    /// The MySQL session which owns this exact read-only consistent snapshot.
+    /// The `MySQL` session which owns this exact read-only consistent snapshot.
     ///
-    /// MySQL does not expose a portable durable transaction identifier for a
-    /// read-only InnoDB snapshot. The retained connection plus this server
+    /// `MySQL` does not expose a portable durable transaction identifier for a
+    /// read-only `InnoDB` snapshot. The retained connection plus this server
     /// connection id is its exact lifetime identity.
     #[must_use]
     pub const fn session_connection_id(&self) -> u64 {
@@ -299,7 +299,7 @@ impl MySqlExecutionLock {
 
     /// Hand the still-locked connection to the binlog transport.
     ///
-    /// The caller must not reconnect: MySQL named locks are connection-owned.
+    /// The caller must not reconnect: `MySQL` named locks are connection-owned.
     pub fn into_connection(mut self) -> anyhow::Result<Conn> {
         if !self.verified {
             return Err(replication_safety_violation(anyhow::anyhow!(
@@ -340,12 +340,14 @@ impl MySqlExecutionLock {
             None => Err(cleanup_deadline_exceeded("execution-lock cleanup")),
         };
         let disconnect = match cleanup_remaining(cleanup_started, cleanup_timeout) {
-            Some(remaining) => run_bounded_request(
-                remaining,
-                "disconnect_replication_lock",
-                connection.disconnect(),
-            )
-            .await,
+            Some(remaining) => {
+                run_bounded_request(
+                    remaining,
+                    "disconnect_replication_lock",
+                    connection.disconnect(),
+                )
+                .await
+            }
             None => Err(cleanup_deadline_exceeded("execution-lock cleanup")),
         };
         match (release, disconnect) {
@@ -368,12 +370,12 @@ pub struct LockedSnapshotBootstrap {
 
 impl LockedSnapshotBootstrap {
     #[must_use]
-    pub fn source(&self) -> &MySqlSourceIdentity {
+    pub const fn source(&self) -> &MySqlSourceIdentity {
         &self.source
     }
 
     #[must_use]
-    pub fn boundary(&self) -> &MySqlBinlogBoundary {
+    pub const fn boundary(&self) -> &MySqlBinlogBoundary {
         &self.boundary
     }
 
@@ -406,9 +408,7 @@ impl LockedSnapshotBootstrap {
             .mark_snapshot_ready(&self.boundary, &self.authoritative_tables)
             .await
         {
-            return Err(
-                cleanup_after_failure(&mut self.resources, cleanup_timeout, error).await,
-            );
+            return Err(cleanup_after_failure(&mut self.resources, cleanup_timeout, error).await);
         }
 
         let unlock = {
@@ -428,9 +428,7 @@ impl LockedSnapshotBootstrap {
             let error = replication_safety_violation(error.context(
                 "MySQL exact snapshot boundary was persisted, but UNLOCK TABLES did not complete",
             ));
-            return Err(
-                cleanup_after_failure(&mut self.resources, cleanup_timeout, error).await,
-            );
+            return Err(cleanup_after_failure(&mut self.resources, cleanup_timeout, error).await);
         }
         self.resources.tables_locked = false;
 
@@ -496,8 +494,7 @@ pub async fn inspect_mysql8_gtid_source(
     .await;
     match (result, disconnect) {
         (Ok(preflight), Ok(())) => Ok(preflight),
-        (Err(error), _) => Err(error),
-        (Ok(_), Err(error)) => Err(error),
+        (Err(error), _) | (Ok(_), Err(error)) => Err(error),
     }
 }
 
@@ -554,8 +551,7 @@ pub async fn acquire_execution_lock(
     };
     if acquired != Some(1) {
         let error = anyhow::anyhow!(
-            "MySQL replication execution lock '{}' was not acquired within the configured timeout",
-            lock_name
+            "MySQL replication execution lock '{lock_name}' was not acquired within the configured timeout"
         );
         return Err(disconnect_after_failure(connection, request_timeout, error).await);
     }
@@ -873,9 +869,7 @@ pub async fn begin_locked_snapshot(
             boundary,
             authoritative_tables,
         }),
-        Err(error) => {
-            Err(cleanup_after_failure(&mut resources, cleanup_timeout, error).await)
-        }
+        Err(error) => Err(cleanup_after_failure(&mut resources, cleanup_timeout, error).await),
     }
 }
 
@@ -906,7 +900,7 @@ struct BootstrapResources {
 impl BootstrapResources {
     async fn cleanup(&mut self, cleanup_timeout: Duration) -> anyhow::Result<()> {
         let mut owner = self.owner.take();
-        let mut sessions = std::mem::take(&mut self.sessions);
+        let sessions = std::mem::take(&mut self.sessions);
         let tables_locked = self.tables_locked;
         let lock_acquired = self.lock_acquired;
         let lock_name = self.lock_name.clone();
@@ -915,12 +909,14 @@ impl BootstrapResources {
         if let Some(connection) = owner.as_mut() {
             if tables_locked {
                 let unlock = match cleanup_remaining(cleanup_started, cleanup_timeout) {
-                    Some(remaining) => run_bounded_request(
-                        remaining,
-                        "abort_unlock_snapshot_tables",
-                        connection.query_drop("UNLOCK TABLES"),
-                    )
-                    .await,
+                    Some(remaining) => {
+                        run_bounded_request(
+                            remaining,
+                            "abort_unlock_snapshot_tables",
+                            connection.query_drop("UNLOCK TABLES"),
+                        )
+                        .await
+                    }
                     None => Err(cleanup_deadline_exceeded("snapshot cleanup")),
                 };
                 if let Err(error) = unlock {
@@ -928,26 +924,30 @@ impl BootstrapResources {
                 }
             }
         }
-        for mut session in sessions.drain(..) {
+        for mut session in sessions {
             let rollback = match cleanup_remaining(cleanup_started, cleanup_timeout) {
-                Some(remaining) => run_bounded_request(
-                    remaining,
-                    "abort_snapshot_transaction",
-                    session.connection.query_drop("ROLLBACK"),
-                )
-                .await,
+                Some(remaining) => {
+                    run_bounded_request(
+                        remaining,
+                        "abort_snapshot_transaction",
+                        session.connection.query_drop("ROLLBACK"),
+                    )
+                    .await
+                }
                 None => Err(cleanup_deadline_exceeded("snapshot cleanup")),
             };
             if let Err(error) = rollback {
                 first_error.get_or_insert(error);
             }
             let disconnect = match cleanup_remaining(cleanup_started, cleanup_timeout) {
-                Some(remaining) => run_bounded_request(
-                    remaining,
-                    "disconnect_snapshot_session",
-                    session.connection.disconnect(),
-                )
-                .await,
+                Some(remaining) => {
+                    run_bounded_request(
+                        remaining,
+                        "disconnect_snapshot_session",
+                        session.connection.disconnect(),
+                    )
+                    .await
+                }
                 None => Err(cleanup_deadline_exceeded("snapshot cleanup")),
             };
             if let Err(error) = disconnect {
@@ -980,12 +980,14 @@ impl BootstrapResources {
                 }
             }
             let disconnect = match cleanup_remaining(cleanup_started, cleanup_timeout) {
-                Some(remaining) => run_bounded_request(
-                    remaining,
-                    "disconnect_snapshot_lock",
-                    connection.disconnect(),
-                )
-                .await,
+                Some(remaining) => {
+                    run_bounded_request(
+                        remaining,
+                        "disconnect_snapshot_lock",
+                        connection.disconnect(),
+                    )
+                    .await
+                }
                 None => Err(cleanup_deadline_exceeded("snapshot cleanup")),
             };
             if let Err(error) = disconnect {
@@ -1070,8 +1072,7 @@ async fn read_preflight(
     let row_image = required::<String, _>(&row, 5, "binlog_row_image")?;
     let row_metadata = required::<String, _>(&row, 6, "binlog_row_metadata")?;
     let row_value_options = required::<String, _>(&row, 7, "binlog_row_value_options")?;
-    let transaction_compression =
-        required::<String, _>(&row, 8, "binlog_transaction_compression")?;
+    let transaction_compression = required::<String, _>(&row, 8, "binlog_transaction_compression")?;
     let binlog_checksum = required::<String, _>(&row, 9, "binlog_checksum")?;
     let server_uuid = required::<String, _>(&row, 10, "server_uuid")?;
     let database = required::<Option<String>, _>(&row, 11, "DATABASE()")?.ok_or_else(|| {
@@ -1116,9 +1117,7 @@ async fn read_boundary(
     )
     .await?
     .ok_or_else(|| {
-        replication_safety_violation(anyhow::anyhow!(
-            "MySQL binary log status returned no row"
-        ))
+        replication_safety_violation(anyhow::anyhow!("MySQL binary log status returned no row"))
     })?;
     let filename = required::<String, _>(&status, 0, "binary log File")?;
     let position = required::<u64, _>(&status, 1, "binary log Position")?;
@@ -1137,11 +1136,9 @@ async fn read_boundary(
         ))
     })?;
     let boundary_server_uuid = required::<String, _>(&identity, 0, "boundary server_uuid")?;
-    let boundary_database =
-        required::<Option<String>, _>(&identity, 1, "boundary DATABASE()")?;
+    let boundary_database = required::<Option<String>, _>(&identity, 1, "boundary DATABASE()")?;
     let gtid_executed = required::<String, _>(&identity, 2, "boundary gtid_executed")?;
-    let source_timestamp_micros =
-        required::<i64, _>(&identity, 3, "boundary source timestamp")?;
+    let source_timestamp_micros = required::<i64, _>(&identity, 3, "boundary source timestamp")?;
     if boundary_server_uuid != preflight.source.server_uuid
         || boundary_database.as_deref() != Some(preflight.source.database.as_str())
     {
@@ -1184,7 +1181,10 @@ fn validate_bootstrap_inputs(
     validate_timeout("lock_timeout", lock_timeout)?;
     validate_timeout("request_timeout", request_timeout)?;
     validate_timeout("cleanup_timeout", cleanup_timeout)?;
-    anyhow::ensure!(server_id != 0, "MySQL replication server_id must be non-zero");
+    anyhow::ensure!(
+        server_id != 0,
+        "MySQL replication server_id must be non-zero"
+    );
     anyhow::ensure!(
         preflight.source.database == config.database,
         "MySQL replication preflight belongs to database '{}', configuration selects '{}'",
@@ -1270,8 +1270,7 @@ fn validate_replication_preflight(
     binlog_checksum: &str,
     server_uuid: &str,
 ) -> anyhow::Result<&'static str> {
-    let (major, minor) =
-        mysql_version(server_version).map_err(replication_safety_violation)?;
+    let (major, minor) = mysql_version(server_version).map_err(replication_safety_violation)?;
     if major != 8 {
         return Err(replication_safety_violation(anyhow::anyhow!(
             "MySQL GTID replication currently requires MySQL 8.x; server reports '{server_version}'"
@@ -1329,9 +1328,7 @@ fn cleanup_remaining(started: Instant, timeout: Duration) -> Option<Duration> {
 }
 
 fn cleanup_deadline_exceeded(scope: &str) -> anyhow::Error {
-    anyhow::anyhow!(
-        "MySQL {scope} exceeded its configured timeout; owned connections were dropped"
-    )
+    anyhow::anyhow!("MySQL {scope} exceeded its configured timeout; owned connections were dropped")
 }
 
 fn validate_locked_gtid_state(
@@ -1413,16 +1410,14 @@ fn authoritative_column_identity(row: &Row) -> anyhow::Result<AuthoritativeColum
     let extra = required::<String, _>(row, 8, "column extra modifiers")?;
     let generation_expression =
         required::<Option<String>, _>(row, 9, "column generation expression")?;
-    let character_maximum_length =
-        required::<Option<u64>, _>(row, 10, "character maximum length")?
-            .map(usize::try_from)
-            .transpose()
-            .map_err(|error| replication_safety_violation(error.into()))?;
-    let character_octet_length =
-        required::<Option<u64>, _>(row, 11, "character octet length")?
-            .map(usize::try_from)
-            .transpose()
-            .map_err(|error| replication_safety_violation(error.into()))?;
+    let character_maximum_length = required::<Option<u64>, _>(row, 10, "character maximum length")?
+        .map(usize::try_from)
+        .transpose()
+        .map_err(|error| replication_safety_violation(error.into()))?;
+    let character_octet_length = required::<Option<u64>, _>(row, 11, "character octet length")?
+        .map(usize::try_from)
+        .transpose()
+        .map_err(|error| replication_safety_violation(error.into()))?;
     let numeric_precision = required::<Option<u64>, _>(row, 12, "numeric precision")?;
     let numeric_scale = required::<Option<u64>, _>(row, 13, "numeric scale")?;
     let datetime_precision = required::<Option<u64>, _>(row, 14, "datetime precision")?;
@@ -1434,12 +1429,10 @@ fn authoritative_column_identity(row: &Row) -> anyhow::Result<AuthoritativeColum
                 "MySQL authoritative metadata returned an SRS id outside the u32 range for column '{name}'"
             ))
         })?;
-    let primary_key_ordinal =
-        required::<Option<u64>, _>(row, 16, "primary-key ordinal")?;
+    let primary_key_ordinal = required::<Option<u64>, _>(row, 16, "primary-key ordinal")?;
     let primary_key_prefix_length =
         required::<Option<u64>, _>(row, 17, "primary-key prefix length")?;
-    let primary_key_direction =
-        required::<Option<String>, _>(row, 18, "primary-key direction")?;
+    let primary_key_direction = required::<Option<String>, _>(row, 18, "primary-key direction")?;
     if primary_key_ordinal.is_none()
         && (primary_key_prefix_length.is_some() || primary_key_direction.is_some())
     {

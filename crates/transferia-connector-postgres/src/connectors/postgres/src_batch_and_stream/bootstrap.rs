@@ -27,7 +27,7 @@ impl<T> AsyncIo for T where T: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
 type BoxedIo = Box<dyn AsyncIo>;
 
 #[derive(Debug)]
-pub(crate) struct AmbiguousReplicationSlotCreation {
+pub struct AmbiguousReplicationSlotCreation {
     source: anyhow::Error,
 }
 
@@ -49,11 +49,11 @@ impl std::error::Error for AmbiguousReplicationSlotCreation {
 
 /// The atomic result of creating a logical slot and exporting its snapshot.
 ///
-/// PostgreSQL keeps the snapshot valid only while the replication session
+/// `PostgreSQL` keeps the snapshot valid only while the replication session
 /// which exported it remains open. Keeping this value alive therefore owns the
 /// server-side snapshot lifetime.
 #[must_use = "dropping the bootstrap closes the session that owns the exported snapshot"]
-pub(crate) struct ReplicationSlotBootstrap {
+pub struct ReplicationSlotBootstrap {
     _session: BoxedIo,
 
     pub(crate) slot: String,
@@ -494,7 +494,7 @@ async fn read_identify_system_response(
                     !described,
                     "PostgreSQL repeated IDENTIFY_SYSTEM response description"
                 );
-                validate_identify_system_description(body)?;
+                validate_identify_system_description(&body)?;
                 described = true;
             }
             Message::DataRow(body) => {
@@ -506,7 +506,7 @@ async fn read_identify_system_response(
                     identity.is_none(),
                     "PostgreSQL returned multiple IDENTIFY_SYSTEM rows"
                 );
-                identity = Some(parse_identify_system_row(body)?);
+                identity = Some(parse_identify_system_row(&body)?);
             }
             Message::CommandComplete(body) => {
                 anyhow::ensure!(
@@ -535,7 +535,7 @@ async fn read_identify_system_response(
 }
 
 fn validate_identify_system_description(
-    body: postgres_protocol::message::backend::RowDescriptionBody,
+    body: &postgres_protocol::message::backend::RowDescriptionBody,
 ) -> anyhow::Result<()> {
     let fields = body.fields().collect::<Vec<_>>()?;
     let expected = [
@@ -559,15 +559,14 @@ fn validate_identify_system_description(
                 && field.type_size() == expected_size
                 && field.type_modifier() == -1
                 && field.format() == 0,
-            "PostgreSQL IDENTIFY_SYSTEM response column '{}' does not match the protocol contract",
-            expected_name
+            "PostgreSQL IDENTIFY_SYSTEM response column '{expected_name}' does not match the protocol contract"
         );
     }
     Ok(())
 }
 
 fn parse_identify_system_row(
-    body: postgres_protocol::message::backend::DataRowBody,
+    body: &postgres_protocol::message::backend::DataRowBody,
 ) -> anyhow::Result<PostgresSystemIdentity> {
     let ranges = body.ranges().collect::<Vec<_>>()?;
     anyhow::ensure!(
@@ -623,7 +622,7 @@ async fn read_slot_response(
         match read_message(stream, read_buffer).await? {
             Message::RowDescription(body) => {
                 anyhow::ensure!(!described, "PostgreSQL repeated slot response description");
-                validate_slot_description(body)?;
+                validate_slot_description(&body)?;
                 described = true;
             }
             Message::DataRow(body) => {
@@ -632,7 +631,7 @@ async fn read_slot_response(
                     "PostgreSQL sent slot data before its description"
                 );
                 anyhow::ensure!(row.is_none(), "PostgreSQL returned multiple slot rows");
-                row = Some(parse_slot_row(body)?);
+                row = Some(parse_slot_row(&body)?);
             }
             Message::CommandComplete(body) => {
                 anyhow::ensure!(
@@ -660,7 +659,7 @@ async fn read_slot_response(
 }
 
 fn validate_slot_description(
-    body: postgres_protocol::message::backend::RowDescriptionBody,
+    body: &postgres_protocol::message::backend::RowDescriptionBody,
 ) -> anyhow::Result<()> {
     let fields = body.fields().collect::<Vec<_>>()?;
     let expected = [
@@ -684,15 +683,14 @@ fn validate_slot_description(
                 && field.type_size() == -1
                 && field.type_modifier() == -1
                 && field.format() == 0,
-            "PostgreSQL slot response column '{}' does not match the protocol contract",
-            expected_name
+            "PostgreSQL slot response column '{expected_name}' does not match the protocol contract"
         );
     }
     Ok(())
 }
 
 fn parse_slot_row(
-    body: postgres_protocol::message::backend::DataRowBody,
+    body: &postgres_protocol::message::backend::DataRowBody,
 ) -> anyhow::Result<SlotResponse> {
     let ranges = body.ranges().collect::<Vec<_>>()?;
     anyhow::ensure!(

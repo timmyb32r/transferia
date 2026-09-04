@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 
 use crate::data::schema::{
-    DatasetSchema, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME,
+    DatasetSchema, SchemaColumn, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME,
     META_LOW_CARDINALITY, META_MAX_LENGTH, META_OLD_KEY_OF, META_OLD_VALUE_OF, META_PRIMARY_KEY,
     META_SYSTEM_ROLE,
 };
@@ -435,63 +435,11 @@ pub fn validate_stored_projection(
     discovery: &DeliveryDiscovery,
     dataset: &DiscoveredDataset,
 ) -> anyhow::Result<()> {
-    let incoming_names = dataset
-        .incoming_schema
-        .columns
-        .iter()
-        .map(|column| column.name.as_str())
-        .collect::<HashSet<_>>();
-    anyhow::ensure!(
-        incoming_names.len() == dataset.incoming_schema.columns.len(),
-        "discovered {:?} dataset '{}' repeats an incoming column name",
-        dataset.role,
-        dataset.name,
-    );
-    let stored_names = dataset
-        .stored_schema
-        .columns
-        .iter()
-        .map(|column| column.name.as_str())
-        .collect::<HashSet<_>>();
-    anyhow::ensure!(
-        stored_names.len() == dataset.stored_schema.columns.len(),
-        "discovered {:?} dataset '{}' repeats a stored column name",
-        dataset.role,
-        dataset.name,
-    );
+    let system_names = validate_projection_names_and_system_columns(dataset)?;
     let changelog_input = dataset
         .system_columns
         .iter()
         .any(|column| column.kind == SystemColumnKind::ChangeOperation);
-    let system_names = dataset
-        .system_columns
-        .iter()
-        .map(|column| column.name.as_ref())
-        .collect::<HashSet<_>>();
-    anyhow::ensure!(
-        system_names.len() == dataset.system_columns.len(),
-        "discovered {:?} dataset '{}' repeats a system column",
-        dataset.role,
-        dataset.name,
-    );
-    for system in &dataset.system_columns {
-        let matching = dataset
-            .incoming_schema
-            .columns
-            .iter()
-            .filter(|column| column.name == system.name.as_ref())
-            .collect::<Vec<_>>();
-        anyhow::ensure!(
-            matching.len() == 1
-                && matching[0].data_type == system.kind.data_type()
-                && !matching[0].nullable,
-            "discovered {:?} dataset '{}' system column '{}' must occur exactly once with Arrow type {:?} and be non-nullable",
-            dataset.role,
-            dataset.name,
-            system.name,
-            system.kind.data_type(),
-        );
-    }
     validate_cdc_control_columns(dataset, changelog_input, &system_names)?;
     let expected = dataset
         .incoming_schema
@@ -523,31 +471,89 @@ pub fn validate_stored_projection(
                 .columns
                 .iter()
                 .zip(expected)
-                .all(|(stored, incoming)| {
-                    stored.name == incoming.name
-                        && stored.data_type == incoming.data_type
-                        // Incoming Arrow may be more permissive than the
-                        // destination contract (notably for unchanged TOAST
-                        // values and snapshot/CDC schema parity). Runtime
-                        // projection rejects actual nulls before an append-only
-                        // side effect; changelog projection validates them
-                        // against the changed-column mask.
-                        && (stored.nullable == incoming.nullable
-                            || (!stored.nullable && incoming.nullable))
-                        && stored.primary_key == incoming.primary_key
-                        && stored.low_cardinality == incoming.low_cardinality
-                        && stored.max_length == incoming.max_length
-                        && stored.arrow_extension_name == incoming.arrow_extension_name
-                        && stored.arrow_extension_metadata == incoming.arrow_extension_metadata
-                        && stored.old_value_of.is_none()
-                        && stored.old_key_of.is_none()
-                        && stored.system_role.is_none()
-                }),
+                .all(stored_column_matches),
         "stored schema for {:?} dataset '{}' is not the exact incoming schema after system-column projection",
         dataset.role,
         dataset.name,
     );
     Ok(())
+}
+
+fn validate_projection_names_and_system_columns(
+    dataset: &DiscoveredDataset,
+) -> anyhow::Result<HashSet<&str>> {
+    let incoming_names = dataset
+        .incoming_schema
+        .columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<HashSet<_>>();
+    anyhow::ensure!(
+        incoming_names.len() == dataset.incoming_schema.columns.len(),
+        "discovered {:?} dataset '{}' repeats an incoming column name",
+        dataset.role,
+        dataset.name,
+    );
+    let stored_names = dataset
+        .stored_schema
+        .columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect::<HashSet<_>>();
+    anyhow::ensure!(
+        stored_names.len() == dataset.stored_schema.columns.len(),
+        "discovered {:?} dataset '{}' repeats a stored column name",
+        dataset.role,
+        dataset.name,
+    );
+    let system_names = dataset
+        .system_columns
+        .iter()
+        .map(|column| column.name.as_ref())
+        .collect::<HashSet<_>>();
+    anyhow::ensure!(
+        system_names.len() == dataset.system_columns.len(),
+        "discovered {:?} dataset '{}' repeats a system column",
+        dataset.role,
+        dataset.name,
+    );
+    for system in &dataset.system_columns {
+        let matching = dataset
+            .incoming_schema
+            .columns
+            .iter()
+            .filter(|column| column.name == system.name.as_ref())
+            .collect::<Vec<_>>();
+        anyhow::ensure!(
+            matching.len() == 1
+                && matching[0].data_type == system.kind.data_type()
+                && !matching[0].nullable,
+            "discovered {:?} dataset '{}' system column '{}' must occur exactly once with Arrow type {:?} and be non-nullable",
+            dataset.role,
+            dataset.name,
+            system.name,
+            system.kind.data_type(),
+        );
+    }
+    Ok(system_names)
+}
+
+fn stored_column_matches((stored, incoming): (&SchemaColumn, &SchemaColumn)) -> bool {
+    stored.name == incoming.name
+        && stored.data_type == incoming.data_type
+        // Incoming Arrow may be more permissive than the destination contract
+        // (notably for unchanged TOAST values and snapshot/CDC schema parity).
+        // Runtime projection rejects actual nulls before an append-only side
+        // effect; changelog projection validates them against the changed mask.
+        && (stored.nullable == incoming.nullable || (!stored.nullable && incoming.nullable))
+        && stored.primary_key == incoming.primary_key
+        && stored.low_cardinality == incoming.low_cardinality
+        && stored.max_length == incoming.max_length
+        && stored.arrow_extension_name == incoming.arrow_extension_name
+        && stored.arrow_extension_metadata == incoming.arrow_extension_metadata
+        && stored.old_value_of.is_none()
+        && stored.old_key_of.is_none()
+        && stored.system_role.is_none()
 }
 
 #[allow(

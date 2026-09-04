@@ -935,9 +935,7 @@ impl YTsaurusClient {
             let parameters = speedtest_directory_parameters(path, owner, mutation_id, retry);
             let response = self
                 .request(reqwest::Method::POST, "create")?
-                .configure(|request| {
-                    request.header("X-YT-Parameters", parameters.to_string())
-                })
+                .configure(|request| request.header("X-YT-Parameters", parameters.to_string()))
                 .send()
                 .await;
             match response {

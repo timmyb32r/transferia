@@ -243,11 +243,9 @@ pub fn arrow_to_postgres(data_type: &DataType) -> anyhow::Result<Type> {
     Ok(match data_type {
         DataType::Boolean => Type::BOOL,
         DataType::Int8 => Type::CHAR,
-        DataType::Int16 => Type::INT2,
-        DataType::Int32 => Type::INT4,
+        DataType::Int16 | DataType::UInt8 => Type::INT2,
+        DataType::Int32 | DataType::UInt16 => Type::INT4,
         DataType::Int64 => Type::INT8,
-        DataType::UInt8 => Type::INT2,
-        DataType::UInt16 => Type::INT4,
         DataType::UInt32 => Type::OID,
         DataType::UInt64 => Type::NUMERIC,
         DataType::Float32 => Type::FLOAT4,

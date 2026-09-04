@@ -137,9 +137,8 @@ async fn terminated_snapshot_owner_is_a_non_retryable_source_build_failure() -> 
         .try_get::<_, bool>(0)?;
     assert!(terminated, "the exported snapshot owner was not terminated");
 
-    let error = match build_partition(&connector, 0).await {
-        Ok(_) => panic!("an expired exported snapshot must not construct a reader"),
-        Err(error) => error,
+    let Err(error) = build_partition(&connector, 0).await else {
+        panic!("an expired exported snapshot must not construct a reader");
     };
     let failure = error
         .downcast::<transferia_core::failure::DataPlaneFailure>()

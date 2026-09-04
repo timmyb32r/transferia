@@ -240,15 +240,14 @@ async fn speedtest_is_rejected_before_any_s3_side_effects() -> anyhow::Result<()
     let connector = Arc::new(S3SinkConnector::from_config(serde_yaml::from_str(
         "bucket: test\npath_prefix: production\n",
     )?)?);
-    let error = match connector
+    let Err(error) = connector
         .isolate_speedtest(
             Arc::new(discovery(DataType::Utf8, false)),
             "0123456789abcdef0123456789abcdef".to_owned(),
         )
         .await
-    {
-        Ok(_) => panic!("S3 speedtests must fail before creating scratch objects"),
-        Err(error) => error,
+    else {
+        panic!("S3 speedtests must fail before creating scratch objects");
     };
     assert!(error.to_string().contains("historical versions"));
     Ok(())

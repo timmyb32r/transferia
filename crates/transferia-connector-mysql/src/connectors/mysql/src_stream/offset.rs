@@ -37,7 +37,7 @@ pub struct MySqlReplicationOffsetTracker {
 /// or updating durable state.
 ///
 /// `None` means that the caller must capture a fresh exact boundary while it
-/// still holds the MySQL consistency lock. `Some` is the only position an
+/// still holds the `MySQL` consistency lock. `Some` is the only position an
 /// existing delivery may resume from.
 pub async fn inspect_existing_replication_offset(
     config: &MySqlReplicationConfig,
@@ -135,7 +135,8 @@ impl MySqlReplicationOffsetTracker {
                 "MySQL replication has no durable offset and no freshly captured exact start boundary; refusing to adopt a server position"
             ))
         })?;
-        let committed_position = boundary_position(boundary).map_err(replication_safety_violation)?;
+        let committed_position =
+            boundary_position(boundary).map_err(replication_safety_violation)?;
         let committed_gtids = GtidSet::parse_mysql(&boundary.gtid_executed)
             .map_err(|error| replication_safety_violation(error.into()))?;
         validate_gtid_continuity(
@@ -203,11 +204,7 @@ impl MySqlReplicationOffsetTracker {
         let payload = serde_json::to_vec(&next)?;
         match self
             .storage
-            .compare_exchange(
-                REPLICATION_OFFSET_STATE_KEY,
-                Some(self.revision),
-                &payload,
-            )
+            .compare_exchange(REPLICATION_OFFSET_STATE_KEY, Some(self.revision), &payload)
             .await?
         {
             CompareExchangeResult::Applied(value) => {
@@ -216,9 +213,7 @@ impl MySqlReplicationOffsetTracker {
                 Ok(())
             }
             CompareExchangeResult::Conflict(_) => Err(replication_safety_violation(
-                anyhow::anyhow!(
-                    "MySQL durable replication offset was modified by another writer"
-                ),
+                anyhow::anyhow!("MySQL durable replication offset was modified by another writer"),
             )),
         }
     }

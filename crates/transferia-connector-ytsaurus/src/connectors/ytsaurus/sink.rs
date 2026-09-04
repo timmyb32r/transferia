@@ -92,8 +92,7 @@ pub(super) trait YTsaurusSpeedtestClient {
 pub(super) trait YTsaurusRowCountClient: Sync {
     fn node_exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<bool>>;
 
-    fn row_count<'a>(&'a self, path: &'a str)
-        -> BoxFuture<'a, anyhow::Result<serde_json::Value>>;
+    fn row_count<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<serde_json::Value>>;
 }
 
 impl YTsaurusSpeedtestClient for YTsaurusClient {
@@ -129,13 +128,10 @@ impl YTsaurusSpeedtestClient for YTsaurusClient {
 
 impl YTsaurusRowCountClient for YTsaurusClient {
     fn node_exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<bool>> {
-        Box::pin(YTsaurusClient::node_exists(self, path))
+        Box::pin(Self::node_exists(self, path))
     }
 
-    fn row_count<'a>(
-        &'a self,
-        path: &'a str,
-    ) -> BoxFuture<'a, anyhow::Result<serde_json::Value>> {
+    fn row_count<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<serde_json::Value>> {
         Box::pin(async move {
             self.get_json(&super::attribute_path(path, "row_count"))
                 .await
@@ -713,7 +709,7 @@ pub(super) fn speedtest_root_proof(
         .ok_or_else(|| anyhow::anyhow!("YTsaurus speedtest root revision is missing or invalid"))
 }
 
-pub(super) async fn prepare_ytsaurus_speedtest_root<C: YTsaurusSpeedtestClient>(
+pub(super) async fn prepare_ytsaurus_speedtest_root<C: YTsaurusSpeedtestClient + Sync>(
     client: &C,
     scope: &YTsaurusSpeedtestScope,
 ) -> anyhow::Result<()> {
@@ -733,7 +729,7 @@ pub(super) async fn prepare_ytsaurus_speedtest_root<C: YTsaurusSpeedtestClient>(
     Ok(())
 }
 
-pub(super) async fn cleanup_ytsaurus_speedtest_root<C: YTsaurusSpeedtestClient>(
+pub(super) async fn cleanup_ytsaurus_speedtest_root<C: YTsaurusSpeedtestClient + Sync>(
     client: &C,
     scope: &YTsaurusSpeedtestScope,
 ) -> anyhow::Result<()> {
@@ -777,7 +773,7 @@ pub(super) async fn cleanup_ytsaurus_speedtest_root<C: YTsaurusSpeedtestClient>(
     Ok(())
 }
 
-async fn verify_ytsaurus_speedtest_root<C: YTsaurusSpeedtestClient>(
+async fn verify_ytsaurus_speedtest_root<C: YTsaurusSpeedtestClient + Sync>(
     client: &C,
     scope: &YTsaurusSpeedtestScope,
 ) -> anyhow::Result<u64> {
@@ -1690,7 +1686,7 @@ fn widen_timestamp_seconds(batch: &RecordBatch) -> anyhow::Result<RecordBatch> {
                 .downcast_ref::<TimestampSecondArray>()
                 .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?;
             let mut widened = TimestampMicrosecondBuilder::with_capacity(values.len());
-            for value in values.iter() {
+            for value in values {
                 match value {
                     Some(value) => {
                         let microseconds = value.checked_mul(1_000_000).ok_or_else(|| {
@@ -1785,8 +1781,7 @@ fn row_exceeds_limits(
             | DataType::UInt64
             | DataType::Float64
             | DataType::Date64
-            | DataType::Timestamp(TimeUnit::Second, None)
-            | DataType::Timestamp(TimeUnit::Microsecond, None) => 8,
+            | DataType::Timestamp(TimeUnit::Second | TimeUnit::Microsecond, None) => 8,
             DataType::Utf8 => array
                 .as_any()
                 .downcast_ref::<StringArray>()

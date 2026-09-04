@@ -62,6 +62,7 @@ impl DurableStorage for MemoryDurableStorage {
                 payload: payload.to_vec(),
             };
             values.insert(key.to_owned(), value.clone());
+            drop(values);
             Ok(CompareExchangeResult::Applied(value))
         })
     }
@@ -177,8 +178,7 @@ async fn exact_boundary_and_schema_become_the_only_resumable_stream_start() {
         REPLAY_IDENTITY,
     )
     .await
-    .unwrap()
-    else {
+    .unwrap() else {
         panic!("fresh state must claim snapshot creation");
     };
     tracker
@@ -243,8 +243,7 @@ async fn claimed_state_is_recyclable_only_before_snapshot_side_effects() {
         REPLAY_IDENTITY,
     )
     .await
-    .unwrap()
-    else {
+    .unwrap() else {
         panic!("fresh state must be claimed");
     };
     drop(tracker);
@@ -257,8 +256,7 @@ async fn claimed_state_is_recyclable_only_before_snapshot_side_effects() {
         REPLAY_IDENTITY,
     )
     .await
-    .unwrap()
-    else {
+    .unwrap() else {
         panic!("pre-side-effect claim must recycle");
     };
     recycled
@@ -267,16 +265,11 @@ async fn claimed_state_is_recyclable_only_before_snapshot_side_effects() {
         .unwrap();
     drop(recycled);
 
-    let error = SnapshotStreamTracker::claim_or_resume(
-        7,
-        &tables(),
-        &source(),
-        durable,
-        REPLAY_IDENTITY,
-    )
-    .await
-    .err()
-    .expect("connection-owned snapshot must not recycle after process loss");
+    let error =
+        SnapshotStreamTracker::claim_or_resume(7, &tables(), &source(), durable, REPLAY_IDENTITY)
+            .await
+            .err()
+            .expect("connection-owned snapshot must not recycle after process loss");
     assert!(is_replication_safety_violation(&error));
     assert!(error.to_string().contains("cannot survive process loss"));
 }
@@ -326,8 +319,7 @@ async fn persisted_state_rejects_replay_server_source_and_table_drift() {
         REPLAY_IDENTITY,
     )
     .await
-    .unwrap()
-    else {
+    .unwrap() else {
         panic!("fresh state must be claimed");
     };
     tracker
@@ -387,15 +379,10 @@ async fn persisted_state_rejects_replay_server_source_and_table_drift() {
 #[tokio::test]
 async fn boundary_and_authoritative_schema_are_validated_before_snapshot_cas() {
     let (durable, storage) = durable();
-    let SnapshotStreamPreparation::Create(mut tracker) = SnapshotStreamTracker::claim_or_resume(
-        7,
-        &tables(),
-        &source(),
-        durable,
-        REPLAY_IDENTITY,
-    )
-    .await
-    .unwrap()
+    let SnapshotStreamPreparation::Create(mut tracker) =
+        SnapshotStreamTracker::claim_or_resume(7, &tables(), &source(), durable, REPLAY_IDENTITY)
+            .await
+            .unwrap()
     else {
         panic!("fresh state must be claimed");
     };
@@ -429,15 +416,10 @@ async fn boundary_and_authoritative_schema_are_validated_before_snapshot_cas() {
 #[tokio::test]
 async fn every_phase_completion_requires_its_expected_revision() {
     let (durable, storage) = durable();
-    let SnapshotStreamPreparation::Create(mut tracker) = SnapshotStreamTracker::claim_or_resume(
-        7,
-        &tables(),
-        &source(),
-        durable,
-        REPLAY_IDENTITY,
-    )
-    .await
-    .unwrap()
+    let SnapshotStreamPreparation::Create(mut tracker) =
+        SnapshotStreamTracker::claim_or_resume(7, &tables(), &source(), durable, REPLAY_IDENTITY)
+            .await
+            .unwrap()
     else {
         panic!("fresh state must be claimed");
     };
@@ -468,9 +450,7 @@ fn authoritative_identity_rejects_schema_drift_without_hashes_or_aliases() {
         revision: 1,
         identity: persisted,
     };
-    let error = tracker
-        .validate_authoritative_tables(&drift)
-        .unwrap_err();
+    let error = tracker.validate_authoritative_tables(&drift).unwrap_err();
     assert!(is_replication_safety_violation(&error));
 }
 

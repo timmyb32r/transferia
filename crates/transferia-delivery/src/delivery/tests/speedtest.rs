@@ -543,7 +543,7 @@ fn fixed_binary_ordinals_are_disjoint_across_sampled_deliveries() -> anyhow::Res
         column: 0,
         kind: UniqueKeyKind::FixedSizeBinary {
             width: 16,
-            max_iteration: u64::MAX as u128 / 2,
+            max_iteration: u128::from(u64::MAX) / 2,
         },
         namespace: 42,
         sample_rows: 2,
@@ -628,9 +628,10 @@ async fn sampled_delivery_sequence_preserves_batch_sizes_dataset_mix_and_dlq_fre
     {
         let mut batches = Vec::new();
         for (table, is_dlq, rows) in outputs {
+            let row_count = i64::try_from(rows)?;
             let batch = RecordBatch::try_from_iter(vec![(
                 "value",
-                Arc::new(Int64Array::from_iter_values(0..rows as i64)) as ArrayRef,
+                Arc::new(Int64Array::from_iter_values(0..row_count)) as ArrayRef,
             )])?;
             let bytes = batch.get_array_memory_size();
             batches.push(SinkBatch {
@@ -1009,8 +1010,7 @@ async fn isolated_connector_rejects_substituted_prepare_before_io() -> anyhow::R
     )?;
     let substituted = discovery("production");
     let request =
-        SinkPrepare::from_discovery(&substituted, true, "speedtest", None)?
-            .expect("one dataset");
+        SinkPrepare::from_discovery(&substituted, true, "speedtest", None)?.expect("one dataset");
 
     let error = isolation
         .connector()
@@ -1111,7 +1111,10 @@ async fn panicking_destination_still_awaits_scratch_cleanup() -> anyhow::Result<
         CleanupGuard::new(isolation, Duration::from_secs(1), TaskTracker::new()),
         async {
             panic!("injected destination panic");
-            #[allow(unreachable_code)]
+            #[allow(
+                unreachable_code,
+                reason = "the expression type after the intentional panic is required by the test"
+            )]
             Ok::<(), anyhow::Error>(())
         },
         CancellationToken::new(),

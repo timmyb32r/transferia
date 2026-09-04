@@ -35,7 +35,7 @@ pub struct MySqlSourceConfig {
 
     #[serde(default = "default_batch_target_bytes")]
     #[schemars(
-        range(min = 1, max = 1073741824),
+        range(min = 1, max = 1_073_741_824),
         title = "Snapshot batch target bytes",
         description = "Target retained decoded MySQL row heap per snapshot batch. The reader may include one final indivisible row after crossing the target; max_row_bytes separately bounds its wire packet, while decoded Row/Value overhead is measured and accounted from actual allocations.",
         extend("x-ui" = { "section": "advanced" })
@@ -44,7 +44,7 @@ pub struct MySqlSourceConfig {
 
     #[serde(default = "default_max_row_bytes")]
     #[schemars(
-        range(min = 1024, max = 1073741824),
+        range(min = 1024, max = 1_073_741_824),
         title = "Maximum snapshot row packet bytes",
         description = "Exact mysql_async client max_allowed_packet for one MySQL wire packet. Decoded Row/Value overhead is measured and accounted separately. Valid range: 1024..=1073741824 bytes.",
         extend("x-ui" = { "section": "advanced" })
@@ -59,7 +59,7 @@ pub struct MySqlSourceConfig {
     )]
     pub read_protocol: MySqlReadProtocol,
 
-    /// Configures row-based binary-log replication for stream and batch_and_stream deliveries.
+    /// Configures row-based binary-log replication for stream and `batch_and_stream` deliveries.
     #[serde(default)]
     pub replication: Option<MySqlReplicationConfig>,
 }

@@ -314,7 +314,7 @@ fn validate_runtime_parameter_slot(
     Ok(())
 }
 
-fn same_json_kind(left: &JsonValue, right: &JsonValue) -> bool {
+const fn same_json_kind(left: &JsonValue, right: &JsonValue) -> bool {
     matches!(
         (left, right),
         (JsonValue::Null, JsonValue::Null)
@@ -326,8 +326,9 @@ fn same_json_kind(left: &JsonValue, right: &JsonValue) -> bool {
     )
 }
 
-/// Tunes one endpoint using a deterministic gradient-boosted regression-stump
-/// surrogate. The callback is never called more than `max_trials` times and is
+/// Tunes one endpoint using a deterministic gradient-boosted regression-stump surrogate.
+///
+/// The callback is never called more than `max_trials` times and is
 /// bounded by the optional declared wall-clock deadline. Each callback receives a
 /// per-trial cancellation token. It must stop all side effects, clean up its
 /// isolated resources, and return after that token is cancelled; tuning waits
@@ -379,10 +380,10 @@ where
     }];
 
     if request.parameters.is_empty() || budget.max_trials == 1 {
-        return Ok(build_result(trials));
+        return build_result(trials);
     }
     if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-        return Ok(build_result(trials));
+        return build_result(trials);
     }
 
     let candidates = candidate_pool(
@@ -425,7 +426,7 @@ where
         });
     }
 
-    Ok(build_result(trials))
+    build_result(trials)
 }
 
 fn configuration_with_declared_baselines(
@@ -459,13 +460,14 @@ where
     DE: FnMut(JsonValue, CancellationToken) -> DFut,
     DFut: Future<Output = anyhow::Result<f64>>,
 {
+    enum First<T> {
+        Source(T),
+        Destination(T),
+    }
+
     let source_cancellation = cancellation.child_token();
     let destination_cancellation = cancellation.child_token();
-    let source_tuning = tune_endpoint(
-        source,
-        source_cancellation.clone(),
-        source_evaluate,
-    );
+    let source_tuning = tune_endpoint(source, source_cancellation.clone(), source_evaluate);
     let destination_tuning = tune_endpoint(
         destination,
         destination_cancellation.clone(),
@@ -473,11 +475,6 @@ where
     );
     tokio::pin!(source_tuning);
     tokio::pin!(destination_tuning);
-
-    enum First<T> {
-        Source(T),
-        Destination(T),
-    }
 
     let first = tokio::select! {
         source = &mut source_tuning => First::Source(source),
@@ -539,7 +536,7 @@ where
         tokio::select! {
             biased;
 
-            _ = cancellation.cancelled() => {
+            () = cancellation.cancelled() => {
                 trial_cancellation.cancel();
                 if let Err(error) = evaluation.await {
                     if !error.is::<TuningEvaluationCancelled>() {
@@ -548,7 +545,7 @@ where
                 }
                 return Err(EndpointTuningCancelled.into());
             }
-            _ = sleep_until(deadline) => {
+            () = sleep_until(deadline) => {
                 trial_cancellation.cancel();
                 if let Err(error) = evaluation.await {
                     if !error.is::<TuningEvaluationCancelled>() {
@@ -563,7 +560,7 @@ where
         tokio::select! {
             biased;
 
-            _ = cancellation.cancelled() => {
+            () = cancellation.cancelled() => {
                 trial_cancellation.cancel();
                 if let Err(error) = evaluation.await {
                     if !error.is::<TuningEvaluationCancelled>() {
@@ -602,7 +599,10 @@ fn validate_parameter_domain(
                 "numeric tuning parameter '{pointer}' must declare finite candidates"
             );
             if *scale == NumericScale::Logarithmic {
-                anyhow::ensure!(*minimum > 0, "logarithmic range '{pointer}' must be positive");
+                anyhow::ensure!(
+                    *minimum > 0,
+                    "logarithmic range '{pointer}' must be positive"
+                );
             }
             let baseline = baseline.as_i64().ok_or_else(|| {
                 anyhow::anyhow!("tuning parameter '{pointer}' baseline must be a signed integer")
@@ -623,7 +623,10 @@ fn validate_parameter_domain(
                 "numeric tuning parameter '{pointer}' must declare finite candidates"
             );
             if *scale == NumericScale::Logarithmic {
-                anyhow::ensure!(*minimum > 0, "logarithmic range '{pointer}' must be positive");
+                anyhow::ensure!(
+                    *minimum > 0,
+                    "logarithmic range '{pointer}' must be positive"
+                );
             }
             let baseline = baseline.as_u64().ok_or_else(|| {
                 anyhow::anyhow!("tuning parameter '{pointer}' baseline must be an unsigned integer")
@@ -647,12 +650,18 @@ fn validate_parameter_domain(
                 "numeric tuning parameter '{pointer}' must declare finite candidates"
             );
             if *scale == NumericScale::Logarithmic {
-                anyhow::ensure!(*minimum > 0.0, "logarithmic range '{pointer}' must be positive");
+                anyhow::ensure!(
+                    *minimum > 0.0,
+                    "logarithmic range '{pointer}' must be positive"
+                );
             }
             let baseline = baseline.as_f64().ok_or_else(|| {
                 anyhow::anyhow!("tuning parameter '{pointer}' baseline must be a number")
             })?;
-            anyhow::ensure!(baseline.is_finite(), "baseline for '{pointer}' must be finite");
+            anyhow::ensure!(
+                baseline.is_finite(),
+                "baseline for '{pointer}' must be finite"
+            );
             anyhow::ensure!(
                 (*minimum..=*maximum).contains(&baseline),
                 "baseline for '{pointer}' is outside its tuning range"
@@ -805,9 +814,7 @@ fn validate_parameter_against_schema_alternative(
 fn schema_domain_samples(parameter: &TuningParameter) -> Vec<JsonValue> {
     match parameter {
         TuningParameter::SignedInteger { candidates, .. } => numeric_domain_samples(candidates),
-        TuningParameter::UnsignedInteger { candidates, .. } => {
-            numeric_domain_samples(candidates)
-        }
+        TuningParameter::UnsignedInteger { candidates, .. } => numeric_domain_samples(candidates),
         TuningParameter::Number { candidates, .. } => numeric_domain_samples(candidates),
         TuningParameter::Choice { values, .. } => values.clone(),
     }
@@ -833,12 +840,7 @@ fn validate_parameter_against_schema(
             ..
         } => {
             ensure_schema_type(schema, pointer, &["integer"])?;
-            validate_schema_numeric_range(
-                schema,
-                pointer,
-                *minimum as f64,
-                *maximum as f64,
-            )?;
+            validate_schema_numeric_range(schema, pointer, *minimum as f64, *maximum as f64)?;
             for candidate in candidates {
                 ensure_schema_accepts_value(schema, pointer, &JsonValue::from(*candidate))?;
             }
@@ -850,12 +852,7 @@ fn validate_parameter_against_schema(
             ..
         } => {
             ensure_schema_type(schema, pointer, &["integer"])?;
-            validate_schema_numeric_range(
-                schema,
-                pointer,
-                *minimum as f64,
-                *maximum as f64,
-            )?;
+            validate_schema_numeric_range(schema, pointer, *minimum as f64, *maximum as f64)?;
             for candidate in candidates {
                 ensure_schema_accepts_value(schema, pointer, &JsonValue::from(*candidate))?;
             }
@@ -881,11 +878,7 @@ fn validate_parameter_against_schema(
     Ok(())
 }
 
-fn ensure_schema_type(
-    schema: &JsonValue,
-    pointer: &str,
-    allowed: &[&str],
-) -> anyhow::Result<()> {
+fn ensure_schema_type(schema: &JsonValue, pointer: &str, allowed: &[&str]) -> anyhow::Result<()> {
     if let Some(schema_type) = schema.get("type").and_then(JsonValue::as_str) {
         anyhow::ensure!(
             allowed.contains(&schema_type),
@@ -913,19 +906,13 @@ fn validate_schema_numeric_range(
             "tuning range for '{pointer}' extends above endpoint JSON Schema maximum"
         );
     }
-    if let Some(schema_minimum) = schema
-        .get("exclusiveMinimum")
-        .and_then(JsonValue::as_f64)
-    {
+    if let Some(schema_minimum) = schema.get("exclusiveMinimum").and_then(JsonValue::as_f64) {
         anyhow::ensure!(
             minimum > schema_minimum,
             "tuning range for '{pointer}' includes endpoint JSON Schema exclusive minimum"
         );
     }
-    if let Some(schema_maximum) = schema
-        .get("exclusiveMaximum")
-        .and_then(JsonValue::as_f64)
-    {
+    if let Some(schema_maximum) = schema.get("exclusiveMaximum").and_then(JsonValue::as_f64) {
         anyhow::ensure!(
             maximum < schema_maximum,
             "tuning range for '{pointer}' includes endpoint JSON Schema exclusive maximum"
@@ -968,7 +955,11 @@ fn ensure_schema_accepts_value(
         );
     }
     if value.is_number() {
-        let value = value.as_f64().expect("JSON number has an f64 representation");
+        let value = value.as_f64().ok_or_else(|| {
+            anyhow::anyhow!(
+                "tuning candidate for '{pointer}' cannot be represented as a finite f64"
+            )
+        })?;
         validate_schema_numeric_range(schema, pointer, value, value)?;
     }
     Ok(())
@@ -1057,10 +1048,7 @@ fn candidate_pool(
     deadline: Option<Instant>,
     cancellation: &CancellationToken,
 ) -> anyhow::Result<CandidatePool> {
-    let domains = parameters
-        .iter()
-        .map(parameter_domain)
-        .collect::<Vec<_>>();
+    let domains = parameters.iter().map(parameter_domain).collect::<Vec<_>>();
     let product_size = domains
         .iter()
         .try_fold(1_usize, |product, domain| product.checked_mul(domain.len()))
@@ -1120,13 +1108,7 @@ fn candidate_pool(
         };
         let mut values = baseline_values.clone();
         values[parameter_index] = representative.clone();
-        push_candidate(
-            &mut mandatory,
-            &mut keys,
-            baseline,
-            parameters,
-            &values,
-        )?;
+        push_candidate(&mut mandatory, &mut keys, baseline, parameters, &values)?;
     }
 
     // With 1+P+P*(P-1)/2 trials every pair interaction receives a direct
@@ -1150,13 +1132,7 @@ fn candidate_pool(
             let mut values = baseline_values.clone();
             values[left] = left_value.clone();
             values[right] = right_value.clone();
-            push_candidate(
-                &mut mandatory,
-                &mut keys,
-                baseline,
-                parameters,
-                &values,
-            )?;
+            push_candidate(&mut mandatory, &mut keys, baseline, parameters, &values)?;
         }
     }
 
@@ -1248,13 +1224,7 @@ fn candidate_pool(
             .zip(&indexes)
             .map(|(domain, index)| domain[*index].clone())
             .collect::<Vec<_>>();
-        push_candidate(
-            &mut exploration,
-            &mut keys,
-            baseline,
-            parameters,
-            &values,
-        )?;
+        push_candidate(&mut exploration, &mut keys, baseline, parameters, &values)?;
         if !advance_cartesian_indexes(&mut indexes, &domains) {
             break;
         }
@@ -1333,12 +1303,14 @@ fn push_candidate(
     let mut configuration = baseline.clone();
     let mut values = BTreeMap::new();
     for (parameter, value) in parameters.iter().zip(candidate_values) {
-        let slot = configuration.pointer_mut(parameter.pointer()).ok_or_else(|| {
-            anyhow::anyhow!(
-                "tuning parameter '{}' disappeared from candidate configuration",
-                parameter.pointer()
-            )
-        })?;
+        let slot = configuration
+            .pointer_mut(parameter.pointer())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "tuning parameter '{}' disappeared from candidate configuration",
+                    parameter.pointer()
+                )
+            })?;
         *slot = value.clone();
         values.insert(parameter.pointer().to_owned(), value.clone());
     }
@@ -1379,7 +1351,9 @@ fn value_fraction(parameter: &TuningParameter, value: &JsonValue) -> anyhow::Res
             scale,
             ..
         } => {
-            let value = value.as_i64().ok_or_else(|| anyhow::anyhow!("expected signed integer"))?;
+            let value = value
+                .as_i64()
+                .ok_or_else(|| anyhow::anyhow!("expected signed integer"))?;
             numeric_fraction(value as f64, *minimum as f64, *maximum as f64, *scale)
         }
         TuningParameter::UnsignedInteger {
@@ -1388,7 +1362,9 @@ fn value_fraction(parameter: &TuningParameter, value: &JsonValue) -> anyhow::Res
             scale,
             ..
         } => {
-            let value = value.as_u64().ok_or_else(|| anyhow::anyhow!("expected unsigned integer"))?;
+            let value = value
+                .as_u64()
+                .ok_or_else(|| anyhow::anyhow!("expected unsigned integer"))?;
             numeric_fraction(value as f64, *minimum as f64, *maximum as f64, *scale)
         }
         TuningParameter::Number {
@@ -1397,7 +1373,9 @@ fn value_fraction(parameter: &TuningParameter, value: &JsonValue) -> anyhow::Res
             scale,
             ..
         } => {
-            let value = value.as_f64().ok_or_else(|| anyhow::anyhow!("expected number"))?;
+            let value = value
+                .as_f64()
+                .ok_or_else(|| anyhow::anyhow!("expected number"))?;
             numeric_fraction(value, *minimum, *maximum, *scale)
         }
         TuningParameter::Choice { values, .. } => {
@@ -1417,17 +1395,14 @@ fn discrete_fraction(index: Option<usize>, len: usize) -> anyhow::Result<f64> {
 }
 
 fn numeric_fraction(value: f64, minimum: f64, maximum: f64, scale: NumericScale) -> f64 {
-    if maximum == minimum {
+    if maximum.total_cmp(&minimum).is_eq() {
         return 0.0;
     }
     match scale {
         NumericScale::Linear => (value - minimum) / (maximum - minimum),
-        NumericScale::Logarithmic => {
-            (value.ln() - minimum.ln()) / (maximum.ln() - minimum.ln())
-        }
+        NumericScale::Logarithmic => (value.ln() - minimum.ln()) / (maximum.ln() - minimum.ln()),
     }
 }
-
 
 fn parameter_values(
     configuration: &JsonValue,
@@ -1464,13 +1439,15 @@ fn select_candidate<'a>(
     candidates
         .iter()
         .filter(|candidate| {
-            parameter_key(&candidate.parameters)
-                .map(|key| !evaluated_keys.contains(&key))
-                .unwrap_or(false)
+            parameter_key(&candidate.parameters).is_ok_and(|key| !evaluated_keys.contains(&key))
         })
         .max_by(|left, right| {
-            acquisition(left, trials, model, score_scale)
-                .total_cmp(&acquisition(right, trials, model, score_scale))
+            acquisition(left, trials, model, score_scale).total_cmp(&acquisition(
+                right,
+                trials,
+                model,
+                score_scale,
+            ))
         })
 }
 
@@ -1485,7 +1462,7 @@ fn acquisition(
         .map(|trial| squared_distance(&candidate.features, &trial.features))
         .fold(f64::INFINITY, f64::min)
         .sqrt();
-    model.predict(&candidate.features) + score_scale * nearest_distance
+    score_scale.mul_add(nearest_distance, model.predict(&candidate.features))
 }
 
 fn squared_distance(left: &[f64], right: &[f64]) -> f64 {
@@ -1505,18 +1482,21 @@ fn score_standard_deviation(trials: &[EvaluatedCandidate]) -> f64 {
         .sqrt()
 }
 
-fn build_result(trials: Vec<EvaluatedCandidate>) -> TuningResult {
-    let baseline = trials[0].score;
+fn build_result(trials: Vec<EvaluatedCandidate>) -> anyhow::Result<TuningResult> {
+    let baseline = trials
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("tuning produced no baseline trial"))?
+        .score;
     let best = trials
         .iter()
         .max_by(|left, right| left.score.total_cmp(&right.score))
-        .expect("a baseline trial always exists");
+        .ok_or_else(|| anyhow::anyhow!("tuning produced no candidate result"))?;
     let gain_percent = if baseline > 0.0 {
         (best.score - baseline) * 100.0 / baseline
     } else {
         0.0
     };
-    TuningResult {
+    Ok(TuningResult {
         baseline_rows_per_second: baseline,
         optimized_rows_per_second: best.score,
         gain_percent,
@@ -1529,7 +1509,7 @@ fn build_result(trials: Vec<EvaluatedCandidate>) -> TuningResult {
                 parameters: trial.parameters,
             })
             .collect(),
-    }
+    })
 }
 
 #[derive(Default)]
@@ -1594,7 +1574,7 @@ impl RegressionStump {
             values.sort_by(f64::total_cmp);
             values.dedup();
             for pair in values.windows(2) {
-                let threshold = (pair[0] + pair[1]) / 2.0;
+                let threshold = f64::midpoint(pair[0], pair[1]);
                 let (left, right) = partition_means(trials, residuals, feature, threshold)?;
                 let error = trials
                     .iter()
@@ -1608,7 +1588,10 @@ impl RegressionStump {
                         (residual - prediction).powi(2)
                     })
                     .sum();
-                if best.as_ref().is_none_or(|(best_error, _)| error < *best_error) {
+                if best
+                    .as_ref()
+                    .is_none_or(|(best_error, _)| error < *best_error)
+                {
                     best = Some((
                         error,
                         Self {
@@ -1652,8 +1635,6 @@ fn partition_means(
             right_count += 1;
         }
     }
-    (left_count > 0 && right_count > 0).then_some((
-        left_sum / left_count as f64,
-        right_sum / right_count as f64,
-    ))
+    (left_count > 0 && right_count > 0)
+        .then_some((left_sum / left_count as f64, right_sum / right_count as f64))
 }

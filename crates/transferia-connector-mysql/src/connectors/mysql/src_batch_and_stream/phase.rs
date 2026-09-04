@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use transferia_registry::durable::{CompareExchangeResult, DurableContext, DurableStorage};
 
 use super::{
-    replication_safety_violation, AuthoritativeColumnIdentity, AuthoritativeTableIdentity,
-    MySqlBinlogBoundary, MySqlSourceIdentity, validate_server_uuid,
+    replication_safety_violation, validate_server_uuid, AuthoritativeColumnIdentity,
+    AuthoritativeTableIdentity, MySqlBinlogBoundary, MySqlSourceIdentity,
 };
 use crate::connectors::mysql::common::validate_identifier;
 use crate::connectors::mysql::src_batch::{
@@ -66,7 +66,7 @@ impl SnapshotStreamTracker {
     ///
     /// Calling this method is valid only during source preparation, before any
     /// destination side effect. A `Claimed` state can therefore be recycled
-    /// after a process loss. A `Snapshot` state cannot: MySQL consistent
+    /// after a process loss. A `Snapshot` state cannot: `MySQL` consistent
     /// snapshots are connection-owned and do not survive process termination.
     pub async fn claim_or_resume(
         server_id: u32,
@@ -169,15 +169,11 @@ impl SnapshotStreamTracker {
                 )));
             }
         };
-        let authoritative_tables = self
-            .identity
-            .authoritative_tables
-            .clone()
-            .ok_or_else(|| {
-                replication_safety_violation(anyhow::anyhow!(
-                    "MySQL batch_and_stream authoritative schema is missing"
-                ))
-            })?;
+        let authoritative_tables = self.identity.authoritative_tables.clone().ok_or_else(|| {
+            replication_safety_violation(anyhow::anyhow!(
+                "MySQL batch_and_stream authoritative schema is missing"
+            ))
+        })?;
         self.store(
             PersistedPhase::Streaming {
                 start_boundary: boundary.clone(),
@@ -188,7 +184,8 @@ impl SnapshotStreamTracker {
         Ok(boundary)
     }
 
-    pub fn streaming_boundary(&self) -> Option<&MySqlBinlogBoundary> {
+    #[must_use]
+    pub const fn streaming_boundary(&self) -> Option<&MySqlBinlogBoundary> {
         match &self.identity.state {
             PersistedPhase::Streaming { start_boundary } => Some(start_boundary),
             PersistedPhase::Claimed | PersistedPhase::Snapshot { .. } => None,
@@ -222,18 +219,14 @@ impl SnapshotStreamTracker {
         authoritative_tables: Option<Vec<AuthoritativeTableIdentity>>,
     ) -> anyhow::Result<()> {
         let next = PersistedState {
-            state,
             authoritative_tables,
+            state,
             ..self.identity.clone()
         };
         let payload = serde_json::to_vec(&next)?;
         match self
             .storage
-            .compare_exchange(
-                SNAPSHOT_STREAM_STATE_KEY,
-                Some(self.revision),
-                &payload,
-            )
+            .compare_exchange(SNAPSHOT_STREAM_STATE_KEY, Some(self.revision), &payload)
             .await?
         {
             CompareExchangeResult::Applied(value) => {
@@ -241,11 +234,11 @@ impl SnapshotStreamTracker {
                 self.identity = next;
                 Ok(())
             }
-            CompareExchangeResult::Conflict(_) => Err(replication_safety_violation(
-                anyhow::anyhow!(
+            CompareExchangeResult::Conflict(_) => {
+                Err(replication_safety_violation(anyhow::anyhow!(
                     "MySQL batch_and_stream durable phase was modified by another execution"
-                ),
-            )),
+                )))
+            }
         }
     }
 }
@@ -273,7 +266,10 @@ fn validate_claim(
     source: &MySqlSourceIdentity,
     replay_identity: &str,
 ) -> anyhow::Result<()> {
-    anyhow::ensure!(server_id != 0, "MySQL replication server_id must be non-zero");
+    anyhow::ensure!(
+        server_id != 0,
+        "MySQL replication server_id must be non-zero"
+    );
     anyhow::ensure!(
         !replay_identity.is_empty(),
         "MySQL batch_and_stream replay identity must not be empty"
@@ -330,13 +326,9 @@ fn validate_authoritative_identity(
         authoritative_tables.len(),
         state.configured_tables.len()
     );
-    for (actual, expected_table) in authoritative_tables
-        .iter()
-        .zip(&state.configured_tables)
-    {
+    for (actual, expected_table) in authoritative_tables.iter().zip(&state.configured_tables) {
         anyhow::ensure!(
-            actual.database == state.source.database
-                && actual.table == *expected_table,
+            actual.database == state.source.database && actual.table == *expected_table,
             "MySQL authoritative schema identity does not match configured table '{}.{}'",
             state.source.database,
             expected_table
@@ -422,8 +414,7 @@ fn validate_authoritative_column(column: &AuthoritativeColumnIdentity) -> anyhow
         column.name
     );
     anyhow::ensure!(
-        column.enum_set_values
-            == parse_enum_set_values(&column.data_type, &column.column_type)?,
+        column.enum_set_values == parse_enum_set_values(&column.data_type, &column.column_type)?,
         "MySQL authoritative identity for column '{}' has inconsistent ENUM/SET members",
         column.name
     );
@@ -480,7 +471,10 @@ fn validate_authoritative_column(column: &AuthoritativeColumnIdentity) -> anyhow
     Ok(())
 }
 
-fn decode_and_validate(payload: &[u8], expected: &PersistedState) -> anyhow::Result<PersistedState> {
+fn decode_and_validate(
+    payload: &[u8],
+    expected: &PersistedState,
+) -> anyhow::Result<PersistedState> {
     let actual: PersistedState = serde_json::from_slice(payload)?;
     anyhow::ensure!(
         actual.version == STATE_VERSION,

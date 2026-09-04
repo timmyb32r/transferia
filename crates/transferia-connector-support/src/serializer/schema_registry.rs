@@ -13,8 +13,8 @@ use transferia_core::data::schema::{
     SYSTEM_ROLE_SOURCE_BINLOG_FILE, SYSTEM_ROLE_SOURCE_BINLOG_POSITION,
     SYSTEM_ROLE_SOURCE_BINLOG_ROW, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_GTID,
     SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_SERVER_ID, SYSTEM_ROLE_SOURCE_TABLE,
-    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS, SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
-    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
@@ -22,9 +22,7 @@ use transferia_core::sink::Delivery;
 use transferia_delivery_contracts::semantics::RecordSemantics;
 
 use super::debezium::{DebeziumJsonEncoder, DebeziumSourceDialect};
-use super::json_serializer::{
-    validate_mysql_debezium_column, validate_ydb_debezium_column,
-};
+use super::json_serializer::{validate_mysql_debezium_column, validate_ydb_debezium_column};
 use super::{
     JsonBatchEncoder, QueueMessageMode, SerializedBatch, SerializedDelivery, SerializedMessage,
 };
@@ -317,7 +315,10 @@ impl SerializerConfig {
                 .system_columns
                 .iter()
                 .any(|column| column.kind == SystemColumnKind::ChangeOperation);
-            if matches!(dialect, DebeziumSourceDialect::MySql | DebeziumSourceDialect::Ydb) {
+            if matches!(
+                dialect,
+                DebeziumSourceDialect::MySql | DebeziumSourceDialect::Ydb
+            ) {
                 let dialect_name = if dialect == DebeziumSourceDialect::MySql {
                     "MySQL"
                 } else {
@@ -340,6 +341,17 @@ impl SerializerConfig {
                                 .system_columns
                                 .iter()
                                 .any(|system| system.name.as_ref() == column.name.as_str())
+                            && ![
+                                SystemColumnKind::Topic,
+                                SystemColumnKind::Partition,
+                                SystemColumnKind::Offset,
+                                SystemColumnKind::MessageIndex,
+                                SystemColumnKind::WriteTimestampMs,
+                                SystemColumnKind::ChangeOperation,
+                                SystemColumnKind::ChangedColumns,
+                            ]
+                            .iter()
+                            .any(|kind| kind.default_name() == column.name)
                     })
                     .collect::<Vec<_>>();
                 for current in current_columns {

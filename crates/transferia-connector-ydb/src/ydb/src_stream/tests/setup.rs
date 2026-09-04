@@ -4,21 +4,28 @@
     reason = "test assertions intentionally fail fast"
 )]
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use super::{
     acknowledged_heartbeat_deadline, claim_active_source, conservative_heartbeat_window,
-    negotiated_session_timeout, replication_contract_violation, replication_resource_key,
-    validate_consumer_availability_period,
-    validate_consumer_owner_attribute_keys, validate_raw_only_codecs, validate_resource_owner,
-    validate_single_partition_topology, validate_topic_codecs,
+    consumer_read_from_is_beginning, negotiated_session_timeout, replication_contract_violation,
+    replication_resource_key, validate_consumer_availability_period, validate_raw_only_codecs,
+    validate_resource_owner, validate_single_partition_topology, validate_topic_codecs,
     ColumnIdentity, ConsumerIdentity, CoordinationFence, HeartbeatProbe, PersistedResourceOwner,
     ReplicationAggregateIdentity, ReplicationResourceIdentity, TopicPartitionIdentity,
     TopicPartitioningIdentity, VirtualTimestampIdentity, RESOURCE_OWNER_VERSION,
 };
+
+#[test]
+fn consumer_read_from_accepts_absent_and_server_normalized_epoch_only() {
+    assert!(consumer_read_from_is_beginning(None));
+    assert!(consumer_read_from_is_beginning(Some((0, 0))));
+    assert!(!consumer_read_from_is_beginning(Some((1, 0))));
+    assert!(!consumer_read_from_is_beginning(Some((0, 1))));
+}
 use tokio_util::sync::CancellationToken;
 use transferia_core::failure::DataPlaneFailure;
 use ydb_grpc::ydb_proto::topic::{
@@ -84,10 +91,7 @@ fn aggregate(endpoint: &str) -> ReplicationAggregateIdentity {
                         "transferia.coordination_node_path".to_owned(),
                         "/production/transferia".to_owned(),
                     ),
-                    (
-                        "transferia.delivery_id".to_owned(),
-                        "delivery-a".to_owned(),
-                    ),
+                    ("transferia.delivery_id".to_owned(), "delivery-a".to_owned()),
                 ]),
                 availability_period: None,
             },
@@ -166,32 +170,35 @@ fn fence_name_ignores_endpoint_alias_but_payload_rejects_it() {
     let first = aggregate("https://first-alias.example");
     let second = aggregate("https://second-alias.example");
     assert_eq!(
-        replication_resource_key(&first, "delivery-a").expect("first resource key"),
-        replication_resource_key(&second, "delivery-a").expect("second resource key"),
+        replication_resource_key(&first, "transferia").expect("first resource key"),
+        replication_resource_key(&second, "transferia").expect("second resource key"),
     );
 
     let expected = owner("https://first-alias.example");
-    let alias = serde_json::to_vec(&owner("https://second-alias.example"))
-        .expect("serialize alias owner");
+    let alias =
+        serde_json::to_vec(&owner("https://second-alias.example")).expect("serialize alias owner");
     assert!(validate_resource_owner(&alias, &expected).is_err());
 }
 
 #[test]
-fn fence_name_covers_the_whole_delivery_not_one_aggregate_shape() {
+fn fence_name_covers_every_use_of_one_database_consumer() {
     let full = aggregate("https://canonical.example");
     let mut subset = full.clone();
     subset.resources.clear();
     assert_eq!(
-        replication_resource_key(&full, "delivery-a").expect("full resource key"),
-        replication_resource_key(&subset, "delivery-a").expect("subset resource key"),
+        replication_resource_key(&full, "transferia").expect("full resource key"),
+        replication_resource_key(&subset, "transferia").expect("subset resource key"),
     );
     assert_ne!(
-        replication_resource_key(&full, "delivery-a").expect("first delivery key"),
-        replication_resource_key(&full, "delivery-b").expect("second delivery key"),
+        replication_resource_key(&full, "transferia-a").expect("first consumer key"),
+        replication_resource_key(&full, "transferia-b").expect("second consumer key"),
     );
 }
 
-#[allow(deprecated, reason = "the topology identity covers the legacy server field")]
+#[allow(
+    deprecated,
+    reason = "the topology identity covers the legacy server field"
+)]
 fn fixed_partitioning(strategy: AutoPartitioningStrategy) -> PartitioningSettings {
     PartitioningSettings {
         min_active_partitions: 1,
@@ -267,31 +274,16 @@ fn topic_allows_raw_among_known_unique_codecs_and_consumer_is_raw_only() {
         .expect("empty topic codec list disables the compatibility check");
     assert!(validate_topic_codecs("topic", &[Codec::Gzip as i32]).is_err());
     assert!(validate_topic_codecs("topic", &[Codec::Raw as i32, Codec::Raw as i32]).is_err());
-    assert!(validate_topic_codecs("topic", &[Codec::Unspecified as i32, Codec::Raw as i32]).is_err());
+    assert!(
+        validate_topic_codecs("topic", &[Codec::Unspecified as i32, Codec::Raw as i32]).is_err()
+    );
     assert!(validate_topic_codecs("topic", &[Codec::Raw as i32, i32::MAX]).is_err());
 
     validate_raw_only_codecs("consumer", &[Codec::Raw as i32]).expect("RAW-only codec");
     assert!(validate_raw_only_codecs("consumer", &[]).is_err());
-    assert!(validate_raw_only_codecs(
-        "consumer",
-        &[Codec::Raw as i32, Codec::Gzip as i32],
-    )
-    .is_err());
-
-    let exact = HashMap::from([
-        (
-            "transferia.coordination_node_path".to_owned(),
-            "/production/transferia".to_owned(),
-        ),
-        (
-            "transferia.delivery_id".to_owned(),
-            "delivery-a".to_owned(),
-        ),
-    ]);
-    validate_consumer_owner_attribute_keys("consumer", &exact).expect("exact owner attributes");
-    let mut extra = exact;
-    extra.insert("application.extra".to_owned(), "value".to_owned());
-    assert!(validate_consumer_owner_attribute_keys("consumer", &extra).is_err());
+    assert!(
+        validate_raw_only_codecs("consumer", &[Codec::Raw as i32, Codec::Gzip as i32],).is_err()
+    );
 }
 
 #[test]
@@ -307,9 +299,15 @@ fn important_consumer_must_not_have_a_bounded_availability_period() {
 
 #[test]
 fn heartbeat_window_is_positive_and_strictly_before_server_expiry() {
-    assert!(negotiated_session_timeout(0, 1_000).is_err());
-    assert!(negotiated_session_timeout(1, 0).is_err());
-    let timeout = negotiated_session_timeout(1, 30_000).expect("valid session timeout");
+    assert!(negotiated_session_timeout(0, 1_000, Duration::from_secs(1)).is_err());
+    assert!(negotiated_session_timeout(1, 0, Duration::ZERO).is_err());
+    assert_eq!(
+        negotiated_session_timeout(1, 0, Duration::from_secs(15))
+            .expect("legacy server omits the echoed timeout"),
+        Duration::from_secs(15)
+    );
+    let timeout = negotiated_session_timeout(1, 30_000, Duration::from_secs(15))
+        .expect("valid session timeout");
     let window = conservative_heartbeat_window(timeout).expect("conservative window");
     assert!(window > Duration::ZERO);
     assert!(window < timeout);
@@ -325,21 +323,10 @@ fn heartbeat_acknowledgement_must_match_and_arrive_before_the_send_anchored_dead
         sent_at,
     };
     assert!(acknowledged_heartbeat_deadline(&probe, 42, window, sent_at).is_err());
-    assert!(acknowledged_heartbeat_deadline(
-        &probe,
-        41,
-        window,
-        sent_at + window,
-    )
-    .is_err());
+    assert!(acknowledged_heartbeat_deadline(&probe, 41, window, sent_at + window,).is_err());
     assert_eq!(
-        acknowledged_heartbeat_deadline(
-            &probe,
-            41,
-            window,
-            sent_at + Duration::from_secs(1),
-        )
-        .expect("matching timely acknowledgement"),
+        acknowledged_heartbeat_deadline(&probe, 41, window, sent_at + Duration::from_secs(1),)
+            .expect("matching timely acknowledgement"),
         sent_at + window
     );
 }

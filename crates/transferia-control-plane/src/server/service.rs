@@ -226,8 +226,8 @@ impl ControlPlane {
             .ok_or_else(|| ServiceError::Internal(anyhow::anyhow!("sample byte count overflow")))?;
         Ok(SpeedtestEstimateResult {
             logical_streams: estimate.logical_streams,
-            source: speedtest_measurement_view(estimate.source),
-            destination: speedtest_measurement_view(estimate.destination),
+            source: speedtest_measurement_view(&estimate.source),
+            destination: speedtest_measurement_view(&estimate.destination),
             profile: SpeedtestProfileView {
                 sampled_rows,
                 sampled_arrow_bytes,
@@ -1642,7 +1642,7 @@ fn declared_parameter_values(
 }
 
 fn speedtest_measurement_view(
-    measurement: transferia_delivery::delivery::speedtest::SpeedtestMeasurement,
+    measurement: &transferia_delivery::delivery::speedtest::SpeedtestMeasurement,
 ) -> SpeedtestMeasurementView {
     SpeedtestMeasurementView {
         rows: measurement.rows,

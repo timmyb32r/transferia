@@ -18,9 +18,7 @@ use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{
     ARROW_JSON_EXTENSION_NAME, META_ARROW_EXTENSION_NAME, META_MAX_LENGTH, META_PRIMARY_KEY,
 };
-use transferia_core::data::system_columns::{
-    SystemColumn, SystemColumnKind, SystemColumns,
-};
+use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::TableData;
 use transferia_core::failure::{DataPlaneFailure, DataPlaneResult};
 use transferia_core::memory::PipelineMemory;
@@ -297,7 +295,7 @@ impl OpenSearchSource {
         Ok(source)
     }
 
-    fn schedule(&mut self, slice: usize, search_after: Option<u64>) -> anyhow::Result<()> {
+    fn schedule(&self, slice: usize, search_after: Option<u64>) -> anyhow::Result<()> {
         anyhow::ensure!(
             slice < self.slices.len(),
             "OpenSearch source has no slice {slice}"
@@ -618,7 +616,7 @@ pub(super) async fn close_pits(
     let mut delay = retry.initial;
     for attempt in 1..=retry.max_attempts {
         let body = serde_json::to_vec(&json!({
-            "pit_id": pit_ids.iter().map(|pit| pit.as_ref()).collect::<Vec<&str>>()
+            "pit_id": pit_ids.iter().map(std::convert::AsRef::as_ref).collect::<Vec<&str>>()
         }))
         .map_err(|_| OpenSearchHttpError::InvalidJson)?;
         let result = request_attempt(
@@ -638,7 +636,9 @@ pub(super) async fn close_pits(
                 counters.add_network_decode_busy(started.elapsed());
                 result
             }
-            Err(OpenSearchHttpError::Status { status: StatusCode::NOT_FOUND }) => {
+            Err(OpenSearchHttpError::Status {
+                status: StatusCode::NOT_FOUND,
+            }) => {
                 pit_ids.clear();
                 return Ok(());
             }
@@ -763,13 +763,7 @@ async fn request_attempt(
 ) -> Result<OpenSearchResponse, OpenSearchHttpError> {
     let started = Instant::now();
     let response = client
-        .request(
-            method,
-            path,
-            query,
-            content_type,
-            body.map(<[u8]>::to_vec),
-        )
+        .request(method, path, query, content_type, body.map(<[u8]>::to_vec))
         .await;
     counters.add_response_wait(started.elapsed());
     if let Ok(response) = &response {
@@ -831,7 +825,7 @@ pub(super) fn decode_close_pits(
     }
     let expected = expected_pits
         .iter()
-        .map(|pit| pit.as_ref())
+        .map(std::convert::AsRef::as_ref)
         .collect::<HashSet<_>>();
     let mut seen = HashSet::with_capacity(response.pits.len());
     let mut successful = HashSet::new();
@@ -848,9 +842,7 @@ pub(super) fn decode_close_pits(
     Ok(successful)
 }
 
-pub(super) fn pit_creation_query(
-    keep_alive: &str,
-) -> Vec<(&'static str, String)> {
+pub(super) fn pit_creation_query(keep_alive: &str) -> Vec<(&'static str, String)> {
     vec![
         ("keep_alive", keep_alive.to_owned()),
         ("allow_partial_pit_creation", "false".to_owned()),
@@ -876,7 +868,10 @@ pub(super) fn build_search_body(
     });
     if let Some(object) = body.as_object_mut() {
         if slice_count > 1 {
-            object.insert("slice".to_owned(), json!({ "id": slice, "max": slice_count }));
+            object.insert(
+                "slice".to_owned(),
+                json!({ "id": slice, "max": slice_count }),
+            );
         }
         if let Some(sort) = search_after {
             object.insert("search_after".to_owned(), json!([sort]));

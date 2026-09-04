@@ -13,8 +13,8 @@ use ydb_grpc::ydb_proto::table::{ReadTableRequest, ReadTableResponse};
 
 use super::config::{YdbSourceConfig, YdbTableConfig};
 use super::src_stream::{
-    discover_replication_resources, prepare_replication, replication_discovery,
-    replication_contract_violation, PreparedReplication, YdbReplicationSource,
+    discover_replication_resources, prepare_replication, replication_contract_violation,
+    replication_discovery, PreparedReplication, YdbReplicationSource,
 };
 use super::transport::{is_not_found_error, YdbClient};
 use super::types::{column_plans, dataset_schema, result_set_to_batch, ColumnPlan};
@@ -135,15 +135,10 @@ impl YdbSourceConnector {
         // A still-live source keeps its own Arc and therefore continues to fence overlap.
         drop(prepared.take());
         let replacement = Arc::new(
-            prepare_replication(
-                &self.config,
-                durable,
-                cancellation,
-                replay_identity,
-            )
-            .await?,
+            prepare_replication(&self.config, durable, cancellation, replay_identity).await?,
         );
         *prepared = Some(Arc::clone(&replacement));
+        drop(prepared);
         Ok(replacement)
     }
 }
@@ -281,11 +276,7 @@ impl SourceConnector for YdbSourceConnector {
             let durable = context.durable;
             let cancellation = context.cancellation;
             let prepared = self
-                .prepared_replication(
-                    &durable,
-                    &cancellation,
-                    Arc::clone(&replay_identity),
-                )
+                .prepared_replication(&durable, &cancellation, Arc::clone(&replay_identity))
                 .await?;
             if prepared.delivery_id.as_ref() != durable.delivery_id.as_ref()
                 || prepared.replay_identity.as_ref() != replay_identity.as_ref()
@@ -538,7 +529,7 @@ impl YdbSource {
         })
     }
 
-    async fn finish(&mut self) -> transferia_core::failure::DataPlaneResult<SourceBatch> {
+    fn finish(&mut self) -> SourceBatch {
         if !self.finished {
             self.finished = true;
             tracing::info!(
@@ -547,7 +538,7 @@ impl YdbSource {
                 "YDB snapshot source completed"
             );
         }
-        Ok(SourceBatch::Finished)
+        SourceBatch::Finished
     }
 }
 
@@ -570,7 +561,7 @@ impl Source for YdbSource {
                     })?
                     .map_err(|error| DataPlaneFailure::retryable(error.into()))?;
                 let Some(response) = response else {
-                    return self.finish().await;
+                    return Ok(self.finish());
                 };
                 let status =
                     StatusCode::try_from(response.status).unwrap_or(StatusCode::Unspecified);
@@ -644,7 +635,7 @@ pub(super) trait YdbSessionClient {
 
 impl YdbSessionClient for YdbClient {
     fn delete_session(&mut self, session_id: String) -> BoxFuture<'_, anyhow::Result<()>> {
-        Box::pin(YdbClient::delete_session(self, session_id))
+        Box::pin(Self::delete_session(self, session_id))
     }
 
     fn is_session_absent(&self, error: &anyhow::Error) -> bool {
@@ -661,7 +652,7 @@ pub(super) async fn close_ydb_session(
     timeout: Duration,
     retry_initial: Duration,
 ) -> anyhow::Result<()> {
-    let Some(active_session_id) = session_id.as_ref().cloned() else {
+    let Some(active_session_id) = session_id.clone() else {
         return Ok(());
     };
     let deadline = tokio::time::Instant::now()

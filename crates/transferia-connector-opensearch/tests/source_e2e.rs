@@ -6,6 +6,7 @@
 )]
 
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use arrow::array::{Array as _, Int64Array, StringArray};
@@ -67,20 +68,22 @@ async fn opensearch_source_reads_one_coherent_index_pit_without_loss() -> anyhow
     let mut bulk = String::new();
     for id in 0..19 {
         if id == 0 {
-            bulk.push_str(&format!("{{\"index\":{{\"_index\":\"events\",\"_id\":\"doc-{id}\",\"routing\":\"tenant-a\"}}}}\n"));
+            writeln!(bulk, "{{\"index\":{{\"_index\":\"events\",\"_id\":\"doc-{id}\",\"routing\":\"tenant-a\"}}}}")?;
         } else {
-            bulk.push_str(&format!(
-                "{{\"index\":{{\"_index\":\"events\",\"_id\":\"doc-{id}\"}}}}\n"
-            ));
+            writeln!(
+                bulk,
+                "{{\"index\":{{\"_index\":\"events\",\"_id\":\"doc-{id}\"}}}}"
+            )?;
         }
-        bulk.push_str(&format!("{{\"number\":{id},\"text\":\"event-{id}\"}}\n"));
+        writeln!(bulk, "{{\"number\":{id},\"text\":\"event-{id}\"}}")?;
     }
     for (route, value) in [(&first_route, "first"), (&second_route, "second")] {
-        bulk.push_str(&format!(
-            "{{\"index\":{{\"_index\":\"events\",\"_id\":\"shared-id\",\"routing\":{}}}}}\n",
+        writeln!(
+            bulk,
+            "{{\"index\":{{\"_index\":\"events\",\"_id\":\"shared-id\",\"routing\":{}}}}}",
             serde_json::to_string(route)?
-        ));
-        bulk.push_str(&format!("{{\"route\":\"{value}\"}}\n"));
+        )?;
+        writeln!(bulk, "{{\"route\":\"{value}\"}}")?;
     }
     http.post(format!("{base}/_bulk?refresh=wait_for"))
         .header("Content-Type", "application/x-ndjson")
@@ -183,7 +186,7 @@ async fn opensearch_source_reads_one_coherent_index_pit_without_loss() -> anyhow
                             (!routing.is_null(row)).then(|| routing.value(row).to_owned());
                         assert_eq!(
                             routing_key.value(row),
-                            routing_value.as_deref().unwrap_or(id.value(row))
+                            routing_value.as_deref().unwrap_or_else(|| id.value(row))
                         );
                         identities.insert((id.value(row).to_owned(), routing_value.clone()));
                         if id.value(row) == "doc-0" {

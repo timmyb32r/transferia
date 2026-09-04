@@ -99,8 +99,7 @@ fn speedtest_rewrites_every_dataset_into_disjoint_scratch_tables() -> anyhow::Re
 
 #[tokio::test]
 async fn speedtest_cleanup_requires_exact_connector_owned_sets() -> anyhow::Result<()> {
-    let scratch: Arc<str> =
-        Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
+    let scratch: Arc<str> = Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
     let target = SpeedtestPhysicalTarget {
         production: Arc::from("`analytics`.`events`"),
         scratch: Arc::from(format!("`analytics`.`{scratch}`")),
@@ -246,10 +245,7 @@ fn clickhouse_partial_setup_tracks_every_attempt_but_only_proven_ownership() {
         scope.attempted_tables(),
         BTreeSet::from([Arc::clone(&first), Arc::clone(&second)])
     );
-    assert_eq!(
-        scope.claimed_tables(),
-        BTreeSet::from([Arc::clone(&first)])
-    );
+    assert_eq!(scope.claimed_tables(), BTreeSet::from([Arc::clone(&first)]));
     scope.unclaim(&first);
     scope.unclaim(&first);
     assert!(scope.claimed_tables().is_empty());
@@ -303,13 +299,10 @@ fn clickhouse_lost_committed_create_remains_recoverable_after_unreadable_probes(
             BTreeSet::from([Arc::clone(&table)])
         );
     }
-    assert!(fake_clickhouse_cleanup(
-        &scope,
-        &table,
-        Ok(ReplicaOwnershipEvidence::Owned),
-        true,
-    )
-    .expect("an exact late owner and schema proof permits exact cleanup"));
+    assert!(
+        fake_clickhouse_cleanup(&scope, &table, Ok(ReplicaOwnershipEvidence::Owned), true,)
+            .expect("an exact late owner and schema proof permits exact cleanup")
+    );
     assert!(scope.attempted_tables().is_empty());
 }
 
@@ -319,26 +312,18 @@ fn clickhouse_foreign_partial_or_wrong_schema_collision_is_preserved() {
     let scope = fault_scope(&table);
     scope.record_attempt(Arc::clone(&table));
 
-    let error = fake_clickhouse_cleanup(
-        &scope,
-        &table,
-        Ok(ReplicaOwnershipEvidence::Unsafe),
-        true,
-    )
-    .unwrap_err();
+    let error = fake_clickhouse_cleanup(&scope, &table, Ok(ReplicaOwnershipEvidence::Unsafe), true)
+        .unwrap_err();
     assert!(error.contains("preserved"));
     assert_eq!(
         scope.attempted_tables(),
         BTreeSet::from([Arc::clone(&table)])
     );
-    assert!(fake_clickhouse_cleanup(
-        &scope,
-        &table,
-        Ok(ReplicaOwnershipEvidence::Owned),
-        false,
-    )
-    .unwrap_err()
-    .contains("preserved"));
+    assert!(
+        fake_clickhouse_cleanup(&scope, &table, Ok(ReplicaOwnershipEvidence::Owned), false,)
+            .unwrap_err()
+            .contains("preserved")
+    );
     assert_eq!(scope.attempted_tables(), BTreeSet::from([table]));
 }
 
@@ -421,11 +406,19 @@ fn limits_are_declarative_and_validate_discovered_schema() -> anyhow::Result<()>
     let description = connector.limits().description();
     assert_eq!(description.sink, "clickhouse");
     assert_eq!(
-        description.dataset_name.as_ref().expect("table limit").syntax,
+        description
+            .dataset_name
+            .as_ref()
+            .expect("table limit")
+            .syntax,
         NameSyntax::AsciiIdentifier,
     );
     assert_eq!(
-        description.column_name.as_ref().expect("column limit").syntax,
+        description
+            .column_name
+            .as_ref()
+            .expect("column limit")
+            .syntax,
         NameSyntax::AsciiIdentifier,
     );
     assert!(description.object_key.is_none());
@@ -457,10 +450,12 @@ fn date32_runtime_validation_enforces_clickhouse_lossless_range() -> anyhow::Res
     let column = &discovery.datasets[0].incoming_schema.columns[0];
     let make_batch = |values: Vec<i32>| -> anyhow::Result<transferia_core::sink::SinkBatch> {
         let batch = RecordBatch::try_new(
-            Arc::new(Schema::new(vec![
-                Field::new(&column.name, DataType::Date32, false)
-                    .with_metadata(column.arrow_metadata()),
-            ])),
+            Arc::new(Schema::new(vec![Field::new(
+                &column.name,
+                DataType::Date32,
+                false,
+            )
+            .with_metadata(column.arrow_metadata())])),
             vec![Arc::new(Date32Array::from(values))],
         )?;
         let byte_size = batch.get_array_memory_size();
@@ -471,7 +466,7 @@ fn date32_runtime_validation_enforces_clickhouse_lossless_range() -> anyhow::Res
             byte_size,
             memory: transferia_core::memory::PipelineMemory::new(byte_size.max(1))
                 .reserve_transform(byte_size),
-            system_columns: Default::default(),
+            system_columns: transferia_core::SystemColumns::default(),
         })
     };
 
@@ -483,7 +478,9 @@ fn date32_runtime_validation_enforces_clickhouse_lossless_range() -> anyhow::Res
             .limits()
             .validate_batch(&discovery, &make_batch(vec![invalid])?)
             .expect_err("out-of-range Date32 must fail before ClickHouse I/O");
-        assert!(error.to_string().contains("outside the lossless ClickHouse Date32 range"));
+        assert!(error
+            .to_string()
+            .contains("outside the lossless ClickHouse Date32 range"));
     }
     Ok(())
 }

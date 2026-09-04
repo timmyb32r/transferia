@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    Array, ArrayRef, BinaryArray, Int64Array, TimestampMillisecondArray,
-    TimestampSecondArray, UInt64Array,
+    Array, ArrayRef, BinaryArray, Int64Array, TimestampMillisecondArray, TimestampSecondArray,
+    UInt64Array,
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
@@ -30,10 +30,7 @@ fn source_preserves_date_and_second_timestamp_types() -> anyhow::Result<()> {
         DataType::Timestamp(TimeUnit::Second, None),
     );
     assert_eq!(
-        source_arrow_type(
-            &"DateTime64(0, 'UTC')".parse()?,
-            "DateTime64(0, 'UTC')",
-        )?,
+        source_arrow_type(&"DateTime64(0, 'UTC')".parse()?, "DateTime64(0, 'UTC')",)?,
         DataType::Timestamp(TimeUnit::Second, Some(Arc::from("UTC"))),
     );
     assert_eq!(
@@ -48,10 +45,7 @@ fn source_preserves_date_and_second_timestamp_types() -> anyhow::Result<()> {
             &"Nullable(DateTime('Europe/Moscow'))".parse()?,
             "Nullable(DateTime('Europe/Moscow'))",
         )?,
-        DataType::Timestamp(
-            TimeUnit::Second,
-            Some(Arc::from("Europe/Moscow")),
-        ),
+        DataType::Timestamp(TimeUnit::Second, Some(Arc::from("Europe/Moscow")),),
     );
     Ok(())
 }
@@ -59,9 +53,8 @@ fn source_preserves_date_and_second_timestamp_types() -> anyhow::Result<()> {
 #[test]
 fn explicit_primary_key_is_validated_and_never_inferred_from_clickhouse_sorting() {
     let base = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\n";
-    let duplicate = format!(
-        "{base}tables: [{{database: default, name: events, primary_key: [id, id]}}]\n"
-    );
+    let duplicate =
+        format!("{base}tables: [{{database: default, name: events, primary_key: [id, id]}}]\n");
     assert!(ClickHouseSourceConnector::from_config(
         serde_yaml::from_str(&duplicate).unwrap(),
         Arc::new(MetricsRegistry::new()),
@@ -269,7 +262,7 @@ fn converts_parquet_milliseconds_to_discovered_seconds_only_when_exact() -> anyh
             expected_type.clone(),
             true,
         )]),
-        physical_system_columns: Default::default(),
+        physical_system_columns: transferia_core::SystemColumns::default(),
     };
     let input = RecordBatch::try_from_iter([(
         "event_time",
@@ -298,13 +291,15 @@ fn converts_parquet_milliseconds_to_discovered_seconds_only_when_exact() -> anyh
             DataType::Timestamp(TimeUnit::Millisecond, Some(Arc::from("UTC"))),
             true,
         )])),
-        vec![Arc::new(
-            TimestampMillisecondArray::from(vec![1_500]).with_timezone("UTC"),
-        ) as ArrayRef],
+        vec![
+            Arc::new(TimestampMillisecondArray::from(vec![1_500]).with_timezone("UTC")) as ArrayRef,
+        ],
     )?;
     let error = reader::normalize_snapshot_schema(&inexact, &table)
         .expect_err("sub-second value must not be truncated");
-    assert!(error.to_string().contains("cannot be represented losslessly"));
+    assert!(error
+        .to_string()
+        .contains("cannot be represented losslessly"));
     Ok(())
 }
 
@@ -320,7 +315,7 @@ fn timestamp_normalization_rejects_schema_drift_before_relabeling() -> anyhow::R
             SchemaColumn::new("first".into(), DataType::Int64, false),
             SchemaColumn::new("second".into(), DataType::Int64, false),
         ]),
-        physical_system_columns: Default::default(),
+        physical_system_columns: transferia_core::SystemColumns::default(),
     };
 
     let reordered = RecordBatch::try_new(
@@ -363,8 +358,11 @@ fn timestamp_normalization_rejects_schema_drift_before_relabeling() -> anyhow::R
 
 #[test]
 fn snapshot_normalization_preserves_discovered_column_metadata() -> anyhow::Result<()> {
-    let discovered = SchemaColumn::new("id".into(), DataType::Int64, false)
-        .with_constraints(true, true, Some(32));
+    let discovered = SchemaColumn::new("id".into(), DataType::Int64, false).with_constraints(
+        true,
+        true,
+        Some(32),
+    );
     let table = connector::DiscoveredTable {
         config: config::TableConfig {
             database: "db1".into(),
@@ -372,18 +370,17 @@ fn snapshot_normalization_preserves_discovered_column_metadata() -> anyhow::Resu
             primary_key: vec!["id".into()],
         },
         schema: DatasetSchema::new(vec![discovered.clone()]),
-        physical_system_columns: Default::default(),
+        physical_system_columns: transferia_core::SystemColumns::default(),
     };
     let input = RecordBatch::try_new(
-        Arc::new(Schema::new(vec![Field::new(
-            "id",
-            DataType::Int64,
-            false,
-        )])),
+        Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)])),
         vec![Arc::new(Int64Array::from(vec![1])) as ArrayRef],
     )?;
 
     let normalized = reader::normalize_snapshot_schema(&input, &table)?;
-    assert_eq!(normalized.schema().field(0).metadata(), &discovered.arrow_metadata());
+    assert_eq!(
+        normalized.schema().field(0).metadata(),
+        &discovered.arrow_metadata()
+    );
     Ok(())
 }

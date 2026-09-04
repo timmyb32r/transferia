@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use arrow::datatypes::{DataType, TimeUnit};
@@ -8,6 +9,7 @@ use mysql_async::prelude::Queryable;
 use super::config::MySqlSinkConfig;
 use super::writer::MySqlSink;
 use crate::connectors::mysql::common::{connect, quote_identifier, validate_identifier};
+use transferia_connector_support::external_request::observe_external_request;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 use transferia_core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
@@ -15,7 +17,6 @@ use transferia_core::delivery::{
 };
 use transferia_core::sink::Sink;
 use transferia_core::SystemColumnKind;
-use transferia_connector_support::external_request::observe_external_request;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
 use transferia_registry::{
     SinkBuildContext, SinkConnector, SinkPrepare, SinkSpeedtestIsolation,
@@ -94,12 +95,9 @@ impl MySqlSinkConnector {
     }
 
     async fn sink_connection(&self) -> anyhow::Result<mysql_async::Conn> {
-        let mut connection = observe_external_request(
-            "mysql",
-            "connect_sink",
-            connect(&self.config.connection),
-        )
-        .await?;
+        let mut connection =
+            observe_external_request("mysql", "connect_sink", connect(&self.config.connection))
+                .await?;
         configure_strict_session(&mut connection).await?;
         if let Some(scope) = &self.speedtest_scope {
             let database = observe_external_request(
@@ -107,10 +105,10 @@ impl MySqlSinkConnector {
                 "speedtest_resolve_database",
                 connection.query_first::<String, _>("SELECT DATABASE()"),
             )
-                .await?
-                .ok_or_else(|| {
-                    anyhow::anyhow!("MySQL speedtest connection has no selected database")
-                })?;
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!("MySQL speedtest connection has no selected database")
+            })?;
             anyhow::ensure!(
                 database == scope.database.as_ref(),
                 "MySQL speedtest connection resolved database '{database}', expected '{}'",
@@ -138,28 +136,21 @@ impl MySqlSinkConnector {
         for dataset in request.datasets {
             scope.record_attempt(Arc::clone(&dataset.table));
             let create_result = create_owned_mysql_table(connection, scope, &dataset).await;
-            let mut verified = verify_owned_mysql_table(
-                connection,
-                scope,
-                &dataset.table,
-                &dataset.schema,
-            )
-            .await;
+            let mut verified =
+                verify_owned_mysql_table(connection, scope, &dataset.table, &dataset.schema).await;
             if create_result.is_err() || verified.is_err() {
                 let mut verifier = self.sink_connection().await?;
-                verified = verify_owned_mysql_table(
-                    &mut verifier,
-                    scope,
-                    &dataset.table,
-                    &dataset.schema,
-                )
-                .await;
-                drop(observe_external_request(
-                    "mysql",
-                    "speedtest_disconnect_verifier",
-                    verifier.disconnect(),
-                )
-                .await);
+                verified =
+                    verify_owned_mysql_table(&mut verifier, scope, &dataset.table, &dataset.schema)
+                        .await;
+                drop(
+                    observe_external_request(
+                        "mysql",
+                        "speedtest_disconnect_verifier",
+                        verifier.disconnect(),
+                    )
+                    .await,
+                );
             }
             if verified.is_err() {
                 anyhow::bail!(
@@ -302,8 +293,7 @@ impl SinkConnector for MySqlSinkConnector {
         Box::pin(async move {
             let mut connection = self.sink_connection().await?;
             if let Some(scope) = &self.speedtest_scope {
-                verify_all_mysql_tables(&mut connection, scope, context.discovery.as_ref())
-                    .await?;
+                verify_all_mysql_tables(&mut connection, scope, context.discovery.as_ref()).await?;
             }
             let limits: Arc<dyn SinkLimits> = Arc::clone(&self.config) as Arc<dyn SinkLimits>;
             Ok(Box::new(MySqlSink::new(
@@ -339,17 +329,14 @@ impl SinkConnector for MySqlSinkConnector {
                             &self.config.connection.database,
                             &dataset.name,
                         ),
-                        scratch: mysql_physical_target(
-                            &self.config.connection.database,
-                            scratch,
-                        ),
+                        scratch: mysql_physical_target(&self.config.connection.database, scratch),
                     })
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
             let scope = Arc::new(MySqlSpeedtestScope {
                 database: Arc::from(self.config.connection.database.as_str()),
                 owner_marker: random_owner_marker()?,
-                tables: tables.clone(),
+                tables,
                 schemas: isolated_discovery
                     .datasets
                     .iter()
@@ -403,24 +390,24 @@ impl SinkConnector for MySqlSinkConnector {
 }
 
 const SPEEDTEST_TABLE_PREFIX: &str = "_transferia_st_";
+type IsolatedDiscovery = (
+    DeliveryDiscovery,
+    BTreeMap<Arc<str>, Arc<str>>,
+    BTreeSet<Arc<str>>,
+);
 
 pub(super) fn isolate_discovery(
     original: &DeliveryDiscovery,
     isolation_id: &str,
-) -> anyhow::Result<(
-    DeliveryDiscovery,
-    BTreeMap<Arc<str>, Arc<str>>,
-    BTreeSet<Arc<str>>,
-)> {
+) -> anyhow::Result<IsolatedDiscovery> {
     validate_isolation_id(isolation_id)?;
     let mut discovery = original.clone();
     let mut table_names = BTreeMap::new();
     let mut tables = BTreeSet::new();
     for (index, dataset) in discovery.datasets.iter_mut().enumerate() {
         let original_name = Arc::clone(&dataset.name);
-        let scratch: Arc<str> = Arc::from(format!(
-            "{SPEEDTEST_TABLE_PREFIX}{isolation_id}_{index:x}"
-        ));
+        let scratch: Arc<str> =
+            Arc::from(format!("{SPEEDTEST_TABLE_PREFIX}{isolation_id}_{index:x}"));
         validate_identifier("speedtest table", &scratch)?;
         anyhow::ensure!(
             table_names
@@ -525,7 +512,6 @@ fn random_owner_marker() -> anyhow::Result<Arc<str>> {
     let mut random = [0_u8; 16];
     getrandom::fill(&mut random)?;
     let mut marker = String::from("transferia-speedtest-owner:");
-    use std::fmt::Write as _;
     for byte in random {
         write!(&mut marker, "{byte:02x}")?;
     }
@@ -596,7 +582,9 @@ async fn create_owned_mysql_table(
         connection.query_drop(ddl),
     )
     .await
-    .map_err(|_| anyhow::anyhow!("MySQL exclusive speedtest table creation did not complete successfully"))
+    .map_err(|_| {
+        anyhow::anyhow!("MySQL exclusive speedtest table creation did not complete successfully")
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -607,10 +595,7 @@ pub(super) enum OwnerMarkerEvidence {
     Foreign,
 }
 
-pub(super) fn classify_owner_marker(
-    actual: Option<&str>,
-    expected: &str,
-) -> OwnerMarkerEvidence {
+pub(super) fn classify_owner_marker(actual: Option<&str>, expected: &str) -> OwnerMarkerEvidence {
     match actual {
         Some(value) if value == expected => OwnerMarkerEvidence::Owned,
         Some("") => OwnerMarkerEvidence::Unmarked,
@@ -666,7 +651,10 @@ async fn mysql_owner_evidence(
     )
     .await
     .map_err(|_| anyhow::anyhow!("MySQL scratch table '{table}' owner marker is unreadable"))?;
-    Ok(classify_owner_marker(marker.as_deref(), &scope.owner_marker))
+    Ok(classify_owner_marker(
+        marker.as_deref(),
+        &scope.owner_marker,
+    ))
 }
 
 async fn verify_owned_mysql_table(
@@ -773,12 +761,14 @@ async fn drop_owned_mysql_table(
         .await
         .is_err()
     {
-        drop(observe_external_request(
-            "mysql",
-            "speedtest_unlock_unowned_table",
-            connection.query_drop("UNLOCK TABLES"),
-        )
-        .await);
+        drop(
+            observe_external_request(
+                "mysql",
+                "speedtest_unlock_unowned_table",
+                connection.query_drop("UNLOCK TABLES"),
+            )
+            .await,
+        );
         disconnect_mysql(connection, "speedtest_disconnect_unowned_table").await;
         anyhow::bail!(
             "MySQL scratch table '{table}' is not proven owned immediately before cleanup"
@@ -790,12 +780,14 @@ async fn drop_owned_mysql_table(
         connection.query_drop(mysql_cleanup_ddl(&scope.database, table)?),
     )
     .await;
-    drop(observe_external_request(
-        "mysql",
-        "speedtest_unlock_after_drop",
-        connection.query_drop("UNLOCK TABLES"),
-    )
-    .await);
+    drop(
+        observe_external_request(
+            "mysql",
+            "speedtest_unlock_after_drop",
+            connection.query_drop("UNLOCK TABLES"),
+        )
+        .await,
+    );
     disconnect_mysql(connection, "speedtest_disconnect_after_drop").await;
     if drop_result.is_ok() {
         scope.unclaim(table);

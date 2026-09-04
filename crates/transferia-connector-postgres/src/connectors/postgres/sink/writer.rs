@@ -56,13 +56,7 @@ impl PostgresSink {
             match projected {
                 ProjectedSinkBatch::AppendOnly(stored) => {
                     if stored.num_rows() > 0 {
-                        copy_batch(
-                            &transaction,
-                            &batch.table,
-                            &stored,
-                            self.copy_format,
-                        )
-                        .await?;
+                        copy_batch(&transaction, &batch.table, &stored, self.copy_format).await?;
                         flushes += 1;
                     }
                 }
@@ -85,13 +79,7 @@ impl PostgresSink {
                             &run.batch,
                         )
                         .await?;
-                        copy_batch(
-                            &transaction,
-                            &staging,
-                            &run.batch,
-                            self.copy_format,
-                        )
-                        .await?;
+                        copy_batch(&transaction, &staging, &run.batch, self.copy_format).await?;
                         match run.operation {
                             transferia_core::ChangeOperation::Create
                             | transferia_core::ChangeOperation::SnapshotRead => {

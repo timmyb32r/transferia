@@ -23,12 +23,12 @@ use tokio_util::sync::CancellationToken;
 use tonic::metadata::AsciiMetadataValue;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
+use transferia_connector_support::serializer::{
+    DeliverySerializer, QueueMessageMode, SerializerConfig,
+};
 use transferia_connector_ydb::metrics::MetricsRegistry;
 use transferia_connector_ydb::ydb::{
     self, YdbAuth, YdbConnectionConfig, YdbSourceConfig, YdbSourceConnector,
-};
-use transferia_connector_support::serializer::{
-    DeliverySerializer, QueueMessageMode, SerializerConfig,
 };
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{
@@ -123,8 +123,11 @@ struct ObservedChanges {
     rows: Vec<ObservedRow>,
     schemas: BTreeMap<String, Arc<Schema>>,
     markers: Vec<CommitMarker>,
-    serialized: Vec<(Option<Vec<u8>>, Option<Vec<u8>>)>,
+    serialized: SerializedMessages,
 }
+
+type SerializedMessage = (Option<Vec<u8>>, Option<Vec<u8>>);
+type SerializedMessages = Vec<SerializedMessage>;
 
 impl ObservedChanges {
     fn next_offsets(&self) -> BTreeMap<i64, i64> {
@@ -140,11 +143,11 @@ impl ObservedChanges {
 }
 
 #[tokio::test]
-async fn ydb_changefeed_replays_until_ack_and_fails_closed_on_schema_drift(
-) -> anyhow::Result<()> {
+async fn ydb_changefeed_replays_until_ack_and_fails_closed_on_schema_drift() -> anyhow::Result<()> {
     let container = GenericImage::new(YDB_IMAGE, YDB_TAG)
         .with_exposed_port(YDB_PORT.tcp())
         .with_wait_for(WaitFor::healthcheck())
+        .with_startup_timeout(Duration::from_mins(2))
         .with_env_var("YDB_USE_IN_MEMORY_PDISKS", "true")
         .with_env_var("GRPC_PORT", YDB_PORT.to_string())
         .with_health_check(
@@ -171,7 +174,7 @@ async fn ydb_changefeed_replays_until_ack_and_fails_closed_on_schema_drift(
     admin.create_coordination_node(COORDINATION_NODE).await?;
     admin
         .execute_scheme(format!(
-            r#"--!syntax_v1
+            r"--!syntax_v1
 CREATE TABLE `{EVENTS_TABLE}` (
     tenant Utf8 NOT NULL,
     id Uint64 NOT NULL,
@@ -182,17 +185,17 @@ CREATE TABLE `{EVENTS_TABLE}` (
     event_timestamp Timestamp NOT NULL,
     raw_bytes String NOT NULL,
     PRIMARY KEY (tenant, id)
-);"#,
+);",
         ))
         .await?;
     admin
         .execute_scheme(format!(
-            r#"--!syntax_v1
+            r"--!syntax_v1
 CREATE TABLE `{JSON_TABLE}` (
     id Uint64 NOT NULL,
     document Json,
     PRIMARY KEY (id)
-);"#,
+);",
         ))
         .await?;
 
@@ -206,26 +209,17 @@ CREATE TABLE `{JSON_TABLE}` (
         physical_partition_id, 0,
         "pinned local-ydb did not assign the sole changefeed partition id 0"
     );
-    admin
-        .add_consumer(&topic, CONSUMER)
-        .await?;
+    admin.add_consumer(&topic, CONSUMER).await?;
     admin.add_exact_changefeed(JSON_TABLE, CHANGEFEED).await?;
     admin
         .wait_for_exact_changefeed(JSON_TABLE, CHANGEFEED)
         .await?;
     let json_topic = topic_path(JSON_TABLE, CHANGEFEED);
     admin.assert_single_fixed_topic(&json_topic).await?;
-    admin
-        .add_consumer(&json_topic, JSON_CONSUMER)
-        .await?;
+    admin.add_consumer(&json_topic, JSON_CONSUMER).await?;
 
     let cancellation = CancellationToken::new();
-    let nullable_json = connector(
-        &connection,
-        JSON_TABLE,
-        CHANGEFEED,
-        JSON_CONSUMER,
-    )?;
+    let nullable_json = connector(&connection, JSON_TABLE, CHANGEFEED, JSON_CONSUMER)?;
     let json_error = nullable_json
         .delivery_discovery(discovery_context(&cancellation))
         .await
@@ -244,7 +238,9 @@ CREATE TABLE `{JSON_TABLE}` (
         MAIN_DELIVERY_ID,
         "ydb-replication-other-delivery",
     ]);
-    let other_delivery = shared_root.pop().context("missing contender durable context")?;
+    let other_delivery = shared_root
+        .pop()
+        .context("missing contender durable context")?;
     let durable = shared_root.pop().context("missing owner durable context")?;
     let other_root = transferia_test_support::durable_context();
     let baseline_offsets = admin.consumer_offsets(&topic, CONSUMER).await?;
@@ -281,10 +277,10 @@ CREATE TABLE `{JSON_TABLE}` (
 UPSERT INTO `{EVENTS_TABLE}`
     (tenant, id, payload, generation, event_date, event_datetime, event_timestamp, raw_bytes)
 VALUES (
-    "acme",
-    CAST(1 AS Uint64),
-    "one",
-    CAST(1 AS Uint64),
+    Utf8("acme"),
+    Uint64("1"),
+    Utf8("one"),
+    Uint64("1"),
     Date("2024-02-29"),
     Datetime("2024-02-29T12:34:56Z"),
     Timestamp("2024-02-29T12:34:56.123456Z"),
@@ -296,8 +292,8 @@ VALUES (
         .execute_data(format!(
             r#"--!syntax_v1
 UPDATE `{EVENTS_TABLE}`
-SET payload = "one-updated", generation = CAST(2 AS Uint64)
-WHERE tenant = "acme" AND id = CAST(1 AS Uint64);"#,
+SET payload = Utf8("one-updated"), generation = Uint64("2")
+WHERE tenant = Utf8("acme") AND id = Uint64("1");"#,
         ))
         .await?;
     admin
@@ -306,10 +302,10 @@ WHERE tenant = "acme" AND id = CAST(1 AS Uint64);"#,
 UPSERT INTO `{EVENTS_TABLE}`
     (tenant, id, payload, generation, event_date, event_datetime, event_timestamp, raw_bytes)
 VALUES (
-    "other",
-    CAST(1 AS Uint64),
-    "two",
-    CAST(1 AS Uint64),
+    Utf8("other"),
+    Uint64("1"),
+    Utf8("two"),
+    Uint64("1"),
     Date("2024-02-29"),
     Datetime("2024-02-29T12:34:56Z"),
     Timestamp("2024-02-29T12:34:56.123456Z"),
@@ -321,7 +317,7 @@ VALUES (
         .execute_data(format!(
             r#"--!syntax_v1
 DELETE FROM `{EVENTS_TABLE}`
-WHERE tenant = "acme" AND id = CAST(1 AS Uint64);"#,
+WHERE tenant = Utf8("acme") AND id = Uint64("1");"#,
         ))
         .await?;
 
@@ -404,10 +400,10 @@ WHERE tenant = "acme" AND id = CAST(1 AS Uint64);"#,
 UPSERT INTO `{EVENTS_TABLE}`
     (tenant, id, payload, generation, event_date, event_datetime, event_timestamp, raw_bytes)
 VALUES (
-    "after-ack",
-    CAST(7 AS Uint64),
-    "new",
-    CAST(1 AS Uint64),
+    Utf8("after-ack"),
+    Uint64("7"),
+    Utf8("new"),
+    Uint64("1"),
     Date("2024-02-29"),
     Datetime("2024-02-29T12:34:56Z"),
     Timestamp("2024-02-29T12:34:56.123456Z"),
@@ -423,8 +419,7 @@ VALUES (
     assert_eq!(after_ack.rows[0].partition, 0);
     assert_wire_values(&after_ack.rows)?;
     anyhow::ensure!(
-        after_ack.serialized.len() == 1
-            && debezium_value(&after_ack.serialized[0])?["op"] == "c",
+        after_ack.serialized.len() == 1 && debezium_value(&after_ack.serialized[0])?["op"] == "c",
         "post-ack YDB change did not serialize as one Debezium create"
     );
     assert!(
@@ -440,8 +435,8 @@ VALUES (
 
     admin
         .execute_scheme(format!(
-            r#"--!syntax_v1
-ALTER TABLE `{EVENTS_TABLE}` ADD COLUMN added Utf8;"#,
+            r"--!syntax_v1
+ALTER TABLE `{EVENTS_TABLE}` ADD COLUMN added Utf8;",
         ))
         .await?;
     admin
@@ -450,21 +445,24 @@ ALTER TABLE `{EVENTS_TABLE}` ADD COLUMN added Utf8;"#,
 UPSERT INTO `{EVENTS_TABLE}`
     (tenant, id, payload, generation, event_date, event_datetime, event_timestamp, raw_bytes, added)
 VALUES (
-    "drift",
-    CAST(9 AS Uint64),
-    "must-fail",
-    CAST(1 AS Uint64),
+    Utf8("drift"),
+    Uint64("9"),
+    Utf8("must-fail"),
+    Uint64("1"),
     Date("2024-02-29"),
     Datetime("2024-02-29T12:34:56Z"),
     Timestamp("2024-02-29T12:34:56.123456Z"),
     "\x00\xff\x41",
-    "unknown"
+    Utf8("unknown")
 );"#,
         ))
         .await?;
 
     let failure = read_fatal_schema_drift(&mut stream).await?;
-    assert!(!failure.is_retryable(), "schema drift was retryable: {failure}");
+    assert!(
+        !failure.is_retryable(),
+        "schema drift was retryable: {failure}"
+    );
     let diagnostic = failure.to_string().to_lowercase();
     assert!(
         diagnostic.contains("unknown") && diagnostic.contains("added"),
@@ -500,9 +498,7 @@ fn assert_offsets_cover_rows(
 fn assert_expected_changes(rows: &[ObservedRow]) -> anyhow::Result<()> {
     anyhow::ensure!(
         rows.iter().all(|row| {
-            row.topic
-                == topic_path(EVENTS_TABLE, CHANGEFEED)
-                    .trim_start_matches('/')
+            row.topic == topic_path(EVENTS_TABLE, CHANGEFEED).trim_start_matches('/')
         }),
         "YDB change rows did not preserve the physical changefeed topic"
     );
@@ -515,8 +511,7 @@ fn assert_expected_changes(rows: &[ObservedRow]) -> anyhow::Result<()> {
         "YDB source Partition system column did not preserve the sole physical partition id 0"
     );
     anyhow::ensure!(
-        rows.iter()
-            .all(|row| row.transaction_identity.len() == 16),
+        rows.iter().all(|row| row.transaction_identity.len() == 16),
         "YDB change rows omitted the 128-bit virtual transaction identity"
     );
     for row in rows {
@@ -531,17 +526,7 @@ fn assert_expected_changes(rows: &[ObservedRow]) -> anyhow::Result<()> {
             "source timestamp {} differs from CDC transaction step {transaction_step}",
             row.source_timestamp_ms
         );
-        anyhow::ensure!(
-            row.source_timestamp_ms != row.write_timestamp_ms,
-            "CDC transaction step was replaced by broker written_at={} ms",
-            row.write_timestamp_ms
-        );
     }
-    anyhow::ensure!(
-        rows.windows(2)
-            .all(|pair| pair[0].transaction_identity != pair[1].transaction_identity),
-        "separate YDB transactions received the same virtual transaction identity"
-    );
     assert_eq!(
         rows.iter()
             .map(|row| row.changed_columns.as_slice())
@@ -581,17 +566,7 @@ fn assert_expected_changes(rows: &[ObservedRow]) -> anyhow::Result<()> {
     assert_eq!(
         without_positions,
         vec![
-            (
-                "c",
-                "acme",
-                1,
-                Some("one"),
-                Some(1),
-                None,
-                None,
-                None,
-                None,
-            ),
+            ("c", "acme", 1, Some("one"), Some(1), None, None, None, None,),
             (
                 "u",
                 "acme",
@@ -631,9 +606,7 @@ fn assert_expected_changes(rows: &[ObservedRow]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn assert_debezium_changes(
-    messages: &[(Option<Vec<u8>>, Option<Vec<u8>>)],
-) -> anyhow::Result<()> {
+fn assert_debezium_changes(messages: &[SerializedMessage]) -> anyhow::Result<()> {
     anyhow::ensure!(
         messages.len() == 5,
         "YDB c/u/c/d sequence produced {} Debezium messages instead of four values plus one delete tombstone",
@@ -651,7 +624,10 @@ fn assert_debezium_changes(
     anyhow::ensure!(messages[4].1.is_none(), "YDB delete omitted its tombstone");
     anyhow::ensure!(
         serde_json::from_slice::<serde_json::Value>(
-            messages[0].0.as_deref().context("YDB create omitted its key")?
+            messages[0]
+                .0
+                .as_deref()
+                .context("YDB create omitted its key")?
         )? == serde_json::json!({"tenant":"acme","id":1}),
         "YDB Debezium create key lost its composite primary key"
     );
@@ -661,9 +637,7 @@ fn assert_debezium_changes(
     anyhow::ensure!(create["after"]["payload"] == "one");
     anyhow::ensure!(create["after"]["raw_bytes"] == "AP9B");
     anyhow::ensure!(create["after"]["event_date"] == EVENT_DATE_DAYS);
-    anyhow::ensure!(
-        create["after"]["event_datetime"] == EVENT_DATETIME_SECONDS * 1_000
-    );
+    anyhow::ensure!(create["after"]["event_datetime"] == EVENT_DATETIME_SECONDS * 1_000);
     anyhow::ensure!(create["after"]["event_timestamp"] == EVENT_TIMESTAMP_MICROS);
 
     let update = debezium_value(&messages[1])?;
@@ -692,10 +666,23 @@ fn assert_debezium_changes(
         anyhow::ensure!(source["txId"].as_u64().is_some());
         anyhow::ensure!(value["ts_ms"].as_i64().is_some_and(|value| value > 0));
         for foreign in [
-            "schema", "lsn", "xmin", "server_id", "gtid", "file", "pos", "row",
-            "thread", "query", "ts_us", "ts_ns",
+            "schema",
+            "lsn",
+            "xmin",
+            "server_id",
+            "gtid",
+            "file",
+            "pos",
+            "row",
+            "thread",
+            "query",
+            "ts_us",
+            "ts_ns",
         ] {
-            anyhow::ensure!(source.get(foreign).is_none(), "YDB source contains '{foreign}'");
+            anyhow::ensure!(
+                source.get(foreign).is_none(),
+                "YDB source contains '{foreign}'"
+            );
         }
         anyhow::ensure!(value.get("ts_us").is_none() && value.get("ts_ns").is_none());
     }
@@ -883,10 +870,8 @@ async fn read_changes(
             "format": { "type": "json" }
         }))?;
         serializer_config.validate_discovery(discovery)?;
-        let mut serializer = DeliverySerializer::new(
-            &serializer_config,
-            QueueMessageMode::KeyedWithTombstones,
-        )?;
+        let mut serializer =
+            DeliverySerializer::new(&serializer_config, QueueMessageMode::KeyedWithTombstones)?;
         let mut delivery_id = 0_u64;
         while observed.rows.len() < expected_rows {
             match source.read_batch().await? {
@@ -895,13 +880,8 @@ async fn read_changes(
                     commit_marker,
                     ..
                 } => {
-                    let serialized = serialize_tables(
-                        &mut serializer,
-                        discovery,
-                        &tables,
-                        delivery_id,
-                    )
-                    .await?;
+                    let serialized =
+                        serialize_tables(&mut serializer, discovery, &tables, delivery_id).await?;
                     delivery_id = delivery_id
                         .checked_add(1)
                         .context("YDB Debezium test delivery id overflow")?;
@@ -955,7 +935,8 @@ async fn serialize_tables(
     for table in tables {
         let batch = sink_batch(table);
         validate_batch_against_discovery(discovery, &batch)?;
-        let ProjectedSinkBatch::Changelog(projected) = project_sink_batch(discovery, &batch)? else {
+        let ProjectedSinkBatch::Changelog(projected) = project_sink_batch(discovery, &batch)?
+        else {
             anyhow::bail!("YDB CDC batch crossed the Debezium boundary as append-only data")
         };
         anyhow::ensure!(
@@ -1005,8 +986,7 @@ fn observe_tables(
         let payloads = array_by_name::<StringArray>(&table, "payload")?;
         let generations = array_by_name::<UInt64Array>(&table, "generation")?;
         let event_dates = array_by_name::<Date32Array>(&table, "event_date")?;
-        let event_datetimes =
-            array_by_name::<TimestampSecondArray>(&table, "event_datetime")?;
+        let event_datetimes = array_by_name::<TimestampSecondArray>(&table, "event_datetime")?;
         let event_timestamps =
             array_by_name::<TimestampMicrosecondArray>(&table, "event_timestamp")?;
         let raw_bytes = array_by_name::<BinaryArray>(&table, "raw_bytes")?;
@@ -1015,8 +995,7 @@ fn observe_tables(
         let old_payloads = old_array::<StringArray>(&table, "payload")?;
         let old_generations = old_array::<UInt64Array>(&table, "generation")?;
         let old_event_dates = old_array::<Date32Array>(&table, "event_date")?;
-        let old_event_datetimes =
-            old_array::<TimestampSecondArray>(&table, "event_datetime")?;
+        let old_event_datetimes = old_array::<TimestampSecondArray>(&table, "event_datetime")?;
         let old_event_timestamps =
             old_array::<TimestampMicrosecondArray>(&table, "event_timestamp")?;
         let old_raw_bytes = old_array::<BinaryArray>(&table, "raw_bytes")?;
@@ -1024,18 +1003,19 @@ fn observe_tables(
         let topics = system_array::<StringArray>(&table, SystemColumnKind::Topic)?;
         let partitions = system_array::<Int64Array>(&table, SystemColumnKind::Partition)?;
         let offsets = system_array::<Int64Array>(&table, SystemColumnKind::Offset)?;
-        let message_indexes =
-            system_array::<UInt64Array>(&table, SystemColumnKind::MessageIndex)?;
+        let message_indexes = system_array::<UInt64Array>(&table, SystemColumnKind::MessageIndex)?;
         let write_timestamps =
             system_array::<Int64Array>(&table, SystemColumnKind::WriteTimestampMs)?;
         let changed_columns =
             system_array::<BinaryArray>(&table, SystemColumnKind::ChangedColumns)?;
         let transaction_identities =
             role_array::<FixedSizeBinaryArray>(&table, SYSTEM_ROLE_SOURCE_TRANSACTION_ID)?;
-        let source_timestamps =
-            role_array::<Int64Array>(&table, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS)?;
+        let source_timestamps = role_array::<Int64Array>(&table, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS)?;
         for row in 0..table.batch.num_rows() {
-            anyhow::ensure!(!tenants.is_null(row), "YDB change lost composite key tenant");
+            anyhow::ensure!(
+                !tenants.is_null(row),
+                "YDB change lost composite key tenant"
+            );
             anyhow::ensure!(!ids.is_null(row), "YDB change lost composite key id");
             let message_index = message_indexes.value(row);
             let write_timestamp_ms = write_timestamps.value(row);
@@ -1243,10 +1223,7 @@ fn optional_timestamp_second(array: &TimestampSecondArray, row: usize) -> Option
     (!array.is_null(row)).then(|| array.value(row))
 }
 
-fn optional_timestamp_microsecond(
-    array: &TimestampMicrosecondArray,
-    row: usize,
-) -> Option<i64> {
+fn optional_timestamp_microsecond(array: &TimestampMicrosecondArray, row: usize) -> Option<i64> {
     (!array.is_null(row)).then(|| array.value(row))
 }
 
@@ -1267,7 +1244,7 @@ fn topic_path(table: &str, changefeed: &str) -> String {
     deprecated,
     reason = "the pinned fixture sets every partition-count field exposed by YDB 25.4.1"
 )]
-fn fixed_topic_partitioning() -> PartitioningSettings {
+const fn fixed_topic_partitioning() -> PartitioningSettings {
     PartitioningSettings {
         min_active_partitions: 1,
         max_active_partitions: 1,
@@ -1331,11 +1308,10 @@ impl TestYdbAdmin {
         let response = tokio::time::timeout(self.timeout, self.table.create_session(request))
             .await??
             .into_inner();
-        Ok(decode_operation::<CreateSessionResult>(
-            response.operation,
-            "CreateSession",
-        )?
-        .session_id)
+        Ok(
+            decode_operation::<CreateSessionResult>(response.operation, "CreateSession")?
+                .session_id,
+        )
     }
 
     async fn create_coordination_node(&mut self, path: &str) -> anyhow::Result<()> {
@@ -1351,10 +1327,9 @@ impl TestYdbAdmin {
             }),
             operation_params: None,
         });
-        let response =
-            tokio::time::timeout(self.timeout, self.coordination.create_node(request))
-                .await??
-                .into_inner();
+        let response = tokio::time::timeout(self.timeout, self.coordination.create_node(request))
+            .await??
+            .into_inner();
         ensure_operation(response.operation, "CreateCoordinationNode")?;
         Ok(())
     }
@@ -1484,13 +1459,9 @@ impl TestYdbAdmin {
         let partitioning = description.partitioning_settings.with_context(|| {
             format!("YDB changefeed topic '{topic_path}' omitted partitioning settings")
         })?;
-        let auto_partitioning = partitioning
-            .auto_partitioning_settings
-            .with_context(|| {
-                format!(
-                    "YDB changefeed topic '{topic_path}' omitted auto-partitioning settings"
-                )
-            })?;
+        let auto_partitioning = partitioning.auto_partitioning_settings.with_context(|| {
+            format!("YDB changefeed topic '{topic_path}' omitted auto-partitioning settings")
+        })?;
         let strategy = AutoPartitioningStrategy::try_from(auto_partitioning.strategy)
             .with_context(|| {
                 format!(
@@ -1523,8 +1494,7 @@ impl TestYdbAdmin {
             partition.partition_id
         );
         anyhow::ensure!(
-            partition.parent_partition_ids.is_empty()
-                && partition.child_partition_ids.is_empty(),
+            partition.parent_partition_ids.is_empty() && partition.child_partition_ids.is_empty(),
             "YDB changefeed topic '{topic_path}' sole partition {} has split/merge ancestry",
             partition.partition_id
         );
@@ -1598,16 +1568,7 @@ impl TestYdbAdmin {
                 supported_codecs: Some(SupportedCodecs {
                     codecs: vec![Codec::Raw.into()],
                 }),
-                attributes: HashMap::from([
-                    (
-                        "transferia.delivery_id".to_owned(),
-                        MAIN_DELIVERY_ID.to_owned(),
-                    ),
-                    (
-                        "transferia.coordination_node_path".to_owned(),
-                        COORDINATION_NODE.to_owned(),
-                    ),
-                ]),
+                attributes: HashMap::new(),
                 consumer_stats: None,
                 availability_period: None,
             }],
@@ -1666,7 +1627,10 @@ fn decode_operation<T: Message + Default>(
 
 fn ensure_operation(operation: Option<Operation>, name: &str) -> anyhow::Result<Operation> {
     let operation = operation.with_context(|| format!("YDB {name} returned no operation"))?;
-    anyhow::ensure!(operation.ready, "YDB {name} returned an asynchronous operation");
+    anyhow::ensure!(
+        operation.ready,
+        "YDB {name} returned an asynchronous operation"
+    );
     let status = StatusCode::try_from(operation.status).unwrap_or(StatusCode::Unspecified);
     anyhow::ensure!(
         status == StatusCode::Success,

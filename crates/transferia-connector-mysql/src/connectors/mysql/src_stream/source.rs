@@ -1,12 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::future::Future;
 use std::mem::size_of;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use arrow::array::{
-    ArrayRef, BinaryArray, Int32Array, Int64Array, StringArray, UInt64Array,
-};
+use arrow::array::{ArrayRef, BinaryArray, Int32Array, Int64Array, StringArray, UInt64Array};
 use arrow::datatypes::{Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
@@ -19,9 +18,9 @@ use tokio_util::sync::CancellationToken;
 use transferia_connector_support::external_request::observe_external_request;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{
-    SchemaColumn, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME,
-    META_CHANGE_OPERATION, META_LOW_CARDINALITY, META_MAX_LENGTH, META_OLD_KEY_OF,
-    META_OLD_VALUE_OF, META_PRIMARY_KEY, META_SYSTEM_ROLE,
+    SchemaColumn, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME, META_CHANGE_OPERATION,
+    META_LOW_CARDINALITY, META_MAX_LENGTH, META_OLD_KEY_OF, META_OLD_VALUE_OF, META_PRIMARY_KEY,
+    META_SYSTEM_ROLE,
 };
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::TableData;
@@ -40,11 +39,11 @@ use super::identity::encode_transaction_identity;
 use super::offset::MySqlReplicationOffsetTracker;
 use super::position::{format_uuid, GtidSet, MySqlBinlogPosition, MySqlResumePosition};
 use super::MySqlReplicationConfig;
+use crate::connectors::mysql::src_batch::optional_value_column_array;
 use crate::connectors::mysql::src_batch::{
     mysql_column_kind, old_value_schema_column, ColumnPlan, DiscoveredTable, MySqlColumnKind,
     MYSQL_REPLICATION_SYSTEM_COLUMNS, MYSQL_SOURCE_METADATA_COLUMNS,
 };
-use crate::connectors::mysql::src_batch::optional_value_column_array;
 use crate::connectors::mysql::src_batch_and_stream::{
     is_replication_safety_violation, replication_safety_violation, AuthoritativeTableIdentity,
     MySqlBinlogBoundary, MySqlSourceIdentity,
@@ -144,8 +143,8 @@ impl MySqlReplicationSource {
             .map(build_table_schema)
             .collect::<anyhow::Result<Vec<_>>>()
             .map_err(replication_safety_violation)?;
-        let retained_schema_bytes = retained_schemas_bytes(&schemas)
-            .map_err(replication_safety_violation)?;
+        let retained_schema_bytes =
+            retained_schemas_bytes(&schemas).map_err(replication_safety_violation)?;
         let _ = schema_memory.shrink_to(retained_schema_bytes);
         let event_decode_admission_bytes =
             event_decode_admission_bytes(&config, &source_identity.database, &tables)
@@ -283,9 +282,10 @@ impl MySqlReplicationSource {
                 let active = self.active.as_mut().ok_or_else(|| {
                     anyhow::anyhow!("MySQL binlog actor received a table map without a transaction")
                 })?;
-                active.table_map_count = active.table_map_count.checked_add(1).ok_or_else(|| {
-                    anyhow::anyhow!("MySQL retained table-map count overflow")
-                })?;
+                active.table_map_count = active
+                    .table_map_count
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow::anyhow!("MySQL retained table-map count overflow"))?;
                 Ok(None)
             }
             DecodedBinlogEvent::Ignored(ignored) => {
@@ -342,9 +342,10 @@ impl MySqlReplicationSource {
             let before = normalize_binlog_row(table, &rows.table, row.before)?;
             let after = normalize_binlog_row(table, &rows.table, row.after)?;
             let message_index = active.next_message_index;
-            active.next_message_index = active.next_message_index.checked_add(1).ok_or_else(|| {
-                anyhow::anyhow!("MySQL transaction message index overflow")
-            })?;
+            active.next_message_index = active
+                .next_message_index
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("MySQL transaction message index overflow"))?;
             active.changes.push(BufferedRowChange {
                 table_index,
                 operation: change_operation(rows.operation),
@@ -410,9 +411,7 @@ impl MySqlReplicationSource {
             grouped
                 .get_mut(change.table_index)
                 .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "MySQL transaction refers to an unknown configured table index"
-                    )
+                    anyhow::anyhow!("MySQL transaction refers to an unknown configured table index")
                 })?
                 .push(change);
         }
@@ -517,8 +516,7 @@ async fn configure_binlog_heartbeat(
         ),
     )
     .await?;
-    verify_binlog_heartbeat(heartbeat_nanoseconds, observed)
-        .map_err(replication_safety_violation)
+    verify_binlog_heartbeat(heartbeat_nanoseconds, observed).map_err(replication_safety_violation)
 }
 
 pub(super) fn verify_binlog_heartbeat(
@@ -546,9 +544,7 @@ impl Source for MySqlReplicationSource {
                     .as_ref()
                     .map(retained_transaction_bytes)
                     .transpose()
-                    .map_err(|error| {
-                        DataPlaneFailure::fatal(replication_safety_violation(error))
-                    })?
+                    .map_err(|error| DataPlaneFailure::fatal(replication_safety_violation(error)))?
                     .unwrap_or(0);
                 let read_admission_bytes = previous_transaction_bytes
                     .checked_add(self.event_decode_admission_bytes)
@@ -563,7 +559,7 @@ impl Source for MySqlReplicationSource {
                         .grow_progress_source_to(read_admission_bytes)
                         .map_err(|error| {
                             DataPlaneFailure::fatal(replication_safety_violation(error))
-                    })?;
+                        })?;
                     None
                 } else {
                     self.memory
@@ -574,9 +570,7 @@ impl Source for MySqlReplicationSource {
                                 "MySQL pipeline memory reservation would overflow this platform"
                             )))
                         })?;
-                    let reserve = self
-                        .memory
-                        .reserve_progress_source(read_admission_bytes);
+                    let reserve = self.memory.reserve_progress_source(read_admission_bytes);
                     Some(tokio::select! {
                         biased;
                         () = self.cancellation.cancelled() => {
@@ -632,7 +626,7 @@ impl Source for MySqlReplicationSource {
                         }
                         return Err(DataPlaneFailure::retryable(anyhow::anyhow!(
                             "MySQL binlog stream ended before cancellation"
-                        )))
+                        )));
                     }
                 };
                 let event_bytes = usize::try_from(event.header().event_size()).map_err(|_| {
@@ -655,9 +649,7 @@ impl Source for MySqlReplicationSource {
                             .checked_add(event_bytes)
                             .ok_or_else(|| {
                                 DataPlaneFailure::fatal(replication_safety_violation(
-                                    anyhow::anyhow!(
-                                        "MySQL transaction memory accounting overflow"
-                                    ),
+                                    anyhow::anyhow!("MySQL transaction memory accounting overflow"),
                                 ))
                             })?,
                     )
@@ -706,16 +698,15 @@ impl Source for MySqlReplicationSource {
                 }
                 if let Some(batch) = self
                     .accept_event(decoded, event_reservation, event_bytes)
-                    .map_err(|error| {
-                        DataPlaneFailure::fatal(replication_safety_violation(error))
-                    })?
+                    .map_err(|error| DataPlaneFailure::fatal(replication_safety_violation(error)))?
                 {
                     return Ok(batch);
                 }
                 if let Some(transaction) = self.active.as_ref() {
-                    let retained_bytes = retained_transaction_bytes(transaction).map_err(|error| {
-                        DataPlaneFailure::fatal(replication_safety_violation(error))
-                    })?;
+                    let retained_bytes =
+                        retained_transaction_bytes(transaction).map_err(|error| {
+                            DataPlaneFailure::fatal(replication_safety_violation(error))
+                        })?;
                     let _ = transaction.memory.shrink_to(retained_bytes);
                 }
             }
@@ -733,9 +724,7 @@ impl Source for MySqlReplicationSource {
                 let marker = marker
                     .value::<MySqlReplicationMarker>()
                     .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
-                if marker.previous_position != expected
-                    || marker.previous_gtids != expected_gtids
-                {
+                if marker.previous_position != expected || marker.previous_gtids != expected_gtids {
                     return Err(DataPlaneFailure::fatal(replication_safety_violation(
                         anyhow::anyhow!(
                             "MySQL replication commit markers are not one contiguous emitted prefix"
@@ -792,7 +781,7 @@ impl Source for MySqlReplicationSource {
     }
 }
 
-/// Conservatively covers the raw event, mysql_common's decoded rows, and the
+/// Conservatively covers the raw event, `mysql_common`'s decoded rows, and the
 /// connector-owned normalized rows while one event is being moved into the
 /// transaction buffer. JSON strings can expand to six escaped bytes per input
 /// byte; the factor also covers exact owned JSONB copies and Vec capacity slack.
@@ -825,14 +814,14 @@ fn event_decode_admission_bytes(
         .checked_mul(2)
         .and_then(|rows| {
             rows.checked_mul(
-                size_of::<super::decoder::MySqlRowChange>()
-                    + size_of::<BufferedRowChange>(),
+                size_of::<super::decoder::MySqlRowChange>() + size_of::<BufferedRowChange>(),
             )
         })
         .ok_or_else(|| anyhow::anyhow!("MySQL CDC decoded-row memory accounting overflow"))?;
     let table_map_state = max_columns
         .checked_mul(
-            size_of::<mysql_async::Column>() + size_of::<super::decoder::MySqlBinlogColumnIdentity>(),
+            size_of::<mysql_async::Column>()
+                + size_of::<super::decoder::MySqlBinlogColumnIdentity>(),
         )
         .ok_or_else(|| anyhow::anyhow!("MySQL CDC table-map memory accounting overflow"))?;
     let row_column_state = tables
@@ -951,9 +940,7 @@ fn retained_row_heap_bytes(row: &Vec<Option<Value>>) -> anyhow::Result<usize> {
 
 fn transaction_marker_heap_bytes(marker: &MySqlTransactionMarker) -> anyhow::Result<usize> {
     let identity_bytes = match &marker.identity {
-        MySqlTransactionIdentity::Gtid { tag, .. } => {
-            tag.as_ref().map_or(0, String::capacity)
-        }
+        MySqlTransactionIdentity::Gtid { tag, .. } => tag.as_ref().map_or(0, String::capacity),
         MySqlTransactionIdentity::Anonymous { begin_position }
         | MySqlTransactionIdentity::FilePosition { begin_position } => {
             begin_position.filename.capacity()
@@ -973,7 +960,8 @@ fn arrow_materialization_admission_bytes(
     previous_position: &MySqlBinlogPosition,
     previous_gtids: &GtidSet,
 ) -> anyhow::Result<usize> {
-    let transaction_identity_bytes = transaction_identity_encoded_len(&transaction.marker.identity)?;
+    let transaction_identity_bytes =
+        transaction_identity_encoded_len(&transaction.marker.identity)?;
     let transaction_gtid_bytes = transaction_gtid_text_len(&transaction.marker.identity)?;
     let mut bytes = transaction
         .changes
@@ -981,7 +969,11 @@ fn arrow_materialization_admission_bytes(
         .checked_mul(2)
         .and_then(|rows| rows.checked_mul(size_of::<&BufferedRowChange>()))
         .and_then(|value| {
-            value.checked_add(tables.len().checked_mul(size_of::<Vec<&BufferedRowChange>>())?)
+            value.checked_add(
+                tables
+                    .len()
+                    .checked_mul(size_of::<Vec<&BufferedRowChange>>())?,
+            )
         })
         .ok_or_else(|| anyhow::anyhow!("MySQL CDC grouped-row memory accounting overflow"))?;
     bytes = bytes
@@ -1022,9 +1014,7 @@ fn arrow_materialization_admission_bytes(
             .and_then(|value| value.checked_add(table.config.name.len()))
             .and_then(|value| value.checked_add(transaction_identity_bytes))
             .and_then(|value| value.checked_add(next_position.filename.len()))
-            .and_then(|value| {
-                value.checked_add(transaction.marker.begin_position.filename.len())
-            })
+            .and_then(|value| value.checked_add(transaction.marker.begin_position.filename.len()))
             .and_then(|value| value.checked_add(transaction_gtid_bytes))
             .and_then(|value| value.checked_add(change.operation.code().len()))
             .and_then(|value| value.checked_add(changed_columns_bytes))
@@ -1055,26 +1045,17 @@ fn arrow_materialization_admission_bytes(
                 })?,
         )
         .ok_or_else(|| anyhow::anyhow!("MySQL CDC table materialization accounting overflow"))?;
-    let marker_bytes = replication_marker_admission_bytes(
-        previous_position,
-        next_position,
-        previous_gtids,
-    )?
-    .checked_add(
-        transaction_marker_heap_bytes(&transaction.marker)?
-            .checked_mul(4)
-            .ok_or_else(|| anyhow::anyhow!("MySQL CDC GTID marker accounting overflow"))?,
-    )
-    .ok_or_else(|| anyhow::anyhow!("MySQL CDC marker memory accounting overflow"))?;
+    let marker_bytes =
+        replication_marker_admission_bytes(previous_position, next_position, previous_gtids)?
+            .checked_add(
+                transaction_marker_heap_bytes(&transaction.marker)?
+                    .checked_mul(4)
+                    .ok_or_else(|| anyhow::anyhow!("MySQL CDC GTID marker accounting overflow"))?,
+            )
+            .ok_or_else(|| anyhow::anyhow!("MySQL CDC marker memory accounting overflow"))?;
     bytes
         .checked_add(marker_bytes)
-        .and_then(|value| {
-            value.checked_add(
-                tables
-                    .len()
-                    .checked_mul(size_of::<TableData>())?,
-            )
-        })
+        .and_then(|value| value.checked_add(tables.len().checked_mul(size_of::<TableData>())?))
         .ok_or_else(|| anyhow::anyhow!("MySQL CDC materialization admission overflow"))
 }
 
@@ -1219,12 +1200,7 @@ fn schema_column_metadata_shape(column: &SchemaColumn) -> anyhow::Result<(usize,
         )?;
     }
     if let Some(role) = &column.system_role {
-        add_metadata_shape(
-            &mut entries,
-            &mut payload,
-            META_SYSTEM_ROLE,
-            role.len(),
-        )?;
+        add_metadata_shape(&mut entries, &mut payload, META_SYSTEM_ROLE, role.len())?;
     }
     if let Some(current_column) = &column.old_value_of {
         add_metadata_shape(
@@ -1270,9 +1246,7 @@ fn field_materialization_bytes(
         .checked_mul(2)
         .and_then(|value| value.checked_add(metadata_payload.checked_mul(2)?))
         .and_then(|value| {
-            value.checked_add(
-                metadata_entries.checked_mul(4 * size_of::<(String, String)>())?,
-            )
+            value.checked_add(metadata_entries.checked_mul(4 * size_of::<(String, String)>())?)
         })
         .ok_or_else(|| anyhow::anyhow!("MySQL CDC Arrow field materialization overflow"))
 }
@@ -1281,7 +1255,9 @@ fn decimal_digit_count(value: usize) -> usize {
     if value == 0 {
         1
     } else {
-        usize::try_from(value.ilog10()).unwrap_or(usize::MAX).saturating_add(1)
+        usize::try_from(value.ilog10())
+            .unwrap_or(usize::MAX)
+            .saturating_add(1)
     }
 }
 
@@ -1313,19 +1289,17 @@ fn row_payload_bytes(row: &[Option<Value>]) -> anyhow::Result<usize> {
 fn transaction_identity_encoded_len(identity: &MySqlTransactionIdentity) -> anyhow::Result<usize> {
     let fields = match identity {
         MySqlTransactionIdentity::Gtid { tag, .. } => {
-            let optional_tag_bytes = match tag {
-                Some(tag) => 9_usize.checked_add(tag.len()),
-                None => Some(1),
-            };
+            let optional_tag_bytes = tag
+                .as_ref()
+                .map_or(Some(1), |tag| 9_usize.checked_add(tag.len()));
             optional_tag_bytes
                 .and_then(|tag_bytes| 16_usize.checked_add(tag_bytes))
                 .and_then(|value| value.checked_add(8))
         }
         MySqlTransactionIdentity::Anonymous { begin_position }
-        | MySqlTransactionIdentity::FilePosition { begin_position } => begin_position
-            .filename
-            .len()
-            .checked_add(size_of::<u32>()),
+        | MySqlTransactionIdentity::FilePosition { begin_position } => {
+            begin_position.filename.len().checked_add(size_of::<u32>())
+        }
     }
     .ok_or_else(|| anyhow::anyhow!("MySQL transaction identity length overflow"))?;
     b"transferia.mysql.source-transaction-id"
@@ -1356,7 +1330,7 @@ fn transaction_gtid_text_len(identity: &MySqlTransactionIdentity) -> anyhow::Res
         .ok_or_else(|| anyhow::anyhow!("MySQL GTID text length overflow"))
 }
 
-fn decimal_digit_count_u64(mut value: u64) -> usize {
+const fn decimal_digit_count_u64(mut value: u64) -> usize {
     let mut digits = 1;
     while value >= 10 {
         value /= 10;
@@ -1416,7 +1390,9 @@ fn retained_source_batch_bytes(
     for table in tables {
         bytes = bytes
             .checked_add(table.batch.get_array_memory_size())
-            .and_then(|value| value.checked_add(table.table.len().checked_add(2 * size_of::<usize>())?))
+            .and_then(|value| {
+                value.checked_add(table.table.len().checked_add(2 * size_of::<usize>())?)
+            })
             .and_then(|value| value.checked_add(size_of::<Arc<Schema>>()))
             .ok_or_else(|| anyhow::anyhow!("MySQL CDC Arrow batch memory accounting overflow"))?;
         bytes = bytes
@@ -1432,17 +1408,19 @@ fn retained_source_batch_bytes(
             )
             .ok_or_else(|| anyhow::anyhow!("MySQL CDC output metadata accounting overflow"))?;
         for column in table.system_columns.iter() {
-            bytes = bytes.checked_add(
-                column
-                    .name
-                    .len()
-                    .checked_add(2 * size_of::<usize>())
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("MySQL CDC system-column name accounting overflow")
-                    })?,
-            ).ok_or_else(|| {
-                anyhow::anyhow!("MySQL CDC system-column name accounting overflow")
-            })?;
+            bytes = bytes
+                .checked_add(
+                    column
+                        .name
+                        .len()
+                        .checked_add(2 * size_of::<usize>())
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("MySQL CDC system-column name accounting overflow")
+                        })?,
+                )
+                .ok_or_else(|| {
+                    anyhow::anyhow!("MySQL CDC system-column name accounting overflow")
+                })?;
         }
     }
     bytes
@@ -1508,9 +1486,7 @@ pub(super) fn build_table_schema(table: &DiscoveredTable) -> anyhow::Result<Arc<
     for (index, discovered) in table.schema.columns.iter().enumerate() {
         let old = old_value_schema_column(index, discovered);
         let old_metadata = old.arrow_metadata();
-        fields.push(
-            Field::new(old.name, old.data_type, old.nullable).with_metadata(old_metadata),
-        );
+        fields.push(Field::new(old.name, old.data_type, old.nullable).with_metadata(old_metadata));
     }
     fields.extend(MYSQL_SOURCE_METADATA_COLUMNS.iter().map(|column| {
         Field::new(column.name, column.data_type.clone(), column.nullable).with_metadata(
@@ -1586,11 +1562,7 @@ fn changes_to_table_data(
         })
         .collect::<Vec<_>>();
     for (index, column) in table.columns.iter().enumerate() {
-        arrays.push(optional_value_column_array(
-            &current_rows,
-            index,
-            column,
-        )?);
+        arrays.push(optional_value_column_array(&current_rows, index, column)?);
     }
     for (index, column) in table.columns.iter().enumerate() {
         arrays.push(optional_value_column_array(&old_rows, index, column)?);
@@ -1625,9 +1597,10 @@ fn changes_to_table_data(
         Arc::new(StringArray::from(vec![database; len])) as ArrayRef,
         Arc::new(StringArray::from(vec![database; len])) as ArrayRef,
         Arc::new(StringArray::from(vec![table.config.name.as_str(); len])) as ArrayRef,
-        Arc::new(BinaryArray::from_iter_values(
-            std::iter::repeat(transaction_identity).take(len),
-        )) as ArrayRef,
+        Arc::new(BinaryArray::from_iter_values(std::iter::repeat_n(
+            transaction_identity,
+            len,
+        ))) as ArrayRef,
         Arc::new(Int64Array::from_iter_values(
             changes
                 .iter()
@@ -1657,20 +1630,14 @@ fn changes_to_table_data(
         .collect::<anyhow::Result<Vec<_>>>()?;
     for kind in MYSQL_REPLICATION_SYSTEM_COLUMNS {
         arrays.push(match kind {
-            SystemColumnKind::Topic => Arc::new(StringArray::from_iter_values(
-                std::iter::repeat(
-                    std::str::from_utf8(&position.filename).map_err(|error| {
-                        anyhow::anyhow!("MySQL binlog filename is not valid UTF-8: {error}")
-                    })?,
-                )
-                .take(len),
-            )) as ArrayRef,
-            SystemColumnKind::Partition => {
-                Arc::new(Int64Array::from(vec![0_i64; len])) as ArrayRef
-            }
-            SystemColumnKind::Offset => {
-                Arc::new(Int64Array::from(vec![offset; len])) as ArrayRef
-            }
+            SystemColumnKind::Topic => Arc::new(StringArray::from_iter_values(std::iter::repeat_n(
+                std::str::from_utf8(&position.filename).map_err(|error| {
+                    anyhow::anyhow!("MySQL binlog filename is not valid UTF-8: {error}")
+                })?,
+                len,
+            ))) as ArrayRef,
+            SystemColumnKind::Partition => Arc::new(Int64Array::from(vec![0_i64; len])) as ArrayRef,
+            SystemColumnKind::Offset => Arc::new(Int64Array::from(vec![offset; len])) as ArrayRef,
             SystemColumnKind::MessageIndex => Arc::new(UInt64Array::from_iter_values(
                 changes.iter().map(|change| change.message_index),
             )) as ArrayRef,
@@ -1725,10 +1692,7 @@ fn changed_columns_mask(
                     .and_then(|row| row.get(index))
                     .and_then(Option::as_ref)
                     .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "MySQL update before-image omits column '{}'",
-                            column.name
-                        )
+                        anyhow::anyhow!("MySQL update before-image omits column '{}'", column.name)
                     })?;
                 let after = change
                     .after
@@ -1736,12 +1700,9 @@ fn changed_columns_mask(
                     .and_then(|row| row.get(index))
                     .and_then(Option::as_ref)
                     .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "MySQL update after-image omits column '{}'",
-                            column.name
-                        )
+                        anyhow::anyhow!("MySQL update after-image omits column '{}'", column.name)
                     })?;
-                !mysql_values_equal(before, after)
+                column.primary_key || !mysql_values_equal(before, after)
             }
         };
         if changed {
@@ -1835,7 +1796,7 @@ fn validate_replication_tables(
     Ok(())
 }
 
-pub(crate) fn validate_replication_column_plan(column: &ColumnPlan) -> anyhow::Result<()> {
+pub fn validate_replication_column_plan(column: &ColumnPlan) -> anyhow::Result<()> {
     anyhow::ensure!(
         mysql_data_type(&column.column_type).eq_ignore_ascii_case(&column.data_type),
         "MySQL CDC DATA_TYPE '{}' disagrees with physical type '{}' for column '{}'",
@@ -1859,7 +1820,10 @@ pub(crate) fn validate_replication_column_plan(column: &ColumnPlan) -> anyhow::R
     match column.kind {
         MySqlColumnKind::Utf8 => {
             anyhow::ensure!(
-                matches!(column.character_set.as_deref(), Some("ascii" | "utf8mb3" | "utf8mb4")),
+                matches!(
+                    column.character_set.as_deref(),
+                    Some("ascii" | "utf8mb3" | "utf8mb4")
+                ),
                 "MySQL UTF-8 CDC column '{}' has unsupported character set {:?}",
                 column.name,
                 column.character_set
@@ -1910,7 +1874,7 @@ pub(crate) fn validate_replication_column_plan(column: &ColumnPlan) -> anyhow::R
             column
                 .enum_set_values
                 .as_ref()
-                .is_some_and(|values| !values.is_empty() && values.len() <= u16::MAX as usize),
+                .is_some_and(|values| !values.is_empty() && u16::try_from(values.len()).is_ok()),
             "MySQL ENUM column '{}' must declare between 1 and 65535 members",
             column.name
         ),
@@ -1954,8 +1918,7 @@ pub(super) fn validate_selected_table_map(
         .enumerate()
     {
         let expected_type = expected_binlog_column_type(expected)?;
-        let expected_unsigned = if expected_type
-            == mysql_async::consts::ColumnType::MYSQL_TYPE_YEAR
+        let expected_unsigned = if expected_type == mysql_async::consts::ColumnType::MYSQL_TYPE_YEAR
         {
             Some(true)
         } else {
@@ -1964,12 +1927,7 @@ pub(super) fn validate_selected_table_map(
         let expected_collation = expected.collation_id.or_else(|| {
             matches!(
                 mysql_data_type(&expected.column_type),
-                "binary"
-                    | "varbinary"
-                    | "tinyblob"
-                    | "blob"
-                    | "mediumblob"
-                    | "longblob"
+                "binary" | "varbinary" | "tinyblob" | "blob" | "mediumblob" | "longblob"
             )
             .then_some(63)
         });
@@ -2013,7 +1971,9 @@ pub(super) fn validate_selected_table_map(
     Ok(())
 }
 
-fn expected_binlog_column_type(column: &ColumnPlan) -> anyhow::Result<mysql_async::consts::ColumnType> {
+fn expected_binlog_column_type(
+    column: &ColumnPlan,
+) -> anyhow::Result<mysql_async::consts::ColumnType> {
     use mysql_async::consts::ColumnType;
 
     let column_type = match mysql_data_type(&column.column_type) {
@@ -2082,7 +2042,11 @@ fn validate_extended_column_metadata(
         _ => None,
     };
     let expected_vector_dimensionality = if expected.data_type == "vector" {
-        Some(type_parameters(&expected.column_type)?.trim().parse::<u64>()?)
+        Some(
+            type_parameters(&expected.column_type)?
+                .trim()
+                .parse::<u64>()?,
+        )
     } else {
         None
     };
@@ -2181,7 +2145,10 @@ fn validate_column_metadata(
         | ColumnType::MYSQL_TYPE_INT24
         | ColumnType::MYSQL_TYPE_YEAR
         | ColumnType::MYSQL_TYPE_NEWDATE => actual.metadata.is_empty(),
-        ColumnType::MYSQL_TYPE_FLOAT => actual.metadata == [4],
+        ColumnType::MYSQL_TYPE_FLOAT
+        | ColumnType::MYSQL_TYPE_JSON
+        | ColumnType::MYSQL_TYPE_GEOMETRY
+        | ColumnType::MYSQL_TYPE_VECTOR => actual.metadata == [4],
         ColumnType::MYSQL_TYPE_DOUBLE => actual.metadata == [8],
         ColumnType::MYSQL_TYPE_TIME2
         | ColumnType::MYSQL_TYPE_DATETIME2
@@ -2194,12 +2161,10 @@ fn validate_column_metadata(
         | ColumnType::MYSQL_TYPE_LONG_BLOB => {
             actual.metadata == [blob_length_bytes(mysql_data_type(&expected.column_type))?]
         }
-        ColumnType::MYSQL_TYPE_JSON
-        | ColumnType::MYSQL_TYPE_GEOMETRY
-        | ColumnType::MYSQL_TYPE_VECTOR => actual.metadata == [4],
         ColumnType::MYSQL_TYPE_NEWDECIMAL => {
             let (precision, scale) = decimal_precision_scale(&expected.column_type)?;
-            actual.metadata == [precision, scale]
+            let expected_metadata: [u8; 2] = (precision, scale).into();
+            actual.metadata == expected_metadata
         }
         ColumnType::MYSQL_TYPE_BIT => {
             let bits = single_type_parameter(&expected.column_type)?;
@@ -2214,12 +2179,12 @@ fn validate_column_metadata(
             actual.metadata == string_metadata(maximum_bytes)
         }
         ColumnType::MYSQL_TYPE_ENUM => {
-            let variants = expected.enum_set_values.as_ref().map(Vec::len).unwrap_or(0);
+            let variants = expected.enum_set_values.as_ref().map_or(0, Vec::len);
             let width = if variants < 256 { 1 } else { 2 };
             actual.metadata == [ColumnType::MYSQL_TYPE_ENUM as u8, width]
         }
         ColumnType::MYSQL_TYPE_SET => {
-            let variants = expected.enum_set_values.as_ref().map(Vec::len).unwrap_or(0);
+            let variants = expected.enum_set_values.as_ref().map_or(0, Vec::len);
             let width = u8::try_from(variants.div_ceil(8))?;
             actual.metadata == [ColumnType::MYSQL_TYPE_SET as u8, width]
         }
@@ -2243,7 +2208,7 @@ fn character_maximum_bytes(column: &ColumnPlan) -> anyhow::Result<usize> {
     })
 }
 
-fn string_metadata(maximum_bytes: u16) -> [u8; 2] {
+const fn string_metadata(maximum_bytes: u16) -> [u8; 2] {
     let [low, high] = maximum_bytes.to_le_bytes();
     let high_length_bits = (high & 0x03) << 4;
     [
@@ -2281,10 +2246,7 @@ fn decimal_precision_scale(column_type: &str) -> anyhow::Result<(u8, u8)> {
     let (precision, scale) = parameters.split_once(',').ok_or_else(|| {
         anyhow::anyhow!("MySQL decimal physical type '{column_type}' omits precision or scale")
     })?;
-    Ok((
-        precision.trim().parse::<u8>()?,
-        scale.trim().parse::<u8>()?,
-    ))
+    Ok((precision.trim().parse::<u8>()?, scale.trim().parse::<u8>()?))
 }
 
 fn type_parameters(column_type: &str) -> anyhow::Result<&str> {
@@ -2294,7 +2256,10 @@ fn type_parameters(column_type: &str) -> anyhow::Result<&str> {
     let end = column_type.rfind(')').ok_or_else(|| {
         anyhow::anyhow!("MySQL physical type '{column_type}' has unterminated parameters")
     })?;
-    anyhow::ensure!(start < end, "MySQL physical type has empty parameter framing");
+    anyhow::ensure!(
+        start < end,
+        "MySQL physical type has empty parameter framing"
+    );
     Ok(&column_type[start + 1..end])
 }
 
@@ -2332,6 +2297,10 @@ fn normalize_binlog_row(
     Ok(Some(values))
 }
 
+#[allow(
+    clippy::many_single_char_names,
+    reason = "mysql_async exposes date tuple fields with conventional compact names"
+)]
 pub(super) fn normalize_binlog_value(
     value: BinlogValue<'static>,
     column: &ColumnPlan,
@@ -2357,14 +2326,20 @@ pub(super) fn normalize_binlog_value(
         {
             Ok(Value::Int(value - (1_i64 << 24)))
         }
-        (MySqlColumnKind::Int8, BinlogValue::Value(value @ Value::Int(_)))
-        | (MySqlColumnKind::Int16, BinlogValue::Value(value @ Value::Int(_)))
-        | (MySqlColumnKind::Int32, BinlogValue::Value(value @ Value::Int(_)))
-        | (MySqlColumnKind::Int64, BinlogValue::Value(value @ Value::Int(_)))
-        | (MySqlColumnKind::UInt8, BinlogValue::Value(value @ Value::UInt(_)))
-        | (MySqlColumnKind::UInt16, BinlogValue::Value(value @ Value::UInt(_)))
-        | (MySqlColumnKind::UInt32, BinlogValue::Value(value @ Value::UInt(_)))
-        | (MySqlColumnKind::UInt64, BinlogValue::Value(value @ Value::UInt(_)))
+        (
+            MySqlColumnKind::Int8
+            | MySqlColumnKind::Int16
+            | MySqlColumnKind::Int32
+            | MySqlColumnKind::Int64,
+            BinlogValue::Value(value @ Value::Int(_)),
+        )
+        | (
+            MySqlColumnKind::UInt8
+            | MySqlColumnKind::UInt16
+            | MySqlColumnKind::UInt32
+            | MySqlColumnKind::UInt64,
+            BinlogValue::Value(value @ Value::UInt(_)),
+        )
         | (MySqlColumnKind::Float32, BinlogValue::Value(value @ Value::Float(_)))
         | (MySqlColumnKind::Float64, BinlogValue::Value(value @ Value::Double(_)))
         | (MySqlColumnKind::DecimalText, BinlogValue::Value(value @ Value::Bytes(_))) => Ok(value),
@@ -2410,7 +2385,12 @@ pub(super) fn normalize_binlog_value(
             // U+0020 pad bytes that CHAR retrieval itself does not expose.
             // BINARY follows the Binary arm above and retains every trailing NUL.
             if column.data_type == "char" {
-                value.truncate(value.iter().rposition(|byte| *byte != b' ').map_or(0, |i| i + 1));
+                value.truncate(
+                    value
+                        .iter()
+                        .rposition(|byte| *byte != b' ')
+                        .map_or(0, |i| i + 1),
+                );
             }
             Ok(Value::Bytes(value))
         }
@@ -2441,8 +2421,7 @@ pub(super) fn normalize_binlog_value(
             MySqlColumnKind::DateTimeText,
             BinlogValue::Value(Value::Date(y, m, d, h, min, s, us)),
         ) => Ok(Value::Bytes(
-            format_datetime_text(y, m, d, h, min, s, us, temporal_precision(column)?)?
-                .into_bytes(),
+            format_datetime_text(y, m, d, h, min, s, us, temporal_precision(column)?)?.into_bytes(),
         )),
         (MySqlColumnKind::TimestampText, BinlogValue::Value(value)) => Ok(Value::Bytes(
             format_timestamp_text(value, temporal_precision(column)?)?.into_bytes(),
@@ -2532,9 +2511,7 @@ pub(super) fn format_datetime_text(
             && micros < 1_000_000,
         "MySQL datetime has an invalid component"
     );
-    let mut value = format!(
-        "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}"
-    );
+    let mut value = format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}");
     append_fraction(&mut value, micros, precision)?;
     Ok(value)
 }
@@ -2581,9 +2558,11 @@ pub(super) fn format_timestamp_text(value: Value, precision: usize) -> anyhow::R
 fn parse_timestamp_epoch(value: &[u8]) -> anyhow::Result<(i64, u32)> {
     let value = std::str::from_utf8(value)
         .map_err(|error| anyhow::anyhow!("MySQL TIMESTAMP epoch is not ASCII: {error}"))?;
-    let (seconds, fraction) = value.split_once('.').map_or((value, None), |(seconds, fraction)| {
-        (seconds, Some(fraction))
-    });
+    let (seconds, fraction) = value
+        .split_once('.')
+        .map_or((value, None), |(seconds, fraction)| {
+            (seconds, Some(fraction))
+        });
     let seconds = seconds.parse::<i64>()?;
     let micros = match fraction {
         None => 0,
@@ -2603,26 +2582,39 @@ fn append_fraction(value: &mut String, micros: u32, precision: usize) -> anyhow:
         return Ok(());
     }
     let divisor = 10_u32
-        .checked_pow(u32::try_from(6_usize.checked_sub(precision).ok_or_else(|| {
-            anyhow::anyhow!("MySQL temporal precision exceeds 6")
-        })?)?)
+        .checked_pow(u32::try_from(6_usize.checked_sub(precision).ok_or_else(
+            || anyhow::anyhow!("MySQL temporal precision exceeds 6"),
+        )?)?)
         .ok_or_else(|| anyhow::anyhow!("MySQL temporal precision divisor overflow"))?;
-    use std::fmt::Write;
     write!(value, ".{:0width$}", micros / divisor, width = precision)?;
     Ok(())
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "the owned mysql_async value is destructured and rejected without cloning"
+)]
 pub(super) fn normalize_enum(
     value: Value,
     identity: &super::decoder::MySqlBinlogColumnIdentity,
     column: &ColumnPlan,
 ) -> anyhow::Result<u64> {
     let Value::Int(ordinal) = value else {
-        anyhow::bail!("MySQL ENUM column '{}' has a non-ordinal row value", column.name)
+        anyhow::bail!(
+            "MySQL ENUM column '{}' has a non-ordinal row value",
+            column.name
+        )
     };
-    anyhow::ensure!(ordinal >= 0, "MySQL ENUM column '{}' has a negative ordinal", column.name);
+    anyhow::ensure!(
+        ordinal >= 0,
+        "MySQL ENUM column '{}' has a negative ordinal",
+        column.name
+    );
     let values = identity.enum_values.as_ref().ok_or_else(|| {
-        anyhow::anyhow!("MySQL ENUM column '{}' has no FULL table-map members", column.name)
+        anyhow::anyhow!(
+            "MySQL ENUM column '{}' has no FULL table-map members",
+            column.name
+        )
     })?;
     anyhow::ensure!(
         usize::try_from(ordinal)? <= values.len(),
@@ -2639,16 +2631,26 @@ pub(super) fn normalize_set(
     column: &ColumnPlan,
 ) -> anyhow::Result<u64> {
     let Value::Bytes(bits) = value else {
-        anyhow::bail!("MySQL SET column '{}' has a non-bitset row value", column.name)
+        anyhow::bail!(
+            "MySQL SET column '{}' has a non-bitset row value",
+            column.name
+        )
     };
-    anyhow::ensure!(bits.len() <= 8, "MySQL SET column '{}' exceeds 64 members", column.name);
+    anyhow::ensure!(
+        bits.len() <= 8,
+        "MySQL SET column '{}' exceeds 64 members",
+        column.name
+    );
     let selected = u64::from_le_bytes({
         let mut bytes = [0_u8; 8];
         bytes[..bits.len()].copy_from_slice(&bits);
         bytes
     });
     let values = identity.set_values.as_ref().ok_or_else(|| {
-        anyhow::anyhow!("MySQL SET column '{}' has no FULL table-map members", column.name)
+        anyhow::anyhow!(
+            "MySQL SET column '{}' has no FULL table-map members",
+            column.name
+        )
     })?;
     let valid_bits = values.len();
     anyhow::ensure!(
@@ -2665,7 +2667,10 @@ pub(super) fn serialize_mysql_json(
 ) -> anyhow::Result<Vec<u8>> {
     let mut output = Vec::new();
     append_mysql_json(value, &mut output).map_err(|error| {
-        anyhow::anyhow!("MySQL JSON column '{}' cannot be normalized losslessly: {error}", column.name)
+        anyhow::anyhow!(
+            "MySQL JSON column '{}' cannot be normalized losslessly: {error}",
+            column.name
+        )
     })?;
     Ok(output)
 }
@@ -2683,12 +2688,12 @@ fn append_mysql_json_at_depth(
     match value {
         JsonbValue::Null => output.extend_from_slice(b"null"),
         JsonbValue::Bool(value) => output.extend_from_slice(if value { b"true" } else { b"false" }),
-        JsonbValue::I16(value) => append_json_number(value, output)?,
-        JsonbValue::U16(value) => append_json_number(value, output)?,
-        JsonbValue::I32(value) => append_json_number(value, output)?,
-        JsonbValue::U32(value) => append_json_number(value, output)?,
-        JsonbValue::I64(value) => append_json_number(value, output)?,
-        JsonbValue::U64(value) => append_json_number(value, output)?,
+        JsonbValue::I16(value) => append_json_number(&value, output),
+        JsonbValue::U16(value) => append_json_number(&value, output),
+        JsonbValue::I32(value) => append_json_number(&value, output),
+        JsonbValue::U32(value) => append_json_number(&value, output),
+        JsonbValue::I64(value) => append_json_number(&value, output),
+        JsonbValue::U64(value) => append_json_number(&value, output),
         JsonbValue::F64(value) => {
             anyhow::ensure!(value.is_finite(), "JSON contains a non-finite double");
             append_json_double(value, output)?;
@@ -2703,9 +2708,8 @@ fn append_mysql_json_at_depth(
     Ok(())
 }
 
-fn append_json_number(value: impl ToString, output: &mut Vec<u8>) -> anyhow::Result<()> {
+fn append_json_number(value: &impl ToString, output: &mut Vec<u8>) {
     output.extend_from_slice(value.to_string().as_bytes());
-    Ok(())
 }
 
 fn append_json_double(value: f64, output: &mut Vec<u8>) -> anyhow::Result<()> {
@@ -2725,19 +2729,9 @@ fn append_json_double(value: f64, output: &mut Vec<u8>) -> anyhow::Result<()> {
     let decimal_point = exponent
         .checked_add(1)
         .ok_or_else(|| anyhow::anyhow!("double decimal-point position overflow"))?;
-    let significant_digits = i32::try_from(
-        mantissa
-            .bytes()
-            .filter(u8::is_ascii_digit)
-            .count(),
-    )?;
-    let fixed = decimal_point >= -14
-        && (decimal_point <= 15 || significant_digits > decimal_point);
-    let formatted = if fixed {
-        value.to_string()
-    } else {
-        scientific
-    };
+    let significant_digits = i32::try_from(mantissa.bytes().filter(u8::is_ascii_digit).count())?;
+    let fixed = decimal_point >= -14 && (decimal_point <= 15 || significant_digits > decimal_point);
+    let formatted = if fixed { value.to_string() } else { scientific };
     output.extend_from_slice(formatted.as_bytes());
     if !formatted.bytes().any(|byte| matches!(byte, b'.' | b'e')) {
         output.extend_from_slice(b".0");
@@ -2751,7 +2745,7 @@ fn append_json_string(value: &[u8], output: &mut Vec<u8>) -> anyhow::Result<()> 
     for &byte in value {
         match byte {
             b'"' => output.extend_from_slice(br#"\""#),
-            b'\\' => output.extend_from_slice(br#"\\"#),
+            b'\\' => output.extend_from_slice(br"\\"),
             0x08 => output.extend_from_slice(br"\b"),
             0x09 => output.extend_from_slice(br"\t"),
             0x0a => output.extend_from_slice(br"\n"),
@@ -2807,6 +2801,10 @@ pub(super) fn append_json_object<'a>(
     Ok(())
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "the opaque mysql_async wrapper is a borrowed view consumed by exhaustive dispatch"
+)]
 fn append_json_opaque(
     value: mysql_async::binlog::jsonb::OpaqueValue<'_>,
     output: &mut Vec<u8>,
@@ -2815,9 +2813,10 @@ fn append_json_opaque(
 
     match value.value_type() {
         ColumnType::MYSQL_TYPE_NEWDECIMAL => {
-            let header = value.data_raw().get(..2).ok_or_else(|| {
-                anyhow::anyhow!("JSON opaque DECIMAL omits precision or scale")
-            })?;
+            let header = value
+                .data_raw()
+                .get(..2)
+                .ok_or_else(|| anyhow::anyhow!("JSON opaque DECIMAL omits precision or scale"))?;
             let precision = header[0];
             let scale = header[1];
             anyhow::ensure!(
@@ -2870,8 +2869,7 @@ fn append_json_base64_opaque(
     data: &[u8],
     output: &mut Vec<u8>,
 ) -> anyhow::Result<()> {
-    const BASE64: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let encoded_bytes = data
         .len()
         .checked_add(2)
@@ -2931,10 +2929,7 @@ fn validate_json_opaque_time(
     );
     match value_type {
         ColumnType::MYSQL_TYPE_TIME => anyhow::ensure!(
-            value.year == 0
-                && value.month == 0
-                && value.day == 0
-                && value.hour <= 838,
+            value.year == 0 && value.month == 0 && value.day == 0 && value.hour <= 838,
             "JSON opaque TIME has an invalid date or hour component"
         ),
         ColumnType::MYSQL_TYPE_DATE => anyhow::ensure!(
@@ -3029,8 +3024,7 @@ fn classify_binlog_read_error(error: MySqlError) -> DataPlaneFailure {
     } else if error.downcast_ref::<MySqlError>().is_some_and(|error| {
         matches!(
             error,
-            MySqlError::Io(_)
-                | MySqlError::Driver(mysql_async::DriverError::ConnectionClosed)
+            MySqlError::Io(_) | MySqlError::Driver(mysql_async::DriverError::ConnectionClosed)
         )
     }) {
         DataPlaneFailure::retryable(error)

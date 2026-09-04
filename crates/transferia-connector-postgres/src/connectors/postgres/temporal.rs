@@ -136,7 +136,7 @@ pub(super) fn format_timestamp(value: i64, with_timezone: bool) -> anyhow::Resul
 pub(super) fn timestamp_micros(
     column: &dyn Array,
     row: usize,
-    unit: &TimeUnit,
+    unit: TimeUnit,
 ) -> anyhow::Result<i64> {
     let micros = match unit {
         TimeUnit::Second => downcast::<TimestampSecondArray>(column)?
@@ -155,8 +155,8 @@ pub(super) fn timestamp_micros(
             Some(nanos / 1_000)
         }
     };
-    let micros = micros
-        .ok_or_else(|| anyhow::anyhow!("PostgreSQL timestamp conversion overflow"))?;
+    let micros =
+        micros.ok_or_else(|| anyhow::anyhow!("PostgreSQL timestamp conversion overflow"))?;
     unix_micros_to_postgres_timestamp(micros)?;
     Ok(micros)
 }
@@ -179,11 +179,9 @@ fn split_era(value: &str) -> anyhow::Result<(&str, bool)> {
         value != "infinity" && value != "-infinity",
         "PostgreSQL infinite temporal value is not representable in Arrow"
     );
-    if let Some(value) = value.strip_suffix(" BC") {
-        Ok((value, true))
-    } else {
-        Ok((value, false))
-    }
+    value
+        .strip_suffix(" BC")
+        .map_or_else(|| Ok((value, false)), |value| Ok((value, true)))
 }
 
 fn parse_date_parts(value: &str, before_common_era: bool) -> anyhow::Result<(i64, u32, u32)> {
@@ -209,7 +207,10 @@ fn parse_date_parts(value: &str, before_common_era: bool) -> anyhow::Result<(i64
     } else {
         display_year
     };
-    anyhow::ensure!((1..=12).contains(&month), "invalid PostgreSQL month {month}");
+    anyhow::ensure!(
+        (1..=12).contains(&month),
+        "invalid PostgreSQL month {month}"
+    );
     let max_day = days_in_month(year, month);
     anyhow::ensure!(
         (1..=max_day).contains(&day),
@@ -229,8 +230,14 @@ fn parse_time_micros(value: &str) -> anyhow::Result<i64> {
     let (second, fraction) = second.split_once('.').map_or((second, ""), |parts| parts);
     let second = second.parse::<i64>()?;
     anyhow::ensure!((0..24).contains(&hour), "invalid PostgreSQL hour {hour}");
-    anyhow::ensure!((0..60).contains(&minute), "invalid PostgreSQL minute {minute}");
-    anyhow::ensure!((0..60).contains(&second), "invalid PostgreSQL second {second}");
+    anyhow::ensure!(
+        (0..60).contains(&minute),
+        "invalid PostgreSQL minute {minute}"
+    );
+    anyhow::ensure!(
+        (0..60).contains(&second),
+        "invalid PostgreSQL second {second}"
+    );
     anyhow::ensure!(
         fraction.len() <= 6 && fraction.bytes().all(|byte| byte.is_ascii_digit()),
         "PostgreSQL timestamp fraction '{fraction}' exceeds microsecond precision"
@@ -258,7 +265,10 @@ fn split_timezone_offset(value: &str, required: bool) -> anyhow::Result<(&str, i
         Some((index, sign)) => {
             anyhow::ensure!(required, "timestamp without time zone contains an offset");
             let seconds = parse_timezone_seconds(&value[index + 1..])?;
-            Ok((&value[..index], if sign == '-' { -seconds } else { seconds }))
+            Ok((
+                &value[..index],
+                if sign == '-' { -seconds } else { seconds },
+            ))
         }
         None => {
             anyhow::ensure!(!required, "timestamp with time zone has no numeric offset");
@@ -278,14 +288,15 @@ fn parse_timezone_seconds(value: &str) -> anyhow::Result<i64> {
             _ => anyhow::bail!("invalid PostgreSQL timezone offset '{value}'"),
         }
     };
-    anyhow::ensure!((1..=3).contains(&fields.len()), "invalid timezone offset '{value}'");
+    anyhow::ensure!(
+        (1..=3).contains(&fields.len()),
+        "invalid timezone offset '{value}'"
+    );
     let hours = fields[0].parse::<i64>()?;
     let minutes = fields.get(1).map_or(Ok(0), |value| value.parse::<i64>())?;
     let seconds = fields.get(2).map_or(Ok(0), |value| value.parse::<i64>())?;
     anyhow::ensure!(
-        (0..=15).contains(&hours)
-            && (0..60).contains(&minutes)
-            && (0..60).contains(&seconds),
+        (0..=15).contains(&hours) && (0..60).contains(&minutes) && (0..60).contains(&seconds),
         "invalid timezone offset '{value}'"
     );
     Ok((hours * 60 + minutes) * 60 + seconds)
@@ -302,8 +313,7 @@ fn date_to_julian_day(year: i64, month: u32, day: u32) -> anyhow::Result<i64> {
         month + 13
     };
     let century = year / 100;
-    year
-        .checked_mul(365)
+    year.checked_mul(365)
         .and_then(|julian| julian.checked_sub(32_167))
         .and_then(|julian| julian.checked_add(year / 4 - century + century / 4))
         .and_then(|julian| julian.checked_add(7_834 * month / 256 + i64::from(day)))

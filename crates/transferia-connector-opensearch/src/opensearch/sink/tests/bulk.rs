@@ -24,7 +24,7 @@ struct BlockingTransport {
 }
 
 impl BulkTransport for BlockingTransport {
-    fn send<'a>(&'a self, _payload: Vec<u8>) -> BoxFuture<'a, Result<Vec<u16>, BulkFailure>> {
+    fn send(&self, _payload: Vec<u8>) -> BoxFuture<'_, Result<Vec<u16>, BulkFailure>> {
         Box::pin(async move {
             self.started.notify_one();
             self.release.notified().await;
@@ -34,7 +34,7 @@ impl BulkTransport for BlockingTransport {
 }
 
 impl BulkTransport for FakeTransport {
-    fn send<'a>(&'a self, payload: Vec<u8>) -> BoxFuture<'a, Result<Vec<u16>, BulkFailure>> {
+    fn send(&self, payload: Vec<u8>) -> BoxFuture<'_, Result<Vec<u16>, BulkFailure>> {
         Box::pin(async move {
             self.payloads.lock().unwrap().push(payload);
             self.responses
@@ -56,9 +56,8 @@ fn config() -> OpenSearchSinkConfig {
 }
 
 fn action(id: &str) -> BulkAction {
-    let ndjson: Arc<[u8]> = Arc::from(
-        format!("{{\"index\":{{\"_id\":\"{id}\"}}}}\n{{\"v\":1}}\n").into_bytes(),
-    );
+    let ndjson: Arc<[u8]> =
+        Arc::from(format!("{{\"index\":{{\"_id\":\"{id}\"}}}}\n{{\"v\":1}}\n").into_bytes());
     BulkAction {
         id: Arc::from(id),
         bytes: ndjson.len(),
@@ -69,10 +68,7 @@ fn action(id: &str) -> BulkAction {
 #[tokio::test]
 async fn retries_only_individually_transient_items_and_keeps_ndjson_terminated() {
     let transport = Arc::new(FakeTransport {
-        responses: Mutex::new(VecDeque::from([
-            Ok(vec![201, 429, 200]),
-            Ok(vec![201]),
-        ])),
+        responses: Mutex::new(VecDeque::from([Ok(vec![201, 429, 200]), Ok(vec![201])])),
         payloads: Mutex::new(Vec::new()),
     });
     let result = write_bulk_with_retry(
@@ -95,6 +91,7 @@ async fn retries_only_individually_transient_items_and_keeps_ndjson_terminated()
     assert!(retried.contains("\"b\""));
     assert!(!retried.contains("\"a\""));
     assert!(!retried.contains("\"c\""));
+    drop(payloads);
 }
 
 #[tokio::test]

@@ -23,15 +23,19 @@ use tokio_util::sync::CancellationToken;
 use transferia::connectors::iceberg::{
     IcebergSinkConnector, IcebergSourceConfig, IcebergSourceConnector,
 };
-use transferia::connectors::mysql::{connect as connect_mysql, MySqlConnectionConfig, MySqlSourceConnector};
+use transferia::connectors::mysql::{
+    connect as connect_mysql, MySqlConnectionConfig, MySqlSourceConnector,
+};
 use transferia::connectors::postgres::PostgresSourceConnector;
 use transferia::core::data::message::SourceBatch;
+use transferia::core::data::schema::{
+    META_SYSTEM_ROLE, SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+};
 use transferia::core::data::table_data::TableData;
 use transferia::core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
 use transferia::core::memory::{MemoryReservation, PipelineMemory};
-use transferia::core::sink::{
-    Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo,
-};
+use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia::core::source::{CommitMarker, Source};
 use transferia::delivery::config::yaml::DeliveryType;
 use transferia::durable::DurableContext;
@@ -152,10 +156,8 @@ impl IcebergFixture {
             self.catalog_uri,
             indent(&self.storage_yaml, 2),
         ))?;
-        let connector = IcebergSourceConnector::from_config(
-            config,
-            Arc::new(MetricsRegistry::new()),
-        )?;
+        let connector =
+            IcebergSourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))?;
         connector
             .delivery_discovery(SourceDiscoveryContext {
                 request: DeliveryDiscoveryRequest {
@@ -253,10 +255,24 @@ fn assert_same_tables(left: &[TableData], right: &[TableData]) {
         );
         assert_eq!(left.batch.schema(), right.batch.schema());
         assert_eq!(left.batch.num_columns(), right.batch.num_columns());
+        let schema = left.batch.schema();
         for column in 0..left.batch.num_columns() {
+            let field = schema.field(column);
+            if matches!(
+                field.metadata().get(META_SYSTEM_ROLE).map(String::as_str),
+                Some(
+                    SYSTEM_ROLE_EVENT_TIMESTAMP_MS
+                        | SYSTEM_ROLE_EVENT_TIMESTAMP_US
+                        | SYSTEM_ROLE_EVENT_TIMESTAMP_NS
+                )
+            ) {
+                continue;
+            }
             assert_eq!(
                 left.batch.column(column).to_data(),
-                right.batch.column(column).to_data()
+                right.batch.column(column).to_data(),
+                "replayed field '{}' changed",
+                field.name()
             );
         }
     }
@@ -341,11 +357,9 @@ async fn deliver_to_iceberg(
         })
         .await?;
     drop(delivery_tx);
-    assert_eq!(
-        event_rx.recv().await,
-        Some(SinkEvent::CommittedThrough(DeliveryId::new(0)))
-    );
+    let event = event_rx.recv().await;
     task.await??;
+    assert_eq!(event, Some(SinkEvent::CommittedThrough(DeliveryId::new(0))));
     Ok(())
 }
 
@@ -389,10 +403,14 @@ async fn exercise_mysql(iceberg: &IcebergFixture) -> anyhow::Result<()> {
         .query_drop("GRANT SELECT, LOCK TABLES ON transferia.* TO 'iceberg_source'@'%'")
         .await?;
     connection
-        .query_drop("GRANT RELOAD, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'iceberg_source'@'%'")
+        .query_drop(
+            "GRANT RELOAD, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'iceberg_source'@'%'",
+        )
         .await?;
     connection
-        .query_drop("CREATE TABLE mysql_replica (id BIGINT PRIMARY KEY, value VARCHAR(128) NOT NULL)")
+        .query_drop(
+            "CREATE TABLE mysql_replica (id BIGINT PRIMARY KEY, value VARCHAR(128) NOT NULL)",
+        )
         .await?;
     connection.disconnect().await?;
     let source_connection = mysql_connection(&host, port, "iceberg_source", "source-test");
@@ -411,7 +429,9 @@ async fn exercise_mysql(iceberg: &IcebergFixture) -> anyhow::Result<()> {
         .query_drop("INSERT INTO mysql_replica VALUES (1, 'one'), (2, 'two')")
         .await?;
     writer.query_drop("COMMIT").await?;
-    let seed = read_typed(&mut source).await?;
+    let seed = read_typed(&mut source)
+        .await
+        .context("waiting for initial MySQL replication rows")?;
     deliver_to_iceberg(
         iceberg,
         Arc::clone(&discovery),
@@ -423,6 +443,7 @@ async fn exercise_mysql(iceberg: &IcebergFixture) -> anyhow::Result<()> {
     source
         .commit_offsets(std::slice::from_ref(&seed.marker))
         .await?;
+    drop(seed);
     assert_eq!(
         iceberg.rows("mysql_replica").await?,
         vec![(1, "one".to_owned()), (2, "two".to_owned())]
@@ -437,7 +458,9 @@ async fn exercise_mysql(iceberg: &IcebergFixture) -> anyhow::Result<()> {
         .await?;
     writer.query_drop("COMMIT").await?;
     writer.disconnect().await?;
-    let first = read_typed(&mut source).await?;
+    let first = read_typed(&mut source)
+        .await
+        .context("waiting for uncommitted MySQL update/delete rows")?;
     deliver_to_iceberg(
         iceberg,
         Arc::clone(&discovery),
@@ -454,7 +477,9 @@ async fn exercise_mysql(iceberg: &IcebergFixture) -> anyhow::Result<()> {
     let replay_connector = mysql_connector(&config)?;
     prepare_stream(&replay_connector, &durable, &replay_identity).await?;
     let mut replay_source = build_stream(&replay_connector, &durable, &replay_identity).await?;
-    let replay = read_typed(&mut replay_source).await?;
+    let replay = read_typed(&mut replay_source)
+        .await
+        .context("waiting for replayed MySQL update/delete rows")?;
     assert_same_tables(&first.tables, &replay.tables);
     deliver_to_iceberg(
         iceberg,
@@ -534,7 +559,9 @@ async fn exercise_postgres(iceberg: &IcebergFixture) -> anyhow::Result<()> {
              COMMIT;",
         )
         .await?;
-    let seed = read_typed(&mut source).await?;
+    let seed = read_typed(&mut source)
+        .await
+        .context("waiting for initial PostgreSQL replication rows")?;
     deliver_to_iceberg(
         iceberg,
         Arc::clone(&discovery),
@@ -546,6 +573,7 @@ async fn exercise_postgres(iceberg: &IcebergFixture) -> anyhow::Result<()> {
     source
         .commit_offsets(std::slice::from_ref(&seed.marker))
         .await?;
+    drop(seed);
     assert_eq!(
         iceberg.rows("postgres_replica").await?,
         vec![(1, "one".to_owned()), (2, "two".to_owned())]
@@ -559,7 +587,9 @@ async fn exercise_postgres(iceberg: &IcebergFixture) -> anyhow::Result<()> {
              COMMIT;",
         )
         .await?;
-    let first = read_typed(&mut source).await?;
+    let first = read_typed(&mut source)
+        .await
+        .context("waiting for uncommitted PostgreSQL update/delete rows")?;
     deliver_to_iceberg(
         iceberg,
         Arc::clone(&discovery),
@@ -576,7 +606,9 @@ async fn exercise_postgres(iceberg: &IcebergFixture) -> anyhow::Result<()> {
     let replay_connector = postgres_connector(&config)?;
     prepare_stream(&replay_connector, &durable, &replay_identity).await?;
     let mut replay_source = build_stream(&replay_connector, &durable, &replay_identity).await?;
-    let replay = read_typed(&mut replay_source).await?;
+    let replay = read_typed(&mut replay_source)
+        .await
+        .context("waiting for replayed PostgreSQL update/delete rows")?;
     assert_same_tables(&first.tables, &replay.tables);
     deliver_to_iceberg(
         iceberg,
@@ -602,9 +634,7 @@ async fn exercise_postgres(iceberg: &IcebergFixture) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn discover_stream(
-    connector: &dyn SourceConnector,
-) -> anyhow::Result<DeliveryDiscovery> {
+async fn discover_stream(connector: &dyn SourceConnector) -> anyhow::Result<DeliveryDiscovery> {
     connector
         .delivery_discovery(SourceDiscoveryContext {
             request: DeliveryDiscoveryRequest {
@@ -680,7 +710,12 @@ fn postgres_source_yaml(host: &str, port: u16) -> String {
     )
 }
 
-fn mysql_connection(host: &str, port: u16, username: &str, password: &str) -> MySqlConnectionConfig {
+fn mysql_connection(
+    host: &str,
+    port: u16,
+    username: &str,
+    password: &str,
+) -> MySqlConnectionConfig {
     MySqlConnectionConfig {
         host: host.to_owned(),
         port,

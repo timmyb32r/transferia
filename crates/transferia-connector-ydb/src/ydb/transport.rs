@@ -7,7 +7,6 @@ use ydb_grpc::ydb_proto::coordination::v1::coordination_service_client::Coordina
 use ydb_grpc::ydb_proto::formats::ArrowBatchSettings;
 use ydb_grpc::ydb_proto::status_ids::StatusCode;
 use ydb_grpc::ydb_proto::table::v1::table_service_client::TableServiceClient;
-use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 use ydb_grpc::ydb_proto::table::{
     bulk_upsert_request, BulkUpsertRequest, BulkUpsertResult, CommitTransactionRequest,
     CommitTransactionResult, CreateSessionRequest, CreateSessionResult, CreateTableRequest,
@@ -16,6 +15,7 @@ use ydb_grpc::ydb_proto::table::{
     QueryCachePolicy, RollbackTransactionRequest, SerializableModeSettings, TransactionControl,
     TransactionSettings,
 };
+use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 use ydb_grpc::ydb_proto::{table, value, TypedValue};
 
 use super::config::YdbConnectionConfig;

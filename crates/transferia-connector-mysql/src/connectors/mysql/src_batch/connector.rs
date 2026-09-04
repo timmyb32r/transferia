@@ -15,11 +15,10 @@ use crate::connectors::mysql::common::{
 };
 use crate::connectors::mysql::src_batch_and_stream::{
     acquire_execution_lock, begin_locked_snapshot, inspect_mysql8_gtid_source,
-    is_replication_safety_violation, replication_safety_violation,
-    AuthoritativeColumnIdentity, AuthoritativeTableIdentity, MySqlBinlogBoundary,
-    MySqlCollationPadding, MySqlColumnGeneration, MySqlColumnVisibility, MySqlExecutionLock,
-    MySqlGtidState, MySqlSnapshotSession, MySqlSourceIdentity, SnapshotStreamPreparation,
-    SnapshotStreamTracker,
+    is_replication_safety_violation, replication_safety_violation, AuthoritativeColumnIdentity,
+    AuthoritativeTableIdentity, MySqlBinlogBoundary, MySqlCollationPadding, MySqlColumnGeneration,
+    MySqlColumnVisibility, MySqlExecutionLock, MySqlGtidState, MySqlSnapshotSession,
+    MySqlSourceIdentity, SnapshotStreamPreparation, SnapshotStreamTracker,
 };
 use crate::connectors::mysql::src_stream::{
     inspect_existing_replication_offset, validate_replication_column_plan, MySqlBinlogPosition,
@@ -30,19 +29,18 @@ use crate::parsers::ParserPlan;
 use transferia_connector_support::external_request::observe_external_request;
 use transferia_core::data::schema::{
     DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME, SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
-    SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
-    SYSTEM_ROLE_SOURCE_BINLOG_FILE, SYSTEM_ROLE_SOURCE_BINLOG_POSITION,
-    SYSTEM_ROLE_SOURCE_BINLOG_ROW, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_GTID,
-    SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_SERVER_ID, SYSTEM_ROLE_SOURCE_TABLE,
-    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_BINLOG_FILE,
+    SYSTEM_ROLE_SOURCE_BINLOG_POSITION, SYSTEM_ROLE_SOURCE_BINLOG_ROW, SYSTEM_ROLE_SOURCE_DATABASE,
+    SYSTEM_ROLE_SOURCE_GTID, SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_SERVER_ID,
+    SYSTEM_ROLE_SOURCE_TABLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
     SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
 };
-use transferia_core::source::Source;
 use transferia_core::failure::DataPlaneFailure;
+use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
@@ -184,7 +182,7 @@ pub const MYSQL_SOURCE_METADATA_COLUMNS: &[MySqlSourceMetadataColumn] = &[
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MySqlColumnKind {
+pub enum MySqlColumnKind {
     Int8,
     UInt8,
     Int16,
@@ -210,7 +208,7 @@ pub(crate) enum MySqlColumnKind {
 }
 
 impl MySqlColumnKind {
-    pub(crate) fn arrow_type(self) -> DataType {
+    pub(crate) const fn arrow_type(self) -> DataType {
         match self {
             Self::Int8 => DataType::Int8,
             Self::UInt8 => DataType::UInt8,
@@ -260,7 +258,11 @@ impl MySqlColumnKind {
 }
 
 #[derive(Clone)]
-pub(crate) struct ColumnPlan {
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "the flags preserve independent authoritative MySQL column modifiers"
+)]
+pub struct ColumnPlan {
     pub(crate) name: String,
     pub(crate) data_type: String,
     pub(crate) kind: MySqlColumnKind,
@@ -352,7 +354,7 @@ impl ColumnPlan {
 }
 
 #[derive(Clone)]
-pub(crate) struct DiscoveredTable {
+pub struct DiscoveredTable {
     pub(crate) config: TableConfig,
     pub(crate) schema: DatasetSchema,
     pub(crate) columns: Vec<ColumnPlan>,
@@ -458,22 +460,16 @@ impl MySqlSourceConnector {
             ))
         })?;
         let timeout = Duration::from_millis(replication.bootstrap_timeout_ms);
-        let preflight = inspect_mysql8_gtid_source(
-            &self.config.connection,
-            timeout,
-            cancellation,
-        )
-        .await?;
+        let preflight =
+            inspect_mysql8_gtid_source(&self.config.connection, timeout, cancellation).await?;
         if &preflight.source != expected_source {
             return Err(replication_safety_violation(anyhow::anyhow!(
                 "MySQL source identity changed before replication stream handoff"
             )));
         }
         let current_tables = self.load_discovered_tables().await?;
-        let current_authoritative_tables = authoritative_table_identities(
-            &self.config.connection.database,
-            &current_tables,
-        );
+        let current_authoritative_tables =
+            authoritative_table_identities(&self.config.connection.database, &current_tables);
         if current_authoritative_tables != expected_authoritative_tables {
             return Err(replication_safety_violation(anyhow::anyhow!(
                 "MySQL authoritative table identity changed before replication stream handoff"
@@ -668,16 +664,11 @@ impl MySqlSourceConnector {
                 })?;
                 let timeout = Duration::from_millis(replication.bootstrap_timeout_ms);
                 let tables = Arc::new(self.load_discovered_tables().await?);
-                let authoritative_tables = authoritative_table_identities(
-                    &self.config.connection.database,
-                    &tables,
-                );
-                let preflight = inspect_mysql8_gtid_source(
-                    &self.config.connection,
-                    timeout,
-                    &cancellation,
-                )
-                .await?;
+                let authoritative_tables =
+                    authoritative_table_identities(&self.config.connection.database, &tables);
+                let preflight =
+                    inspect_mysql8_gtid_source(&self.config.connection, timeout, &cancellation)
+                        .await?;
                 let mut execution_lock = acquire_execution_lock(
                     &self.config.connection,
                     replication.server_id,
@@ -799,8 +790,7 @@ impl SourceConnector for MySqlSourceConnector {
                     context.request,
                     &execution.tables,
                 )?;
-                let remaining_phases =
-                    self.execution_phases(DeliveryType::Stream, &discovery)?;
+                let remaining_phases = self.execution_phases(DeliveryType::Stream, &discovery)?;
                 return Ok(Some(PreparedSourceExecution {
                     discovery,
                     remaining_phases,
@@ -867,6 +857,10 @@ impl SourceConnector for MySqlSourceConnector {
         })
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "the execution lock mutex must stay held while the retained MySQL connection is queried"
+    )]
     fn complete_execution_phase(
         &self,
         phase: SourcePhase,
@@ -1119,12 +1113,8 @@ impl SourceConnector for MySqlSourceConnector {
                                 "MySQL prepared snapshot session {partition_id} is unavailable"
                             ))
                         })?;
-                    let (
-                        session_table,
-                        _session_connection_id,
-                        session_max_row_bytes,
-                        connection,
-                    ) = session.into_parts();
+                    let (session_table, _session_connection_id, session_max_row_bytes, connection) =
+                        session.into_parts();
                     anyhow::ensure!(
                         session_table.name == table.config.name,
                         "MySQL prepared snapshot session belongs to a different table"
@@ -1242,9 +1232,14 @@ pub(super) fn build_delivery_discovery(
                 for column in &mut incoming.columns {
                     column.nullable = true;
                 }
-                incoming.columns.extend(table.schema.columns.iter().enumerate().map(
-                    |(index, column)| old_value_schema_column(index, column),
-                ));
+                incoming.columns.extend(
+                    table
+                        .schema
+                        .columns
+                        .iter()
+                        .enumerate()
+                        .map(|(index, column)| old_value_schema_column(index, column)),
+                );
                 incoming
                     .columns
                     .extend(MYSQL_SOURCE_METADATA_COLUMNS.iter().map(|column| {
@@ -1560,12 +1555,12 @@ fn validate_reserved_replication_column_names(
 }
 
 #[must_use]
-pub(crate) fn old_value_column_name(index: usize) -> String {
+pub fn old_value_column_name(index: usize) -> String {
     format!("_system_old_value_{index}")
 }
 
 #[must_use]
-pub(crate) fn old_value_schema_column(index: usize, current: &SchemaColumn) -> SchemaColumn {
+pub fn old_value_schema_column(index: usize, current: &SchemaColumn) -> SchemaColumn {
     let mut old_value = SchemaColumn::new(
         old_value_column_name(index),
         current.data_type.clone(),
@@ -1573,7 +1568,9 @@ pub(crate) fn old_value_schema_column(index: usize, current: &SchemaColumn) -> S
     )
     .with_old_value_of(current.name.clone());
     old_value.arrow_extension_name = current.arrow_extension_name;
-    old_value.arrow_extension_metadata = current.arrow_extension_metadata.clone();
+    old_value
+        .arrow_extension_metadata
+        .clone_from(&current.arrow_extension_metadata);
     old_value
 }
 
@@ -1614,12 +1611,13 @@ fn column_plan(row: &Row, require_collation_padding: bool) -> anyhow::Result<Col
         .map(|value| parse_collation_padding(&name, &value))
         .transpose()?;
     anyhow::ensure!(
-        character_set.is_some() == collation.is_some()
-            && (collation_id.is_none() || collation.is_some())
-            && (collation_padding.is_none() || collation.is_some())
-            && (!require_collation_padding
-                || (collation.is_some() == collation_id.is_some()
-                    && collation.is_some() == collation_padding.is_some())),
+        collation_identity_is_consistent(
+            character_set.is_some(),
+            collation.is_some(),
+            collation_id.is_some(),
+            collation_padding.is_some(),
+            require_collation_padding,
+        ),
         "MySQL metadata returned inconsistent character-set, collation, numeric collation-id, and padding identity for column '{name}'"
     );
     let extra = required::<String>(row, "EXTRA")?;
@@ -1663,12 +1661,12 @@ fn column_plan(row: &Row, require_collation_padding: bool) -> anyhow::Result<Col
             )
         },
     )?;
-    let max_length = if matches!(
-        kind,
-        MySqlColumnKind::Binary | MySqlColumnKind::TextBytes
-    ) {
+    let max_length = if matches!(kind, MySqlColumnKind::Binary | MySqlColumnKind::TextBytes) {
         character_octet_length
-    } else if matches!(kind, MySqlColumnKind::EnumOrdinal | MySqlColumnKind::SetBits) {
+    } else if matches!(
+        kind,
+        MySqlColumnKind::EnumOrdinal | MySqlColumnKind::SetBits
+    ) {
         None
     } else {
         character_maximum_length
@@ -1707,7 +1705,25 @@ fn column_plan(row: &Row, require_collation_padding: bool) -> anyhow::Result<Col
     })
 }
 
-pub(crate) fn mysql_column_kind(
+#[allow(
+    clippy::fn_params_excessive_bools,
+    reason = "the helper compares presence bits for four independently nullable information_schema fields"
+)]
+pub(super) const fn collation_identity_is_consistent(
+    has_character_set: bool,
+    has_collation: bool,
+    has_collation_id: bool,
+    has_collation_padding: bool,
+    require_extended_identity: bool,
+) -> bool {
+    has_character_set == has_collation
+        && (!has_collation_id || has_collation)
+        && (!has_collation_padding || has_collation)
+        && (!require_extended_identity
+            || (has_collation == has_collation_id && has_collation == has_collation_padding))
+}
+
+pub fn mysql_column_kind(
     data_type: &str,
     unsigned: bool,
     character_set: Option<&str>,
@@ -1748,13 +1764,12 @@ pub(crate) fn mysql_column_kind(
         }
         "float" => MySqlColumnKind::Float32,
         "double" | "real" => MySqlColumnKind::Float64,
-        "bit" | "binary" | "varbinary" | "tinyblob" | "blob" | "mediumblob"
-        | "longblob" | "geometry" | "point" | "linestring" | "polygon"
-        | "multipoint" | "multilinestring" | "multipolygon" | "geometrycollection"
-        | "vector" => MySqlColumnKind::Binary,
+        "bit" | "binary" | "varbinary" | "tinyblob" | "blob" | "mediumblob" | "longblob"
+        | "geometry" | "point" | "linestring" | "polygon" | "multipoint" | "multilinestring"
+        | "multipolygon" | "geometrycollection" | "vector" => MySqlColumnKind::Binary,
         "json" => MySqlColumnKind::Json,
-        "char" | "varchar" | "tinytext" | "text" | "mediumtext" | "longtext"
-        | "inet4" | "inet6" | "uuid" => {
+        "char" | "varchar" | "tinytext" | "text" | "mediumtext" | "longtext" | "inet4"
+        | "inet6" | "uuid" => {
             if text_is_utf8()? {
                 MySqlColumnKind::Utf8
             } else {
@@ -1773,7 +1788,7 @@ pub(crate) fn mysql_column_kind(
     })
 }
 
-pub(crate) fn snapshot_expression(name: &str, data_type: &str, kind: MySqlColumnKind) -> String {
+pub fn snapshot_expression(name: &str, data_type: &str, kind: MySqlColumnKind) -> String {
     let quoted = quote_identifier(name);
     match kind {
         MySqlColumnKind::TextBytes if data_type == "char" => {
@@ -1806,7 +1821,7 @@ fn parse_collation_padding(
     }
 }
 
-pub(crate) fn validate_snapshot_read_protocol(
+pub fn validate_snapshot_read_protocol(
     read_protocol: MySqlReadProtocol,
     columns: &[ColumnPlan],
 ) -> anyhow::Result<()> {
@@ -1824,19 +1839,19 @@ pub(crate) fn validate_snapshot_read_protocol(
     Ok(())
 }
 
-pub(crate) fn has_column_type_modifier(column_type: &str, modifier: &str) -> bool {
+pub fn has_column_type_modifier(column_type: &str, modifier: &str) -> bool {
     column_type
         .split_ascii_whitespace()
         .any(|token| token.eq_ignore_ascii_case(modifier))
 }
 
-pub(crate) fn has_extra_modifier(extra: &str, modifier: &str) -> bool {
+pub fn has_extra_modifier(extra: &str, modifier: &str) -> bool {
     extra
         .split_ascii_whitespace()
         .any(|token| token.eq_ignore_ascii_case(modifier))
 }
 
-pub(crate) fn column_visibility(extra: &str) -> MySqlColumnVisibility {
+pub fn column_visibility(extra: &str) -> MySqlColumnVisibility {
     if has_extra_modifier(extra, "invisible") {
         MySqlColumnVisibility::Invisible
     } else {
@@ -1844,15 +1859,14 @@ pub(crate) fn column_visibility(extra: &str) -> MySqlColumnVisibility {
     }
 }
 
-pub(crate) fn column_generation(
+pub fn column_generation(
     extra: &str,
     generation_expression: Option<&str>,
 ) -> anyhow::Result<MySqlColumnGeneration> {
     let tokens = extra.split_ascii_whitespace().collect::<Vec<_>>();
     let has_pair = |storage: &str| {
         tokens.windows(2).any(|pair| {
-            pair[0].eq_ignore_ascii_case(storage)
-                && pair[1].eq_ignore_ascii_case("generated")
+            pair[0].eq_ignore_ascii_case(storage) && pair[1].eq_ignore_ascii_case("generated")
         })
     };
     let virtual_generated = has_pair("virtual");
@@ -1875,8 +1889,11 @@ pub(crate) fn column_generation(
     })
 }
 
-#[allow(clippy::too_many_arguments, reason = "validates the exact INFORMATION_SCHEMA column tuple")]
-pub(crate) fn validate_structured_column_metadata(
+#[allow(
+    clippy::too_many_arguments,
+    reason = "validates the exact INFORMATION_SCHEMA column tuple"
+)]
+pub fn validate_structured_column_metadata(
     name: &str,
     data_type: &str,
     character_maximum_length: Option<usize>,
@@ -1888,7 +1905,10 @@ pub(crate) fn validate_structured_column_metadata(
     srs_id: Option<u32>,
     enum_set_values: Option<&[String]>,
 ) -> anyhow::Result<()> {
-    anyhow::ensure!(!data_type.is_empty(), "MySQL column '{name}' has an empty DATA_TYPE");
+    anyhow::ensure!(
+        !data_type.is_empty(),
+        "MySQL column '{name}' has an empty DATA_TYPE"
+    );
     let is_textual = matches!(
         data_type,
         "char"
@@ -1933,9 +1953,7 @@ pub(crate) fn validate_structured_column_metadata(
             "MySQL string column '{name}' omits character or octet length"
         );
     }
-    if let (Some(characters), Some(octets)) =
-        (character_maximum_length, character_octet_length)
-    {
+    if let (Some(characters), Some(octets)) = (character_maximum_length, character_octet_length) {
         anyhow::ensure!(
             octets >= characters,
             "MySQL column '{name}' has CHARACTER_OCTET_LENGTH below CHARACTER_MAXIMUM_LENGTH"
@@ -2000,7 +2018,7 @@ pub(crate) fn validate_structured_column_metadata(
     Ok(())
 }
 
-pub(crate) fn parse_enum_set_values(
+pub fn parse_enum_set_values(
     data_type: &str,
     column_type: &str,
 ) -> anyhow::Result<Option<Vec<String>>> {

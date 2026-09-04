@@ -1,6 +1,4 @@
-use super::super::{
-    validate_replication_prerequisites, MySqlReplicationPrerequisites,
-};
+use super::super::{validate_replication_prerequisites, MySqlReplicationPrerequisites};
 
 #[test]
 fn exact_supported_server_settings_are_accepted_case_insensitively() {
@@ -83,7 +81,7 @@ fn every_lossy_or_silently_dropped_server_mode_is_rejected() {
         },
         MySqlReplicationPrerequisites {
             binlog_transaction_compression: "ON".to_owned(),
-            ..supported.clone()
+            ..supported
         },
     ] {
         assert!(validate_replication_prerequisites(&invalid).is_err());

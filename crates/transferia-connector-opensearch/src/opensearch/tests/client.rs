@@ -93,7 +93,10 @@ async fn read_http_request(stream: &mut tokio::net::TcpStream) -> Vec<u8> {
         let read = stream.read(&mut chunk).await.unwrap();
         assert!(read > 0, "HTTP request ended before its declared body");
         request.extend_from_slice(&chunk[..read]);
-        assert!(request.len() <= 64 * 1024, "test HTTP request is unexpectedly large");
+        assert!(
+            request.len() <= 64 * 1024,
+            "test HTTP request is unexpectedly large"
+        );
 
         let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n") else {
             continue;

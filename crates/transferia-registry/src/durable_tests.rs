@@ -81,8 +81,7 @@ async fn revision_overflow_fails_without_rewriting_durable_state() -> anyhow::Re
     let message = storage
         .compare_exchange("scope/key", Some(u64::MAX), b"replacement")
         .await
-        .err()
-        .expect("durable revision overflow must fail")
+        .expect_err("durable revision overflow must fail")
         .to_string();
     assert!(message.contains("revision overflow"), "{message}");
     assert_eq!(

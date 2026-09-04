@@ -25,11 +25,7 @@ pub(super) struct CopyOutReader {
 }
 
 impl CopyOutReader {
-    pub(super) fn new(
-        stream: CopyOutStream,
-        format: PostgresCopyFormat,
-        columns: usize,
-    ) -> Self {
+    pub(super) fn new(stream: CopyOutStream, format: PostgresCopyFormat, columns: usize) -> Self {
         Self {
             stream: Box::pin(stream),
             decoder: CopyDecoder::new(format, columns),
@@ -50,9 +46,7 @@ impl CopyOutReader {
             match self.stream.as_mut().next().await {
                 Some(Ok(chunk)) => {
                     counters.add_network_decoded_bytes(chunk.len() as u64);
-                    self.decoder
-                        .push(&chunk)
-                        .map_err(DataPlaneFailure::fatal)?;
+                    self.decoder.push(&chunk).map_err(DataPlaneFailure::fatal)?;
                 }
                 Some(Err(error)) => return Err(DataPlaneFailure::retryable(error.into())),
                 None => {
@@ -156,9 +150,8 @@ impl BinaryDecoder {
                 flags == 0,
                 "PostgreSQL binary COPY returned unsupported flags {flags:#x}"
             );
-            let extension_length = read_i32(
-                &self.buffer[BINARY_MAGIC.len() + 4..BINARY_FIXED_HEADER_BYTES],
-            );
+            let extension_length =
+                read_i32(&self.buffer[BINARY_MAGIC.len() + 4..BINARY_FIXED_HEADER_BYTES]);
             anyhow::ensure!(
                 extension_length >= 0,
                 "PostgreSQL binary COPY returned a negative header extension length"
@@ -224,7 +217,7 @@ impl BinaryDecoder {
         }))
     }
 
-    fn finish(&mut self) -> anyhow::Result<()> {
+    fn finish(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.ended && self.buffer.is_empty(),
             "PostgreSQL binary COPY ended before a complete trailer"
@@ -265,7 +258,7 @@ impl TextDecoder {
         };
         let mut line = self.buffer.split_to(newline + 1).freeze();
         line.truncate(newline);
-        let fields = split_text_row(line)?;
+        let fields = split_text_row(&line)?;
         anyhow::ensure!(
             fields.len() == self.columns,
             "PostgreSQL text COPY row has {} fields, expected {}",
@@ -285,7 +278,7 @@ impl TextDecoder {
     }
 }
 
-fn split_text_row(line: Bytes) -> anyhow::Result<Vec<Option<Bytes>>> {
+fn split_text_row(line: &Bytes) -> anyhow::Result<Vec<Option<Bytes>>> {
     let mut fields = Vec::new();
     let mut start = 0_usize;
     for end in line
@@ -339,10 +332,7 @@ fn unescape_text_field(raw: Bytes) -> anyhow::Result<Bytes> {
             }
             b'0'..=b'7' => {
                 let mut digits = vec![escaped];
-                while digits.len() < 3
-                    && cursor < raw.len()
-                    && matches!(raw[cursor], b'0'..=b'7')
-                {
+                while digits.len() < 3 && cursor < raw.len() && matches!(raw[cursor], b'0'..=b'7') {
                     digits.push(raw[cursor]);
                     cursor += 1;
                 }

@@ -6,9 +6,9 @@ use std::sync::Arc;
 use mysql_async::binlog::events::{
     Event, EventData, OptionalMetaExtractor, OptionalMetadataField, RowsEventData, TableMapEvent,
 };
+use mysql_async::binlog::row::BinlogRow;
 use mysql_async::binlog::value::BinlogValue;
 use mysql_async::binlog::EventType;
-use mysql_async::binlog::row::BinlogRow;
 use mysql_async::consts::{ColumnType, GeometryType};
 
 use super::checksum::{is_artificial_rotate, BinlogChecksumError, BinlogChecksumVerifier};
@@ -173,7 +173,7 @@ impl MySqlBinlogDecoder {
         })
     }
 
-    pub fn enable_gtid_auto_position(&mut self) {
+    pub const fn enable_gtid_auto_position(&mut self) {
         self.allow_gtid_auto_position_rotate = true;
     }
 
@@ -190,10 +190,12 @@ impl MySqlBinlogDecoder {
         );
     }
 
-    pub fn current_position(&self) -> &MySqlBinlogPosition {
+    #[must_use]
+    pub const fn current_position(&self) -> &MySqlBinlogPosition {
         &self.current_position
     }
 
+    #[must_use]
     pub fn active_transaction(&self) -> Option<&Arc<MySqlTransactionMarker>> {
         self.active_transaction
             .as_ref()
@@ -232,9 +234,7 @@ impl MySqlBinlogDecoder {
                 event_type,
                 reason: error.to_string(),
             })?
-            .ok_or(BinlogDecodeError::UnknownEventType(
-                header.event_type_raw(),
-            ))?;
+            .ok_or_else(|| BinlogDecodeError::UnknownEventType(header.event_type_raw()))?;
 
         match data {
             EventData::GtidEvent(gtid) => {
@@ -313,9 +313,7 @@ impl MySqlBinlogDecoder {
                     })),
                 }
             }
-            EventData::RowsEvent(rows) => {
-                self.decode_rows(event_type, event_bytes, &header, &rows)
-            }
+            EventData::RowsEvent(rows) => self.decode_rows(event_type, event_bytes, &header, &rows),
             EventData::XidEvent(xid) => {
                 self.decode_commit(event_type, event_bytes, &header, Some(xid.xid))
             }
@@ -325,11 +323,11 @@ impl MySqlBinlogDecoder {
                 }
                 if is_artificial_rotate(event_type, event) {
                     if self.allow_gtid_auto_position_rotate {
-                        let next = MySqlBinlogPosition::new(
-                            rotate.name_raw().to_vec(),
-                            rotate.position(),
-                        )
-                        .map_err(|error| BinlogDecodeError::InvalidPosition(error.to_string()))?;
+                        let next =
+                            MySqlBinlogPosition::new(rotate.name_raw().to_vec(), rotate.position())
+                                .map_err(|error| {
+                                    BinlogDecodeError::InvalidPosition(error.to_string())
+                                })?;
                         let previous_position = self.current_position.clone();
                         self.current_position = next.clone();
                         self.table_maps.clear();
@@ -493,7 +491,7 @@ impl MySqlBinlogDecoder {
             .table_maps
             .get(&rows.table_id())
             .cloned()
-            .ok_or(BinlogDecodeError::MissingTableMap(rows.table_id()))?;
+            .ok_or_else(|| BinlogDecodeError::MissingTableMap(rows.table_id()))?;
         if rows.num_columns() != table_map.columns_count() {
             return Err(BinlogDecodeError::ColumnCountMismatch {
                 table_id: rows.table_id(),
@@ -514,7 +512,12 @@ impl MySqlBinlogDecoder {
         }
 
         let (operation, before_columns, after_columns) = row_event_shape(rows)?;
-        require_full_image(rows.table_id(), rows.num_columns(), &before_columns, "before")?;
+        require_full_image(
+            rows.table_id(),
+            rows.num_columns(),
+            &before_columns,
+            "before",
+        )?;
         require_full_image(rows.table_id(), rows.num_columns(), &after_columns, "after")?;
 
         let previously_decoded_rows = self
@@ -529,7 +532,12 @@ impl MySqlBinlogDecoder {
                 table_id: rows.table_id(),
                 reason: error.to_string(),
             })?;
-            validate_row_shape(operation, &before, &after, rows.num_columns())?;
+            validate_row_shape(
+                operation,
+                before.as_ref(),
+                after.as_ref(),
+                rows.num_columns(),
+            )?;
             let event_rows = u64::try_from(decoded_rows.len())
                 .map_err(|_| BinlogDecodeError::TransactionRowCountOverflow)?;
             let transaction_row_count = previously_decoded_rows
@@ -609,19 +617,21 @@ impl MySqlBinlogDecoder {
         }))
     }
 
-    fn require_transaction(&self, event_type: EventType) -> Result<(), BinlogDecodeError> {
+    const fn require_transaction(&self, event_type: EventType) -> Result<(), BinlogDecodeError> {
         if self.active_transaction.is_none() {
             return Err(BinlogDecodeError::TransactionNotActive(event_type));
         }
         Ok(())
     }
 
-    fn require_outside_transaction(
+    const fn require_outside_transaction(
         &self,
         event_type: EventType,
     ) -> Result<(), BinlogDecodeError> {
         if self.active_transaction.is_some() {
-            return Err(BinlogDecodeError::BootstrapEventInsideTransaction(event_type));
+            return Err(BinlogDecodeError::BootstrapEventInsideTransaction(
+                event_type,
+            ));
         }
         Ok(())
     }
@@ -754,10 +764,8 @@ fn require_full_image(
             table_id,
             image,
             columns,
-            present_columns: u64::try_from(
-                bitmap.iter().filter(|present| **present).count(),
-            )
-            .map_err(|_| BinlogDecodeError::ColumnCountDoesNotFitPlatform(columns))?,
+            present_columns: u64::try_from(bitmap.iter().filter(|present| **present).count())
+                .map_err(|_| BinlogDecodeError::ColumnCountDoesNotFitPlatform(columns))?,
         });
     }
     Ok(())
@@ -765,8 +773,8 @@ fn require_full_image(
 
 fn validate_row_shape(
     operation: MySqlRowOperation,
-    before: &Option<BinlogRow>,
-    after: &Option<BinlogRow>,
+    before: Option<&BinlogRow>,
+    after: Option<&BinlogRow>,
     columns: u64,
 ) -> Result<(), BinlogDecodeError> {
     let expected = usize::try_from(columns)
@@ -800,22 +808,21 @@ fn binlog_row_values(
     };
     let mut values = Vec::with_capacity(row.len());
     for index in 0..row.len() {
-        let value = row.take(index).ok_or(BinlogDecodeError::RowValueConversion {
-            table_id,
-            image,
-            reason: format!("decoded row omitted value at column {}", index + 1),
-        })?;
+        let value = row
+            .take(index)
+            .ok_or_else(|| BinlogDecodeError::RowValueConversion {
+                table_id,
+                image,
+                reason: format!("decoded row omitted value at column {}", index + 1),
+            })?;
         values.push(value.into_owned());
     }
     Ok(Some(values))
 }
 
-fn table_identity(
-    table_map: &TableMapEvent<'_>,
-) -> Result<MySqlTableIdentity, BinlogDecodeError> {
-    let column_count = usize::try_from(table_map.columns_count()).map_err(|_| {
-        BinlogDecodeError::ColumnCountDoesNotFitPlatform(table_map.columns_count())
-    })?;
+fn table_identity(table_map: &TableMapEvent<'_>) -> Result<MySqlTableIdentity, BinlogDecodeError> {
+    let column_count = usize::try_from(table_map.columns_count())
+        .map_err(|_| BinlogDecodeError::ColumnCountDoesNotFitPlatform(table_map.columns_count()))?;
     let metadata = OptionalMetaExtractor::new(table_map.iter_optional_meta()).map_err(|error| {
         BinlogDecodeError::MalformedTableMetadata {
             table_id: table_map.table_id(),
@@ -846,7 +853,7 @@ fn table_identity(
                     table_id: table_map.table_id(),
                     reason: error.to_string(),
                 })?
-                .ok_or(BinlogDecodeError::IncompleteFullTableMetadata {
+                .ok_or_else(|| BinlogDecodeError::IncompleteFullTableMetadata {
                     table_id: table_map.table_id(),
                     field: "column types",
                     expected: column_count,
@@ -938,8 +945,8 @@ fn table_identity(
         } else {
             None
         };
-        let (primary_key_ordinal, primary_key_prefix_length) = primary_key[index]
-            .map_or((None, None), |(ordinal, prefix)| (Some(ordinal), prefix));
+        let (primary_key_ordinal, primary_key_prefix_length) =
+            primary_key[index].map_or((None, None), |(ordinal, prefix)| (Some(ordinal), prefix));
         let enum_values = (column_type == ColumnType::MYSQL_TYPE_ENUM).then(|| {
             let values = full_metadata.enum_values[next_enum].clone();
             next_enum += 1;
@@ -1040,7 +1047,12 @@ fn full_column_metadata(
                     "character collations",
                     &mut character_collations,
                 )?;
-                validate_default_charset(table_id, "character collations", &values, character_count)?;
+                validate_default_charset(
+                    table_id,
+                    "character collations",
+                    &values,
+                    character_count,
+                )?;
             }
             OptionalMetadataField::ColumnCharset(values) => {
                 require_metadata_flag_absent(
@@ -1084,7 +1096,7 @@ fn full_column_metadata(
                 require_metadata_flag_absent(table_id, "primary key", &mut primary_key)?;
             }
             OptionalMetadataField::EnumStrValue(values) => {
-                require_metadata_absent(table_id, "enum values", &enum_values)?;
+                require_metadata_absent(table_id, "enum values", enum_values.as_ref())?;
                 enum_values = Some(
                     values
                         .iter_values()
@@ -1105,7 +1117,7 @@ fn full_column_metadata(
                 );
             }
             OptionalMetadataField::SetStrValue(values) => {
-                require_metadata_absent(table_id, "set values", &set_values)?;
+                require_metadata_absent(table_id, "set values", set_values.as_ref())?;
                 set_values = Some(
                     values
                         .iter_values()
@@ -1126,7 +1138,7 @@ fn full_column_metadata(
                 );
             }
             OptionalMetadataField::GeometryType(values) => {
-                require_metadata_absent(table_id, "geometry types", &geometry_types)?;
+                require_metadata_absent(table_id, "geometry types", geometry_types.as_ref())?;
                 geometry_types = Some(
                     values
                         .iter_geometry_types()
@@ -1141,7 +1153,7 @@ fn full_column_metadata(
                 require_metadata_absent(
                     table_id,
                     "vector dimensionalities",
-                    &vector_dimensionalities,
+                    vector_dimensionalities.as_ref(),
                 )?;
                 vector_dimensionalities = Some(
                     values
@@ -1154,7 +1166,7 @@ fn full_column_metadata(
                 );
             }
             OptionalMetadataField::ColumnVisibility(bits) => {
-                require_metadata_absent(table_id, "column visibility", &visibility)?;
+                require_metadata_absent(table_id, "column visibility", visibility.as_ref())?;
                 visibility = Some(bits.iter().by_vals().collect::<Vec<_>>());
             }
         }
@@ -1195,10 +1207,10 @@ fn count_type(column_types: &[ColumnType], expected: ColumnType) -> usize {
         .count()
 }
 
-fn require_metadata_absent<T>(
+const fn require_metadata_absent<T>(
     table_id: u64,
     field: &'static str,
-    value: &Option<T>,
+    value: Option<&T>,
 ) -> Result<(), BinlogDecodeError> {
     if value.is_some() {
         return Err(BinlogDecodeError::DuplicateFullTableMetadata { table_id, field });
@@ -1206,7 +1218,7 @@ fn require_metadata_absent<T>(
     Ok(())
 }
 
-fn require_metadata_flag_absent(
+const fn require_metadata_flag_absent(
     table_id: u64,
     field: &'static str,
     value: &mut bool,
@@ -1230,9 +1242,8 @@ fn validate_default_charset(
             table_id,
             reason: error.to_string(),
         })?;
-        let index = usize::try_from(value.column_index()).map_err(|_| {
-            BinlogDecodeError::ColumnCountDoesNotFitPlatform(value.column_index())
-        })?;
+        let index = usize::try_from(value.column_index())
+            .map_err(|_| BinlogDecodeError::ColumnCountDoesNotFitPlatform(value.column_index()))?;
         if index >= expected || previous.is_some_and(|previous| index <= previous) {
             return Err(BinlogDecodeError::MalformedTableMetadata {
                 table_id,
@@ -1286,10 +1297,12 @@ fn require_metadata_count<T>(
     Ok(value)
 }
 
+type PrimaryKeyMetadata = Vec<Option<(u64, Option<u64>)>>;
+
 fn primary_key_metadata(
     table_map: &TableMapEvent<'_>,
     column_count: usize,
-) -> Result<Vec<Option<(u64, Option<u64>)>>, BinlogDecodeError> {
+) -> Result<PrimaryKeyMetadata, BinlogDecodeError> {
     let mut keys = Vec::new();
     for field in table_map.iter_optional_meta() {
         match field.map_err(|error| BinlogDecodeError::MalformedTableMetadata {
@@ -1298,12 +1311,13 @@ fn primary_key_metadata(
         })? {
             OptionalMetadataField::SimplePrimaryKey(primary) => {
                 for index in primary.iter_indexes() {
-                    keys.push((index.map_err(|error| {
-                        BinlogDecodeError::MalformedTableMetadata {
+                    keys.push((
+                        index.map_err(|error| BinlogDecodeError::MalformedTableMetadata {
                             table_id: table_map.table_id(),
                             reason: error.to_string(),
-                        }
-                    })?, None));
+                        })?,
+                        None,
+                    ));
                 }
             }
             OptionalMetadataField::PrimaryKeyWithPrefix(primary) => {
@@ -1323,13 +1337,12 @@ fn primary_key_metadata(
     }
     let mut result = vec![None; column_count];
     for (offset, (index, prefix)) in keys.into_iter().enumerate() {
-        let index = usize::try_from(index).map_err(|_| {
-            BinlogDecodeError::PrimaryKeyColumnOutOfBounds {
+        let index =
+            usize::try_from(index).map_err(|_| BinlogDecodeError::PrimaryKeyColumnOutOfBounds {
                 table_id: table_map.table_id(),
                 column: u64::MAX,
                 columns: table_map.columns_count(),
-            }
-        })?;
+            })?;
         if index >= column_count || result[index].is_some() {
             return Err(BinlogDecodeError::PrimaryKeyColumnOutOfBounds {
                 table_id: table_map.table_id(),
@@ -1369,7 +1382,9 @@ pub enum BinlogDecodeError {
         reason: String,
     },
     UnsupportedEvent(EventType),
-    UnsupportedStatement { schema: Vec<u8> },
+    UnsupportedStatement {
+        schema: Vec<u8>,
+    },
     EventTooLarge {
         event_bytes: u64,
         configured_max_transaction_bytes: usize,

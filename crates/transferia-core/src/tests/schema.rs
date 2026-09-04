@@ -1,8 +1,6 @@
 use arrow::datatypes::DataType;
 
-use super::{
-    SchemaColumn, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME,
-};
+use super::{SchemaColumn, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME};
 
 #[test]
 fn arrow_extension_metadata_is_emitted_only_with_its_exact_extension_name() {

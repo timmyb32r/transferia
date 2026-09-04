@@ -207,12 +207,11 @@ the Topic offset a valid monotonic row version; multi-partition and
 auto-partitioned Changefeeds are rejected before execution rather than risking
 a newer row receiving a lower partition-local version. Its topic must already
 have the named important consumer, with `read_from` unset and RAW records
-allowed. The consumer must set
-the persistent attributes `transferia.delivery_id` to the delivery's exact
-`delivery_id` and `transferia.coordination_node_path` to the configured
-`replication.coordination_node_path`; that Coordination node must also already
-exist. Transferia validates these resources but does not create or silently
-replace them.
+allowed. The configured Coordination node must already exist. Transferia fences
+every use of the same database, Coordination node, and consumer name globally;
+the exact delivery, replay, table, Changefeed, Topic, consumer, and server
+attributes are persisted and compared before acquisition. Transferia validates
+these resources but does not create or silently replace them.
 
 For `NEW_AND_OLD_IMAGES`, an `update` or `reset` event with `newImage` and no
 `oldImage` becomes create (`c`), the same event with a complete `oldImage`

@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow::array::{
-    Array as _, BinaryArray, FixedSizeBinaryArray, Int32Array, Int64Array, StringArray,
-    UInt64Array,
+    Array as _, BinaryArray, FixedSizeBinaryArray, Int32Array, Int64Array, StringArray, UInt64Array,
 };
 use transferia_core::data::schema::{
     META_OLD_KEY_OF, META_OLD_VALUE_OF, META_PRIMARY_KEY, META_SYSTEM_ROLE,
@@ -11,8 +10,8 @@ use transferia_core::data::schema::{
     SYSTEM_ROLE_SOURCE_BINLOG_FILE, SYSTEM_ROLE_SOURCE_BINLOG_POSITION,
     SYSTEM_ROLE_SOURCE_BINLOG_ROW, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_GTID,
     SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_SERVER_ID, SYSTEM_ROLE_SOURCE_TABLE,
-    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS, SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
-    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::sink::SinkBatch;
@@ -183,6 +182,10 @@ struct DebeziumBatchEncoder {
     user_ordinal_by_source_index: Vec<Option<usize>>,
 }
 
+#[allow(
+    clippy::large_enum_variant,
+    reason = "boxing Arrow arrays would add allocation and indirection on every serialized batch"
+)]
 enum DebeziumSourceMetadata {
     Postgres {
         transaction_id: UInt64Array,
@@ -240,7 +243,10 @@ impl DebeziumBatchEncoder {
         );
         let old_value = mapped_columns(batch, META_OLD_VALUE_OF)?;
         let old_key = mapped_columns(batch, META_OLD_KEY_OF)?;
-        if matches!(dialect, DebeziumSourceDialect::MySql | DebeziumSourceDialect::Ydb) {
+        if matches!(
+            dialect,
+            DebeziumSourceDialect::MySql | DebeziumSourceDialect::Ydb
+        ) {
             for (current_index, name) in &user_columns {
                 let old_index = old_value.get(name).copied().ok_or_else(|| {
                     anyhow::anyhow!(
@@ -316,7 +322,7 @@ impl DebeziumBatchEncoder {
                         (!batch
                             .system_columns
                             .contains(SystemColumnKind::ChangeOperation))
-                            .then_some(*index)
+                        .then_some(*index)
                     }),
             })
             .collect::<Vec<_>>();
@@ -329,27 +335,23 @@ impl DebeziumBatchEncoder {
             DebeziumSourceDialect::Postgres => {
                 optional_system_array::<BinaryArray>(batch, SystemColumnKind::ChangedColumns)?
             }
-            DebeziumSourceDialect::MySql => Some(system_array::<BinaryArray>(
-                batch,
-                SystemColumnKind::ChangedColumns,
-            )?),
-            DebeziumSourceDialect::Ydb => Some(system_array::<BinaryArray>(
-                batch,
-                SystemColumnKind::ChangedColumns,
-            )?),
+            DebeziumSourceDialect::MySql | DebeziumSourceDialect::Ydb => {
+                Some(system_array::<BinaryArray>(
+                    batch,
+                    SystemColumnKind::ChangedColumns,
+                )?)
+            }
         };
         let operation = match dialect {
             DebeziumSourceDialect::Postgres => {
                 optional_system_array::<StringArray>(batch, SystemColumnKind::ChangeOperation)?
             }
-            DebeziumSourceDialect::MySql => Some(system_array::<StringArray>(
-                batch,
-                SystemColumnKind::ChangeOperation,
-            )?),
-            DebeziumSourceDialect::Ydb => Some(system_array::<StringArray>(
-                batch,
-                SystemColumnKind::ChangeOperation,
-            )?),
+            DebeziumSourceDialect::MySql | DebeziumSourceDialect::Ydb => {
+                Some(system_array::<StringArray>(
+                    batch,
+                    SystemColumnKind::ChangeOperation,
+                )?)
+            }
         };
         let source_metadata = match dialect {
             DebeziumSourceDialect::Postgres => DebeziumSourceMetadata::Postgres {
@@ -465,14 +467,14 @@ impl DebeziumBatchEncoder {
         source_is_update: bool,
     ) -> anyhow::Result<Vec<u8>> {
         self.validate_source_metadata(row, operation)?;
-        let changed_columns =
-            if source_is_update && self.dialect == DebeziumSourceDialect::Postgres {
-                Some(self.changed_columns.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("Debezium updates require the changed-column mask")
-                })?)
-            } else {
-                None
-            };
+        let changed_columns = if source_is_update && self.dialect == DebeziumSourceDialect::Postgres
+        {
+            Some(self.changed_columns.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("Debezium updates require the changed-column mask")
+            })?)
+        } else {
+            None
+        };
         let mut output = Vec::with_capacity(512);
         output.extend_from_slice(b"{\"before\":");
         if include_before {
@@ -633,8 +635,7 @@ impl DebeziumBatchEncoder {
                 write_i64(&mut output, event_timestamp_ns.value(row));
             }
             DebeziumSourceMetadata::Ydb {
-                event_timestamp_ms,
-                ..
+                event_timestamp_ms, ..
             } => write_i64(&mut output, event_timestamp_ms.value(row)),
         }
         output.extend_from_slice(b",\"transaction\":null}");
@@ -699,7 +700,8 @@ impl DebeziumBatchEncoder {
                     "YDB Debezium does not accept snapshot operations because YDB replication is stream-only"
                 );
                 anyhow::ensure!(
-                    !self.database.value(row).is_empty() && !self.source_table.value(row).is_empty(),
+                    !self.database.value(row).is_empty()
+                        && !self.source_table.value(row).is_empty(),
                     "YDB Debezium source database and table must be nonempty at row {row}"
                 );
                 let (step, _) = ydb_transaction(transaction_identity.value(row), row)?;
@@ -778,15 +780,11 @@ fn projected_debezium(
     dialect: DebeziumSourceDialect,
 ) -> anyhow::Result<JsonBatchEncoder> {
     match dialect {
-        DebeziumSourceDialect::Postgres => {
-            JsonBatchEncoder::projected_debezium(batch, projection)
-        }
+        DebeziumSourceDialect::Postgres => JsonBatchEncoder::projected_debezium(batch, projection),
         DebeziumSourceDialect::MySql => {
             JsonBatchEncoder::projected_debezium_mysql(batch, projection)
         }
-        DebeziumSourceDialect::Ydb => {
-            JsonBatchEncoder::projected_debezium_ydb(batch, projection)
-        }
+        DebeziumSourceDialect::Ydb => JsonBatchEncoder::projected_debezium_ydb(batch, projection),
     }
 }
 

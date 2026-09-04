@@ -7,9 +7,7 @@ use transferia_registry::durable::{
     CompareExchangeResult, DurableContext, DurableStorage, DurableValue,
 };
 
-use super::super::offset::{
-    inspect_existing_replication_offset, MySqlReplicationOffsetTracker,
-};
+use super::super::offset::{inspect_existing_replication_offset, MySqlReplicationOffsetTracker};
 use super::super::MySqlReplicationConfig;
 use crate::connectors::mysql::src_batch_and_stream::{
     AuthoritativeColumnIdentity, AuthoritativeTableIdentity, MySqlBinlogBoundary,
@@ -55,6 +53,7 @@ impl DurableStorage for MemoryDurableStorage {
                 payload: payload.to_vec(),
             };
             values.insert(key.to_owned(), value.clone());
+            drop(values);
             Ok(CompareExchangeResult::Applied(value))
         })
     }

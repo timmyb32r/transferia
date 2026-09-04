@@ -16,7 +16,7 @@ const STATE_VERSION: u8 = 3;
 const EXISTING_SLOT_QUERY: &str = "SELECT plugin, confirmed_flush_lsn::text, database::text, datoid FROM pg_catalog.pg_replication_slots WHERE slot_name = $1";
 
 #[derive(Debug)]
-pub(crate) struct ReplicationSafetyViolation {
+pub struct ReplicationSafetyViolation {
     source: anyhow::Error,
 }
 
@@ -32,7 +32,7 @@ impl std::error::Error for ReplicationSafetyViolation {
     }
 }
 
-pub(crate) fn replication_safety_violation(source: anyhow::Error) -> anyhow::Error {
+pub fn replication_safety_violation(source: anyhow::Error) -> anyhow::Error {
     if source
         .downcast_ref::<ReplicationSafetyViolation>()
         .is_some()
@@ -43,7 +43,7 @@ pub(crate) fn replication_safety_violation(source: anyhow::Error) -> anyhow::Err
     }
 }
 
-pub(crate) fn is_replication_safety_violation(error: &anyhow::Error) -> bool {
+pub fn is_replication_safety_violation(error: &anyhow::Error) -> bool {
     error.downcast_ref::<ReplicationSafetyViolation>().is_some()
 }
 
@@ -329,12 +329,7 @@ fn validate_slot_database(
         || actual_database_oid != Some(expected_database_oid)
     {
         return Err(replication_safety_violation(anyhow::anyhow!(
-            "PostgreSQL replication slot '{}' belongs to database {:?} with OID {:?}, expected exact database '{}' with OID {}",
-            slot,
-            actual_database,
-            actual_database_oid,
-            expected_database,
-            expected_database_oid,
+            "PostgreSQL replication slot '{slot}' belongs to database {actual_database:?} with OID {actual_database_oid:?}, expected exact database '{expected_database}' with OID {expected_database_oid}",
         )));
     }
     Ok(())
@@ -382,9 +377,7 @@ async fn recreate_slot(
     .map_err(replication_safety_violation)?;
     if created_slot != slot {
         return Err(replication_safety_violation(anyhow::anyhow!(
-            "pg_tm_aux recreated unexpected slot '{}' instead of '{}'",
-            created_slot,
-            slot,
+            "pg_tm_aux recreated unexpected slot '{created_slot}' instead of '{slot}'",
         )));
     }
     tracing::info!(slot, created_lsn = %format_lsn(created_lsn), requested_lsn = %requested_lsn, "recreated PostgreSQL replication slot through pg_tm_aux");
@@ -420,8 +413,7 @@ async fn verify_slot_exact(
         .await?
         .ok_or_else(|| {
             replication_safety_violation(anyhow::anyhow!(
-                "PostgreSQL replication slot '{}' disappeared before recovery verification",
-                slot,
+                "PostgreSQL replication slot '{slot}' disappeared before recovery verification",
             ))
         })?;
     if actual.plugin != plugin || actual.committed_lsn != requested_lsn {

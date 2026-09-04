@@ -354,8 +354,7 @@ fn debezium_discovery_accepts_snapshot_metadata_without_cdc_old_values() {
 fn mysql_debezium_discovery_requires_exact_source_changelog_and_role_contracts() {
     use arrow::datatypes::DataType;
     use transferia_core::data::schema::{
-        SYSTEM_ROLE_SOURCE_GTID, SYSTEM_ROLE_SOURCE_SERVER_ID,
-        SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+        SYSTEM_ROLE_SOURCE_GTID, SYSTEM_ROLE_SOURCE_SERVER_ID, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
     };
     use transferia_core::SystemColumnKind;
 
@@ -392,9 +391,7 @@ fn mysql_debezium_discovery_requires_exact_source_changelog_and_role_contracts()
         .incoming_schema
         .columns
         .iter_mut()
-        .find(|column| {
-            column.system_role.as_deref() == Some(SYSTEM_ROLE_SOURCE_TRANSACTION_ID)
-        })
+        .find(|column| column.system_role.as_deref() == Some(SYSTEM_ROLE_SOURCE_TRANSACTION_ID))
         .unwrap();
     transaction.data_type = DataType::UInt64;
     let error = config
@@ -427,7 +424,10 @@ fn mysql_debezium_discovery_requires_exact_source_changelog_and_role_contracts()
         .validate_discovery(&missing_extension_metadata)
         .unwrap_err()
         .to_string();
-    assert!(error.contains("physical Arrow extension metadata"), "{error}");
+    assert!(
+        error.contains("physical Arrow extension metadata"),
+        "{error}"
+    );
 
     let mut wrong_physical_type = discovery.clone();
     wrong_physical_type.datasets[0]
@@ -458,7 +458,10 @@ fn mysql_debezium_discovery_requires_exact_source_changelog_and_role_contracts()
         .validate_discovery(&mismatched_old_extension)
         .unwrap_err()
         .to_string();
-    assert!(error.contains("does not preserve its exact physical"), "{error}");
+    assert!(
+        error.contains("does not preserve its exact physical"),
+        "{error}"
+    );
 
     let mut nonnullable_gtid = discovery;
     nonnullable_gtid.datasets[0]
@@ -496,9 +499,7 @@ fn ydb_debezium_discovery_requires_exact_stream_roles_and_full_old_images() {
         .incoming_schema
         .columns
         .iter_mut()
-        .find(|column| {
-            column.system_role.as_deref() == Some(SYSTEM_ROLE_SOURCE_TRANSACTION_ID)
-        })
+        .find(|column| column.system_role.as_deref() == Some(SYSTEM_ROLE_SOURCE_TRANSACTION_ID))
         .unwrap()
         .data_type = DataType::Binary;
     let error = config
@@ -511,9 +512,7 @@ fn ydb_debezium_discovery_requires_exact_stream_roles_and_full_old_images() {
     missing_timestamp.datasets[0]
         .incoming_schema
         .columns
-        .retain(|column| {
-            column.system_role.as_deref() != Some(SYSTEM_ROLE_SOURCE_TIMESTAMP_MS)
-        });
+        .retain(|column| column.system_role.as_deref() != Some(SYSTEM_ROLE_SOURCE_TIMESTAMP_MS));
     let error = config
         .validate_discovery(&missing_timestamp)
         .unwrap_err()
@@ -601,9 +600,11 @@ fn ydb_debezium_discovery() -> transferia_core::delivery::DeliveryDiscovery {
         SystemColumnKind::ChangeOperation,
         SystemColumnKind::ChangedColumns,
     ];
-    incoming.extend(system_kinds.into_iter().map(|kind| {
-        SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
-    }));
+    incoming.extend(
+        system_kinds
+            .into_iter()
+            .map(|kind| SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)),
+    );
     DeliveryDiscovery {
         source_name: "ydb".into(),
         source_topology: SourceTopology::StaticPartitions(vec![0]),

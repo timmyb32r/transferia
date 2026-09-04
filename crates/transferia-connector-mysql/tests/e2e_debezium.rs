@@ -26,10 +26,9 @@ use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{
     META_SYSTEM_ROLE, SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
     SYSTEM_ROLE_EVENT_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_BINLOG_FILE,
-    SYSTEM_ROLE_SOURCE_BINLOG_POSITION, SYSTEM_ROLE_SOURCE_BINLOG_ROW,
-    SYSTEM_ROLE_SOURCE_GTID, SYSTEM_ROLE_SOURCE_SERVER_ID, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
-    SYSTEM_ROLE_SOURCE_TIMESTAMP_NS, SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
-    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    SYSTEM_ROLE_SOURCE_BINLOG_POSITION, SYSTEM_ROLE_SOURCE_BINLOG_ROW, SYSTEM_ROLE_SOURCE_GTID,
+    SYSTEM_ROLE_SOURCE_SERVER_ID, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::data::table_data::TableData;
@@ -166,15 +165,14 @@ impl DurableStorage for TestDurableStorage {
                 return Ok(CompareExchangeResult::Conflict(current));
             }
             let revision = expected_revision.map_or(Ok(0), |revision| {
-                revision
-                    .checked_add(1)
-                    .context("durable revision overflow")
+                revision.checked_add(1).context("durable revision overflow")
             })?;
             let value = DurableValue {
                 revision,
                 payload: payload.to_vec(),
             };
             values.insert(key.to_owned(), value.clone());
+            drop(values);
             Ok(CompareExchangeResult::Applied(value))
         })
     }
@@ -323,10 +321,8 @@ async fn locked_snapshot_and_cdc_serialize_as_lossless_mysql_debezium_with_ack_r
         "format": { "type": "json" }
     }))?;
     serializer_config.validate_discovery(&prepared.discovery)?;
-    let mut serializer = DeliverySerializer::new(
-        &serializer_config,
-        QueueMessageMode::KeyedWithTombstones,
-    )?;
+    let mut serializer =
+        DeliverySerializer::new(&serializer_config, QueueMessageMode::KeyedWithTombstones)?;
 
     exec_all(
         &mut admin,
@@ -363,14 +359,12 @@ async fn locked_snapshot_and_cdc_serialize_as_lossless_mysql_debezium_with_ack_r
         ))
         .await?;
     let snapshot = read_nonempty(&mut snapshot_source).await?;
-    anyhow::ensure!(snapshot.source_rows == 1, "snapshot did not contain exactly one row");
-    let snapshot_serialized = serialize_tables(
-        &mut serializer,
-        &prepared.discovery,
-        &snapshot.tables,
-        1,
-    )
-    .await?;
+    anyhow::ensure!(
+        snapshot.source_rows == 1,
+        "snapshot did not contain exactly one row"
+    );
+    let snapshot_serialized =
+        serialize_tables(&mut serializer, &prepared.discovery, &snapshot.tables, 1).await?;
     assert_snapshot_delivery(&snapshot.tables, &snapshot_serialized)?;
     snapshot_source.commit_offsets(&[snapshot.marker]).await?;
     anyhow::ensure!(
@@ -486,7 +480,10 @@ async fn locked_snapshot_and_cdc_serialize_as_lossless_mysql_debezium_with_ack_r
     )
     .await?;
     let messages = only_messages(&after_ack_serialized)?;
-    anyhow::ensure!(messages.len() == 1, "new create emitted tombstones or duplicates");
+    anyhow::ensure!(
+        messages.len() == 1,
+        "new create emitted tombstones or duplicates"
+    );
     assert_key_id(messages[0].key.as_deref(), 4)?;
     let value = message_value(messages[0].value.as_deref())?;
     anyhow::ensure!(value["op"] == "c", "post-ACK transaction was not a create");
@@ -547,7 +544,8 @@ async fn serialize_tables(
             system_columns: table.system_columns.clone(),
         };
         validate_batch_against_discovery(discovery, &batch)?;
-        let ProjectedSinkBatch::Changelog(projected) = project_sink_batch(discovery, &batch)? else {
+        let ProjectedSinkBatch::Changelog(projected) = project_sink_batch(discovery, &batch)?
+        else {
             anyhow::bail!("MySQL batch_and_stream emitted append-only data")
         };
         anyhow::ensure!(
@@ -583,7 +581,10 @@ fn assert_snapshot_delivery(
 ) -> anyhow::Result<()> {
     anyhow::ensure!(serialized.source_rows == 1);
     let table = only_table(tables)?;
-    anyhow::ensure!(table.batch.num_rows() == 1, "snapshot batch was not one row");
+    anyhow::ensure!(
+        table.batch.num_rows() == 1,
+        "snapshot batch was not one row"
+    );
     let physical = physical_rows(table)?;
     let transaction_ids = role_array::<BinaryArray>(table, SYSTEM_ROLE_SOURCE_TRANSACTION_ID)?;
     anyhow::ensure!(physical.len() == 1);
@@ -596,7 +597,10 @@ fn assert_snapshot_delivery(
     anyhow::ensure!(physical[0].message_index == 0);
 
     let messages = only_messages(serialized)?;
-    anyhow::ensure!(messages.len() == 1, "snapshot did not serialize to one message");
+    anyhow::ensure!(
+        messages.len() == 1,
+        "snapshot did not serialize to one message"
+    );
     assert_key_id(messages[0].key.as_deref(), 1)?;
     let value = message_value(messages[0].value.as_deref())?;
     anyhow::ensure!(value["op"] == "r");
@@ -612,11 +616,13 @@ fn assert_cdc_delivery(
 ) -> anyhow::Result<()> {
     anyhow::ensure!(serialized.source_rows == 4);
     let table = only_table(tables)?;
-    anyhow::ensure!(table.batch.num_rows() == 4, "CDC batch was not one transaction");
+    anyhow::ensure!(
+        table.batch.num_rows() == 4,
+        "CDC batch was not one transaction"
+    );
     let operations = system_array::<StringArray>(table, SystemColumnKind::ChangeOperation)?;
     anyhow::ensure!(
-        (0..4).map(|row| operations.value(row)).collect::<Vec<_>>()
-            == vec!["c", "u", "u", "d"],
+        (0..4).map(|row| operations.value(row)).collect::<Vec<_>>() == vec!["c", "u", "u", "d"],
         "source transaction changed row-event ordering"
     );
     let physical = physical_rows(table)?;
@@ -642,14 +648,19 @@ fn assert_cdc_delivery(
         "one MySQL transaction emitted inconsistent server or GTID identity"
     );
     anyhow::ensure!(
-        physical.windows(2).all(|rows| rows[0].position < rows[1].position),
+        physical
+            .windows(2)
+            .all(|rows| rows[0].position < rows[1].position),
         "separate rows events did not retain their distinct physical positions"
     );
     for (index, row) in physical.iter().enumerate() {
         anyhow::ensure!(row.file == row.topic);
         anyhow::ensure!(row.partition == 0);
         anyhow::ensure!(row.offset > row.position);
-        anyhow::ensure!(row.row == 0, "one-row rows event used a nonzero row ordinal");
+        anyhow::ensure!(
+            row.row == 0,
+            "one-row rows event used a nonzero row ordinal"
+        );
         anyhow::ensure!(row.message_index == u64::try_from(index)?);
         anyhow::ensure!(
             row.position != row.offset || i64::from(row.row) != i64::try_from(row.message_index)?,
@@ -657,12 +668,20 @@ fn assert_cdc_delivery(
         );
     }
     anyhow::ensure!(
-        physical.iter().map(|row| row.offset).collect::<HashSet<_>>().len() == 1,
+        physical
+            .iter()
+            .map(|row| row.offset)
+            .collect::<HashSet<_>>()
+            .len()
+            == 1,
         "one transaction received multiple durable offsets"
     );
 
     let messages = only_messages(serialized)?;
-    anyhow::ensure!(messages.len() == 7, "c/u/PK-change/d did not emit seven records");
+    anyhow::ensure!(
+        messages.len() == 7,
+        "c/u/PK-change/d did not emit seven records"
+    );
     assert_key_id(messages[0].key.as_deref(), 2)?;
     assert_key_id(messages[1].key.as_deref(), 1)?;
     assert_key_id(messages[2].key.as_deref(), 2)?;
@@ -709,9 +728,7 @@ fn assert_physical_payload(value: &Value, id: i64, payload: &str) -> anyhow::Res
     anyhow::ensure!(value["id"] == id);
     anyhow::ensure!(value["payload"] == payload);
     anyhow::ensure!(value["u64_value"] == "AP//////////");
-    anyhow::ensure!(
-        value["decimal_value"] == "HgK8HpeFi9xsuVBY80JNfTp/7HsD4maOPwrS"
-    );
+    anyhow::ensure!(value["decimal_value"] == "HgK8HpeFi9xsuVBY80JNfTp/7HsD4maOPwrS");
     anyhow::ensure!(value["binary_value"] == "AP9B");
     anyhow::ensure!(value["latin1_value"] == "€ÿ");
     anyhow::ensure!(value["date_value"] == 19_782);
@@ -965,7 +982,11 @@ fn assert_same_replayed_tables(expected: &[TableData], actual: &[TableData]) {
 }
 
 fn only_table(tables: &[TableData]) -> anyhow::Result<&TableData> {
-    anyhow::ensure!(tables.len() == 1, "expected one table batch, got {}", tables.len());
+    anyhow::ensure!(
+        tables.len() == 1,
+        "expected one table batch, got {}",
+        tables.len()
+    );
     anyhow::ensure!(tables[0].table.as_ref() == "debezium_events");
     Ok(&tables[0])
 }
@@ -981,8 +1002,12 @@ fn only_messages(serialized: &SerializedDelivery) -> anyhow::Result<&[Serialized
 }
 
 fn assert_key_id(key: Option<&[u8]>, expected: i64) -> anyhow::Result<()> {
-    let key: Value = serde_json::from_slice(key.context("keyed Debezium message omitted its key")?)?;
-    anyhow::ensure!(key == json!({"id": expected}), "unexpected Debezium key {key}");
+    let key: Value =
+        serde_json::from_slice(key.context("keyed Debezium message omitted its key")?)?;
+    anyhow::ensure!(
+        key == json!({"id": expected}),
+        "unexpected Debezium key {key}"
+    );
     Ok(())
 }
 
@@ -1008,9 +1033,12 @@ fn role_array<'a, T: arrow::array::Array + 'static>(
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
     anyhow::ensure!(matches.len() == 1, "expected one '{role}' role column");
-    table.batch.column(matches[0]).as_any().downcast_ref().with_context(|| {
-        format!("MySQL role '{role}' column has an unexpected Arrow type")
-    })
+    table
+        .batch
+        .column(matches[0])
+        .as_any()
+        .downcast_ref()
+        .with_context(|| format!("MySQL role '{role}' column has an unexpected Arrow type"))
 }
 
 fn system_array<T: arrow::array::Array + 'static>(
@@ -1048,7 +1076,9 @@ async fn read_nonempty(source: &mut Box<dyn Source>) -> anyhow::Result<TypedSour
                 }
                 SourceBatch::Typed { .. } => {}
                 SourceBatch::Raw { .. } => anyhow::bail!("MySQL source emitted raw data"),
-                SourceBatch::Finished => anyhow::bail!("MySQL source finished before emitting data"),
+                SourceBatch::Finished => {
+                    anyhow::bail!("MySQL source finished before emitting data")
+                }
             }
         }
     })
@@ -1135,7 +1165,7 @@ fn connection_config(
 }
 
 async fn wait_for_mysql(config: &MySqlConnectionConfig) -> anyhow::Result<mysql_async::Conn> {
-    tokio::time::timeout(Duration::from_secs(60), async {
+    tokio::time::timeout(Duration::from_mins(1), async {
         loop {
             match connect(config).await {
                 Ok(connection) => return connection,

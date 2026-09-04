@@ -681,14 +681,12 @@ async fn start_pipeline(
     tracing::info!(report = %serde_json::to_string(&semantics)?, "delivery semantics inferred from configuration");
     tracing::info!(limits = %serde_json::to_string(&sink_connector.limits().description())?, "sink limits validated against delivery discovery");
 
-    if let Some(request) =
-        SinkPrepare::from_discovery(
-            &discovery,
-            finite_source,
-            config.delivery_id.clone(),
-            replay_identity.clone(),
-        )?
-    {
+    if let Some(request) = SinkPrepare::from_discovery(
+        &discovery,
+        finite_source,
+        config.delivery_id.clone(),
+        replay_identity.clone(),
+    )? {
         sink_connector.prepare(request).await?;
     }
     if let Some(metrics) = &config.metrics {

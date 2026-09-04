@@ -182,13 +182,13 @@ async fn mysql_emits_exact_source_metadata_full_updates_and_pk_change_sequence()
     assert_eq!(update["op"], "u");
     assert_eq!(update["before"]["payload"], "created");
     assert_eq!(update["after"]["payload"], "updated");
-    assert_ne!(
-        update["after"]["payload"],
-        "__debezium_unavailable_value"
-    );
+    assert_ne!(update["after"]["payload"], "__debezium_unavailable_value");
 
     assert_eq!(json(encoded.messages[3].key.as_deref().unwrap())["id"], 2);
-    assert_eq!(json(encoded.messages[3].value.as_deref().unwrap())["op"], "d");
+    assert_eq!(
+        json(encoded.messages[3].value.as_deref().unwrap())["op"],
+        "d"
+    );
     assert_eq!(json(encoded.messages[4].key.as_deref().unwrap())["id"], 2);
     assert!(encoded.messages[4].value.is_none());
     assert_eq!(json(encoded.messages[5].key.as_deref().unwrap())["id"], 3);
@@ -197,7 +197,10 @@ async fn mysql_emits_exact_source_metadata_full_updates_and_pk_change_sequence()
     assert_eq!(primary_key_create["after"]["payload"], "renamed");
 
     assert_eq!(json(encoded.messages[6].key.as_deref().unwrap())["id"], 3);
-    assert_eq!(json(encoded.messages[6].value.as_deref().unwrap())["op"], "d");
+    assert_eq!(
+        json(encoded.messages[6].value.as_deref().unwrap())["op"],
+        "d"
+    );
     assert!(encoded.messages[7].value.is_none());
 }
 
@@ -245,11 +248,7 @@ async fn mysql_rejects_invalid_runtime_source_metadata_before_returning_messages
         ])),
     );
     let error = encoder
-        .encode_batch(
-            &empty_identity,
-            DebeziumSourceDialect::MySql,
-            usize::MAX,
-        )
+        .encode_batch(&empty_identity, DebeziumSourceDialect::MySql, usize::MAX)
         .unwrap_err()
         .to_string();
     assert!(error.contains("transaction identity is empty"), "{error}");
@@ -261,11 +260,7 @@ async fn mysql_rejects_invalid_runtime_source_metadata_before_returning_messages
         Arc::new(Int64Array::from(vec![0_i64, -1, 11, 11, 11])),
     );
     let error = encoder
-        .encode_batch(
-            &invalid_server,
-            DebeziumSourceDialect::MySql,
-            usize::MAX,
-        )
+        .encode_batch(&invalid_server, DebeziumSourceDialect::MySql, usize::MAX)
         .unwrap_err()
         .to_string();
     assert!(error.contains("unsigned 32-bit range"), "{error}");
@@ -277,11 +272,7 @@ async fn mysql_rejects_invalid_runtime_source_metadata_before_returning_messages
         Arc::new(Int64Array::from(vec![3_i64, 100, 120, 140, 160])),
     );
     let error = encoder
-        .encode_batch(
-            &invalid_position,
-            DebeziumSourceDialect::MySql,
-            usize::MAX,
-        )
+        .encode_batch(&invalid_position, DebeziumSourceDialect::MySql, usize::MAX)
         .unwrap_err()
         .to_string();
     assert!(error.contains("4..=4294967295"), "{error}");
@@ -324,15 +315,14 @@ async fn mysql_rejects_invalid_runtime_source_metadata_before_returning_messages
         "unknown_current_column",
     );
     let error = encoder
-        .encode_batch(
-            &missing_old_value,
-            DebeziumSourceDialect::MySql,
-            usize::MAX,
-        )
+        .encode_batch(&missing_old_value, DebeziumSourceDialect::MySql, usize::MAX)
         .unwrap_err()
         .to_string();
     assert!(error.contains("payload"), "{error}");
-    assert!(error.contains("missing its full old-value mapping"), "{error}");
+    assert!(
+        error.contains("missing its full old-value mapping"),
+        "{error}"
+    );
 
     let mut mismatched_old_extension = mysql_cdc_batch().await;
     replace_field_metadata(
@@ -365,7 +355,10 @@ async fn ydb_emits_exact_source_full_images_and_physical_values() {
         .unwrap();
 
     assert_eq!(encoded.messages.len(), 4);
-    assert_eq!(encoded.messages[0].key.as_deref(), Some(br#"{"id":18446744073709551615}"#.as_slice()));
+    assert_eq!(
+        encoded.messages[0].key.as_deref(),
+        Some(br#"{"id":18446744073709551615}"#.as_slice())
+    );
     let create = json(encoded.messages[0].value.as_deref().unwrap());
     assert!(create["before"].is_null());
     assert_eq!(create["after"]["id"], u64::MAX);
@@ -373,7 +366,10 @@ async fn ydb_emits_exact_source_full_images_and_physical_values() {
     assert_eq!(create["after"]["raw"], "AP9B");
     assert_eq!(create["after"]["event_date"], 19_782);
     assert_eq!(create["after"]["event_datetime"], 1_709_210_096_000_i64);
-    assert_eq!(create["after"]["event_timestamp"], 1_709_210_096_123_456_i64);
+    assert_eq!(
+        create["after"]["event_timestamp"],
+        1_709_210_096_123_456_i64
+    );
     assert_eq!(create["after"]["event_interval"], -123_456_i64);
     assert_eq!(
         create["after"]["uuid"],
@@ -405,10 +401,7 @@ async fn ydb_emits_exact_source_full_images_and_physical_values() {
     assert_eq!(update["op"], "u");
     assert_eq!(update["before"]["payload"], "created");
     assert_eq!(update["after"]["payload"], "updated");
-    assert_ne!(
-        update["after"]["raw"],
-        "__debezium_unavailable_value"
-    );
+    assert_ne!(update["after"]["raw"], "__debezium_unavailable_value");
 
     let delete = json(encoded.messages[2].value.as_deref().unwrap());
     assert_eq!(delete["op"], "d");
@@ -446,11 +439,7 @@ async fn ydb_values_only_and_runtime_metadata_are_strict() {
         Arc::new(StringArray::from(vec!["r", "u", "d"])),
     );
     let error = encoder
-        .encode_batch(
-            &snapshot_operation,
-            DebeziumSourceDialect::Ydb,
-            usize::MAX,
-        )
+        .encode_batch(&snapshot_operation, DebeziumSourceDialect::Ydb, usize::MAX)
         .unwrap_err()
         .to_string();
     assert!(error.contains("stream-only"), "{error}");
@@ -469,7 +458,10 @@ async fn ydb_values_only_and_runtime_metadata_are_strict() {
         .encode_batch(&invalid_dynumber, DebeziumSourceDialect::Ydb, usize::MAX)
         .unwrap_err()
         .to_string();
-    assert!(error.contains("DyNumber") && error.contains("malformed"), "{error}");
+    assert!(
+        error.contains("DyNumber") && error.contains("malformed"),
+        "{error}"
+    );
 
     let mut overflowing_datetime = ydb_cdc_batch().await;
     replace_column(
@@ -525,12 +517,8 @@ async fn ydb_cdc_batch() -> SinkBatch {
     let mut fields = user
         .iter()
         .map(|column| {
-            Field::new(
-                column.name.clone(),
-                column.data_type.clone(),
-                column.nullable,
-            )
-            .with_metadata(column.arrow_metadata())
+            Field::new(column.name.clone(), column.data_type.clone(), true)
+                .with_metadata(column.arrow_metadata())
         })
         .collect::<Vec<_>>();
     fields.extend(user.iter().enumerate().map(|(index, column)| {
@@ -545,7 +533,8 @@ async fn ydb_cdc_batch() -> SinkBatch {
         } else {
             old
         };
-        Field::new(old.name.clone(), old.data_type.clone(), true).with_metadata(old.arrow_metadata())
+        Field::new(old.name.clone(), old.data_type.clone(), true)
+            .with_metadata(old.arrow_metadata())
     }));
     let roles = [
         (
@@ -585,13 +574,11 @@ async fn ydb_cdc_batch() -> SinkBatch {
         SystemColumnKind::ChangeOperation,
         SystemColumnKind::ChangedColumns,
     ];
-    fields.extend(system_kinds.iter().map(|kind| {
-        Field::new(
-            kind.default_name(),
-            kind.data_type(),
-            false,
-        )
-    }));
+    fields.extend(
+        system_kinds
+            .iter()
+            .map(|kind| Field::new(kind.default_name(), kind.data_type(), false)),
+    );
 
     let current_present = [Some(u64::MAX), Some(u64::MAX), None];
     let old_present = [None, Some(u64::MAX), Some(u64::MAX)];
@@ -607,8 +594,8 @@ async fn ydb_cdc_batch() -> SinkBatch {
         transactions.append_value(value).unwrap();
     }
     let uuid = [
-        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
-        0xdd, 0xee, 0xff,
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
+        0xff,
     ];
     let mut current_uuid = FixedSizeBinaryBuilder::with_capacity(3, 16);
     current_uuid.append_value(uuid).unwrap();
@@ -687,7 +674,10 @@ async fn ydb_cdc_batch() -> SinkBatch {
             &[0xff_u8, 0x03][..],
         ])),
     ];
-    assert_eq!(USER_COLUMNS * 2 + roles.len() + system_kinds.len(), columns.len());
+    assert_eq!(
+        USER_COLUMNS * 2 + roles.len() + system_kinds.len(),
+        columns.len()
+    );
     let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), columns).unwrap();
     SinkBatch {
         table: Arc::from("/local/accounts"),
@@ -726,8 +716,11 @@ fn replace_field_metadata(batch: &mut SinkBatch, index: usize, key: &str, value:
     let mut metadata = fields[index].metadata().clone();
     metadata.insert(key.to_owned(), value.to_owned());
     fields[index] = fields[index].clone().with_metadata(metadata);
-    batch.batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), batch.batch.columns().to_vec())
-        .unwrap();
+    batch.batch = RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        batch.batch.columns().to_vec(),
+    )
+    .unwrap();
     batch.byte_size = batch.batch.get_array_memory_size();
 }
 
@@ -930,13 +923,7 @@ async fn mysql_cdc_batch() -> SinkBatch {
             Arc::new(Int64Array::from(vec![2_000_i64; 5])),
             Arc::new(Int64Array::from(vec![2_000_000_i64; 5])),
             Arc::new(Int64Array::from(vec![2_000_000_000_i64; 5])),
-            Arc::new(Int64Array::from(vec![
-                0_i64,
-                4_294_967_295,
-                11,
-                11,
-                11,
-            ])),
+            Arc::new(Int64Array::from(vec![0_i64, 4_294_967_295, 11, 11, 11])),
             Arc::new(StringArray::from(vec![
                 None,
                 Some("11111111-1111-1111-1111-111111111111:blue:2"),

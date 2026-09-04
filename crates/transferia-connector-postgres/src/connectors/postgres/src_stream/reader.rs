@@ -95,7 +95,7 @@ impl PostgresReplicationSource {
             validate_relation_identities(&*connection, &tables).await?;
         }
         let (slot_tracker, committed_lsn) = ReplicationSlotTracker::prepare(
-            &*connection,
+            &connection,
             &config,
             &source_identity,
             &tables,
@@ -557,7 +557,7 @@ impl Source for PostgresReplicationSource {
                 .await
                 .map_err(DataPlaneFailure::fatal)?;
             let connection = self.client.lock().await;
-            advance_slot(&*connection, &self.config.slot, lsn)
+            advance_slot(&connection, &self.config.slot, lsn)
                 .await
                 .map_err(|error| {
                     if is_replication_safety_violation(&error) {

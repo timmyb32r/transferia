@@ -6,6 +6,7 @@ use transferia_core::data::schema::{
     META_MAX_LENGTH, META_OLD_VALUE_OF, META_PRIMARY_KEY,
 };
 
+use super::super::config::heartbeat_period_nanoseconds;
 use super::super::decoder::{
     MySqlBinlogColumnIdentity, MySqlTableIdentity, MySqlTransactionIdentity,
 };
@@ -15,7 +16,6 @@ use super::super::source::{
     normalize_enum, normalize_set, schema_materialization_admission_bytes, serialize_mysql_json,
     validate_replication_column_plan, validate_selected_table_map, verify_binlog_heartbeat,
 };
-use super::super::config::heartbeat_period_nanoseconds;
 use crate::connectors::mysql::src_batch::{
     ColumnPlan, DiscoveredTable, MySqlColumnKind, TableConfig,
 };
@@ -45,20 +45,23 @@ fn tagged_gtid_metadata_is_canonical_and_never_derived_from_opaque_identity() {
         format_transaction_gtid(&identity).unwrap(),
         "11111111-1111-1111-1111-111111111111:blue:42"
     );
-    assert!(format_transaction_gtid(&MySqlTransactionIdentity::FilePosition {
-        begin_position: super::super::MySqlBinlogPosition::new(
-            b"mysql-bin.000001".to_vec(),
-            4,
-        )
-        .unwrap(),
-    })
-    .is_err());
+    assert!(
+        format_transaction_gtid(&MySqlTransactionIdentity::FilePosition {
+            begin_position:
+                super::super::MySqlBinlogPosition::new(b"mysql-bin.000001".to_vec(), 4,).unwrap(),
+        })
+        .is_err()
+    );
 }
 
 #[test]
 fn table_map_rejects_same_count_column_rename_and_type_change() {
     let table = table(vec![column("id", "int", Some(1))]);
-    let mut identity = table_identity(vec![binlog_column("id", ColumnType::MYSQL_TYPE_LONG, Some(1))]);
+    let mut identity = table_identity(vec![binlog_column(
+        "id",
+        ColumnType::MYSQL_TYPE_LONG,
+        Some(1),
+    )]);
     validate_selected_table_map(&table, &identity).unwrap();
 
     identity.column_identities[0].name = b"renamed".to_vec();
@@ -166,10 +169,34 @@ fn replication_discovery_accepts_lossless_item14_families_and_rejects_unknowns()
 #[test]
 fn unsigned_integer_normalization_preserves_mysql_common_wire_semantics() {
     for (kind, data_type, column_type, wire_type, value) in [
-        (MySqlColumnKind::UInt8, "tinyint", "tinyint unsigned", ColumnType::MYSQL_TYPE_TINY, 255),
-        (MySqlColumnKind::UInt16, "smallint", "smallint unsigned", ColumnType::MYSQL_TYPE_SHORT, 65_535),
-        (MySqlColumnKind::UInt32, "mediumint", "mediumint unsigned", ColumnType::MYSQL_TYPE_INT24, 16_777_215),
-        (MySqlColumnKind::UInt64, "bigint", "bigint unsigned", ColumnType::MYSQL_TYPE_LONGLONG, 2),
+        (
+            MySqlColumnKind::UInt8,
+            "tinyint",
+            "tinyint unsigned",
+            ColumnType::MYSQL_TYPE_TINY,
+            255,
+        ),
+        (
+            MySqlColumnKind::UInt16,
+            "smallint",
+            "smallint unsigned",
+            ColumnType::MYSQL_TYPE_SHORT,
+            65_535,
+        ),
+        (
+            MySqlColumnKind::UInt32,
+            "mediumint",
+            "mediumint unsigned",
+            ColumnType::MYSQL_TYPE_INT24,
+            16_777_215,
+        ),
+        (
+            MySqlColumnKind::UInt64,
+            "bigint",
+            "bigint unsigned",
+            ColumnType::MYSQL_TYPE_LONGLONG,
+            2,
+        ),
     ] {
         let mut column = column("value", column_type, None);
         column.data_type = data_type.to_owned();
@@ -213,9 +240,7 @@ fn char_normalization_matches_select_padding_without_touching_binary() {
     let char_identity = binlog_column("value", ColumnType::MYSQL_TYPE_STRING, None);
     assert_eq!(
         normalize_binlog_value(
-            mysql_async::binlog::value::BinlogValue::Value(Value::Bytes(
-                b"a b     ".to_vec()
-            )),
+            mysql_async::binlog::value::BinlogValue::Value(Value::Bytes(b"a b     ".to_vec())),
             &char_column,
             &char_identity,
         )
@@ -277,15 +302,11 @@ fn geometry_normalization_fences_the_authoritative_srid() {
 #[test]
 fn schema_admission_scales_with_large_extension_metadata() {
     let plan = enum_column(MySqlColumnKind::EnumOrdinal);
-    let schema_column = SchemaColumn::new(
-        plan.name.clone(),
-        plan.kind.arrow_type(),
-        plan.nullable,
-    )
-    .with_arrow_extension_metadata(
-        plan.kind.arrow_extension_name(),
-        plan.arrow_extension_metadata().unwrap(),
-    );
+    let schema_column = SchemaColumn::new(plan.name.clone(), plan.kind.arrow_type(), plan.nullable)
+        .with_arrow_extension_metadata(
+            plan.kind.arrow_extension_name(),
+            plan.arrow_extension_metadata().unwrap(),
+        );
     let mut table = table(vec![plan]);
     table.schema = DatasetSchema::new(vec![schema_column]);
     let baseline = schema_materialization_admission_bytes(&table).unwrap();
@@ -305,8 +326,14 @@ fn cached_stream_schema_preserves_only_extension_metadata_on_old_values() {
     table.schema = DatasetSchema::new(vec![current]);
     let schema = build_table_schema(&table).unwrap();
     let current = schema.field(0).metadata();
-    assert_eq!(current.get(META_PRIMARY_KEY).map(String::as_str), Some("true"));
-    assert_eq!(current.get(META_MAX_LENGTH).map(String::as_str), Some("65535"));
+    assert_eq!(
+        current.get(META_PRIMARY_KEY).map(String::as_str),
+        Some("true")
+    );
+    assert_eq!(
+        current.get(META_MAX_LENGTH).map(String::as_str),
+        Some("65535")
+    );
     let old = schema.field(1).metadata();
     assert!(!old.contains_key(META_PRIMARY_KEY));
     assert!(!old.contains_key(META_MAX_LENGTH));
@@ -353,9 +380,18 @@ fn enum_and_set_normalization_preserves_injective_ordinal_and_bitset_values() {
     let column = enum_column(MySqlColumnKind::EnumOrdinal);
     let mut identity = binlog_column("choice", ColumnType::MYSQL_TYPE_ENUM, None);
     identity.enum_values = Some(vec![b"".to_vec(), b"comma,value".to_vec()]);
-    assert_eq!(normalize_enum(Value::Int(0), &identity, &column).unwrap(), 0);
-    assert_eq!(normalize_enum(Value::Int(1), &identity, &column).unwrap(), 1);
-    assert_eq!(normalize_enum(Value::Int(2), &identity, &column).unwrap(), 2);
+    assert_eq!(
+        normalize_enum(Value::Int(0), &identity, &column).unwrap(),
+        0
+    );
+    assert_eq!(
+        normalize_enum(Value::Int(1), &identity, &column).unwrap(),
+        1
+    );
+    assert_eq!(
+        normalize_enum(Value::Int(2), &identity, &column).unwrap(),
+        2
+    );
     assert!(normalize_enum(Value::Int(3), &identity, &column).is_err());
 
     let mut set_column = enum_column(MySqlColumnKind::SetBits);

@@ -124,7 +124,8 @@ async fn health_has_a_stable_json_contract() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn speedtest_estimate_rejects_zero_duration_before_touching_endpoints() -> anyhow::Result<()> {
+async fn speedtest_estimate_rejects_zero_duration_before_touching_endpoints() -> anyhow::Result<()>
+{
     let (app, root) = test_router().await?;
     let response = app
         .oneshot(
@@ -149,8 +150,8 @@ async fn speedtest_estimate_rejects_zero_duration_before_touching_endpoints() ->
 }
 
 #[tokio::test]
-async fn speedtest_estimate_rejects_zero_cleanup_timeout_before_endpoint_io(
-) -> anyhow::Result<()> {
+async fn speedtest_estimate_rejects_zero_cleanup_timeout_before_endpoint_io() -> anyhow::Result<()>
+{
     let (app, root) = test_router().await?;
     let response = app
         .oneshot(
@@ -262,12 +263,17 @@ async fn speedtest_estimate_runs_actual_generator_through_discard() -> anyhow::R
         serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
     assert_eq!(status, StatusCode::OK, "unexpected response: {body}");
     assert_eq!(body["logical_streams"], 1);
-    assert!(body["source"]["rows_per_second"].as_f64().is_some_and(|value| value > 0.0));
+    assert!(body["source"]["rows_per_second"]
+        .as_f64()
+        .is_some_and(|value| value > 0.0));
     assert!(body["destination"]["rows_per_second"]
         .as_f64()
         .is_some_and(|value| value > 0.0));
     assert_eq!(body["profile"]["datasets"][0]["dataset"], "numbers");
-    assert_eq!(body["profile"]["datasets"][0]["columns"][0]["arrow_type"], "UInt64");
+    assert_eq!(
+        body["profile"]["datasets"][0]["columns"][0]["arrow_type"],
+        "UInt64"
+    );
     assert!(
         !root.join("configured-state").exists(),
         "speedtest must not materialize production delivery state"
@@ -307,7 +313,8 @@ async fn speedtest_estimate_profiles_clickbench_generator_without_reader_failure
     let result = control_plane
         .speedtest_estimate(&config, 1, 60, tokio_util::sync::CancellationToken::new())
         .await;
-    let result = result.map_err(|error| anyhow::anyhow!("clickbench speedtest failed: {error:?}"))?;
+    let result =
+        result.map_err(|error| anyhow::anyhow!("clickbench speedtest failed: {error:?}"))?;
 
     assert_eq!(result.profile.datasets[0].dataset, "clickbench_hits");
     assert_eq!(result.profile.datasets[0].columns.len(), 105);

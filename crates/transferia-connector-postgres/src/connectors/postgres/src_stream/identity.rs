@@ -5,7 +5,7 @@ use crate::connectors::postgres::source::DiscoveredTable;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct PostgresSystemIdentity {
+pub struct PostgresSystemIdentity {
     pub(crate) system_identifier: u64,
 
     pub(crate) database: String,
@@ -13,7 +13,7 @@ pub(crate) struct PostgresSystemIdentity {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct PostgresSourceIdentity {
+pub struct PostgresSourceIdentity {
     pub(crate) system_identifier: u64,
 
     pub(crate) database: String,
@@ -32,7 +32,7 @@ impl PostgresSourceIdentity {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct AuthoritativeTableIdentity {
+pub struct AuthoritativeTableIdentity {
     schema: String,
 
     name: String,
@@ -87,7 +87,7 @@ enum CanonicalArrowType {
     TimestampMicrosecond { timezone: Option<String> },
 }
 
-pub(crate) fn authoritative_table_identities(
+pub fn authoritative_table_identities(
     tables: &[DiscoveredTable],
 ) -> anyhow::Result<Vec<AuthoritativeTableIdentity>> {
     tables

@@ -9,9 +9,9 @@ pub use config::{
     YdbAuth, YdbConnectionCheckConfig, YdbConnectionConfig, YdbSinkConfig, YdbSourceConfig,
     YdbTableConfig,
 };
-pub use src_stream::YdbReplicationConfig;
 pub use sink::YdbSinkConnector;
 pub use source::YdbSourceConnector;
+pub use src_stream::YdbReplicationConfig;
 
 pub async fn check_connection(config: &YdbConnectionConfig) -> anyhow::Result<()> {
     let mut client = transport::YdbClient::connect(config).await?;

@@ -31,13 +31,13 @@ pub fn encode(batch: &RecordBatch) -> anyhow::Result<Bytes> {
 
 fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow::Result<()> {
     match column.data_type() {
-        DataType::Boolean => output.extend_from_slice(
-            if downcast::<BooleanArray>(column)?.value(row) {
+        DataType::Boolean => {
+            output.extend_from_slice(if downcast::<BooleanArray>(column)?.value(row) {
                 b"t"
             } else {
                 b"f"
-            },
-        ),
+            });
+        }
         DataType::Int8 => write_postgres_char(output, downcast::<Int8Array>(column)?.value(row)),
         DataType::Int16 => write_integer(output, downcast::<Int16Array>(column)?.value(row)),
         DataType::Int32 => write_integer(output, downcast::<Int32Array>(column)?.value(row)),
@@ -69,7 +69,7 @@ fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow
         }
         DataType::Timestamp(unit, _) => {
             let with_timezone = timestamp_has_timezone(column.data_type())?;
-            let micros = timestamp_micros(column, row, unit)?;
+            let micros = timestamp_micros(column, row, *unit)?;
             let timestamp = format_timestamp(micros, with_timezone)?;
             output.extend_from_slice(timestamp.as_bytes());
         }

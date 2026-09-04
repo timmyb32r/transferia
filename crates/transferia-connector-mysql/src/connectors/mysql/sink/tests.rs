@@ -4,11 +4,10 @@ use std::sync::Arc;
 
 use super::config::MySqlSinkConfig;
 use super::connector::{
-    ambiguous_drop_is_complete, classify_owner_marker, cleanup_ownership_action,
-    decimal_sql_type, isolate_discovery, mysql_cleanup_ddl, mysql_owned_create_ddl,
-    mysql_physical_target, mysql_sql_type, owner_marker_allows_side_effect,
-    physical_target_set, validate_cleanup_scope, CleanupOwnershipAction, MySqlSinkConnector,
-    MySqlSpeedtestScope, OwnerMarkerEvidence,
+    ambiguous_drop_is_complete, classify_owner_marker, cleanup_ownership_action, decimal_sql_type,
+    isolate_discovery, mysql_cleanup_ddl, mysql_owned_create_ddl, mysql_physical_target,
+    mysql_sql_type, owner_marker_allows_side_effect, physical_target_set, validate_cleanup_scope,
+    CleanupOwnershipAction, MySqlSinkConnector, MySqlSpeedtestScope, OwnerMarkerEvidence,
 };
 use super::writer::{date_text, decimal_text, timestamp_text};
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
@@ -119,7 +118,7 @@ fn speedtest_rewrites_every_dataset_within_mysql_name_limit() -> anyhow::Result<
     assert_eq!(tables.len(), original.datasets.len());
     assert!(tables.iter().all(|table| table.chars().count() <= 64));
     assert_eq!(
-        mapping.get("events").map(|name| name.as_ref()),
+        mapping.get("events").map(std::convert::AsRef::as_ref),
         Some("_transferia_st_0123456789abcdef0123456789abcdef_0")
     );
     assert_eq!(
@@ -157,8 +156,7 @@ fn mysql_cleanup_ddl_quotes_exact_database_and_table() -> anyhow::Result<()> {
 async fn production_mysql_connector_cannot_cleanup_speedtest_tables() -> anyhow::Result<()> {
     let connector = Arc::new(MySqlSinkConnector::from_config(config())?);
     let original = discovery("events");
-    let scratch: Arc<str> =
-        Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
+    let scratch: Arc<str> = Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
     let mut rewritten = original.clone();
     rewritten.datasets[0].name = Arc::clone(&scratch);
     rewritten.datasets.truncate(1);
@@ -185,8 +183,7 @@ async fn production_mysql_connector_cannot_cleanup_speedtest_tables() -> anyhow:
 
 #[test]
 fn mysql_cleanup_requires_exact_table_and_physical_target_sets() -> anyhow::Result<()> {
-    let scratch: Arc<str> =
-        Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
+    let scratch: Arc<str> = Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
     let original = discovery("events");
     let mut rewritten = original.clone();
     rewritten.datasets[0].name = Arc::clone(&scratch);
@@ -266,9 +263,15 @@ fn mysql_owner_marker_rejects_collisions_and_replacements() {
         OwnerMarkerEvidence::Missing
     );
     assert!(owner_marker_allows_side_effect(OwnerMarkerEvidence::Owned));
-    assert!(!owner_marker_allows_side_effect(OwnerMarkerEvidence::Foreign));
-    assert!(!owner_marker_allows_side_effect(OwnerMarkerEvidence::Unmarked));
-    assert!(!owner_marker_allows_side_effect(OwnerMarkerEvidence::Missing));
+    assert!(!owner_marker_allows_side_effect(
+        OwnerMarkerEvidence::Foreign
+    ));
+    assert!(!owner_marker_allows_side_effect(
+        OwnerMarkerEvidence::Unmarked
+    ));
+    assert!(!owner_marker_allows_side_effect(
+        OwnerMarkerEvidence::Missing
+    ));
     assert!(ambiguous_drop_is_complete(OwnerMarkerEvidence::Missing));
     assert!(!ambiguous_drop_is_complete(OwnerMarkerEvidence::Owned));
     assert!(!ambiguous_drop_is_complete(OwnerMarkerEvidence::Foreign));
@@ -283,11 +286,7 @@ fn mysql_scratch_create_is_exclusive_and_has_atomic_owner_comment() -> anyhow::R
         schema: DatasetSchema::new(vec![column(DataType::Int64)]),
         changelog: false,
     };
-    let ddl = mysql_owned_create_ddl(
-        "odd`database",
-        &dataset,
-        "transferia-speedtest-owner:a'b",
-    )?;
+    let ddl = mysql_owned_create_ddl("odd`database", &dataset, "transferia-speedtest-owner:a'b")?;
     assert!(!ddl.contains("IF NOT EXISTS"));
     assert!(ddl.starts_with(
         "CREATE TABLE `odd``database`.`_transferia_st_0123456789abcdef0123456789abcdef_0`"
@@ -370,8 +369,10 @@ fn mysql_lost_committed_create_remains_recoverable_after_unreadable_probes() {
             BTreeSet::from([Arc::clone(&table)])
         );
     }
-    assert!(fake_mysql_cleanup(&scope, &table, Ok(OwnerMarkerEvidence::Owned), true)
-        .expect("an exact late owner and schema proof permits exact cleanup"));
+    assert!(
+        fake_mysql_cleanup(&scope, &table, Ok(OwnerMarkerEvidence::Owned), true)
+            .expect("an exact late owner and schema proof permits exact cleanup")
+    );
     assert!(scope.attempted_tables().is_empty());
 }
 
@@ -389,8 +390,10 @@ fn mysql_foreign_unmarked_or_wrong_schema_collision_is_preserved() {
             BTreeSet::from([Arc::clone(&table)])
         );
     }
-    assert!(fake_mysql_cleanup(&scope, &table, Ok(OwnerMarkerEvidence::Owned), false)
-        .unwrap_err()
-        .contains("preserved"));
+    assert!(
+        fake_mysql_cleanup(&scope, &table, Ok(OwnerMarkerEvidence::Owned), false)
+            .unwrap_err()
+            .contains("preserved")
+    );
     assert_eq!(scope.attempted_tables(), BTreeSet::from([table]));
 }

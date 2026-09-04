@@ -62,7 +62,11 @@ fn gtid_row_transaction_preserves_identity_images_and_commit_position() {
     assert_eq!(table.column_identities[0].primary_key_ordinal, Some(1));
 
     let rows_start = decoder.current_position().position;
-    let rows = raw_event(EventType::WRITE_ROWS_EVENT, &write_rows_data(42), rows_start);
+    let rows = raw_event(
+        EventType::WRITE_ROWS_EVENT,
+        &write_rows_data(42),
+        rows_start,
+    );
     let decoded = decoder.decode(&rows).unwrap();
     let DecodedBinlogEvent::Rows(decoded) = decoded else {
         panic!("expected rows")
@@ -98,11 +102,17 @@ fn xid_without_transaction_and_rows_without_table_map_fail_without_advancing() {
     let xid = raw_event(EventType::XID_EVENT, &1_u64.to_le_bytes(), start.position);
     assert!(matches!(
         decoder.decode(&xid),
-        Err(BinlogDecodeError::TransactionNotActive(EventType::XID_EVENT))
+        Err(BinlogDecodeError::TransactionNotActive(
+            EventType::XID_EVENT
+        ))
     ));
     assert_eq!(decoder.current_position(), &start);
 
-    let gtid = raw_event(EventType::GTID_EVENT, &gtid_data([1; 16], 1), start.position);
+    let gtid = raw_event(
+        EventType::GTID_EVENT,
+        &gtid_data([1; 16], 1),
+        start.position,
+    );
     decoder.decode(&gtid).unwrap();
     let before_rows = decoder.current_position().clone();
     let rows = raw_event(
@@ -132,11 +142,7 @@ fn table_map_without_primary_key_remains_decodable_for_unselected_tables() {
     let mut decoder = decoder();
     decoder.retain_rows_for_tables(b"db", vec![b"selected".to_vec()]);
     decoder
-        .decode(&raw_event(
-            EventType::GTID_EVENT,
-            &gtid_data([6; 16], 1),
-            4,
-        ))
+        .decode(&raw_event(EventType::GTID_EVENT, &gtid_data([6; 16], 1), 4))
         .unwrap();
     let mapped = decoder
         .decode(&raw_event(
@@ -160,11 +166,7 @@ fn table_map_without_primary_key_remains_decodable_for_unselected_tables() {
 fn full_table_map_preserves_enum_set_geometry_vector_and_visibility() {
     let mut decoder = decoder();
     decoder
-        .decode(&raw_event(
-            EventType::GTID_EVENT,
-            &gtid_data([9; 16], 1),
-            4,
-        ))
+        .decode(&raw_event(EventType::GTID_EVENT, &gtid_data([9; 16], 1), 4))
         .unwrap();
     let mapped = decoder
         .decode(&raw_event(
@@ -225,11 +227,7 @@ fn full_table_map_rejects_duplicate_optional_identity_fields() {
 fn transaction_terminal_evicts_connector_owned_table_maps() {
     let mut decoder = decoder();
     decoder
-        .decode(&raw_event(
-            EventType::GTID_EVENT,
-            &gtid_data([7; 16], 1),
-            4,
-        ))
+        .decode(&raw_event(EventType::GTID_EVENT, &gtid_data([7; 16], 1), 4))
         .unwrap();
     decoder
         .decode(&raw_event(
@@ -302,11 +300,7 @@ fn decoded_row_limit_is_cumulative_across_every_rows_event_in_the_transaction() 
     )
     .unwrap();
     decoder
-        .decode(&raw_event(
-            EventType::GTID_EVENT,
-            &gtid_data([2; 16], 1),
-            4,
-        ))
+        .decode(&raw_event(EventType::GTID_EVENT, &gtid_data([2; 16], 1), 4))
         .unwrap();
     decoder
         .decode(&raw_event(
@@ -497,12 +491,10 @@ fn full_metadata_table_map_data() -> Vec<u8> {
     data.push(0);
     data.extend_from_slice(&[11, 2, 45, 45]);
     data.extend_from_slice(&[
-        4, 29, 6, b'c', b'h', b'o', b'i', b'c', b'e', 5, b'f', b'l', b'a', b'g', b's', 5,
-        b's', b'h', b'a', b'p', b'e', 9, b'e', b'm', b'b', b'e', b'd', b'd', b'i', b'n', b'g',
+        4, 29, 6, b'c', b'h', b'o', b'i', b'c', b'e', 5, b'f', b'l', b'a', b'g', b's', 5, b's',
+        b'h', b'a', b'p', b'e', 9, b'e', b'm', b'b', b'e', b'd', b'd', b'i', b'n', b'g',
     ]);
-    data.extend_from_slice(&[
-        5, 7, 2, 1, b'a', 3, b'b', b',', b'c',
-    ]);
+    data.extend_from_slice(&[5, 7, 2, 1, b'a', 3, b'b', b',', b'c']);
     data.extend_from_slice(&[
         6, 14, 2, 0, 11, b'c', b'o', b'm', b'm', b'a', b',', b'v', b'a', b'l', b'u', b'e',
     ]);

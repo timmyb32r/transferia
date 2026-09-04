@@ -56,7 +56,11 @@ fn tuning_contract(
                 transferia_registry::tuning::TuningParameter::UnsignedInteger {
                     candidates,
                     ..
-                } => candidates.iter().copied().map(serde_json::Value::from).collect(),
+                } => candidates
+                    .iter()
+                    .copied()
+                    .map(serde_json::Value::from)
+                    .collect(),
                 transferia_registry::tuning::TuningParameter::Choice { values, .. } => {
                     values.clone()
                 }

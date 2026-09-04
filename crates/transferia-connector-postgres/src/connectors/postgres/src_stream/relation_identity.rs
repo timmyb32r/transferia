@@ -81,7 +81,7 @@ struct CurrentRelationIdentity {
     primary_key: Vec<bool>,
 }
 
-pub(crate) async fn validate_relation_identities<C>(
+pub async fn validate_relation_identities<C>(
     client: &C,
     tables: &[DiscoveredTable],
 ) -> anyhow::Result<()>
@@ -121,7 +121,7 @@ where
     validate_relation_identity_contract(tables, &current).map_err(replication_contract_violation)
 }
 
-pub(crate) async fn lock_and_validate_relation_identities<C>(
+pub async fn lock_and_validate_relation_identities<C>(
     client: &C,
     tables: &[DiscoveredTable],
 ) -> anyhow::Result<()>
@@ -132,7 +132,7 @@ where
     validate_relation_identities(client, tables).await
 }
 
-pub(crate) async fn lock_authoritative_relations<C>(
+pub async fn lock_authoritative_relations<C>(
     client: &C,
     tables: &[DiscoveredTable],
 ) -> anyhow::Result<()>

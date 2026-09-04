@@ -1,7 +1,7 @@
 use arrow::array::{
-    ArrayRef, BinaryArray, Date32Array, Int16Array, Int32Array, Int64Array, Int8Array,
-    StringArray, TimestampMicrosecondArray, TimestampNanosecondArray, TimestampSecondArray,
-    UInt16Array, UInt64Array, UInt8Array,
+    ArrayRef, BinaryArray, Date32Array, Int16Array, Int32Array, Int64Array, Int8Array, StringArray,
+    TimestampMicrosecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt16Array,
+    UInt64Array, UInt8Array,
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
@@ -10,12 +10,12 @@ use std::sync::Arc;
 
 use super::config::PostgresSinkConfig;
 use super::connector::{
-    ambiguous_drop_is_complete, classify_owner_marker, cleanup_ownership_action,
-    isolate_discovery, owner_marker_allows_side_effect, physical_target_set,
-    postgres_cleanup_ddl, postgres_owned_create_ddl, postgres_physical_target,
-    postgres_sql_type, validate_cleanup_scope, CleanupOwnershipAction, OwnerMarkerEvidence,
-    PostgresSinkConnector, PostgresSpeedtestScope,
+    ambiguous_drop_is_complete, classify_owner_marker, cleanup_ownership_action, isolate_discovery,
+    owner_marker_allows_side_effect, physical_target_set, postgres_cleanup_ddl,
+    postgres_owned_create_ddl, postgres_physical_target, postgres_sql_type, validate_cleanup_scope,
+    CleanupOwnershipAction, OwnerMarkerEvidence, PostgresSinkConnector, PostgresSpeedtestScope,
 };
+use crate::connectors::postgres::PostgresCopyFormat;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::SystemColumns;
 use transferia_core::delivery::{
@@ -27,7 +27,6 @@ use transferia_core::sink::SinkBatch;
 use transferia_registry::{
     DatasetPrepare, SinkConnector, SinkSpeedtestIsolation, SpeedtestPhysicalTarget,
 };
-use crate::connectors::postgres::PostgresCopyFormat;
 
 fn discovery(table: &str) -> DeliveryDiscovery {
     let schema = DatasetSchema::new(vec![SchemaColumn::new(
@@ -183,10 +182,7 @@ fn postgres_sink_ddl_covers_every_copy_encoder_type() {
             "timestamp",
         ),
         (
-            DataType::Timestamp(
-                arrow::datatypes::TimeUnit::Microsecond,
-                Some("UTC".into()),
-            ),
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, Some("UTC".into())),
             "timestamp with time zone",
         ),
     ] {
@@ -213,7 +209,9 @@ fn postgres_sink_rejects_non_utc_timestamp_metadata_during_discovery() {
     let error = config()
         .validate_discovery(&discovery)
         .expect_err("PostgreSQL cannot preserve a non-UTC Arrow timezone annotation");
-    assert!(error.to_string().contains("use explicit UTC or no timezone"));
+    assert!(error
+        .to_string()
+        .contains("use explicit UTC or no timezone"));
 }
 
 #[test]
@@ -248,7 +246,9 @@ fn copy_encoders_preserve_every_unsigned_integer_without_narrowing() {
         3, 187, // 955
         6, 79, // 1615
     ];
-    assert!(binary.windows(numeric.len()).any(|window| window == numeric));
+    assert!(binary
+        .windows(numeric.len())
+        .any(|window| window == numeric));
 }
 
 #[test]
@@ -292,7 +292,10 @@ fn text_copy_encoder_escapes_values_and_preserves_binary_date_and_timestamp() {
         ])),
         vec![
             Arc::new(StringArray::from(vec![Some("a\tb\\c\n"), None])) as ArrayRef,
-            Arc::new(BinaryArray::from(vec![b"\0\xff".as_slice(), b"".as_slice()])) as ArrayRef,
+            Arc::new(BinaryArray::from(vec![
+                b"\0\xff".as_slice(),
+                b"".as_slice(),
+            ])) as ArrayRef,
             Arc::new(Date32Array::from(vec![19_723, 0])) as ArrayRef,
             Arc::new(TimestampNanosecondArray::from(vec![
                 1_704_067_200_123_456_000,
@@ -315,7 +318,11 @@ fn text_copy_encoder_preserves_the_complete_postgres_internal_char_domain() {
         .map(|byte| i8::from_ne_bytes([byte]))
         .collect::<Vec<_>>();
     let batch = RecordBatch::try_new(
-        Arc::new(Schema::new(vec![Field::new("value", DataType::Int8, false)])),
+        Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int8,
+            false,
+        )])),
         vec![Arc::new(Int8Array::from(values)) as ArrayRef],
     )
     .unwrap();
@@ -353,15 +360,11 @@ fn both_copy_encoders_preserve_explicit_utc_and_reject_unrepresentable_temporals
     let utc = RecordBatch::try_new(
         Arc::new(Schema::new(vec![Field::new(
             "observed_at",
-            DataType::Timestamp(
-                arrow::datatypes::TimeUnit::Microsecond,
-                Some("UTC".into()),
-            ),
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, Some("UTC".into())),
             false,
         )])),
         vec![Arc::new(
-            TimestampMicrosecondArray::from(vec![1_704_067_200_123_456])
-                .with_timezone("UTC"),
+            TimestampMicrosecondArray::from(vec![1_704_067_200_123_456]).with_timezone("UTC"),
         ) as ArrayRef],
     )
     .unwrap();
@@ -380,9 +383,10 @@ fn both_copy_encoders_preserve_explicit_utc_and_reject_unrepresentable_temporals
             ),
             false,
         )])),
-        vec![Arc::new(
-            TimestampMicrosecondArray::from(vec![0]).with_timezone("Europe/Moscow"),
-        ) as ArrayRef],
+        vec![
+            Arc::new(TimestampMicrosecondArray::from(vec![0]).with_timezone("Europe/Moscow"))
+                as ArrayRef,
+        ],
     )
     .unwrap();
     assert!(super::copy_text::encode(&invalid_timezone).is_err());
@@ -462,8 +466,7 @@ fn postgres_cleanup_ddl_quotes_exact_schema_and_table() -> anyhow::Result<()> {
 async fn production_postgres_connector_cannot_cleanup_speedtest_tables() -> anyhow::Result<()> {
     let connector = Arc::new(PostgresSinkConnector::from_config(config())?);
     let original = discovery("events");
-    let scratch: Arc<str> =
-        Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
+    let scratch: Arc<str> = Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
     let mut rewritten = original.clone();
     rewritten.datasets[0].name = Arc::clone(&scratch);
     rewritten.datasets.truncate(1);
@@ -492,8 +495,7 @@ async fn production_postgres_connector_cannot_cleanup_speedtest_tables() -> anyh
 
 #[test]
 fn postgres_cleanup_requires_exact_table_and_physical_target_sets() -> anyhow::Result<()> {
-    let scratch: Arc<str> =
-        Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
+    let scratch: Arc<str> = Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
     let original = discovery("events");
     let mut rewritten = original.clone();
     rewritten.datasets[0].name = Arc::clone(&scratch);
@@ -576,9 +578,15 @@ fn postgres_owner_marker_rejects_collisions_and_replacements() {
         OwnerMarkerEvidence::Missing
     );
     assert!(owner_marker_allows_side_effect(OwnerMarkerEvidence::Owned));
-    assert!(!owner_marker_allows_side_effect(OwnerMarkerEvidence::Foreign));
-    assert!(!owner_marker_allows_side_effect(OwnerMarkerEvidence::Unmarked));
-    assert!(!owner_marker_allows_side_effect(OwnerMarkerEvidence::Missing));
+    assert!(!owner_marker_allows_side_effect(
+        OwnerMarkerEvidence::Foreign
+    ));
+    assert!(!owner_marker_allows_side_effect(
+        OwnerMarkerEvidence::Unmarked
+    ));
+    assert!(!owner_marker_allows_side_effect(
+        OwnerMarkerEvidence::Missing
+    ));
     assert!(ambiguous_drop_is_complete(OwnerMarkerEvidence::Missing));
     assert!(!ambiguous_drop_is_complete(OwnerMarkerEvidence::Owned));
     assert!(!ambiguous_drop_is_complete(OwnerMarkerEvidence::Foreign));
@@ -597,11 +605,7 @@ fn postgres_scratch_create_is_exclusive_and_marks_owner_atomically() -> anyhow::
         )]),
         changelog: false,
     };
-    let ddl = postgres_owned_create_ddl(
-        "odd\"schema",
-        &dataset,
-        "transferia-speedtest-owner:a'b",
-    )?;
+    let ddl = postgres_owned_create_ddl("odd\"schema", &dataset, "transferia-speedtest-owner:a'b")?;
     assert!(!ddl.contains("IF NOT EXISTS"));
     assert!(ddl.starts_with(
         "CREATE TABLE \"odd\"\"schema\".\"_transferia_st_0123456789abcdef0123456789abcdef_0\""
@@ -688,8 +692,10 @@ fn postgres_lost_committed_create_remains_recoverable_after_unreadable_probes() 
             BTreeSet::from([Arc::clone(&table)])
         );
     }
-    assert!(fake_postgres_cleanup(&scope, &table, Ok(OwnerMarkerEvidence::Owned), true)
-        .expect("an exact late owner and schema proof permits exact cleanup"));
+    assert!(
+        fake_postgres_cleanup(&scope, &table, Ok(OwnerMarkerEvidence::Owned), true)
+            .expect("an exact late owner and schema proof permits exact cleanup")
+    );
     assert!(scope.attempted_tables().is_empty());
 }
 
@@ -707,8 +713,10 @@ fn postgres_foreign_unmarked_or_wrong_schema_collision_is_preserved() {
             BTreeSet::from([Arc::clone(&table)])
         );
     }
-    assert!(fake_postgres_cleanup(&scope, &table, Ok(OwnerMarkerEvidence::Owned), false)
-        .unwrap_err()
-        .contains("preserved"));
+    assert!(
+        fake_postgres_cleanup(&scope, &table, Ok(OwnerMarkerEvidence::Owned), false)
+            .unwrap_err()
+            .contains("preserved")
+    );
     assert_eq!(scope.attempted_tables(), BTreeSet::from([table]));
 }

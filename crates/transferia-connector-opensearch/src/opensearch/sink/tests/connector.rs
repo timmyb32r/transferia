@@ -18,8 +18,8 @@ use transferia_core::delivery::{
 use transferia_registry::{SinkConnector as _, SinkSpeedtestIsolation, SpeedtestPhysicalTarget};
 
 use super::*;
-use crate::opensearch::{OpenSearchAuth, OpenSearchConnectionConfig};
 use crate::opensearch::sink::RoutedIdentity;
+use crate::opensearch::{OpenSearchAuth, OpenSearchConnectionConfig};
 
 struct FailingVerifier;
 
@@ -32,10 +32,10 @@ impl SpeedtestVerifier for FailingVerifier {
 struct CountingTransport(AtomicUsize);
 
 impl BulkTransport for CountingTransport {
-    fn send<'a>(
-        &'a self,
+    fn send(
+        &self,
         _payload: Vec<u8>,
-    ) -> BoxFuture<'a, Result<Vec<u16>, crate::opensearch::sink::bulk::BulkFailure>> {
+    ) -> BoxFuture<'_, Result<Vec<u16>, crate::opensearch::sink::bulk::BulkFailure>> {
         self.0.fetch_add(1, Ordering::SeqCst);
         Box::pin(async { Ok(vec![201]) })
     }
@@ -86,9 +86,7 @@ async fn acknowledged_delete_that_leaves_index_present_retains_cleanup_obligatio
 ) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
-    let scratch: Arc<str> = Arc::from(
-        "transferia-st-0123456789abcdef0123456789abcdef-0",
-    );
+    let scratch: Arc<str> = Arc::from("transferia-st-0123456789abcdef0123456789abcdef-0");
     let owner: Arc<str> = Arc::from("owner");
     let mapping = strict_mapping(&schema(), Some(&owner))?;
     let description = serde_json::json!({
@@ -198,8 +196,11 @@ async fn acknowledged_delete_that_leaves_index_present_retains_cleanup_obligatio
 #[test]
 fn id_is_exclusive_metadata_not_a_mixed_user_primary_key() {
     let mixed = DatasetSchema::new(vec![
-        SchemaColumn::new("_id".to_owned(), DataType::Utf8, false)
-            .with_constraints(true, false, Some(512)),
+        SchemaColumn::new("_id".to_owned(), DataType::Utf8, false).with_constraints(
+            true,
+            false,
+            Some(512),
+        ),
         SchemaColumn::new("tenant".to_owned(), DataType::Utf8, false)
             .with_constraints(true, false, None),
     ]);
@@ -211,9 +212,11 @@ fn id_is_exclusive_metadata_not_a_mixed_user_primary_key() {
     ]);
     assert!(validate_schema(&non_key).is_err());
 
-    let oversized = DatasetSchema::new(vec![
-        SchemaColumn::new("_id".to_owned(), DataType::Utf8, false)
-            .with_constraints(true, false, Some(513)),
-    ]);
+    let oversized = DatasetSchema::new(vec![SchemaColumn::new(
+        "_id".to_owned(),
+        DataType::Utf8,
+        false,
+    )
+    .with_constraints(true, false, Some(513))]);
     assert!(validate_schema(&oversized).is_err());
 }

@@ -79,7 +79,7 @@ fn every_row_dml_action_is_required() {
             0 => settings.insert = Some(false),
             1 => settings.update = Some(false),
             2 => settings.delete = Some(false),
-            _ => unreachable!(),
+            _ => panic!("test enumerates exactly the three row DML actions"),
         }
         let error = validate_publication_contract(PUBLICATION, settings, &expected, &actual)
             .unwrap_err()

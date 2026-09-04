@@ -5,6 +5,7 @@ mod source;
 pub use config::{IndexConfig, OpenSearchSourceConfig};
 pub use connector::OpenSearchSourceConnector;
 
+#[must_use]
 pub fn initial_config() -> serde_json::Value {
     serde_json::json!({
         "hosts": [""],

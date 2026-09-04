@@ -144,7 +144,7 @@ pub struct TableConfig {
     pub name: String,
 
     /// Columns that the user guarantees identify one logical row uniquely.
-    /// ClickHouse sorting and primary keys do not enforce uniqueness, so the
+    /// `ClickHouse` sorting and primary keys do not enforce uniqueness, so the
     /// connector never infers this contract from table metadata.
     #[serde(default)]
     #[schemars(title = "Unique row key")]

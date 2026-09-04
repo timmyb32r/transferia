@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use arrow::datatypes::DataType;
@@ -16,6 +17,7 @@ use transferia_registry::{
     SpeedtestPhysicalTarget,
 };
 
+use super::super::{validate_index_name, OpenSearchClient, OpenSearchHttpError};
 use super::actor::OpenSearchSink;
 use super::bulk::{BulkTransport, OpenSearchBulkTransport};
 use super::config::OpenSearchSinkConfig;
@@ -23,7 +25,6 @@ use super::document::{document_shape, DocumentShape};
 use super::mapping::{
     create_index_body, destination_type, strict_mapping, validate_index_description,
 };
-use super::super::{validate_index_name, OpenSearchClient, OpenSearchHttpError};
 
 pub struct OpenSearchSinkConnector {
     config: Arc<OpenSearchSinkConfig>,
@@ -66,10 +67,7 @@ impl SpeedtestVerifier for ScopeVerifier {
 }
 
 impl BulkTransport for VerifiedSpeedtestBulkTransport {
-    fn send<'a>(
-        &'a self,
-        payload: Vec<u8>,
-    ) -> BoxFuture<'a, Result<Vec<u16>, super::bulk::BulkFailure>> {
+    fn send(&self, payload: Vec<u8>) -> BoxFuture<'_, Result<Vec<u16>, super::bulk::BulkFailure>> {
         Box::pin(async move {
             self.verifier
                 .verify()
@@ -82,9 +80,16 @@ impl BulkTransport for VerifiedSpeedtestBulkTransport {
 
 impl SpeedtestScope {
     fn record_attempt(&self, index: &str) -> anyhow::Result<()> {
-        let index = self.schemas.keys().find(|value| value.as_ref() == index).cloned().ok_or_else(|| {
-            anyhow::anyhow!("refusing to prepare an OpenSearch index outside the speedtest scope")
-        })?;
+        let index = self
+            .schemas
+            .keys()
+            .find(|value| value.as_ref() == index)
+            .cloned()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "refusing to prepare an OpenSearch index outside the speedtest scope"
+                )
+            })?;
         self.attempted
             .lock()
             .map_err(|_| anyhow::anyhow!("OpenSearch speedtest state is poisoned"))?
@@ -93,9 +98,14 @@ impl SpeedtestScope {
     }
 
     fn claim(&self, index: &str) -> anyhow::Result<()> {
-        let index = self.schemas.keys().find(|value| value.as_ref() == index).cloned().ok_or_else(|| {
-            anyhow::anyhow!("refusing to claim an OpenSearch index outside the speedtest scope")
-        })?;
+        let index = self
+            .schemas
+            .keys()
+            .find(|value| value.as_ref() == index)
+            .cloned()
+            .ok_or_else(|| {
+                anyhow::anyhow!("refusing to claim an OpenSearch index outside the speedtest scope")
+            })?;
         self.claimed
             .lock()
             .map_err(|_| anyhow::anyhow!("OpenSearch speedtest state is poisoned"))?
@@ -308,11 +318,13 @@ impl SinkConnector for OpenSearchSinkConnector {
                     "OpenSearch speedtest cannot safely synthesize a strict mapping for an opaque _source envelope"
                 );
                 let production = Arc::clone(&dataset.name);
-                let scratch: Arc<str> = Arc::from(format!(
-                    "transferia-st-{isolation_id}-{position:x}"
-                ));
+                let scratch: Arc<str> =
+                    Arc::from(format!("transferia-st-{isolation_id}-{position:x}"));
                 validate_index_name(&scratch)?;
-                anyhow::ensure!(scratch != production, "OpenSearch speedtest index aliases production");
+                anyhow::ensure!(
+                    scratch != production,
+                    "OpenSearch speedtest index aliases production"
+                );
                 table_names.insert(Arc::clone(&production), Arc::clone(&scratch));
                 schemas.insert(Arc::clone(&scratch), dataset.stored_schema.clone());
                 physical_targets.push(SpeedtestPhysicalTarget {
@@ -377,12 +389,7 @@ impl SinkConnector for OpenSearchSinkConnector {
                             continue;
                         }
                         let deleted = client
-                            .json::<serde_json::Value>(
-                                Method::DELETE,
-                                &[&index],
-                                &[],
-                                None,
-                            )
+                            .json::<serde_json::Value>(Method::DELETE, &[&index], &[], None)
                             .await;
                         if !matches!(
                             deleted,
@@ -400,9 +407,9 @@ impl SinkConnector for OpenSearchSinkConnector {
                             Ok(_) => failures.push(format!(
                                 "'{index}' still exists after acknowledged deletion"
                             )),
-                            Err(_) => failures.push(format!(
-                                "'{index}' deletion could not be verified"
-                            )),
+                            Err(_) => {
+                                failures.push(format!("'{index}' deletion could not be verified"));
+                            }
                         }
                     }
                     Err(OpenSearchHttpError::Status { status })
@@ -424,10 +431,16 @@ impl SinkConnector for OpenSearchSinkConnector {
 }
 
 fn validate_schema(schema: &DatasetSchema) -> anyhow::Result<()> {
-    anyhow::ensure!(!schema.columns.is_empty(), "OpenSearch index schema is empty");
+    anyhow::ensure!(
+        !schema.columns.is_empty(),
+        "OpenSearch index schema is empty"
+    );
     let mut names = HashSet::new();
     for column in &schema.columns {
-        anyhow::ensure!(!column.name.is_empty(), "OpenSearch field name must not be empty");
+        anyhow::ensure!(
+            !column.name.is_empty(),
+            "OpenSearch field name must not be empty"
+        );
         anyhow::ensure!(
             names.insert(column.name.as_str()),
             "OpenSearch schema repeats field '{}'",
@@ -451,7 +464,11 @@ fn validate_schema(schema: &DatasetSchema) -> anyhow::Result<()> {
             "OpenSearch _id declared max_length exceeds the 512-byte limit"
         );
     }
-    if let Some(routing) = schema.columns.iter().find(|column| column.name == "_routing") {
+    if let Some(routing) = schema
+        .columns
+        .iter()
+        .find(|column| column.name == "_routing")
+    {
         anyhow::ensure!(
             routing.data_type == DataType::Utf8 && !routing.primary_key,
             "OpenSearch _routing must be a non-primary-key Arrow Utf8 field"
@@ -559,7 +576,10 @@ async fn verify_claimed_scope(
         "OpenSearch speedtest scope is not fully prepared"
     );
     for (index, schema) in &scope.schemas {
-        anyhow::ensure!(claimed.contains(index), "OpenSearch speedtest index is not claimed");
+        anyhow::ensure!(
+            claimed.contains(index),
+            "OpenSearch speedtest index is not claimed"
+        );
         let description = describe_index(client, index).await?;
         validate_index_description(index, &description, schema, Some(&scope.owner))?;
     }
@@ -613,23 +633,31 @@ fn validate_isolation_id(value: &str) -> anyhow::Result<()> {
 fn random_owner() -> anyhow::Result<String> {
     let mut random = [0_u8; 16];
     getrandom::fill(&mut random)?;
-    Ok(random.iter().map(|byte| format!("{byte:02x}")).collect())
+    let mut owner = String::with_capacity(32);
+    for byte in random {
+        write!(&mut owner, "{byte:02x}")?;
+    }
+    Ok(owner)
 }
 
 fn schemas_equal(left: &DatasetSchema, right: &DatasetSchema) -> bool {
     left.columns.len() == right.columns.len()
-        && left.columns.iter().zip(&right.columns).all(|(left, right)| {
-            left.name == right.name
-                && left.data_type == right.data_type
-                && left.nullable == right.nullable
-                && left.primary_key == right.primary_key
-                && left.low_cardinality == right.low_cardinality
-                && left.max_length == right.max_length
-                && left.arrow_extension_name == right.arrow_extension_name
-                && left.system_role == right.system_role
-                && left.old_value_of == right.old_value_of
-                && left.old_key_of == right.old_key_of
-        })
+        && left
+            .columns
+            .iter()
+            .zip(&right.columns)
+            .all(|(left, right)| {
+                left.name == right.name
+                    && left.data_type == right.data_type
+                    && left.nullable == right.nullable
+                    && left.primary_key == right.primary_key
+                    && left.low_cardinality == right.low_cardinality
+                    && left.max_length == right.max_length
+                    && left.arrow_extension_name == right.arrow_extension_name
+                    && left.system_role == right.system_role
+                    && left.old_value_of == right.old_value_of
+                    && left.old_key_of == right.old_key_of
+            })
 }
 
 #[cfg(test)]

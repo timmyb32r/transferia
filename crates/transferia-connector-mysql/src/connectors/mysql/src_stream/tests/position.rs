@@ -132,10 +132,8 @@ fn gtid_set_rejects_duplicates_and_noncanonical_intervals() {
 
 #[test]
 fn committed_gtids_extend_canonically_and_prove_subset_continuity() {
-    let mut committed = GtidSet::parse_mysql(
-        "11111111-1111-1111-1111-111111111111:blue_1:1-3:8",
-    )
-    .unwrap();
+    let mut committed =
+        GtidSet::parse_mysql("11111111-1111-1111-1111-111111111111:blue_1:1-3:8").unwrap();
     committed
         .include_transaction([0x11; 16], Some("blue_1".to_owned()), 4)
         .unwrap();
@@ -148,10 +146,7 @@ fn committed_gtids_extend_canonically_and_prove_subset_continuity() {
         Err(PositionError::DuplicateCommittedGtid { gno: 4, .. })
     ));
 
-    let current = GtidSet::parse_mysql(
-        "11111111-1111-1111-1111-111111111111:blue_1:1-10",
-    )
-    .unwrap();
+    let current = GtidSet::parse_mysql("11111111-1111-1111-1111-111111111111:blue_1:1-10").unwrap();
     assert!(committed.is_subset_of(&current));
     assert!(!current.is_subset_of(&committed));
 }
@@ -161,6 +156,9 @@ fn requests_require_nonzero_replica_identity() {
     let resume = MySqlResumePosition::FilePosition {
         position: MySqlBinlogPosition::new(b"mysql-bin.000001".to_vec(), 4).unwrap(),
     };
-    assert!(matches!(resume.request(0), Err(PositionError::ZeroServerId)));
+    assert!(matches!(
+        resume.request(0),
+        Err(PositionError::ZeroServerId)
+    ));
     resume.request(7).unwrap();
 }

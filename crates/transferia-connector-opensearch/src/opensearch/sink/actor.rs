@@ -87,9 +87,10 @@ impl OpenSearchSink {
         let mut prepared = Vec::new();
         let mut ids = HashSet::<(Arc<str>, Arc<str>)>::new();
         for output in delivery.outputs {
-            let dataset = self
-                .discovery
-                .dataset_named(transferia_core::delivery::DatasetRole::from_is_dlq(output.is_dlq), &output.table)?;
+            let dataset = self.discovery.dataset_named(
+                transferia_core::delivery::DatasetRole::from_is_dlq(output.is_dlq),
+                &output.table,
+            )?;
             let batch = match project_sink_batch(&self.discovery, &output)? {
                 ProjectedSinkBatch::AppendOnly(batch) => batch,
                 ProjectedSinkBatch::Changelog(_) => {
@@ -234,10 +235,8 @@ impl OpenSearchSink {
         let mut per_delivery = BTreeMap::<DeliveryId, usize>::new();
         let index_identity: Arc<str> = Arc::from(index);
         for action in completed {
-            self.pending_identities.remove(&(
-                Arc::clone(&index_identity),
-                Arc::clone(&action.action.id),
-            ));
+            self.pending_identities
+                .remove(&(Arc::clone(&index_identity), Arc::clone(&action.action.id)));
             *per_delivery.entry(action.delivery_id).or_default() += 1;
         }
         for (delivery_id, count) in per_delivery {
@@ -318,7 +317,10 @@ async fn write_parallel(
 ) -> DataPlaneResult<Vec<PendingAction>> {
     let mut by_id = BTreeMap::<Arc<str>, Vec<PendingAction>>::new();
     for action in pending {
-        by_id.entry(Arc::clone(&action.action.id)).or_default().push(action);
+        by_id
+            .entry(Arc::clone(&action.action.id))
+            .or_default()
+            .push(action);
     }
     let lane_count = config.bulk_concurrency.min(by_id.len().max(1));
     let mut lanes = (0..lane_count)
@@ -363,16 +365,13 @@ async fn write_parallel(
                     })?;
                     if !chunk.is_empty()
                         && (chunk.len() >= config.bulk_target_rows
-                            || bytes.saturating_add(front.action.bytes)
-                                > config.bulk_target_bytes)
+                            || bytes.saturating_add(front.action.bytes) > config.bulk_target_bytes)
                     {
                         groups.push_front(group);
                         break;
                     }
                     let action = group.pop_front().ok_or_else(|| {
-                        DataPlaneFailure::fatal(anyhow::anyhow!(
-                            "OpenSearch lane group changed"
-                        ))
+                        DataPlaneFailure::fatal(anyhow::anyhow!("OpenSearch lane group changed"))
                     })?;
                     bytes = bytes.saturating_add(action.action.bytes);
                     chunk.push(action);
@@ -381,10 +380,7 @@ async fn write_parallel(
                     }
                 }
                 debug_assert!(!chunk.is_empty());
-                let wire = chunk
-                    .iter()
-                    .map(|pending| pending.action.clone())
-                    .collect();
+                let wire = chunk.iter().map(|pending| pending.action.clone()).collect();
                 let (rows, bytes) = write_bulk_with_retry(
                     Arc::clone(&transport),
                     &config,

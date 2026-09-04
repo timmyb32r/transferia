@@ -18,22 +18,36 @@ use super::config::{
     DEFAULT_MYSQL_MAX_ROW_BYTES, MYSQL_SNAPSHOT_BATCH_TARGET_MAX_BYTES,
 };
 use super::connector::{
-    build_delivery_discovery, column_generation, column_visibility, mysql_column_kind,
-    parse_enum_set_values, snapshot_expression, validate_snapshot_read_protocol, ColumnPlan,
-    DiscoveredTable, MySqlColumnKind,
+    build_delivery_discovery, collation_identity_is_consistent, column_generation,
+    column_visibility, mysql_column_kind, parse_enum_set_values, snapshot_expression,
+    validate_snapshot_read_protocol, ColumnPlan, DiscoveredTable, MySqlColumnKind,
 };
+
+#[test]
+fn collation_identity_accepts_non_text_columns_and_requires_complete_mysql8_text_metadata() {
+    assert!(collation_identity_is_consistent(
+        false, false, false, false, true
+    ));
+    assert!(collation_identity_is_consistent(
+        true, true, true, true, true
+    ));
+    assert!(!collation_identity_is_consistent(
+        true, true, false, true, true
+    ));
+    assert!(!collation_identity_is_consistent(
+        false, false, false, true, true
+    ));
+}
 use super::reader::{
     build_output_schema, build_output_schema_with_memory, column_array,
-    estimate_arrow_working_set_bytes, max_decoded_row_admission_bytes,
-    next_snapshot_rows_capacity, optional_value_column_array, output_schema_allocation_bound,
-    output_schema_heap_bytes, retained_row_value_heap_bytes, retained_rows_heap_bytes,
-    rows_to_changelog_snapshot_batch, should_read_snapshot_row, snapshot_row_error,
-    validate_snapshot_batch_growth, validate_snapshot_memory_limits, value_f64, value_i64,
-    value_u64, MySqlSnapshotMetadata,
+    estimate_arrow_working_set_bytes, max_decoded_row_admission_bytes, next_snapshot_rows_capacity,
+    optional_value_column_array, output_schema_allocation_bound, output_schema_heap_bytes,
+    retained_row_value_heap_bytes, retained_rows_heap_bytes, rows_to_changelog_snapshot_batch,
+    should_read_snapshot_row, snapshot_row_error, validate_snapshot_batch_growth,
+    validate_snapshot_memory_limits, value_f64, value_i64, value_u64, MySqlSnapshotMetadata,
 };
 use crate::connectors::mysql::src_batch_and_stream::{
-    MySqlBinlogBoundary, MySqlCollationPadding, MySqlColumnGeneration,
-    MySqlColumnVisibility,
+    MySqlBinlogBoundary, MySqlCollationPadding, MySqlColumnGeneration, MySqlColumnVisibility,
 };
 
 const MINIMAL_SOURCE_CONFIG: &str = "\
@@ -63,9 +77,8 @@ fn read_protocol_defaults_to_binary_and_accepts_text_explicitly() -> anyhow::Res
     assert_eq!(default.max_row_bytes, DEFAULT_MYSQL_MAX_ROW_BYTES);
     assert_eq!(default.read_protocol, MySqlReadProtocol::Binary);
 
-    let text: MySqlSourceConfig = serde_yaml::from_str(&format!(
-        "{MINIMAL_SOURCE_CONFIG}read_protocol: text\n"
-    ))?;
+    let text: MySqlSourceConfig =
+        serde_yaml::from_str(&format!("{MINIMAL_SOURCE_CONFIG}read_protocol: text\n"))?;
     assert_eq!(text.read_protocol, MySqlReadProtocol::Text);
 
     assert!(serde_yaml::from_str::<MySqlSourceConfig>(&format!(
@@ -129,7 +142,10 @@ fn snapshot_row_heap_uses_retained_vector_and_payload_capacities() -> anyhow::Re
     row.push(Some(Value::Bytes(payload)));
     let row_bytes = retained_row_value_heap_bytes(&row)?;
     assert_eq!(row_bytes, 8 * size_of::<Option<Value>>() + 64);
-    assert_eq!(retained_rows_heap_bytes(3, row_bytes)?, 3 * size_of::<Vec<Option<Value>>>() + row_bytes);
+    assert_eq!(
+        retained_rows_heap_bytes(3, row_bytes)?,
+        3 * size_of::<Vec<Option<Value>>>() + row_bytes
+    );
     Ok(())
 }
 
@@ -148,7 +164,12 @@ fn low_wire_limit_pre_admits_high_column_decoded_row_overhead() -> anyhow::Resul
 fn arrow_working_set_is_derived_from_rows_schema_and_payload() -> anyhow::Result<()> {
     let columns = vec![
         test_column("id", MySqlColumnKind::UInt64, "bigint unsigned", None),
-        test_column("body", MySqlColumnKind::Utf8, "varchar(255)", Some("utf8mb4")),
+        test_column(
+            "body",
+            MySqlColumnKind::Utf8,
+            "varchar(255)",
+            Some("utf8mb4"),
+        ),
     ];
     let rows = vec![vec![
         Some(Value::UInt(7)),
@@ -195,13 +216,9 @@ async fn large_physical_metadata_is_pre_admitted_and_retained_with_snapshot_sche
         "pre-admission includes current and old extension payloads"
     );
     let memory = transferia_core::memory::PipelineMemory::new(1_024);
-    let (output_schema, schema_memory) = build_output_schema_with_memory(
-        &memory,
-        &schema,
-        std::slice::from_ref(&column),
-        true,
-    )
-    .await?;
+    let (output_schema, schema_memory) =
+        build_output_schema_with_memory(&memory, &schema, std::slice::from_ref(&column), true)
+            .await?;
     let schema_bytes = output_schema_heap_bytes(&output_schema)?;
     assert!(allocation_bound >= schema_bytes);
     assert_eq!(memory.used(), schema_bytes);
@@ -218,11 +235,8 @@ async fn large_physical_metadata_is_pre_admitted_and_retained_with_snapshot_sche
             source_timestamp_micros: 1_700_000_000_000_000,
         },
     };
-    let estimate = estimate_arrow_working_set_bytes(
-        &rows,
-        std::slice::from_ref(&column),
-        Some(&snapshot),
-    )?;
+    let estimate =
+        estimate_arrow_working_set_bytes(&rows, std::slice::from_ref(&column), Some(&snapshot))?;
     assert!(estimate > 0);
     Ok(())
 }
@@ -231,11 +245,10 @@ async fn large_physical_metadata_is_pre_admitted_and_retained_with_snapshot_sche
 fn text_protocol_rejects_only_lossy_float32_snapshots_before_execution() -> anyhow::Result<()> {
     let float = test_column("f", MySqlColumnKind::Float32, "float", None);
     let double = test_column("d", MySqlColumnKind::Float64, "double", None);
-    assert!(validate_snapshot_read_protocol(
-        MySqlReadProtocol::Text,
-        std::slice::from_ref(&float)
-    )
-    .is_err());
+    assert!(
+        validate_snapshot_read_protocol(MySqlReadProtocol::Text, std::slice::from_ref(&float))
+            .is_err()
+    );
     validate_snapshot_read_protocol(MySqlReadProtocol::Binary, std::slice::from_ref(&float))?;
     validate_snapshot_read_protocol(MySqlReadProtocol::Text, std::slice::from_ref(&double))?;
 
@@ -277,8 +290,8 @@ fn snapshot_packet_limit_failure_is_fatal_but_transport_failure_retries() {
 }
 
 #[test]
-fn mysql_and_mariadb_physical_families_have_explicit_lossless_snapshot_kinds(
-) -> anyhow::Result<()> {
+fn mysql_and_mariadb_physical_families_have_explicit_lossless_snapshot_kinds() -> anyhow::Result<()>
+{
     let cases = [
         ("tinyint", false, None, MySqlColumnKind::Int8),
         ("tinyint", true, None, MySqlColumnKind::UInt8),
@@ -306,8 +319,18 @@ fn mysql_and_mariadb_physical_families_have_explicit_lossless_snapshot_kinds(
         ("varchar", false, Some("utf8mb4"), MySqlColumnKind::Utf8),
         ("tinytext", false, Some("utf8mb3"), MySqlColumnKind::Utf8),
         ("text", false, Some("latin1"), MySqlColumnKind::TextBytes),
-        ("mediumtext", false, Some("latin1"), MySqlColumnKind::TextBytes),
-        ("longtext", false, Some("latin1"), MySqlColumnKind::TextBytes),
+        (
+            "mediumtext",
+            false,
+            Some("latin1"),
+            MySqlColumnKind::TextBytes,
+        ),
+        (
+            "longtext",
+            false,
+            Some("latin1"),
+            MySqlColumnKind::TextBytes,
+        ),
         ("inet4", false, Some("ascii"), MySqlColumnKind::Utf8),
         ("inet6", false, Some("ascii"), MySqlColumnKind::Utf8),
         ("uuid", false, Some("ascii"), MySqlColumnKind::Utf8),
@@ -394,10 +417,7 @@ fn enum_ordinal_and_set_bits_preserve_ambiguous_textual_values() -> anyhow::Resu
         "enum('','plain')",
         Some("utf8mb4"),
     );
-    let enum_rows = [
-        vec![Some(Value::UInt(0))],
-        vec![Some(Value::UInt(1))],
-    ];
+    let enum_rows = [vec![Some(Value::UInt(0))], vec![Some(Value::UInt(1))]];
     let enum_array = column_array(&enum_rows, 0, &enum_column)?;
     let enum_array = enum_array
         .as_any()
@@ -411,10 +431,7 @@ fn enum_ordinal_and_set_bits_preserve_ambiguous_textual_values() -> anyhow::Resu
         "set('a,b','a','b')",
         Some("utf8mb4"),
     );
-    let set_rows = [
-        vec![Some(Value::UInt(1))],
-        vec![Some(Value::UInt(6))],
-    ];
+    let set_rows = [vec![Some(Value::UInt(1))], vec![Some(Value::UInt(6))]];
     let set_array = column_array(&set_rows, 0, &set_column)?;
     let set_array = set_array
         .as_any()
@@ -535,8 +552,7 @@ fn arrow_extension_metadata_retains_exact_mysql_physical_contract() -> anyhow::R
     column.visibility = MySqlColumnVisibility::Invisible;
     column.extra = "INVISIBLE".to_owned();
 
-    let metadata: serde_json::Value =
-        serde_json::from_str(&column.arrow_extension_metadata()?)?;
+    let metadata: serde_json::Value = serde_json::from_str(&column.arrow_extension_metadata()?)?;
     assert_eq!(
         metadata,
         serde_json::json!({
@@ -575,14 +591,8 @@ fn arrow_extension_metadata_retains_exact_mysql_physical_contract() -> anyhow::R
 
 #[test]
 fn text_extension_metadata_retains_collation_padding_semantics() -> anyhow::Result<()> {
-    let column = test_column(
-        "fixed",
-        MySqlColumnKind::Utf8,
-        "char(8)",
-        Some("utf8mb4"),
-    );
-    let metadata: serde_json::Value =
-        serde_json::from_str(&column.arrow_extension_metadata()?)?;
+    let column = test_column("fixed", MySqlColumnKind::Utf8, "char(8)", Some("utf8mb4"));
+    let metadata: serde_json::Value = serde_json::from_str(&column.arrow_extension_metadata()?)?;
     assert_eq!(metadata["collation_padding"], serde_json::json!("no_pad"));
     Ok(())
 }
@@ -643,7 +653,9 @@ fn physical_extension_identity_survives_discovery_and_snapshot_old_values() -> a
     let runtime_schema = batch.schema();
     let old_metadata = runtime_schema.field(1).metadata();
     assert_eq!(
-        old_metadata.get(META_ARROW_EXTENSION_NAME).map(String::as_str),
+        old_metadata
+            .get(META_ARROW_EXTENSION_NAME)
+            .map(String::as_str),
         Some(extension_name)
     );
     assert_eq!(

@@ -27,15 +27,12 @@ struct OutputRowCountState {
 }
 
 impl OutputRowCounts {
-    pub fn new(
-        datasets: impl IntoIterator<Item = (Arc<str>, bool)>,
-    ) -> anyhow::Result<Self> {
+    pub fn new(datasets: impl IntoIterator<Item = (Arc<str>, bool)>) -> anyhow::Result<Self> {
         let mut rows = BTreeMap::new();
         for (table, is_dlq) in datasets {
             anyhow::ensure!(
                 rows.insert((is_dlq, Arc::clone(&table)), 0).is_none(),
-                "snapshot row counter repeats dataset '{}' (dlq={is_dlq})",
-                table
+                "snapshot row counter repeats dataset '{table}' (dlq={is_dlq})"
             );
         }
         Ok(Self {
@@ -84,6 +81,7 @@ impl OutputRowCounts {
             );
         }
         state.pending.insert(id, delivery);
+        drop(state);
         Ok(())
     }
 
@@ -95,6 +93,7 @@ impl OutputRowCounts {
         let next = validated_committed_counts(&state, committed)?;
         state.committed = next;
         state.pending.retain(|id, _| *id > committed);
+        drop(state);
         Ok(())
     }
 
@@ -134,6 +133,7 @@ impl OutputRowCounts {
             );
         }
         state.committed = next;
+        drop(state);
         Ok(())
     }
 

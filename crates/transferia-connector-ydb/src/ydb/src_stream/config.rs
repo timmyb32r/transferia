@@ -83,7 +83,10 @@ impl YdbReplicationConfig {
             "ydb.replication.coordination_node_path",
             &self.coordination_node_path,
         )?;
-        anyhow::ensure!(self.read_buffer_bytes > 0, "ydb.replication.read_buffer_bytes must be positive");
+        anyhow::ensure!(
+            self.read_buffer_bytes > 0,
+            "ydb.replication.read_buffer_bytes must be positive"
+        );
         i64::try_from(self.read_buffer_bytes).map_err(|_| {
             anyhow::anyhow!("ydb.replication.read_buffer_bytes exceeds the YDB Topic credit range")
         })?;
@@ -128,9 +131,7 @@ impl YdbReplicationConfig {
 
     pub(in crate::ydb) fn minimum_pipeline_memory_bytes(&self) -> anyhow::Result<usize> {
         super::topic::response_processing_bytes(self.max_response_bytes, 0).map_err(|_| {
-            anyhow::anyhow!(
-                "YDB Topic response/decode admission overflows this platform"
-            )
+            anyhow::anyhow!("YDB Topic response/decode admission overflows this platform")
         })
     }
 }

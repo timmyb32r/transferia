@@ -104,7 +104,7 @@ struct PublicationTable {
     has_no_row_filter: bool,
 }
 
-pub(crate) async fn validate_pgoutput_publication<C>(
+pub async fn validate_pgoutput_publication<C>(
     client: &C,
     publication: &str,
     tables: &[DiscoveredTable],
@@ -176,7 +176,7 @@ fn decode_and_validate_publication(
     validate_publication_contract(publication, actions, tables, &published)
 }
 
-pub(crate) fn is_replication_contract_violation(error: &anyhow::Error) -> bool {
+pub fn is_replication_contract_violation(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<ReplicationContractViolation>()
         .is_some()

@@ -460,7 +460,10 @@ async fn expect_read_started(started: &mut mpsc::UnboundedReceiver<usize>, expec
     );
 }
 
-async fn expect_typed_value(output: &mut mpsc::Receiver<ReadEnvelope>, expected: i64) -> DeliveryId {
+async fn expect_typed_value(
+    output: &mut mpsc::Receiver<ReadEnvelope>,
+    expected: i64,
+) -> DeliveryId {
     let envelope = tokio::time::timeout(Duration::from_secs(1), output.recv())
         .await
         .expect("source output must arrive")
@@ -684,8 +687,8 @@ async fn commit_through_submits_the_contiguous_prefix_as_one_source_group() {
         &progress,
         None,
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     assert!(ledger.is_empty());
     assert!(progress.advanced_since(0));
@@ -795,7 +798,10 @@ async fn every_queued_commit_is_drained_without_dropping_a_buffered_source_batch
     for (index, value) in [10_i64, 20, 30].into_iter().enumerate() {
         expect_read_started(&mut fixture.started, index).await;
         fixture.releases[index].notify_one();
-        assert_eq!(expect_typed_value(&mut output_rx, value).await.get(), index as u64 + 1);
+        assert_eq!(
+            expect_typed_value(&mut output_rx, value).await.get(),
+            index as u64 + 1
+        );
     }
     expect_read_started(&mut fixture.started, 3).await;
     for id in [1, 3] {
@@ -1180,7 +1186,9 @@ async fn source_failure_remains_primary_when_awaited_shutdown_also_fails() {
     .await
     .expect_err("source read must fail");
 
-    assert!(error.to_string().contains("recording source is commit-only"));
+    assert!(error
+        .to_string()
+        .contains("recording source is commit-only"));
     assert!(!error
         .to_string()
         .contains("injected source shutdown failure"));
@@ -1214,8 +1222,8 @@ async fn failed_grouped_commit_keeps_the_ledger_for_pipeline_recovery() {
         &progress,
         None,
     )
-        .await
-        .expect_err("injected source commit failure must propagate");
+    .await
+    .expect_err("injected source commit failure must propagate");
 
     assert!(error
         .to_string()
@@ -1232,7 +1240,7 @@ fn row_count_batch(table: &str, is_dlq: bool, rows: usize) -> SinkBatch {
             false,
         )])),
         vec![Arc::new(Int64Array::from_iter_values(
-            (0..rows).map(|value| value as i64),
+            std::iter::successors(Some(0_i64), |value| value.checked_add(1)).take(rows),
         ))],
     )
     .expect("row-count batch");
@@ -1263,10 +1271,7 @@ fn snapshot_row_counts_publish_only_committed_delivery_prefixes() {
     ])
     .expect("row counter");
     counts
-        .observe_delivery(
-            DeliveryId::new(1),
-            &[row_count_batch("events", false, 2)],
-        )
+        .observe_delivery(DeliveryId::new(1), &[row_count_batch("events", false, 2)])
         .expect("first delivery");
     counts
         .observe_delivery(
@@ -1301,19 +1306,13 @@ fn snapshot_row_counts_publish_only_committed_delivery_prefixes() {
 fn snapshot_row_counts_reject_unknown_duplicate_and_out_of_order_events() {
     let counts = OutputRowCounts::new([(Arc::from("events"), false)]).expect("row counter");
     let unknown = counts
-        .observe_delivery(
-            DeliveryId::new(1),
-            &[row_count_batch("other", false, 1)],
-        )
+        .observe_delivery(DeliveryId::new(1), &[row_count_batch("other", false, 1)])
         .expect_err("unknown dataset must fail");
     assert!(unknown.to_string().contains("undiscovered dataset 'other'"));
     assert_eq!(rows_by_dataset(&counts)[&(false, "events".to_owned())], 0);
 
     counts
-        .observe_delivery(
-            DeliveryId::new(1),
-            &[row_count_batch("events", false, 1)],
-        )
+        .observe_delivery(DeliveryId::new(1), &[row_count_batch("events", false, 1)])
         .expect("known delivery");
     assert!(counts
         .observe_delivery(DeliveryId::new(1), &[])
@@ -1332,10 +1331,7 @@ fn snapshot_row_counts_reject_unknown_duplicate_and_out_of_order_events() {
 async fn failed_source_commit_does_not_publish_snapshot_rows() {
     let counts = OutputRowCounts::new([(Arc::from("events"), false)]).expect("row counter");
     counts
-        .observe_delivery(
-            DeliveryId::new(1),
-            &[row_count_batch("events", false, 7)],
-        )
+        .observe_delivery(DeliveryId::new(1), &[row_count_batch("events", false, 7)])
         .expect("observed delivery");
     let mut source: Box<dyn Source> = Box::new(RecordingSource {
         groups: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -1420,7 +1416,10 @@ fn snapshot_row_count_merge_is_atomic_for_unknown_datasets() {
         .merge(&attempt)
         .expect_err("unknown merge dataset must fail atomically");
     assert!(error.to_string().contains("unexpected"));
-    assert_eq!(rows_by_dataset(&completed)[&(false, "events".to_owned())], 0);
+    assert_eq!(
+        rows_by_dataset(&completed)[&(false, "events".to_owned())],
+        0
+    );
 }
 
 #[test]
@@ -1429,16 +1428,10 @@ fn committed_prefixes_across_retries_are_counted_once() {
     let failed_attempt =
         OutputRowCounts::new([(Arc::from("events"), false)]).expect("failed attempt");
     failed_attempt
-        .observe_delivery(
-            DeliveryId::new(1),
-            &[row_count_batch("events", false, 5)],
-        )
+        .observe_delivery(DeliveryId::new(1), &[row_count_batch("events", false, 5)])
         .expect("committed prefix");
     failed_attempt
-        .observe_delivery(
-            DeliveryId::new(2),
-            &[row_count_batch("events", false, 7)],
-        )
+        .observe_delivery(DeliveryId::new(2), &[row_count_batch("events", false, 7)])
         .expect("uncommitted suffix");
     failed_attempt
         .commit_through(DeliveryId::new(1))
@@ -1449,15 +1442,15 @@ fn committed_prefixes_across_retries_are_counted_once() {
 
     let retry = OutputRowCounts::new([(Arc::from("events"), false)]).expect("retry");
     retry
-        .observe_delivery(
-            DeliveryId::new(1),
-            &[row_count_batch("events", false, 7)],
-        )
+        .observe_delivery(DeliveryId::new(1), &[row_count_batch("events", false, 7)])
         .expect("replayed suffix");
     retry
         .commit_through(DeliveryId::new(1))
         .expect("retry commit");
     completed.merge(&retry).expect("merge retry");
 
-    assert_eq!(rows_by_dataset(&completed)[&(false, "events".to_owned())], 12);
+    assert_eq!(
+        rows_by_dataset(&completed)[&(false, "events".to_owned())],
+        12
+    );
 }

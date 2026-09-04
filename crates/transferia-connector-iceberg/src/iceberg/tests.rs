@@ -3,7 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use arrow::array::{
-    Array as _, Decimal128Array, TimestampMicrosecondArray, TimestampSecondArray, UInt64Array,
+    Array as _, Decimal128Array, Int64Array, TimestampMicrosecondArray, TimestampSecondArray,
+    UInt64Array,
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
@@ -60,11 +61,6 @@ fn speedtest_row_count_discovery() -> DeliveryDiscovery {
 }
 
 fn replica_discovery(source: &str, complete_old_image: bool) -> DeliveryDiscovery {
-    let stored = DatasetSchema::new(vec![
-        SchemaColumn::new("id".to_owned(), DataType::Int64, false)
-            .with_constraints(true, false, None),
-        SchemaColumn::new("value".to_owned(), DataType::Utf8, false),
-    ]);
     let system_columns = [
         SystemColumnKind::Topic,
         SystemColumnKind::Partition,
@@ -76,6 +72,25 @@ fn replica_discovery(source: &str, complete_old_image: bool) -> DeliveryDiscover
     .into_iter()
     .map(DiscoveredSystemColumn::from)
     .collect::<Vec<_>>();
+    let mut stored_columns = vec![
+        SchemaColumn::new("id".to_owned(), DataType::Int64, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("value".to_owned(), DataType::Utf8, false),
+    ];
+    stored_columns.extend(
+        system_columns
+            .iter()
+            .filter(|column| {
+                !matches!(
+                    column.kind,
+                    SystemColumnKind::ChangeOperation | SystemColumnKind::ChangedColumns
+                )
+            })
+            .map(|column| {
+                SchemaColumn::new(column.name.to_string(), column.kind.data_type(), false)
+            }),
+    );
+    let stored = DatasetSchema::new(stored_columns);
     let mut incoming = stored.columns.clone();
     incoming.push(
         SchemaColumn::new("_old_id".to_owned(), DataType::Int64, true)
@@ -91,13 +106,19 @@ fn replica_discovery(source: &str, complete_old_image: bool) -> DeliveryDiscover
         SchemaColumn::new("_source_tx".to_owned(), DataType::UInt64, false)
             .with_system_role(SYSTEM_ROLE_SOURCE_TRANSACTION_ID),
     );
-    incoming.extend(system_columns.iter().map(|column| {
-        SchemaColumn::new(
-            column.name.to_string(),
-            column.kind.data_type(),
-            false,
-        )
-    }));
+    incoming.extend(
+        system_columns
+            .iter()
+            .filter(|column| {
+                matches!(
+                    column.kind,
+                    SystemColumnKind::ChangeOperation | SystemColumnKind::ChangedColumns
+                )
+            })
+            .map(|column| {
+                SchemaColumn::new(column.name.to_string(), column.kind.data_type(), false)
+            }),
+    );
     DeliveryDiscovery {
         source_name: Arc::from(source),
         source_topology: SourceTopology::StaticPartitions(vec![0]),
@@ -223,7 +244,10 @@ fn iceberg_replica_requires_mysql_or_postgres_and_complete_old_images() {
         .limits()
         .validate_discovery(&replica_discovery("postgres", false))
         .expect_err("partial old image must fail before table creation");
-    assert!(missing_old.to_string().contains("complete old image"));
+    assert!(
+        missing_old.to_string().contains("old-value column"),
+        "{missing_old}"
+    );
     let unsupported = connector
         .limits()
         .validate_discovery(&replica_discovery("logbroker", true))
@@ -529,6 +553,23 @@ fn iceberg_sink_losslessly_maps_full_uint64_range_to_decimal() {
 }
 
 #[test]
+fn iceberg_required_fields_accept_nullable_changelog_schema_only_when_values_are_present() {
+    let source = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, true)]));
+    let target = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+    let present = RecordBatch::try_new(
+        Arc::clone(&source),
+        vec![Arc::new(Int64Array::from(vec![Some(7)]))],
+    )
+    .expect("nullable changelog batch with present value");
+    super::sink::with_schema(&present, Arc::clone(&target))
+        .expect("present changelog value can populate a required Iceberg field");
+
+    let missing = RecordBatch::try_new(source, vec![Arc::new(Int64Array::from(vec![None]))])
+        .expect("nullable changelog batch with missing value");
+    assert!(super::sink::with_schema(&missing, target).is_err());
+}
+
+#[test]
 fn iceberg_source_restores_transferia_message_index_to_uint64() {
     let physical = Arc::new(Schema::new(vec![Field::new(
         "_system_message_index",
@@ -594,9 +635,30 @@ fn iceberg_commit_identity_is_stable_and_scoped() {
     assert_eq!(first.uuid, replay.uuid);
 
     for distinct in [
-        IcebergCommitIdentity::new_finite_for_test("other-delivery", Some("replay"), 0, "events", table, vec![7]),
-        IcebergCommitIdentity::new_finite_for_test("delivery", Some("replay"), 1, "events", table, vec![7]),
-        IcebergCommitIdentity::new_finite_for_test("delivery", Some("replay"), 0, "other-events", table, vec![7]),
+        IcebergCommitIdentity::new_finite_for_test(
+            "other-delivery",
+            Some("replay"),
+            0,
+            "events",
+            table,
+            vec![7],
+        ),
+        IcebergCommitIdentity::new_finite_for_test(
+            "delivery",
+            Some("replay"),
+            1,
+            "events",
+            table,
+            vec![7],
+        ),
+        IcebergCommitIdentity::new_finite_for_test(
+            "delivery",
+            Some("replay"),
+            0,
+            "other-events",
+            table,
+            vec![7],
+        ),
         IcebergCommitIdentity::new_finite_for_test(
             "delivery",
             Some("replay"),
@@ -605,7 +667,14 @@ fn iceberg_commit_identity_is_stable_and_scoped() {
             uuid::Uuid::from_u128(2),
             vec![7],
         ),
-        IcebergCommitIdentity::new_finite_for_test("delivery", Some("replay"), 0, "events", table, vec![8]),
+        IcebergCommitIdentity::new_finite_for_test(
+            "delivery",
+            Some("replay"),
+            0,
+            "events",
+            table,
+            vec![8],
+        ),
     ] {
         let distinct = distinct.expect("commit identity");
         assert_ne!(first.token, distinct.token);
@@ -678,7 +747,10 @@ async fn writer_collection_drains_all_tasks_after_one_writer_panics() {
     });
     writers.spawn(async {
         panic!("simulated writer panic");
-        #[allow(unreachable_code)]
+        #[allow(
+            unreachable_code,
+            reason = "the explicit result type keeps the spawned panic task type-compatible"
+        )]
         Ok::<Vec<u8>, anyhow::Error>(Vec::new())
     });
     let collector = tokio::spawn(super::sink::collect_writer_results(writers));
@@ -696,7 +768,9 @@ async fn writer_collection_drains_all_tasks_after_one_writer_panics() {
         .await
         .expect("the collector task must not panic")
         .expect_err("the writer panic must be reported after all writers quiesce");
-    assert!(error.to_string().contains("Iceberg file writer task failed"));
+    assert!(error
+        .to_string()
+        .contains("Iceberg file writer task failed"));
     assert!(completed.load(Ordering::Acquire));
 }
 
@@ -732,17 +806,18 @@ async fn iceberg_sink_speedtest_is_rejected_before_external_io_for_every_storage
         .expect("valid sink config");
         let connector =
             Arc::new(super::sink::IcebergSinkConnector::from_config(config).expect("connector"));
-        let error = match connector
+        let Err(error) = connector
             .isolate_speedtest(
                 Arc::clone(&discovery),
                 "0123456789abcdef0123456789abcdef".to_owned(),
             )
             .await
-        {
-            Ok(_) => panic!("Iceberg sink speedtest must fail before external I/O"),
-            Err(error) => error,
+        else {
+            panic!("Iceberg sink speedtest must fail before external I/O");
         };
-        assert!(error.to_string().contains("Iceberg sink speedtests are disabled"));
+        assert!(error
+            .to_string()
+            .contains("Iceberg sink speedtests are disabled"));
         assert!(error.to_string().contains("before external I/O"));
     }
 }

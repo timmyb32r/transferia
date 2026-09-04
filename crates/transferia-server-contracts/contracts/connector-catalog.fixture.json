@@ -3886,7 +3886,7 @@
               }
             },
             "replication": {
-              "description": "Configures row-based binary-log replication for stream and batch_and_stream deliveries.",
+              "description": "Configures row-based binary-log replication for stream and `batch_and_stream` deliveries.",
               "anyOf": [
                 {
                   "$ref": "#/$defs/MySqlReplicationConfig"
@@ -4646,7 +4646,7 @@
               "oneOf": [
                 {
                   "title": "Fail on custom routing",
-                  "description": "Reject custom-routed source documents because OpenSearch does not make\n(`_id`, `_routing`) globally unique across shards.",
+                  "description": "Reject custom-routed source documents because `OpenSearch` does not make\n(`_id`, `_routing`) globally unique across shards.",
                   "type": "string",
                   "const": "fail"
                 },
@@ -4791,7 +4791,7 @@
               }
             },
             "replication": {
-              "description": "Configures logical replication for stream and batch_and_stream deliveries.",
+              "description": "Configures logical replication for stream and `batch_and_stream` deliveries.",
               "anyOf": [
                 {
                   "$ref": "#/$defs/PostgresReplicationConfig"
@@ -5232,7 +5232,7 @@
                 },
                 "primary_key": {
                   "title": "Unique row key",
-                  "description": "Columns that the user guarantees identify one logical row uniquely.\nClickHouse sorting and primary keys do not enforce uniqueness, so the\nconnector never infers this contract from table metadata.",
+                  "description": "Columns that the user guarantees identify one logical row uniquely.\n`ClickHouse` sorting and primary keys do not enforce uniqueness, so the\nconnector never infers this contract from table metadata.",
                   "type": "array",
                   "items": {
                     "type": "string"

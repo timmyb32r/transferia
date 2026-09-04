@@ -15,7 +15,7 @@ use super::config::OpenSearchSinkConfig;
 use super::document::BulkAction;
 
 pub(super) trait BulkTransport: Send + Sync {
-    fn send<'a>(&'a self, payload: Vec<u8>) -> BoxFuture<'a, Result<Vec<u16>, BulkFailure>>;
+    fn send(&self, payload: Vec<u8>) -> BoxFuture<'_, Result<Vec<u16>, BulkFailure>>;
 }
 
 #[derive(Debug)]
@@ -37,7 +37,7 @@ impl OpenSearchBulkTransport {
 }
 
 impl BulkTransport for OpenSearchBulkTransport {
-    fn send<'a>(&'a self, payload: Vec<u8>) -> BoxFuture<'a, Result<Vec<u16>, BulkFailure>> {
+    fn send(&self, payload: Vec<u8>) -> BoxFuture<'_, Result<Vec<u16>, BulkFailure>> {
         Box::pin(async move {
             let response = self
                 .client
@@ -138,9 +138,7 @@ pub(super) async fn write_bulk_with_retry(
                     )));
                 }
                 let mut retry = Vec::new();
-                for (position, (action, status)) in
-                    pending.into_iter().zip(statuses).enumerate()
-                {
+                for (position, (action, status)) in pending.into_iter().zip(statuses).enumerate() {
                     if (200..300).contains(&status) {
                         continue;
                     }

@@ -1,4 +1,14 @@
+#![allow(
+    clippy::cast_lossless,
+    clippy::expect_used,
+    clippy::naive_bytecount,
+    clippy::significant_drop_tightening,
+    clippy::unnecessary_wraps,
+    reason = "speedtest replay values are validated before infallible generic Arrow conversions"
+)]
+
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::fmt::Write as _;
 use std::fs::{File, OpenOptions};
 use std::future::Future;
 use std::io::{Cursor, Seek as _, SeekFrom};
@@ -50,7 +60,7 @@ use transferia_registry::{
     SourceBuildContext,
 };
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpeedtestMeasurement {
     pub rows: u64,
 
@@ -124,7 +134,7 @@ pub struct SpeedtestProfile {
     pub datasets: Vec<SpeedtestDatasetProfile>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpeedtestEstimate {
     pub logical_streams: u32,
 
@@ -205,7 +215,9 @@ pub async fn estimate_delivery(
 
 /// Fail before reading the source when the configured destination cannot prove
 /// an isolated, cleanable speedtest target. Connector isolation is required to
-/// be free of destination mutations; actual scratch creation remains in
+/// be free of destination mutations.
+///
+/// Actual scratch creation remains in
 /// [`SinkConnector::prepare`](transferia_registry::SinkConnector::prepare).
 pub async fn validate_destination_speedtest(
     plan: &DeliveryPlan,
@@ -343,7 +355,9 @@ async fn collect_source_profile(
 }
 
 /// Measures the source/parser ceiling through a true no-op discard sink. This
-/// deliberately performs no profile IPC or column-statistics work and is used
+/// deliberately performs no profile IPC or column-statistics work.
+///
+/// It is used
 /// directly for source tuning trials after the baseline sample was captured.
 pub async fn benchmark_source_throughput(
     plan: &mut DeliveryPlan,
@@ -573,10 +587,10 @@ async fn run_with_cleanup<F, T>(
 where
     F: Future<Output = anyhow::Result<T>>,
 {
-    let result = match std::panic::AssertUnwindSafe(future).catch_unwind().await {
-        Ok(result) => result,
-        Err(_) => Err(anyhow::anyhow!("destination speedtest task panicked")),
-    };
+    let result = std::panic::AssertUnwindSafe(future)
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("destination speedtest task panicked")));
     let cleanup_result = cleanup.cleanup().await;
     match (result, cleanup_result, cancellation.is_cancelled()) {
         (Ok(_), Ok(()), true) => Err(SpeedtestCancelled.into()),
@@ -621,7 +635,6 @@ fn unique_isolation_id() -> anyhow::Result<String> {
     let mut random = [0_u8; 16];
     getrandom::fill(&mut random)?;
     let mut result = String::with_capacity(32);
-    use std::fmt::Write as _;
     for byte in random {
         write!(&mut result, "{byte:02x}")?;
     }
@@ -707,9 +720,11 @@ async fn cleanup_until_deadline(
         }
         let attempt =
             std::panic::AssertUnwindSafe(connector.cleanup_speedtest(&isolation)).catch_unwind();
-        match tokio::time::timeout(remaining, attempt).await {
-            Ok(Ok(Ok(()))) => return Ok(()),
-            Ok(Ok(Err(_))) | Ok(Err(_)) | Err(_) => {}
+        if matches!(
+            tokio::time::timeout(remaining, attempt).await,
+            Ok(Ok(Ok(())))
+        ) {
+            return Ok(());
         }
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
@@ -881,20 +896,23 @@ fn anonymous_sample_path() -> anyhow::Result<PathBuf> {
 }
 
 fn read_spooled_batch(file: &AnonymousSampleFile) -> anyhow::Result<RecordBatch> {
-    let mut handle = file
-        .file
-        .lock()
-        .map_err(|_| anyhow::anyhow!("speedtest sample file mutex was poisoned"))?;
-    handle.seek(SeekFrom::Start(0))?;
-    let mut reader = FileReader::try_new(&mut *handle, None)?;
-    let batch = reader
-        .next()
-        .transpose()?
-        .context("speedtest sample file contains no RecordBatch")?;
-    anyhow::ensure!(
-        reader.next().transpose()?.is_none(),
-        "speedtest sample file contains more than one RecordBatch"
-    );
+    let batch = {
+        let mut handle = file
+            .file
+            .lock()
+            .map_err(|_| anyhow::anyhow!("speedtest sample file mutex was poisoned"))?;
+        handle.seek(SeekFrom::Start(0))?;
+        let mut reader = FileReader::try_new(&mut *handle, None)?;
+        let batch = reader
+            .next()
+            .transpose()?
+            .context("speedtest sample file contains no RecordBatch")?;
+        anyhow::ensure!(
+            reader.next().transpose()?.is_none(),
+            "speedtest sample file contains more than one RecordBatch"
+        );
+        batch
+    };
     Ok(batch)
 }
 
@@ -918,7 +936,7 @@ struct CollectedProfile {
 }
 
 impl ProfileCollector {
-    fn new(sample_limit_bytes: usize) -> Self {
+    const fn new(sample_limit_bytes: usize) -> Self {
         Self {
             state: Mutex::new(CollectedProfile {
                 rows: 0,
@@ -1017,6 +1035,7 @@ impl ProfileCollector {
         state.samples.push(SpooledDelivery {
             outputs: Arc::from(samples),
         });
+        drop(state);
         Ok(())
     }
 
@@ -1134,7 +1153,7 @@ impl Sink for MeasurementDiscardSink {
 }
 
 impl ProfileSink {
-    fn new(collector: Arc<ProfileCollector>) -> Self {
+    const fn new(collector: Arc<ProfileCollector>) -> Self {
         Self { collector }
     }
 }
@@ -1587,7 +1606,7 @@ const fn unique_key_max_iteration(kind: UniqueKeyKind) -> u128 {
     }
 }
 
-fn unique_key_rank(data_type: &DataType) -> Option<u8> {
+const fn unique_key_rank(data_type: &DataType) -> Option<u8> {
     Some(match data_type {
         DataType::FixedSizeBinary(width) if *width >= 16 => 0,
         DataType::UInt64 | DataType::Int64 => 1,
@@ -1781,7 +1800,7 @@ fn build_unique_key_kind_many(
                     .context("sampled primary-key row count overflow")
             })?;
             anyhow::ensure!(rows > 0, "empty primary-key sample");
-            let max_iteration = (u64::MAX as u128 - (rows - 1)) / rows;
+            let max_iteration = (u128::from(u64::MAX) - (rows - 1)) / rows;
             anyhow::ensure!(
                 max_iteration > 0,
                 "fixed-binary primary-key space is exhausted"
@@ -1983,7 +2002,7 @@ fn fixed_binary_namespace_many(
             .as_any()
             .downcast_ref::<FixedSizeBinaryArray>()
             .context("sampled fixed-size binary primary-key type mismatch")?;
-        for value in source.iter() {
+        for value in source {
             let prefix: [u8; 8] = value
                 .expect("validated non-null primary key")
                 .get(..8)
@@ -2904,7 +2923,7 @@ fn add_cardinality_value(
     Ok(())
 }
 
-fn range_kind(data_type: &DataType) -> Option<SpeedtestRangeKind> {
+const fn range_kind(data_type: &DataType) -> Option<SpeedtestRangeKind> {
     match data_type {
         DataType::Int8
         | DataType::Int16
@@ -2929,7 +2948,7 @@ fn range_kind(data_type: &DataType) -> Option<SpeedtestRangeKind> {
     }
 }
 
-fn is_length_profiled(data_type: &DataType) -> bool {
+const fn is_length_profiled(data_type: &DataType) -> bool {
     matches!(
         data_type,
         DataType::Utf8
@@ -3064,6 +3083,7 @@ impl DurableStorage for EphemeralDurableStorage {
                 payload: payload.to_vec(),
             };
             values.insert(key.to_owned(), value.clone());
+            drop(values);
             Ok(CompareExchangeResult::Applied(value))
         })
     }

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use arrow::array::{Array, BinaryArray, Date32Array, StringArray};
@@ -8,18 +9,17 @@ use super::client::{probe_network, ReconnectingClient};
 use super::config::ClickHouseInsertFormat;
 use super::http::HttpInsertTransport;
 use super::table::{
-    prepare_tables, speedtest_create_table_ddl, validate_speedtest_table,
-    validate_table_schema,
+    prepare_tables, speedtest_create_table_ddl, validate_speedtest_table, validate_table_schema,
 };
 use super::transport::{InsertTransport, NativeTransport};
 use super::{ClickHouseSink, ClickHouseSinkConfig};
+use transferia_connector_support::external_request::observe_external_request;
 use transferia_core::delivery::{
     validate_batch_against_discovery, validate_stored_projection, ArrowTypeFamily,
     DeliveryDiscovery, NameSyntax, SinkLimits, SinkLimitsDescription, TextLimit,
 };
 use transferia_core::sink::Sink;
 use transferia_core::SystemColumnKind;
-use transferia_connector_support::external_request::observe_external_request;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
 use transferia_registry::{
     SinkBuildContext, SinkConnector, SinkPrepare, SinkSpeedtestIsolation,
@@ -290,7 +290,13 @@ impl SinkLimits for ClickHouseSinkConfig {
         batch: &transferia_core::sink::SinkBatch,
     ) -> anyhow::Result<()> {
         validate_batch_against_discovery(discovery, batch)?;
-        for (field, array) in batch.batch.schema().fields().iter().zip(batch.batch.columns()) {
+        for (field, array) in batch
+            .batch
+            .schema()
+            .fields()
+            .iter()
+            .zip(batch.batch.columns())
+        {
             if field.data_type() != &arrow::datatypes::DataType::Date32 {
                 continue;
             }
@@ -414,7 +420,8 @@ impl SinkConnector for ClickHouseSinkConnector {
                 Vec::new()
             };
             let shard_group = effective_shard_group(&self.config, &groups)?.map(Arc::from);
-            let replica_hosts = query_replica_hosts(client.as_ref(), shard_group.as_deref()).await?;
+            let replica_hosts =
+                query_replica_hosts(client.as_ref(), shard_group.as_deref()).await?;
             let (isolated_discovery, table_names, tables) =
                 isolate_discovery(discovery.as_ref(), &isolation_id)?;
             let physical_targets = discovery
@@ -428,7 +435,10 @@ impl SinkConnector for ClickHouseSinkConnector {
                         )
                     })?;
                     Ok(SpeedtestPhysicalTarget {
-                        production: clickhouse_physical_target(&self.config.database, &dataset.name),
+                        production: clickhouse_physical_target(
+                            &self.config.database,
+                            &dataset.name,
+                        ),
                         scratch: clickhouse_physical_target(&self.config.database, scratch),
                     })
                 })
@@ -464,7 +474,9 @@ impl SinkConnector for ClickHouseSinkConnector {
     ) -> BoxFuture<'a, anyhow::Result<()>> {
         Box::pin(async move {
             let scope = self.speedtest_scope.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("refusing to clean speedtest tables with a production ClickHouse connector")
+                anyhow::anyhow!(
+                    "refusing to clean speedtest tables with a production ClickHouse connector"
+                )
             })?;
             validate_cleanup_scope(isolation, scope)?;
 
@@ -490,23 +502,24 @@ impl SinkConnector for ClickHouseSinkConnector {
 
 const SPEEDTEST_TABLE_PREFIX: &str = "_transferia_st_";
 
-fn isolate_discovery(
-    original: &DeliveryDiscovery,
-    isolation_id: &str,
-) -> anyhow::Result<(
+type IsolatedDiscovery = (
     DeliveryDiscovery,
     BTreeMap<Arc<str>, Arc<str>>,
     BTreeSet<Arc<str>>,
-)> {
+);
+
+fn isolate_discovery(
+    original: &DeliveryDiscovery,
+    isolation_id: &str,
+) -> anyhow::Result<IsolatedDiscovery> {
     validate_isolation_id(isolation_id)?;
     let mut discovery = original.clone();
     let mut table_names = BTreeMap::new();
     let mut tables = BTreeSet::new();
     for (index, dataset) in discovery.datasets.iter_mut().enumerate() {
         let original_name = Arc::clone(&dataset.name);
-        let scratch: Arc<str> = Arc::from(format!(
-            "{SPEEDTEST_TABLE_PREFIX}{isolation_id}_{index:x}"
-        ));
+        let scratch: Arc<str> =
+            Arc::from(format!("{SPEEDTEST_TABLE_PREFIX}{isolation_id}_{index:x}"));
         super::identifier::validate_identifier(&scratch)?;
         anyhow::ensure!(
             table_names
@@ -557,9 +570,7 @@ fn clickhouse_physical_target(database: &str, table: &str) -> Arc<str> {
     ))
 }
 
-fn physical_target_set(
-    targets: &[SpeedtestPhysicalTarget],
-) -> BTreeSet<(Arc<str>, Arc<str>)> {
+fn physical_target_set(targets: &[SpeedtestPhysicalTarget]) -> BTreeSet<(Arc<str>, Arc<str>)> {
     targets
         .iter()
         .map(|target| (Arc::clone(&target.production), Arc::clone(&target.scratch)))
@@ -618,7 +629,6 @@ fn random_owner_marker() -> anyhow::Result<Arc<str>> {
     let mut random = [0_u8; 16];
     getrandom::fill(&mut random)?;
     let mut marker = String::from("transferia-speedtest-owner:");
-    use std::fmt::Write as _;
     for byte in random {
         write!(&mut marker, "{byte:02x}")?;
     }
@@ -714,9 +724,7 @@ pub(super) fn classify_replica_owners(
     }
 }
 
-pub(super) const fn replica_owner_allows_side_effect(
-    evidence: ReplicaOwnershipEvidence,
-) -> bool {
+pub(super) const fn replica_owner_allows_side_effect(evidence: ReplicaOwnershipEvidence) -> bool {
     matches!(evidence, ReplicaOwnershipEvidence::Owned)
 }
 
@@ -787,7 +795,9 @@ async fn clickhouse_owner_evidence(
         client.query_all(&query),
     )
     .await
-    .map_err(|_| anyhow::anyhow!("ClickHouse scratch table '{table}' owner marker is unreadable"))?;
+    .map_err(|_| {
+        anyhow::anyhow!("ClickHouse scratch table '{table}' owner marker is unreadable")
+    })?;
     let mut owners = BTreeMap::new();
     for batch in batches {
         anyhow::ensure!(
@@ -934,12 +944,8 @@ async fn drop_owned_clickhouse_table(
         ),
     }
     let ddl = clickhouse_cleanup_ddl(&scope.database, table, scope.shard_group.as_deref())?;
-    let drop_result = observe_external_request(
-        "clickhouse",
-        "speedtest_drop_table",
-        client.execute(&ddl),
-    )
-    .await;
+    let drop_result =
+        observe_external_request("clickhouse", "speedtest_drop_table", client.execute(&ddl)).await;
     let evidence = clickhouse_owner_evidence(client, scope, table).await?;
     match classify_drop_completion(drop_result.is_ok(), evidence) {
         DropCompletion::Complete => {

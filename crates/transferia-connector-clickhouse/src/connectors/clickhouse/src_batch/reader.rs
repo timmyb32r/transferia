@@ -1,9 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use arrow::array::{
-    ArrayRef, Int64Array, PrimitiveArray, StringArray, UInt64Array,
-};
+use arrow::array::{ArrayRef, Int64Array, PrimitiveArray, StringArray, UInt64Array};
 use arrow::compute::cast;
 use arrow::datatypes::{
     ArrowPrimitiveType, DataType, Field, Schema, TimeUnit, TimestampMicrosecondType,
@@ -262,7 +260,10 @@ pub(super) fn normalize_snapshot_schema(
             .physical_system_columns
             .iter()
             .find(|system| system.index == index)
-            .map_or_else(|| column.data_type.clone(), |system| system.kind.data_type());
+            .map_or_else(
+                || column.data_type.clone(),
+                |system| system.kind.data_type(),
+            );
         if arrays[index].data_type() != &expected {
             if is_parquet_timestamp_representation(arrays[index].data_type(), &expected) {
                 ensure_lossless_timestamp_cast(&arrays[index], &expected, &column.name)?;
@@ -313,7 +314,7 @@ fn is_parquet_timestamp_representation(actual: &DataType, expected: &DataType) -
     };
     let parquet_unit = match expected_unit {
         TimeUnit::Second => TimeUnit::Millisecond,
-        unit => unit.clone(),
+        unit => *unit,
     };
     actual == &DataType::Timestamp(parquet_unit, Some(Arc::from("UTC")))
 }
@@ -324,13 +325,13 @@ fn ensure_lossless_timestamp_cast(
     column: &str,
 ) -> anyhow::Result<()> {
     let DataType::Timestamp(actual_unit, _) = array.data_type() else {
-        unreachable!("the caller checks the actual timestamp type")
+        anyhow::bail!("ClickHouse column '{column}' is not a timestamp array")
     };
     let DataType::Timestamp(expected_unit, _) = expected else {
-        unreachable!("the caller checks the expected timestamp type")
+        anyhow::bail!("ClickHouse discovered column '{column}' is not a timestamp")
     };
-    let actual_scale = timestamp_units_per_second(actual_unit);
-    let expected_scale = timestamp_units_per_second(expected_unit);
+    let actual_scale = timestamp_units_per_second(*actual_unit);
+    let expected_scale = timestamp_units_per_second(*expected_unit);
     match actual_unit {
         TimeUnit::Second => check_timestamp_values::<TimestampSecondType>(
             array,
@@ -371,7 +372,9 @@ where
     let values = array
         .as_any()
         .downcast_ref::<PrimitiveArray<T>>()
-        .ok_or_else(|| anyhow::anyhow!("ClickHouse timestamp column '{column}' has invalid Arrow storage"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("ClickHouse timestamp column '{column}' has invalid Arrow storage")
+        })?;
     for value in values.iter().flatten() {
         let scaled = i128::from(value) * expected_scale;
         anyhow::ensure!(
@@ -387,7 +390,7 @@ where
     Ok(())
 }
 
-const fn timestamp_units_per_second(unit: &TimeUnit) -> i128 {
+const fn timestamp_units_per_second(unit: TimeUnit) -> i128 {
     match unit {
         TimeUnit::Second => 1,
         TimeUnit::Millisecond => 1_000,
