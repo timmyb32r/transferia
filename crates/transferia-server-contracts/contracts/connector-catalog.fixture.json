@@ -4684,7 +4684,7 @@
               "minimum": 1,
               "default": 30000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "max_response_bytes": {
@@ -4695,8 +4695,7 @@
               "minimum": 1,
               "default": 67108864,
               "x-ui": {
-                "section": "advanced",
-                "widget": "byte_size"
+                "widget": "hidden"
               }
             },
             "indices": {
@@ -4717,7 +4716,7 @@
               "minimum": 1,
               "default": 10000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "read_concurrency": {
@@ -4728,7 +4727,7 @@
               "minimum": 1,
               "default": 2,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "pit_keep_alive_ms": {
@@ -4739,7 +4738,7 @@
               "minimum": 1,
               "default": 300000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "retry_initial_ms": {
@@ -4749,7 +4748,7 @@
               "minimum": 1,
               "default": 100,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "retry_max_ms": {
@@ -4759,7 +4758,7 @@
               "minimum": 1,
               "default": 10000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "retry_max_attempts": {
@@ -4770,7 +4769,7 @@
               "minimum": 1,
               "default": 10,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             }
           },
@@ -4947,7 +4946,7 @@
               "minimum": 1,
               "default": 30000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "max_response_bytes": {
@@ -4958,8 +4957,7 @@
               "minimum": 1,
               "default": 67108864,
               "x-ui": {
-                "section": "advanced",
-                "widget": "byte_size"
+                "widget": "hidden"
               }
             },
             "create_indices": {
@@ -4970,7 +4968,7 @@
               "description": "Controls custom-routed source documents. The default fails before any\nrequest. `encode_identity` is an explicit, injective destination `_id`\ntransformation that preserves (`_id`, effective routing key) identity.",
               "$ref": "#/$defs/RoutedIdentity",
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "bulk_target_rows": {
@@ -4979,7 +4977,7 @@
               "minimum": 1,
               "default": 20000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "bulk_target_bytes": {
@@ -4988,8 +4986,7 @@
               "minimum": 1,
               "default": 16777216,
               "x-ui": {
-                "section": "advanced",
-                "widget": "byte_size"
+                "widget": "hidden"
               }
             },
             "bulk_concurrency": {
@@ -4999,7 +4996,7 @@
               "maximum": 32,
               "default": 4,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "flush_interval_ms": {
@@ -5008,7 +5005,7 @@
               "minimum": 1,
               "default": 250,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "retry_initial_ms": {
@@ -5017,7 +5014,7 @@
               "minimum": 1,
               "default": 100,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "retry_max_ms": {
@@ -5026,7 +5023,7 @@
               "minimum": 1,
               "default": 10000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "retry_max_attempts": {
@@ -5035,7 +5032,7 @@
               "minimum": 1,
               "default": 10,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             }
           },

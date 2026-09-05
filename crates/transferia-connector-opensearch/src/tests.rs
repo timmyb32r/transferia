@@ -119,6 +119,14 @@ fn registration_publishes_batch_source_and_append_only_sink() -> anyhow::Result<
     assert_eq!(sink.record_semantics, [RecordSemantics::AppendOnly]);
     assert_eq!(source.initial["auth"]["type"], "basic");
     assert_eq!(sink.initial["auth"]["type"], "basic");
+    for (schema, fields) in [
+        (&source.schema, &["request_timeout_ms", "max_response_bytes", "page_rows", "read_concurrency", "pit_keep_alive_ms", "retry_initial_ms", "retry_max_ms", "retry_max_attempts"][..]),
+        (&sink.schema, &["request_timeout_ms", "max_response_bytes", "routed_identity", "bulk_target_rows", "bulk_target_bytes", "bulk_concurrency", "flush_interval_ms", "retry_initial_ms", "retry_max_ms", "retry_max_attempts"][..]),
+    ] {
+        for field in fields {
+            assert_eq!(schema["properties"][field]["x-ui"]["widget"], "hidden", "{field}");
+        }
+    }
     assert_eq!(
         source.schema["$defs"]["OpenSearchAuth"]["oneOf"][0]["properties"]["password"]["x-ui"]
             ["widget"],

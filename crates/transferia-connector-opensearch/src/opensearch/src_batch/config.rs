@@ -25,7 +25,7 @@ pub struct OpenSearchSourceConfig {
         title = "Rows per search page",
         description = "Maximum documents returned by one sliced point-in-time request",
         range(min = 1),
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub page_rows: usize,
 
@@ -34,7 +34,7 @@ pub struct OpenSearchSourceConfig {
         title = "Parallel shard readers",
         description = "Maximum simultaneous slice page requests per index",
         range(min = 1),
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub read_concurrency: usize,
 
@@ -43,7 +43,7 @@ pub struct OpenSearchSourceConfig {
         title = "Point-in-time keep alive, ms",
         description = "OpenSearch renews the coherent index PIT lifetime on every snapshot page request",
         range(min = 1),
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub pit_keep_alive_ms: u64,
 
@@ -51,7 +51,7 @@ pub struct OpenSearchSourceConfig {
     #[schemars(
         title = "Retry initial delay, ms",
         range(min = 1),
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub retry_initial_ms: u64,
 
@@ -59,7 +59,7 @@ pub struct OpenSearchSourceConfig {
     #[schemars(
         title = "Retry maximum delay, ms",
         range(min = 1),
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub retry_max_ms: u64,
 
@@ -68,7 +68,7 @@ pub struct OpenSearchSourceConfig {
         title = "Retry maximum attempts",
         description = "Total attempts for one unchanged PIT operation before failing",
         range(min = 1),
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub retry_max_attempts: usize,
 }
