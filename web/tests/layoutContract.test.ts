@@ -16,6 +16,16 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("shares the destination gaps and panel radius with the parser join", () => {
+    expect(styles).toContain("grid-template-columns: minmax(450px, 1fr) var(--route-gap) minmax(450px, 1fr);");
+    const bridge = styles.split(".source-parser-bridge {")[1]?.split("}")[0];
+    // The one-pixel overlap hides the parser top border without shrinking the gap.
+    expect(bridge).toContain("height: calc(var(--route-gap) + 1px);");
+    expect(bridge).toContain("margin-bottom: -1px;");
+    expect(styles).toContain("border-bottom-left-radius: var(--radius-panel);");
+    expect(styles).toContain("border-radius: 0 var(--radius-panel) var(--radius-panel);");
+    expect(styles).toContain(".source-parser-bridge {\n    display: none;");
+  });
   it("shades the three delivery islands without changing control geometry or dark themes", () => {
     const selectors = [
       ':root[data-theme="light"] .identity-card',

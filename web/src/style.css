@@ -1049,8 +1049,11 @@ h3 {
   font-weight: 400;
 }
 .route-composition {
+  --route-gap: 34px;
+  --route-surface: var(--panel);
+  --route-outline: var(--route-line);
   display: grid;
-  grid-template-columns: minmax(450px, 1fr) 34px minmax(450px, 1fr);
+  grid-template-columns: minmax(450px, 1fr) var(--route-gap) minmax(450px, 1fr);
   grid-template-areas:
     "source arrow sink"
     "sourcebridge . ."
@@ -1094,14 +1097,38 @@ h3 {
 :root[data-theme="light"] .route-composition:has(> .parser-details-card) > .endpoint-card-source {
   border-bottom-color: transparent;
 }
+:root[data-theme="light"] .route-composition {
+  --route-surface: #edf1f4;
+  --route-outline: #cfd8de;
+}
 .source-parser-bridge {
   position: relative;
   z-index: 2;
   grid-area: sourcebridge;
-  height: 24px;
+  height: calc(var(--route-gap) + 1px);
   margin-bottom: -1px;
   border-right: 1px solid var(--line);
   border-left: 1px solid var(--line);
+}
+/* Round the concave corner, covering the straight border underneath it. */
+.source-parser-bridge::before,
+.source-parser-bridge::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  left: 100%;
+  bottom: 0;
+  width: calc(var(--radius-panel) + 1px);
+  height: calc(var(--radius-panel) + 1px);
+}
+.source-parser-bridge::before {
+  background: var(--route-surface);
+}
+.source-parser-bridge::after {
+  background: var(--canvas);
+  border-left: 1px solid var(--route-outline);
+  border-bottom: 1px solid var(--route-outline);
+  border-bottom-left-radius: var(--radius-panel);
 }
 .route-arrow {
   grid-area: arrow;
@@ -3339,7 +3366,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   min-width: 0;
   padding: 20px 22px 22px;
   border: 1px solid var(--route-line);
-  border-radius: 0 4px 4px;
+  border-radius: 0 var(--radius-panel) var(--radius-panel);
   outline: none;
 }
 .parser-details-card > * {
@@ -4784,7 +4811,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   padding: 20px 22px;
 }
 :root[data-design="airy-v0"] .route-composition {
-  grid-template-columns: minmax(450px, 1fr) 46px minmax(450px, 1fr);
+  --route-gap: 46px;
 }
 :root[data-design="airy-v0"] .route-arrow {
   height: 82px;
@@ -4907,7 +4934,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   }
   .parser-details-card {
     grid-column: 1;
-    border-radius: 0 0 4px 4px;
+    border-radius: 0 0 var(--radius-panel) var(--radius-panel);
     border-top-color: var(--line-inner);
   }
   .source-parser-bridge {
