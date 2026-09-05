@@ -1,4 +1,5 @@
 import type { EditorState } from "../state";
+import { useRef, useState } from "preact/hooks";
 import { isDirty } from "../state";
 import type { DeliverySummary, UiCatalog } from "../types";
 import { AppearanceSettings } from "../ui/AppearanceSettings";
@@ -517,6 +518,36 @@ export function EditorTabs({
   );
 }
 
+function CopyNoticeButton({ text }: { text: string }) {
+  const busy = useRef(false);
+  const [status, setStatus] = useState("Copy");
+  return (
+    <Button
+      class="notice-copy"
+      pending={status === "Copying…"}
+      aria-label="Copy message"
+      title={status === "Failed" ? "Copy failed. Select and copy the message manually." : status}
+      onKeyDown={(event) => event.stopPropagation()}
+      onClick={async (event) => {
+        event.stopPropagation();
+        if (busy.current) return;
+        busy.current = true;
+        setStatus("Copying…");
+        try {
+          await navigator.clipboard.writeText(text);
+          setStatus("Copied");
+        } catch {
+          setStatus("Failed");
+        } finally {
+          busy.current = false;
+        }
+      }}
+    >
+      <span aria-live="polite">{status}</span>
+    </Button>
+  );
+}
+
 export function OperationNotices({
   operations,
   onDismiss,
@@ -550,6 +581,7 @@ export function OperationNotices({
               }}
             >
               <span>{operation.error}</span>
+              <CopyNoticeButton key={operation.requestId} text={operation.error} />
               <Button
                 shape="icon"
                 aria-label="Dismiss error"
@@ -584,7 +616,16 @@ export function OperationNotices({
               }}
             >
               <span>{operation.success}</span>
-              <span aria-hidden="true">×</span>
+              <CopyNoticeButton key={operation.requestId} text={operation.success} />
+              <Button
+                shape="icon"
+                aria-label="Dismiss message"
+                onKeyDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDismiss(key as OperationKey, operation.requestId);
+                }}
+              >×</Button>
             </div>
           ),
       )}

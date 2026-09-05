@@ -98,6 +98,10 @@ describe("delivery layout contract", () => {
     expect(styles).toMatch(/\.serializer-inline-settings > \.field-control,/);
   });
 
+  it("keeps notice copy controls fixed-width across clipboard states", () => {
+    expect(styles).toMatch(/\.notice button\.notice-copy\s*\{[^}]*flex:\s*0 0 80px;[^}]*width:\s*80px;/s);
+  });
+
   it("keeps dynamic selects compact and option errors outside document flow", () => {
     expect(styles).toMatch(
       /\.dynamic-select\s*\{[^}]*position:\s*relative;/s,

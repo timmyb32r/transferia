@@ -2812,6 +2812,11 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   padding: 0;
   margin-left: auto;
 }
+.notice button.notice-copy {
+  flex: 0 0 80px;
+  width: 80px;
+  font-size: 12px;
+}
 .spinner {
   display: inline-block;
   width: 15px;

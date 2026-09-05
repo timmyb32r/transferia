@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render } from "@testing-library/preact";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -28,6 +28,34 @@ const editor = (runtime: EditorState["runtime"]): EditorState => ({
 
 describe("editor chrome", () => {
   afterEach(cleanup);
+  it.each(["error", "success"] as const)("copies %s notices without dismissing them and reports clipboard failures", async (kind) => {
+    let resolve!: () => void;
+    const writeText = vi.fn().mockReturnValue(new Promise<void>((done) => { resolve = done; }));
+    const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    try {
+      const dismiss = vi.fn();
+      const message = "Full message\nwith details";
+      const view = render(<OperationNotices operations={{ save: { requestId: 1, [kind]: message } }} onDismiss={dismiss} />);
+      const copy = view.getByRole("button", { name: "Copy message" });
+      fireEvent.keyDown(copy, { key: "Enter" });
+      fireEvent.click(copy);
+      expect(copy.getAttribute("aria-busy")).toBe("true");
+      fireEvent.click(copy);
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(writeText).toHaveBeenCalledWith(message);
+      resolve();
+      await waitFor(() => expect(copy.textContent).toBe("Copied"));
+      expect(view.getByRole("button", { name: "Copy message" })).toBe(copy);
+      writeText.mockRejectedValueOnce(new Error("denied"));
+      fireEvent.click(copy);
+      await waitFor(() => expect(copy.textContent).toBe("Failed"));
+      expect(dismiss).not.toHaveBeenCalled();
+    } finally {
+      if (original) Object.defineProperty(navigator, "clipboard", original);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
   it("keeps the same action buttons mounted before saving, while viewing, and while editing", () => {
     const onEdit = vi.fn();
     const onClone = vi.fn();
