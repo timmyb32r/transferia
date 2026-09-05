@@ -137,7 +137,10 @@ async fn incomplete_auth_produces_a_network_only_result() {
         port: address.port(),
         trusted_plaintext: true,
         tls_ca_file: None,
-        auth: None,
+        auth: Some(opensearch::OpenSearchAuth::Basic {
+            username: "asdf".to_owned(),
+            password: String::new(),
+        }),
         request_timeout_ms: 1_000,
         max_response_bytes: 1_024,
     })
@@ -163,4 +166,20 @@ fn checker_config_accepts_null_auth_and_ignores_endpoint_specific_fields() {
     .unwrap();
 
     assert!(!config.credentials_complete());
+}
+
+#[test]
+fn checker_requires_both_basic_credentials_but_allows_explicit_anonymous() {
+    for (auth, complete) in [
+        (serde_json::Value::Null, false),
+        (serde_json::json!({"type": "basic", "username": "", "password": ""}), false),
+        (serde_json::json!({"type": "basic", "username": "user", "password": ""}), false),
+        (serde_json::json!({"type": "basic", "username": "", "password": "secret"}), false),
+        (serde_json::json!({"type": "basic", "username": "user", "password": "secret"}), true),
+        (serde_json::json!({"type": "anonymous"}), true),
+    ] {
+        let config: opensearch::OpenSearchConnectionCheckConfig =
+            serde_json::from_value(serde_json::json!({"auth": auth})).unwrap();
+        assert_eq!(config.credentials_complete(), complete);
+    }
 }

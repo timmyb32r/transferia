@@ -49,7 +49,9 @@ impl OpenSearchConnectionCheckConfig {
     #[must_use]
     pub const fn credentials_complete(&self) -> bool {
         match &self.auth {
-            Some(OpenSearchAuth::Basic { username, .. }) => !username.is_empty(),
+            Some(OpenSearchAuth::Basic { username, password }) => {
+                !username.is_empty() && !password.is_empty()
+            }
             Some(OpenSearchAuth::Anonymous) => true,
             None => false,
         }
