@@ -58,7 +58,7 @@ export function DeliveryConfiguration({
     (selection?.sourceKey ?? "") !== "" &&
     (selection?.sinkKey ?? "") !== "";
   const allSourceConnectors = orderedEndpointConnectors(catalog, "source");
-  const routeSettingsAvailable = routeSelectionComplete && selection?.error === undefined;
+  const routeSettingsAvailable = routeSelectionComplete && selection?.routeError === undefined;
   const allSinkConnectors = orderedEndpointConnectors(catalog, "sink");
   const sourceSampleLoader =
     selection?.error === undefined && selection?.source !== undefined
@@ -213,9 +213,15 @@ export function DeliveryConfiguration({
               />
             )}
         </section>
-        {routeSelectionComplete && selection?.error && (
+        {routeSelectionComplete && selection?.routeError && (
           <div class="compatibility-error">
             <strong>Incompatible route</strong>
+            <span>{selection.routeError}</span>
+          </div>
+        )}
+        {routeSettingsAvailable && selection?.error && (
+          <div class="compatibility-error">
+            <strong>Configuration required</strong>
             <span>{selection.error}</span>
           </div>
         )}

@@ -23,7 +23,8 @@ import {
   type CompiledNode,
 } from "../src/schema/compiler";
 import { SchemaForm } from "../src/schema/SchemaForm";
-import { configuredEndpointCapabilities } from "../src/recordSemantics";
+import { configuredEndpointCapabilities, DELIVERY_TYPES } from "../src/recordSemantics";
+import { compatibilityRoutes } from "../src/ui/CompatibilityMatrixDialog";
 import type { JsonObject, JsonValue, UiCatalog } from "../src/types";
 import {
   nextRequiredTarget,
@@ -34,6 +35,19 @@ import { render } from "./support/render";
 afterEach(cleanup);
 
 describe("connector catalog readiness", () => {
+  const matrixCatalog = decodeApi("catalog_response", catalogFixture, "catalog");
+  it.each(compatibilityRoutes(matrixCatalog).flatMap((route) => DELIVERY_TYPES.map((mode) => ({
+    name: `${route.source.key} → ${route.sink.key} / ${mode}`, route, mode,
+  }))))("agrees with the matrix for $name even before configuration is complete", ({ route, mode }) => {
+    for (const initial of [true, false]) {
+      const config = { delivery_type: mode,
+        source: { [route.source.key]: initial ? route.source.source!.initial : {} },
+        sink: { [route.sink.key]: initial ? route.sink.sink!.initial : {} },
+      };
+      const selection = selectedEndpoints(matrixCatalog, config, productionWidgetRegistry);
+      expect(selection.routeError === undefined).toBe(route.supported.includes(mode));
+    }
+  });
   it("validates the selected delivery type as an exact source capability", () => {
     const catalog: UiCatalog = {
       common_schema: { type: "object" },
@@ -151,7 +165,7 @@ describe("connector catalog readiness", () => {
         },
         productionWidgetRegistry,
       ).error,
-    ).toBe("Database does not support stream delivery.");
+    ).toBe("Configure Database for stream delivery; the current source settings do not enable this mode.");
     expect(
       selectedEndpoints(
         catalog,
@@ -198,7 +212,7 @@ describe("connector catalog readiness", () => {
         },
         productionWidgetRegistry,
       ).error,
-    ).toBe("PostgreSQL does not support stream delivery.");
+    ).toBe("Configure PostgreSQL for stream delivery; the current source settings do not enable this mode.");
     expect(
       selectedEndpoints(
         catalog,
@@ -262,7 +276,7 @@ describe("connector catalog readiness", () => {
         },
         productionWidgetRegistry,
       ).error,
-    ).toBe("MySQL does not support stream delivery.");
+    ).toBe("Configure MySQL for stream delivery; the current source settings do not enable this mode.");
     expect(
       selectedEndpoints(
         catalog,
@@ -282,7 +296,7 @@ describe("connector catalog readiness", () => {
         },
         productionWidgetRegistry,
       ).error,
-    ).toBe("MySQL does not support batch delivery.");
+    ).toBe("Configure MySQL for batch delivery; the current source settings do not enable this mode.");
   });
 
   it("allows parser-defined schema preview before source connectivity is configured", () => {

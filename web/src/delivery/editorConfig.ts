@@ -360,6 +360,7 @@ export function selectedEndpoints(
   sinkKey: string;
   source: EndpointDefinition | undefined;
   sink: EndpointDefinition | undefined;
+  routeError?: string;
   error?: string;
 } {
   const sourceKey = singleKey(config.source);
@@ -371,6 +372,17 @@ export function selectedEndpoints(
     (connector) => connector.key === sinkKey,
   )?.sink;
   const deliveryType = stringValue(config.delivery_type);
+  const sourceTitle = catalog.connectors.find((connector) => connector.key === sourceKey)?.title ?? sourceKey;
+  const sinkTitle = catalog.connectors.find((connector) => connector.key === sinkKey)?.title ?? sinkKey;
+  const mode = deliveryType as EndpointDefinition["delivery_modes"][number];
+  let routeError: string | undefined;
+  if (deliveryType !== "" && source !== undefined) {
+    if (!source.delivery_modes.includes(mode)) {
+      routeError = `${sourceTitle} does not support ${deliveryType.replaceAll("_", " ")} delivery.`;
+    } else if (sink !== undefined && !routeSupportsDeliveryType(source, sink, mode)) {
+      routeError = `${sinkTitle} cannot accept the records produced by ${sourceTitle} for ${deliveryType.replaceAll("_", " ")} delivery.`;
+    }
+  }
   let error: string | undefined;
   try {
     if (deliveryType !== "" && source !== undefined) {
@@ -388,7 +400,9 @@ export function selectedEndpoints(
         const title =
           catalog.connectors.find((connector) => connector.key === sourceKey)
             ?.title ?? sourceKey;
-        error = `${title} does not support ${deliveryType.replaceAll("_", " ")} delivery.`;
+        error = source.delivery_modes.includes(mode)
+          ? `Configure ${title} for ${deliveryType.replaceAll("_", " ")} delivery; the current source settings do not enable this mode.`
+          : `${title} does not support ${deliveryType.replaceAll("_", " ")} delivery.`;
       } else if (sink !== undefined) {
         const sourceCapabilities = configuredEndpointCapabilities(
           source,
@@ -434,11 +448,13 @@ export function selectedEndpoints(
         ? caught.message
         : "The selected endpoint capabilities are invalid.";
   }
+  error = routeError ?? error;
   return {
     sourceKey,
     sinkKey,
     source,
     sink,
+    ...(routeError === undefined ? {} : { routeError }),
     ...(error === undefined ? {} : { error }),
   };
 }
