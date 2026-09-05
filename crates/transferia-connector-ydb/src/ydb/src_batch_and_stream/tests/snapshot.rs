@@ -37,8 +37,13 @@ fn snapshot_keys_reject_duplicates_within_and_across_batches() {
     };
     let mut previous = None;
     validate_snapshot_keys(&table, &batch(vec![1, 2]), &mut previous).unwrap();
+    let saved = previous.clone();
+    validate_snapshot_keys(&table, &batch(Vec::<i64>::new()), &mut previous).unwrap();
+    assert_eq!(previous, saved);
     assert!(validate_snapshot_keys(&table, &batch(vec![2, 3]), &mut previous).is_err());
     assert!(validate_snapshot_keys(&table, &batch(vec![4, 4]), &mut None).is_err());
+    validate_snapshot_keys(&table, &batch(vec![3]), &mut previous).unwrap();
+    assert!(validate_snapshot_keys(&table, &batch(vec![3]), &mut previous).is_err());
 }
 
 #[test]

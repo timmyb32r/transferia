@@ -171,7 +171,9 @@ impl OverlapSnapshot {
                         memory,
                     });
                 }
-                SourceBatch::Raw { .. } => anyhow::bail!("YDB snapshot returned an unexpected untyped batch"),
+                SourceBatch::Raw { .. } => {
+                    anyhow::bail!("YDB snapshot returned an unexpected untyped batch")
+                }
             }
         }
     }
@@ -257,8 +259,10 @@ fn validate_snapshot_keys(
             table.config.path
         );
     }
-    if let Some(row) = rows.iter().next_back() {
-        *previous = Some(row.as_ref().to_vec());
+    // Arrow 57.3 RowsIter::next_back indexes past its final row. Use the
+    // bounds-checked row accessor and retain the empty-batch behavior.
+    if let Some(index) = batch.num_rows().checked_sub(1) {
+        *previous = Some(rows.row(index).as_ref().to_vec());
     }
     Ok(())
 }
@@ -312,12 +316,10 @@ fn materialize_snapshot(
                 name: Arc::from(field.name().as_str()),
             });
             match kind {
-                SystemColumnKind::ChangeOperation => {
-                    Arc::new(StringArray::from(vec![
+                SystemColumnKind::ChangeOperation => Arc::new(StringArray::from(vec![
                         ChangeOperation::SnapshotRead.code();
                         len
-                    ]))
-                }
+                    ])),
                 SystemColumnKind::ChangedColumns => Arc::new(BinaryArray::from_iter_values(
                     std::iter::repeat_n(mask.as_slice(), len),
                 )),
