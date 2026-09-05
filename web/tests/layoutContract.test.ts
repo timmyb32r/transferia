@@ -16,6 +16,20 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("distinguishes strong blue matrix selection from green search matches", () => {
+    expect(styles).toMatch(/\.compatibility-table tr.active-row > td\s*\{[^}]*#3b82f6 32%/s);
+    expect(styles).toMatch(/\.compatibility-table td.active-intersection\s*\{[^}]*#3b82f6 52%/s);
+    expect(styles).toMatch(/\.compatibility-table tr.search-match-row > td\s*\{[^}]*var\(--success-surface\)/s);
+  });
+  it("fits the matrix without scrollbars and makes the entire header cell pressable", () => {
+    expect(styles).toMatch(/\.compatibility-matrix-viewport\s*\{[^}]*overflow: hidden;/s);
+    expect(styles).toMatch(/\.compatibility-matrix-content\s*\{[^}]*position: absolute;[^}]*transform-origin: top left;/s);
+    expect(styles).toMatch(/\.compatibility-table thead th\s*\{[^}]*white-space: normal;[^}]*overflow-wrap: anywhere;/s);
+    expect(styles).toMatch(/\.compatibility-table th > button\s*\{[^}]*width: 100%;[^}]*height: 100%;[^}]*border-radius: 0;/s);
+    expect(styles).toContain("th:has(> button:active)");
+    expect(styles).not.toContain(".compatibility-legend");
+  });
+
   it("reserves tab icon space and overlays disabled locks without shifting labels", () => {
     expect(styles).toMatch(/:root \.editor-view-tabs button\s*\{[^}]*position: relative;[^}]*padding-inline: 25px;/s);
     expect(styles).toMatch(/\.disabled-lock-icon\s*\{[^}]*position: absolute;/s);

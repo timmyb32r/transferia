@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from "@testing-library/preact";
+import { cleanup, fireEvent, render } from "@testing-library/preact";
+import { useState } from "preact/hooks";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -13,6 +14,37 @@ import {
 afterEach(cleanup);
 
 describe("autofill-resistant fields", () => {
+  it.each(["text", "search", "password", "number", "email", "url", "tel", "textarea", "select"])(
+    "preserves the %s field DOM identity and focus across controlled edits",
+    (type) => {
+      function Editor({ revision }: { revision: number }) {
+        const [value, setValue] = useState("");
+        const props = {
+          "aria-label": "Field",
+          value,
+          onInput: (event: Event) => setValue((event.currentTarget as HTMLInputElement).value),
+        };
+        return <div data-revision={revision}>
+          {type === "textarea" ? <AutofillResistantTextarea {...props} />
+            : type === "select" ? <AutofillResistantSelect {...props}>
+              <option value="">None</option><option value="1">One</option><option value="12">Twelve</option>
+            </AutofillResistantSelect>
+            : <AutofillResistantInput {...props} type={type} />}
+        </div>;
+      }
+      const view = render(<Editor revision={0} />);
+      const field = view.getByLabelText("Field");
+      field.focus();
+      for (const [revision, value] of ["1", "12"].entries()) {
+        fireEvent.input(field, { target: { value } });
+        view.rerender(<Editor revision={revision + 1} />);
+        expect(view.getByLabelText("Field")).toBe(field);
+        expect(document.activeElement).toBe(field);
+        expect((field as HTMLInputElement).value).toBe(value);
+      }
+    },
+  );
+
   it.each(["text", "search", "password", "number", "checkbox"])(
     "protects a native %s input",
     (type) => {

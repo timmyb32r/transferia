@@ -1,6 +1,5 @@
 import { createPortal } from "preact/compat";
 import {
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -15,6 +14,7 @@ import type {
 import { AutofillResistantInput } from "./AutofillResistantField";
 import { Button } from "./Button";
 import { InstantTooltip } from "./InstantTooltip";
+import { orderedEndpointConnectors } from "../delivery/editorConfig";
 import {
   declaredSourceRecordSemantics,
   routeSupportsDeliveryType,
@@ -334,6 +334,10 @@ export function CompatibilityMatrixDialog({
 }) {
   const dialog = useRef<HTMLElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  const matrixViewport = useRef<HTMLDivElement>(null);
+  const matrixContent = useRef<HTMLDivElement>(null);
   const [activeCell, setActiveCell] = useState<{
     source: string;
     sink: string;
@@ -346,11 +350,11 @@ export function CompatibilityMatrixDialog({
   >("matrix");
   const [activeProperty, setActiveProperty] = useState<string | null>(null);
   const sources = useMemo(
-    () => catalog.connectors.filter((connector) => connector.source),
+    () => orderedEndpointConnectors(catalog, "source"),
     [catalog],
   );
   const sinks = useMemo(
-    () => catalog.connectors.filter((connector) => connector.sink),
+    () => orderedEndpointConnectors(catalog, "sink"),
     [catalog],
   );
   const routes = useMemo(() => compatibilityRoutes(catalog), [catalog]);
@@ -409,7 +413,8 @@ export function CompatibilityMatrixDialog({
     };
   }, []);
 
-  useEffect(() => {
+  // Focus belongs to the dialog's mount, not callback changes or deferred effects.
+  useLayoutEffect(() => {
     restoreFocus.current =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
@@ -420,14 +425,35 @@ export function CompatibilityMatrixDialog({
       )
       ?.focus();
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") close.current();
     };
     document.addEventListener("keydown", keydown);
     return () => {
       document.removeEventListener("keydown", keydown);
       restoreFocus.current?.focus();
     };
-  }, [onClose]);
+  }, []);
+
+  useLayoutEffect(() => {
+    const viewport = matrixViewport.current;
+    const content = matrixContent.current;
+    if (!viewport || !content || typeof ResizeObserver === "undefined") return;
+    const fit = () => {
+      if (!content.offsetWidth || !content.offsetHeight) return;
+      const table = content.querySelector("table");
+      const summary = content.querySelector<HTMLElement>(".compatibility-gap-summary");
+      if (table?.offsetHeight && summary) {
+        summary.style.gridTemplateRows = Array.from(table.rows, (row) => getComputedStyle(row).height).join(" ");
+      }
+      const scale = Math.min(1, viewport.clientWidth / content.offsetWidth, viewport.clientHeight / content.offsetHeight);
+      content.style.transform = `scale(${scale})`;
+    };
+    const observer = new ResizeObserver(fit);
+    observer.observe(viewport);
+    observer.observe(content);
+    fit();
+    return () => observer.disconnect();
+  }, [activeTab, catalog]);
 
   return createPortal(
     <div class="compatibility-backdrop" onMouseDown={onClose}>
@@ -488,18 +514,6 @@ export function CompatibilityMatrixDialog({
 
         {activeTab === "matrix" ? (
           <div class="compatibility-matrix-tools">
-            <div class="compatibility-legend" aria-label="Legend">
-              <DeliveryModeBadge mode="batch" />
-              <span>Batch flow is supported</span>
-              <DeliveryModeBadge mode="stream" />
-              <span>Stream flow is supported</span>
-              <DeliveryModeBadge mode="batch_and_stream" />
-              <span>Combined snapshot and stream flow is supported</span>
-              <span class="compatibility-unavailable" aria-hidden="true">
-                —
-              </span>
-              <span>No compatible data semantics</span>
-            </div>
             <label class="compatibility-search">
               <span>Find source or destination</span>
               <AutofillResistantInput
@@ -522,9 +536,11 @@ export function CompatibilityMatrixDialog({
         )}
 
         {activeTab === "matrix" ? (
-          <div class="compatibility-table-scroll">
+          <div class="compatibility-matrix-viewport" ref={matrixViewport}>
+            <div class="compatibility-matrix-content" ref={matrixContent}>
             <table
               class="compatibility-table"
+              style={{ width: `${160 + sinks.length * 80}px` }}
               onMouseLeave={() => setActiveCell(null)}
             >
               <caption>Sources by destinations</caption>
@@ -560,7 +576,6 @@ export function CompatibilityMatrixDialog({
                       </button>
                     </th>
                   ))}
-                  <th scope="col">Incomplete modes</th>
                 </tr>
               </thead>
               <tbody>
@@ -588,7 +603,6 @@ export function CompatibilityMatrixDialog({
                         }
                       >
                         <strong>{source.title}</strong>
-                        <small>{source.source!.delivery_modes.join(" · ")}</small>
                       </button>
                     </th>
                     {sinks.map((sink) => (
@@ -607,11 +621,15 @@ export function CompatibilityMatrixDialog({
                         }
                       />
                     ))}
-                    <SourceModeGapCell source={source} />
                   </tr>
                 ))}
               </tbody>
             </table>
+            <aside class="compatibility-gap-summary" aria-label="Incomplete modes">
+              <h3>Incomplete modes</h3>
+              {sources.map((source) => <SourceModeGapCell key={source.key} source={source} />)}
+            </aside>
+            </div>
           </div>
         ) : activeTab === "entities" ? (
           <div class="entity-browser">
@@ -787,7 +805,7 @@ function CompatibilityCell({
         </span>
       ) : (
         <span class="compatibility-badges">
-          {route.supported.map((mode) => (
+          {(route.supported.includes("batch_and_stream") ? ["batch_and_stream" as const] : route.supported).map((mode) => (
             <DeliveryModeBadge key={mode} mode={mode} />
           ))}
         </span>
@@ -807,14 +825,12 @@ function SourceModeGapCell({ source }: { source: ConnectorDefinition }) {
   ];
 
   return (
-    <td class="compatibility-mode-gaps">
-      {gaps.map((gap) => (
-        <InstantTooltip key={gap} content={gap}>
-          <span class="compatibility-gap-check" aria-hidden="true">
-            ✓
-          </span>
-        </InstantTooltip>
-      ))}
-    </td>
+    <div class="compatibility-mode-gaps" aria-label={`${source.title}: incomplete modes`}>
+      <InstantTooltip content={gaps.length ? gaps.join("; ") : "Snapshot and replication are implemented"}>
+        <span class={`compatibility-gap-check${gaps.length ? " incomplete" : ""}`} aria-hidden="true">
+          {gaps.length ? "×" : "✓"}
+        </span>
+      </InstantTooltip>
+    </div>
   );
 }

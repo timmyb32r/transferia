@@ -4118,8 +4118,8 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .compatibility-dialog {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-  width: min(1180px, calc(100vw - 56px));
-  height: min(760px, calc(100dvh - 56px));
+  width: calc(100vw - 56px);
+  height: calc(100dvh - 56px);
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
@@ -4363,14 +4363,6 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   border-bottom: 1px solid var(--line-inner);
 }
 
-.compatibility-legend {
-  display: grid;
-  grid-template-columns: auto minmax(0, max-content) auto minmax(0, max-content) auto minmax(0, max-content);
-  gap: 8px 7px;
-  align-items: center;
-  color: var(--muted);
-  font-size: 12px;
-}
 
 .compatibility-search {
   display: grid;
@@ -4386,17 +4378,53 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   height: 32px;
 }
 
-.compatibility-table-scroll {
+.compatibility-matrix-viewport {
+  position: relative;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
+  scrollbar-gutter: auto;
   background: var(--surface-soft);
+}
+.compatibility-matrix-content {
+  --matrix-header-height: 56px;
+  --matrix-row-height: 36px;
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  width: max-content;
+  transform-origin: top left;
+  scrollbar-gutter: auto;
+}
+.compatibility-gap-summary {
+  display: grid;
+  grid-template-rows: var(--matrix-header-height);
+  grid-auto-rows: var(--matrix-row-height);
+  width: 180px;
+  font-size: 11px;
+}
+.compatibility-gap-summary h3 {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+.compatibility-gap-summary .compatibility-mode-gaps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.compatibility-gap-check {
+  color: var(--success-text);
+  font-size: 16px;
+}
+.compatibility-gap-check.incomplete {
+  color: var(--danger-text);
 }
 
 .compatibility-table {
   width: 100%;
-  height: 100%;
+  height: auto;
   min-width: 0;
   border-spacing: 0;
   border-collapse: separate;
@@ -4413,8 +4441,8 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 
 .compatibility-table th,
 .compatibility-table td {
-  height: auto;
-  padding: clamp(4px, 0.65vw, 8px);
+  height: var(--matrix-row-height);
+  padding: 3px;
   text-align: center;
   background: var(--panel);
   border-right: 1px solid var(--line-inner);
@@ -4425,37 +4453,47 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   position: sticky;
   z-index: 2;
   top: 0;
-  height: 42px;
-  overflow: hidden;
+  height: var(--matrix-header-height);
   color: var(--muted);
   font-size: 11px;
   font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   background: var(--panel2);
 }
 
-.compatibility-table th > button {
+:root .compatibility-dialog .compatibility-table th > button {
   display: block;
   width: 100%;
   height: 100%;
-  padding: 0;
-  overflow: hidden;
+  padding: 8px 4px;
   color: inherit;
   font: inherit;
   text-align: inherit;
-  text-overflow: inherit;
   white-space: inherit;
   cursor: pointer;
   background: transparent;
   border: 0;
+  border-radius: 0;
+  transform: none;
+  box-shadow: none;
+}
+.compatibility-table th:has(> button) { padding: 0; }
+.compatibility-table th:has(> button:active) {
+  box-shadow: inset 0 3px 8px var(--shadow);
+  background: var(--surface-selected);
+}
+.compatibility-table th > button:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+  filter: none;
 }
 
 .compatibility-table thead th:first-child,
 .compatibility-table tbody th {
   position: sticky;
   left: 0;
-  width: clamp(116px, 15vw, 168px);
+  width: 160px;
   text-align: left;
 }
 
@@ -4465,16 +4503,14 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 
 .compatibility-table tbody th {
   z-index: 1;
-  padding-left: 16px;
   background: var(--panel2);
 }
 
 .compatibility-table tbody th strong,
 .compatibility-table tbody th small {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .compatibility-table tbody th strong {
@@ -4498,12 +4534,13 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .compatibility-table td.active-column,
 .compatibility-table tr.active-row > th,
 .compatibility-table tr.active-row > td {
-  background: color-mix(in srgb, var(--surface-selected), var(--panel) 42%);
+  background: color-mix(in srgb, #3b82f6 32%, var(--panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #3b82f6 65%, transparent);
 }
 
 .compatibility-table td.active-intersection {
-  background: color-mix(in srgb, var(--blue), var(--panel) 84%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue), transparent 48%);
+  background: color-mix(in srgb, #3b82f6 52%, var(--panel));
+  box-shadow: inset 0 0 0 2px #3b82f6;
 }
 
 .compatibility-table th.search-match-column,
@@ -4515,23 +4552,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 }
 
 .compatibility-mode-gaps {
-  white-space: nowrap;
-}
-
-.compatibility-mode-gaps .instant-tooltip-host + .instant-tooltip-host {
-  margin-left: 4px;
-}
-
-.compatibility-gap-check {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  color: var(--success-text);
-  background: var(--success-surface);
-  border: 1px solid color-mix(in srgb, var(--success-text), transparent 62%);
-  border-radius: 999px;
+  white-space: normal;
 }
 
 .compatibility-badges {
@@ -4595,10 +4616,6 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   .compatibility-dialog {
     width: calc(100vw - 20px);
     height: calc(100dvh - 20px);
-  }
-
-  .compatibility-legend {
-    grid-template-columns: auto minmax(0, 1fr);
   }
 
   .compatibility-matrix-tools {

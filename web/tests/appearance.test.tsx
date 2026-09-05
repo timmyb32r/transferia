@@ -7,6 +7,7 @@ import { AppearanceSettings } from "../src/ui/AppearanceSettings";
 import {
   catalogCapabilityGroups,
   CompatibilityMatrixLauncher,
+  CompatibilityMatrixDialog,
   compatibilityRoutes,
 } from "../src/ui/CompatibilityMatrixDialog";
 import {
@@ -62,6 +63,68 @@ const CATALOG: UiCatalog = {
 };
 
 describe("appearance preferences", () => {
+  it("puts the source-only generator and sink-only discard last, regardless of catalog order", () => {
+    const catalog: UiCatalog = { ...CATALOG, connectors: [
+      { key: "discard", title: "Discard (for benchmarks)", sink: endpoint(["append_only"]) },
+      { key: "data_generator", title: "Data generator (for benchmarks)", source: endpoint(["append_only"], ["batch"]) },
+      ...CATALOG.connectors,
+    ] };
+    const view = render(<CompatibilityMatrixDialog catalog={catalog} onClose={() => {}} />);
+    expect(view.getAllByRole("rowheader").at(-1)?.textContent).toContain("Data generator");
+    expect(view.getAllByRole("columnheader").at(-1)?.textContent).toContain("Discard");
+    expect(view.queryByRole("rowheader", { name: /Discard/ })).toBeNull();
+    expect(view.queryByRole("columnheader", { name: /Data generator/ })).toBeNull();
+  });
+
+  it("fits the entire matrix in both dimensions and keeps its footprint stable while searching", () => {
+    let resize = () => {};
+    const disconnect = vi.fn();
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { resize = callback; }
+      observe() {}
+      disconnect = disconnect;
+    });
+    const view = render(<CompatibilityMatrixDialog catalog={CATALOG} onClose={() => {}} />);
+    try {
+      const viewport = document.querySelector<HTMLElement>(".compatibility-matrix-viewport")!;
+      const content = document.querySelector<HTMLElement>(".compatibility-matrix-content")!;
+      Object.defineProperties(content, { offsetWidth: { value: 1000 }, offsetHeight: { value: 500 } });
+      Object.defineProperties(viewport, { clientWidth: { value: 500, configurable: true }, clientHeight: { value: 500, configurable: true } });
+      resize();
+      expect(content.style.transform).toBe("scale(0.5)");
+      Object.defineProperty(viewport, "clientHeight", { value: 125 });
+      resize();
+      expect(content.style.transform).toBe("scale(0.25)");
+      fireEvent.input(view.getByRole("searchbox"), { target: { value: "post" } });
+      expect(document.querySelector(".compatibility-matrix-content")).toBe(content);
+      expect(content.style.transform).toBe("scale(0.25)");
+      view.unmount();
+      expect(disconnect).toHaveBeenCalledOnce();
+    } finally {
+      view.unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps matrix search focus and caret through typing and parent rerenders", () => {
+    const firstClose = vi.fn();
+    const latestClose = vi.fn();
+    const view = render(<CompatibilityMatrixDialog catalog={CATALOG} onClose={firstClose} />);
+    const search = view.getByRole("searchbox") as HTMLInputElement;
+    search.focus();
+    for (const value of ["p", "po", "pos", "post"]) {
+      fireEvent.input(search, { target: { value } });
+      search.setSelectionRange(1, 1);
+      view.rerender(<CompatibilityMatrixDialog catalog={CATALOG} onClose={latestClose} />);
+      expect(view.getByRole("searchbox")).toBe(search);
+      expect(document.activeElement).toBe(search);
+      expect(search.selectionStart).toBe(1);
+    }
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(firstClose).not.toHaveBeenCalled();
+    expect(latestClose).toHaveBeenCalledOnce();
+  });
+
   const values = new Map<string, string>();
   const storage = {
     getItem: (key: string) => values.get(key) ?? null,
@@ -370,16 +433,21 @@ describe("appearance preferences", () => {
         "PostgreSQL to PostgreSQL: Batch and Stream and Batch + stream supported",
       ),
     ).toBeTruthy();
+    expect(view.queryByLabelText("Legend")).toBeNull();
+    expect(view.queryByRole("columnheader", { name: "Incomplete modes" })).toBeNull();
+    expect(view.getByRole("complementary", { name: "Incomplete modes" })).toBeTruthy();
+    const gaps = view.getByRole("complementary", { name: "Incomplete modes" });
+    const sourceRows = view.getAllByRole("rowheader");
+    expect(gaps.querySelectorAll(".compatibility-mode-gaps")).toHaveLength(sourceRows.length);
+    expect(gaps.querySelectorAll(".compatibility-gap-check").length).toBeGreaterThan(0);
+    expect(gaps.querySelector("strong")).toBeNull();
+    expect(within(gaps).getByLabelText("PostgreSQL: incomplete modes").textContent).toContain("✓");
+    expect(within(gaps).getByLabelText("Kafka: incomplete modes").querySelector(".incomplete")?.textContent).toContain("×");
     expect(
-      within(view.getByLabelText("Legend"))
-        .getAllByRole("tooltip")
-        .map((tooltip) => tooltip.textContent),
-    ).toEqual(["Batch", "Stream", "Batch + stream"]);
-    expect(
-      within(view.getByLabelText("Legend"))
+      within(view.getByLabelText("PostgreSQL to PostgreSQL: Batch and Stream and Batch + stream supported"))
         .getAllByText(/^(B|S|B\+S)$/)
         .map((badge) => badge.textContent),
-    ).toEqual(["B", "S", "B+S"]);
+    ).toEqual(["B+S"]);
 
     const postgresRowHeader = view.getByRole("rowheader", {
       name: /PostgreSQL/,
