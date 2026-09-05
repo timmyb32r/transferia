@@ -1994,12 +1994,8 @@ button::after {
   background: color-mix(in srgb, var(--success-surface) 76%, var(--success-text));
   border-color: var(--success-text);
 }
-.deactivate-action {
-  color: var(--danger-text);
-  background: var(--danger-surface);
-  border-color: var(--danger-border);
-}
 .deactivate-action:hover:not(:disabled) {
+  color: var(--danger-text);
   background: color-mix(in srgb, var(--danger-surface) 76%, var(--danger-text));
   border-color: var(--danger-text);
 }
