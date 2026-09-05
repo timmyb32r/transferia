@@ -6,6 +6,7 @@ export function FormField({
   optional,
   description,
   controlId,
+  fieldName,
   class: className,
   children,
 }: {
@@ -13,12 +14,13 @@ export function FormField({
   optional: boolean;
   description?: string | undefined;
   controlId?: string | undefined;
+  fieldName?: string | undefined;
   class?: string | undefined;
   children: ComponentChildren;
 }) {
   const tooltipId = useId();
   return (
-    <div class={["form-row", className].filter(Boolean).join(" ")}>
+    <div class={["form-row", className].filter(Boolean).join(" ")} data-field-name={fieldName}>
       <label class="field-label" for={controlId}>
         <span>
           {label}

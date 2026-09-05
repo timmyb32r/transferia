@@ -72,15 +72,7 @@ export function EndpointCard(props: {
       },
     });
     closePreview();
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        const parser = document.querySelector<HTMLElement>(
-          ".parser-details-card",
-        );
-        parser?.scrollIntoView({ behavior: "smooth", block: "start" });
-        parser?.focus({ preventScroll: true });
-      }),
-    );
+    revealDetails(".parser-details-card");
   };
 
   return (

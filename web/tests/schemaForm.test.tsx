@@ -25,6 +25,20 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("reveals the table name and focuses its input instead of the parser card", async () => {
+    const view = render(<div class="parser-details-card" tabIndex={-1}>
+      <div data-field-name="table_naming"><input aria-label="Table name" /></div>
+      <input aria-label="Another setting" />
+    </div>);
+    const card = view.container.querySelector<HTMLElement>(".parser-details-card")!;
+    const field = view.container.querySelector<HTMLElement>('[data-field-name="table_naming"]')!;
+    card.scrollIntoView = vi.fn();
+    field.scrollIntoView = vi.fn();
+    revealDetails(".parser-details-card");
+    await waitFor(() => expect(document.activeElement).toBe(view.getByRole("textbox", { name: "Table name" })));
+    expect(field.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(card.scrollIntoView).not.toHaveBeenCalled();
+  });
   it("marks only the missing output cell, not filled rows or table checkboxes", () => {
     const node: CompiledNode = {
       kind: "object", xUi: {}, required: new Set(["columns"]),
