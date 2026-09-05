@@ -2723,15 +2723,14 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   max-width: 300px;
 }
 .route-feedback {
-  /* Reserve feedback space even when valid: settings must not jump on edits. */
-  height: 80px;
+  /* This validation region intentionally moves settings only while an error exists. */
   margin-bottom: 14px;
 }
+.route-feedback:empty {
+  display: none;
+}
 .route-feedback > .compatibility-error {
-  box-sizing: border-box;
-  height: 100%;
   margin: 0;
-  overflow: auto;
 }
 .compatibility-error {
   display: flex;

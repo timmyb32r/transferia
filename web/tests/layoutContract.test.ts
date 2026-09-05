@@ -16,9 +16,13 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
-  it("reserves stable feedback space above endpoint settings in every validation state", () => {
-    expect(styles).toMatch(/\.route-feedback\s*\{[^}]*height: 80px;/s);
-    expect(styles).toMatch(/\.route-feedback > \.compatibility-error\s*\{[^}]*box-sizing: border-box;[^}]*height: 100%;[^}]*margin: 0;[^}]*overflow: auto;/s);
+  it("collapses empty route feedback and lets errors use their natural height", () => {
+    expect(styles).toMatch(/\.route-feedback:empty\s*\{[^}]*display: none;/s);
+    const feedback = styles.match(/\.route-feedback\s*\{([^}]*)\}/)?.[1];
+    const error = styles.match(/\.route-feedback > \.compatibility-error\s*\{([^}]*)\}/)?.[1];
+    expect(feedback).toContain("margin-bottom: 14px;");
+    expect(error).toContain("margin: 0;");
+    expect(`${feedback}${error}`).not.toMatch(/\b(height|min-height|max-height|overflow)\s*:/);
   });
   it("lets both property membership lists use their full content height", () => {
     expect(styles).toMatch(/\.property-members.expanded-members\s*\{[^}]*grid-template-rows: auto max-content auto max-content;/s);
