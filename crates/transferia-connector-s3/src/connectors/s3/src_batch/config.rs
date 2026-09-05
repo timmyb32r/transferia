@@ -53,7 +53,7 @@ pub struct S3SourceConfig {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum S3InputParser {
     #[schemars(
-        title = "S3 Parquet parser",
+        title = "Parquet parser",
         extend("x-ui" = { "capabilities": { "component": "parser", "key": "s3_parquet", "record_semantics": ["append_only"] } })
     )]
     Parquet {
@@ -63,7 +63,7 @@ pub enum S3InputParser {
     },
 
     #[schemars(
-        title = "S3 JSON parser",
+        title = "JSON parser",
         extend("x-ui" = { "widget": "json_parser", "capabilities": { "component": "parser", "key": "s3_json", "record_semantics": ["append_only"] } })
     )]
     Json {

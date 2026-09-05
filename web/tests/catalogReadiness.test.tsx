@@ -38,7 +38,9 @@ describe("connector catalog readiness", () => {
   it("shows source-derived S3 and MQ parser support in Entities and Properties", () => {
     const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
     const support = catalogParserSupport(catalog);
-    expect(support.get("S3 Parquet parser")).toEqual({ s3: true, mq: [] });
+    expect(support.get("Parquet parser")).toEqual({ s3: true, mq: [] });
+    expect(support.get("JSON parser")?.s3).toBe(true);
+    expect(support.get("JSON parser")?.mq).toContain("Kafka");
     expect(support.get("Schema Registry parser")?.s3).toBe(false);
     expect(support.get("Schema Registry parser")?.mq).toContain("Kafka");
     const view = render(<CompatibilityMatrixDialog catalog={catalog} onClose={() => {}} />);
@@ -46,9 +48,12 @@ describe("connector catalog readiness", () => {
     const check = () => {
       const table = within(view.getByRole("table", { name: "Parser source support" }));
       expect(table.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Parser", "S3", "MQ"]);
-      const parquet = within(table.getByRole("rowheader", { name: "S3 Parquet parser" }).closest("tr")!);
+      const parquet = within(table.getByRole("rowheader", { name: "Parquet parser" }).closest("tr")!);
       expect(parquet.getByRole("cell", { name: "S3: supported" }).textContent).toBe("✓");
       expect(parquet.getByRole("cell", { name: "MQ: not supported" }).textContent).toBe("×");
+      const json = within(table.getByRole("rowheader", { name: "JSON parser", exact: true }).closest("tr")!);
+      expect(json.getByRole("cell", { name: "S3: supported" }).textContent).toBe("✓");
+      expect(json.getByRole("cell", { name: "MQ: supported" }).textContent).toBe("✓");
       const registry = within(table.getByRole("rowheader", { name: "Schema Registry parser" }).closest("tr")!);
       expect(registry.getByRole("cell", { name: "S3: not supported" }).textContent).toBe("×");
       expect(registry.getByRole("cell", { name: "MQ: supported" }).textContent).toBe("✓");

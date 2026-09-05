@@ -51,8 +51,8 @@ fn parser_schema_declares_s3_matrix_capabilities() {
     let variants = schema["oneOf"].as_array().unwrap();
 
     for (title, key) in [
-        ("S3 Parquet parser", "s3_parquet"),
-        ("S3 JSON parser", "s3_json"),
+        ("Parquet parser", "s3_parquet"),
+        ("JSON parser", "s3_json"),
     ] {
         let variant = variants
             .iter()

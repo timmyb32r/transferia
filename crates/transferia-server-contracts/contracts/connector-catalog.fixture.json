@@ -6256,7 +6256,7 @@
             "S3InputParser": {
               "oneOf": [
                 {
-                  "title": "S3 Parquet parser",
+                  "title": "Parquet parser",
                   "type": "object",
                   "properties": {
                     "batch_rows": {
@@ -6288,7 +6288,7 @@
                   }
                 },
                 {
-                  "title": "S3 JSON parser",
+                  "title": "JSON parser",
                   "type": "object",
                   "properties": {
                     "common": {
