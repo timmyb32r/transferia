@@ -445,6 +445,8 @@ describe("appearance preferences", () => {
     expect(view.queryByRole("columnheader", { name: "Incomplete modes" })).toBeNull();
     expect(view.getByRole("complementary", { name: "Incomplete modes" })).toBeTruthy();
     const gaps = view.getByRole("complementary", { name: "Incomplete modes" });
+    expect(within(gaps).queryByText("Incomplete modes")).toBeNull();
+    expect(gaps.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
     const sourceRows = view.getAllByRole("rowheader");
     expect(gaps.querySelectorAll(".compatibility-mode-gaps")).toHaveLength(sourceRows.length);
     expect(gaps.querySelectorAll(".compatibility-gap-check").length).toBeGreaterThan(0);

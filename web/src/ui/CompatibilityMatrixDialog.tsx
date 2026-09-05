@@ -627,7 +627,7 @@ export function CompatibilityMatrixDialog({
               </tbody>
             </table>
             <aside class="compatibility-gap-summary" aria-label="Incomplete modes">
-              <h3>Incomplete modes</h3>
+              <div aria-hidden="true" />
               {sources.map((source) => <SourceModeGapCell key={source.key} source={source} />)}
             </aside>
             </div>

@@ -4404,11 +4404,6 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   width: 180px;
   font-size: 11px;
 }
-.compatibility-gap-summary h3 {
-  display: flex;
-  align-items: center;
-  margin: 0;
-}
 .compatibility-gap-summary .compatibility-mode-gaps {
   display: flex;
   align-items: center;
