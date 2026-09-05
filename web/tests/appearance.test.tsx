@@ -432,7 +432,12 @@ describe("appearance preferences", () => {
     );
     expect(view.getAllByText("Only append-only records")).toHaveLength(1);
     const membership = view.getByRole("region", { name: "Property membership" });
-    expect(membership.classList.contains("expanded-members")).toBe(true);
+    for (const property of within(view.getByRole("navigation", { name: "Properties" })).getAllByRole("button")) {
+      fireEvent.click(property);
+      expect(membership.classList.contains("property-members")).toBe(true);
+      expect(membership.classList.contains("expanded-members")).toBe(false);
+    }
+    fireEvent.click(view.getByRole("button", { name: "Only append-only records" }));
     expect(within(membership).queryByText("None")).toBeNull();
     expect(
       view

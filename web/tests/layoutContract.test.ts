@@ -122,8 +122,9 @@ describe("delivery layout contract", () => {
     expect(`${feedback}${error}`).not.toMatch(/\b(height|min-height|max-height|overflow)\s*:/);
   });
   it("lets both property membership lists use their full content height", () => {
-    expect(styles).toMatch(/\.property-members.expanded-members\s*\{[^}]*grid-template-rows: auto max-content auto max-content;/s);
-    expect(styles).toMatch(/\.property-members.expanded-members \.property-entity-names\s*\{[^}]*overflow: visible;[^}]*scrollbar-gutter: auto;/s);
+    expect(styles).toMatch(/\.property-members\s*\{[^}]*grid-template-rows: auto max-content auto max-content;[^}]*align-content: start;[^}]*overflow: auto;/s);
+    expect(styles).toMatch(/\.property-entity-names\s*\{[^}]*overflow: visible;/s);
+    expect(styles).not.toContain(".property-members.expanded-members");
   });
   it("highlights the whole entity tile without changing its dimensions", () => {
     expect(styles).toMatch(/\.property-entity-names li:not\(\.entity-empty\):hover,\s*\.entity-catalog-list li:not\(\.entity-empty\):hover/);

@@ -731,7 +731,7 @@ export function CompatibilityMatrixDialog({
               </section>
             </nav>
             <section
-              class={`property-members${deliveryTypeProperty ? " sources-only" : " expanded-members"}`}
+              class={`property-members${deliveryTypeProperty ? " sources-only" : ""}`}
               aria-label="Property membership"
               aria-live="polite"
             >

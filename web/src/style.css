@@ -4358,12 +4358,15 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 
 .property-members {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-rows: auto max-content auto max-content;
+  align-content: start;
   gap: 8px;
   min-width: 0;
   min-height: 0;
   padding: 14px;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   background: var(--panel);
   border: 1px solid var(--line-inner);
   border-radius: var(--radius-control);
@@ -4378,17 +4381,6 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 
 .property-members.sources-only .property-entity-grid {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.property-members.expanded-members {
-  grid-template-rows: auto max-content auto max-content;
-  align-content: start;
-  overflow-y: auto;
-}
-
-.property-members.expanded-members .property-entity-names {
-  overflow: visible;
-  scrollbar-gutter: auto;
 }
 
 .property-entity-headings h3,
@@ -4406,8 +4398,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   min-height: 0;
   margin: 0;
   padding: 0 4px 0 0;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  overflow: visible;
   list-style: none;
 }
 
