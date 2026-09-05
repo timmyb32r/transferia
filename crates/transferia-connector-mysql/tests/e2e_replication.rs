@@ -50,7 +50,6 @@ const DATABASE: &str = "transferia";
 const SOURCE_USER: &str = "transferia_source";
 const SOURCE_PASSWORD: &str = "source-test";
 const REPLAY_IDENTITY: &str = "mysql-replication-e2e-revision-1";
-const FIRST_REPLICA_SERVER_ID: u32 = 424_242;
 const TEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Copy)]
@@ -329,7 +328,7 @@ async fn exact_snapshot_boundary_has_no_gap_overlap_or_duplicate() -> anyhow::Re
     let config = source_yaml(
         &fixture.source,
         &["exact_accounts", "exact_aux"],
-        Some(FIRST_REPLICA_SERVER_ID),
+        true,
     );
     let connector = mysql_connector(&config)?;
     let durable = TestDurable::new("mysql-exact-boundary");
@@ -583,7 +582,7 @@ async fn exhaustive_physical_types_match_snapshot_and_binlog_exactly() -> anyhow
     let config = source_yaml(
         &fixture.source,
         &["type_parity"],
-        Some(FIRST_REPLICA_SERVER_ID + 20),
+        true,
     );
     let connector = mysql_connector(&config)?;
     let durable = TestDurable::new("mysql-exhaustive-type-parity");
@@ -790,7 +789,7 @@ async fn exhaustive_physical_types_match_snapshot_and_binlog_exactly() -> anyhow
     let unsupported = source_yaml(
         &fixture.source,
         &["unsupported_virtual"],
-        Some(FIRST_REPLICA_SERVER_ID + 21),
+        true,
     );
     let unsupported_durable = TestDurable::new("mysql-unsupported-virtual-column");
     let diagnostic = reject_before_execution(
@@ -824,7 +823,7 @@ async fn durable_offset_replays_until_commit_and_filtered_transactions_checkpoin
     let config = source_yaml(
         &fixture.source,
         &["replay_events"],
-        Some(FIRST_REPLICA_SERVER_ID + 1),
+        true,
     );
     let durable = TestDurable::new("mysql-replay");
     let cancellation = CancellationToken::new();
@@ -931,7 +930,7 @@ async fn runtime_schema_drift_is_fatal_without_offset_progress() -> anyhow::Resu
     let config = source_yaml(
         &fixture.source,
         &["drift_events"],
-        Some(FIRST_REPLICA_SERVER_ID + 2),
+        true,
     );
     let durable = TestDurable::new("mysql-schema-drift");
     let cancellation = CancellationToken::new();
@@ -994,7 +993,7 @@ async fn rotation_resumes_exactly_and_purged_required_history_is_fatal() -> anyh
     let config = source_yaml(
         &fixture.source,
         &["rotate_events"],
-        Some(FIRST_REPLICA_SERVER_ID + 9),
+        true,
     );
     let durable = TestDurable::new("mysql-rotation");
     let cancellation = CancellationToken::new();
@@ -1091,11 +1090,11 @@ async fn mysql_named_lock_fences_independent_durable_roots_without_disrupting_ow
     let config = source_yaml(
         &fixture.source,
         &["fenced_events"],
-        Some(FIRST_REPLICA_SERVER_ID + 3),
+        true,
     );
     let cancellation = CancellationToken::new();
     let owner_durable = TestDurable::new("mysql-lock-owner");
-    let contender_durable = TestDurable::new("mysql-lock-contender");
+    let contender_durable = TestDurable::new("mysql-lock-owner");
     let owner = prepare_stream(&config, &owner_durable.context, &cancellation).await?;
     let mut owner_stream = build_stream(&owner, &owner_durable.context, &cancellation).await?;
 
@@ -1158,7 +1157,7 @@ async fn invalid_server_contracts_fail_before_durable_state() -> anyhow::Result<
     let config = source_yaml(
         &no_binlog.source,
         &["no_binlog_events"],
-        Some(FIRST_REPLICA_SERVER_ID + 4),
+        true,
     );
     let error =
         reject_before_execution(&config, DeliveryType::Stream, &durable, &cancellation).await?;
@@ -1180,7 +1179,7 @@ async fn invalid_server_contracts_fail_before_durable_state() -> anyhow::Result<
     let config = source_yaml(
         &invalid_image.source,
         &["minimal_events"],
-        Some(FIRST_REPLICA_SERVER_ID + 5),
+        true,
     );
     let error = reject_before_execution(
         &config,
@@ -1204,7 +1203,7 @@ async fn invalid_server_contracts_fail_before_durable_state() -> anyhow::Result<
     let config = source_yaml(
         &invalid_image.source,
         &["minimal_events"],
-        Some(FIRST_REPLICA_SERVER_ID + 6),
+        true,
     );
     let error =
         reject_before_execution(&config, DeliveryType::Stream, &durable, &cancellation).await?;
@@ -1228,7 +1227,7 @@ async fn invalid_server_contracts_fail_before_durable_state() -> anyhow::Result<
     let config = source_yaml(
         &invalid_image.source,
         &["no_primary_key"],
-        Some(FIRST_REPLICA_SERVER_ID + 7),
+        true,
     );
     let error =
         reject_before_execution(&config, DeliveryType::Stream, &durable, &cancellation).await?;
@@ -1254,7 +1253,7 @@ async fn interrupted_snapshot_is_not_silently_restarted() -> anyhow::Result<()> 
     let config = source_yaml(
         &fixture.source,
         &["interrupted_events"],
-        Some(FIRST_REPLICA_SERVER_ID + 8),
+        true,
     );
     let durable = TestDurable::new("mysql-interrupted-snapshot");
     let cancellation = CancellationToken::new();
@@ -1338,7 +1337,7 @@ async fn mariadb_rejects_replication_early_while_batch_snapshot_remains_supporte
     .await?;
     let cancellation = CancellationToken::new();
 
-    let batch_config = source_yaml(&fixture.source, &["mariadb_events"], None);
+    let batch_config = source_yaml(&fixture.source, &["mariadb_events"], false);
     let batch = mysql_connector(&batch_config)?;
     let discovery = batch
         .delivery_discovery(discovery_context(DeliveryType::Batch, &cancellation))
@@ -1369,7 +1368,7 @@ async fn mariadb_rejects_replication_early_while_batch_snapshot_remains_supporte
     let replication_config = source_yaml(
         &fixture.source,
         &["mariadb_events"],
-        Some(FIRST_REPLICA_SERVER_ID + 9),
+        true,
     );
     for delivery_type in [DeliveryType::Stream, DeliveryType::BatchAndStream] {
         let durable = TestDurable::new(match delivery_type {
@@ -2021,18 +2020,14 @@ fn mysql_connector(config: &str) -> anyhow::Result<MySqlSourceConnector> {
 fn source_yaml(
     connection: &MySqlConnectionConfig,
     tables: &[&str],
-    server_id: Option<u32>,
+    replication_limits: bool,
 ) -> String {
     let tables = tables
         .iter()
         .map(|table| format!("  - name: {table}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let replication = server_id.map_or_else(String::new, |server_id| {
-        format!(
-            "replication:\n  server_id: {server_id}\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n"
-        )
-    });
+    let replication = if replication_limits { "replication:\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n" } else { "" };
     format!(
         "host: '{}'\nport: {}\ndatabase: {}\nusername: {}\npassword: {}\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: binary\ntables:\n{tables}\n{replication}",
         connection.host,

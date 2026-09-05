@@ -22,7 +22,7 @@ pub enum MySqlReadProtocol {
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "snapshot", "delivery_modes": ["batch"], "record_semantics": ["append_only"] } }))]
+#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "mysql", "delivery_modes": ["batch", "stream", "batch_and_stream"], "record_semantics": ["append_only", "changelog"], "batch_stream_handoff": "exact_switchover" } }))]
 pub struct MySqlSourceConfig {
     #[serde(flatten)]
     pub connection: MySqlConnectionConfig,
@@ -61,7 +61,8 @@ pub struct MySqlSourceConfig {
 
     /// Configures row-based binary-log replication for stream and `batch_and_stream` deliveries.
     #[serde(default)]
-    pub replication: Option<MySqlReplicationConfig>,
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub replication: MySqlReplicationConfig,
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -89,9 +90,7 @@ impl MySqlSourceConfig {
             .ok_or_else(|| anyhow::anyhow!(
                 "mysql.batch_target_bytes + mysql.max_row_bytes exceeds this platform's addressable memory"
             ))?;
-        if let Some(replication) = &self.replication {
-            replication.validate()?;
-        }
+        self.replication.validate()?;
         let mut names = std::collections::HashSet::new();
         for table in &self.tables {
             validate_identifier("table", &table.name)?;

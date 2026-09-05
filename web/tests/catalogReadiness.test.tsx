@@ -385,15 +385,20 @@ describe("connector catalog readiness", () => {
     }
   });
 
-  it("derives MySQL delivery modes and semantics from replication configuration", () => {
+  it("allows all MySQL delivery types without a replication toggle", () => {
     const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
     const mysql = catalog.connectors.find(
       (connector) => connector.key === "mysql",
     )!.source!;
     const schema = compileSchema(mysql.schema, productionWidgetRegistry);
+    const view = render(<SchemaForm node={schema} value={mysql.initial} onChange={() => undefined} />);
+    for (const summary of view.queryAllByText("Advanced settings")) fireEvent.click(summary);
+    expect(view.queryByText("Replication", { exact: true })).toBeNull();
+    expect(view.queryByText("Replica server ID")).toBeNull();
+    expect(view.queryByText("Maximum transaction events")).toBeNull();
     const replication = {
       ...mysql.initial,
-      replication: { server_id: 42 },
+      replication: {},
     };
 
     expect(mysql.delivery_modes).toEqual([
@@ -410,14 +415,14 @@ describe("connector catalog readiness", () => {
         "source",
       ),
     ).toEqual({
-      delivery_modes: ["batch"],
-      record_semantics: ["append_only"],
+      delivery_modes: ["batch", "stream", "batch_and_stream"],
+      record_semantics: ["append_only", "changelog"],
     });
     expect(
       configuredEndpointCapabilities(mysql, schema, replication, "source"),
     ).toEqual({
-      delivery_modes: ["stream", "batch_and_stream"],
-      record_semantics: ["changelog"],
+      delivery_modes: ["batch", "stream", "batch_and_stream"],
+      record_semantics: ["append_only", "changelog"],
     });
     expect(
       selectedEndpoints(
@@ -428,7 +433,7 @@ describe("connector catalog readiness", () => {
         },
         productionWidgetRegistry,
       ).error,
-    ).toBe("Configure MySQL for 'stream' delivery; the current source settings do not enable this mode.");
+    ).toBeUndefined();
     expect(
       selectedEndpoints(
         catalog,
@@ -448,7 +453,7 @@ describe("connector catalog readiness", () => {
         },
         productionWidgetRegistry,
       ).error,
-    ).toBe("Configure MySQL for 'batch' delivery; the current source settings do not enable this mode.");
+    ).toBeUndefined();
   });
 
   it("allows parser-defined schema preview before source connectivity is configured", () => {

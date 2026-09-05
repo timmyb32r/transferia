@@ -4346,15 +4346,16 @@
             },
             "replication": {
               "description": "Configures row-based binary-log replication for stream and `batch_and_stream` deliveries.",
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/MySqlReplicationConfig"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
+              "$ref": "#/$defs/MySqlReplicationConfig",
+              "default": {
+                "max_events": 4096,
+                "max_transaction_bytes": 67108864,
+                "poll_interval_ms": 100,
+                "bootstrap_timeout_ms": 30000
+              },
+              "x-ui": {
+                "widget": "hidden"
+              }
             }
           },
           "additionalProperties": false,
@@ -4368,13 +4369,17 @@
           "x-ui": {
             "capabilities": {
               "component": "source",
-              "key": "snapshot",
+              "key": "mysql",
               "delivery_modes": [
-                "batch"
+                "batch",
+                "stream",
+                "batch_and_stream"
               ],
               "record_semantics": [
-                "append_only"
-              ]
+                "append_only",
+                "changelog"
+              ],
+              "batch_stream_handoff": "exact_switchover"
             }
           },
           "$defs": {
@@ -4400,13 +4405,6 @@
             "MySqlReplicationConfig": {
               "type": "object",
               "properties": {
-                "server_id": {
-                  "title": "Replica server ID",
-                  "description": "Unique non-zero MySQL replication client ID used to fence this binlog reader on the source server",
-                  "type": "integer",
-                  "format": "uint32",
-                  "minimum": 1
-                },
                 "max_events": {
                   "title": "Maximum transaction events",
                   "description": "Maximum binlog events and decoded rows accepted in one transaction before failing closed; lower values bound memory more tightly",
@@ -4454,29 +4452,12 @@
                   }
                 }
               },
-              "additionalProperties": false,
-              "required": [
-                "server_id"
-              ],
-              "x-ui": {
-                "capabilities": {
-                  "component": "source",
-                  "key": "replication",
-                  "delivery_modes": [
-                    "stream",
-                    "batch_and_stream"
-                  ],
-                  "record_semantics": [
-                    "changelog"
-                  ],
-                  "batch_stream_handoff": "exact_switchover"
-                }
-              }
+              "additionalProperties": false
             }
           }
         },
         "initial": {
-          "replication": null,
+          "replication": {},
           "read_protocol": "binary",
           "database": "",
           "username": "",

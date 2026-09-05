@@ -777,28 +777,25 @@ fn read_protocol_is_a_user_visible_advanced_choice() -> anyhow::Result<()> {
 }
 
 #[test]
-fn source_schema_declares_snapshot_and_replication_capability_overrides() {
+fn source_schema_hides_replication_and_declares_all_delivery_modes() {
     let schema = serde_json::to_value(schemars::schema_for!(MySqlSourceConfig)).unwrap();
+    assert_eq!(schema["properties"]["replication"]["x-ui"]["widget"], "hidden");
+    assert!(schema.pointer("/$defs/MySqlReplicationConfig/properties/server_id").is_none());
     assert_eq!(
         schema.pointer("/x-ui/capabilities"),
         Some(&serde_json::json!({
             "component": "source",
-            "key": "snapshot",
-            "delivery_modes": ["batch"],
-            "record_semantics": ["append_only"]
+            "key": "mysql",
+            "delivery_modes": ["batch", "stream", "batch_and_stream"],
+            "record_semantics": ["append_only", "changelog"],
+            "batch_stream_handoff": "exact_switchover"
         }))
     );
     assert_eq!(
         schema.pointer("/$defs/MySqlReplicationConfig/x-ui/capabilities"),
-        Some(&serde_json::json!({
-            "component": "source",
-            "key": "replication",
-            "delivery_modes": ["stream", "batch_and_stream"],
-            "record_semantics": ["changelog"]
-        }))
+        None
     );
     for (property, minimum) in [
-        ("server_id", 1),
         ("max_events", 1),
         ("max_transaction_bytes", 19),
         ("poll_interval_ms", 1),

@@ -35,7 +35,7 @@ pub fn register(
                         "password": "", "trusted_plaintext": true,
                         "tables": [{ "name": "" }], "batch_rows": 16384,
                         "batch_target_bytes": 8_388_608, "max_row_bytes": 1_073_741_824,
-                        "read_protocol": "binary", "replication": null
+                        "read_protocol": "binary", "replication": {}
                     })
                 },
                 {

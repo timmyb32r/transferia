@@ -56,7 +56,6 @@ const DATABASE: &str = "transferia";
 const SOURCE_USER: &str = "transferia_source";
 const SOURCE_PASSWORD: &str = "source-test";
 const REPLAY_IDENTITY: &str = "mysql-debezium-e2e-revision-1";
-const REPLICA_SERVER_ID: u32 = 454_545;
 const TEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 struct MySqlFixture {
@@ -1097,13 +1096,12 @@ fn mysql_connector(config: &str) -> anyhow::Result<MySqlSourceConnector> {
 
 fn source_yaml(connection: &MySqlConnectionConfig) -> String {
     format!(
-        "host: '{}'\nport: {}\ndatabase: {}\nusername: {}\npassword: {}\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: binary\ntables:\n  - name: debezium_events\nreplication:\n  server_id: {}\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n",
+        "host: '{}'\nport: {}\ndatabase: {}\nusername: {}\npassword: {}\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: binary\ntables:\n  - name: debezium_events\nreplication:\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n",
         connection.host,
         connection.port,
         connection.database,
         connection.username,
         connection.password,
-        REPLICA_SERVER_ID,
     )
 }
 

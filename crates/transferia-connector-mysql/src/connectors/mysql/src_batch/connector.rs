@@ -362,6 +362,7 @@ pub struct DiscoveredTable {
 }
 
 pub struct MySqlSourceConnector {
+    delivery_type: std::sync::OnceLock<DeliveryType>,
     config: MySqlSourceConfig,
     parser_plan: ParserPlan,
     metrics: Arc<MetricsRegistry>,
@@ -399,6 +400,7 @@ impl MySqlSourceConnector {
     ) -> anyhow::Result<Self> {
         config.validate()?;
         Ok(Self {
+            delivery_type: std::sync::OnceLock::new(),
             config,
             parser_plan: ParserPlan::native_source(),
             metrics,
@@ -407,6 +409,16 @@ impl MySqlSourceConnector {
             stream: tokio::sync::OnceCell::new(),
             counters: Mutex::new(HashMap::new()),
         })
+    }
+
+    fn bind_mode(&self, mode: DeliveryType) -> anyhow::Result<()> {
+        anyhow::ensure!(*self.delivery_type.get_or_init(|| mode) == mode,
+            "MySQL connector cannot be reused across delivery modes");
+        Ok(())
+    }
+
+    fn replication_enabled(&self) -> bool {
+        matches!(self.delivery_type.get(), Some(DeliveryType::Stream | DeliveryType::BatchAndStream))
     }
 
     async fn discovered_tables(&self) -> anyhow::Result<Arc<Vec<DiscoveredTable>>> {
@@ -430,7 +442,7 @@ impl MySqlSourceConnector {
                     &mut connection,
                     &self.config.connection.database,
                     table.clone(),
-                    self.config.replication.is_some(),
+                    self.replication_enabled(),
                     self.config.read_protocol,
                 )
                 .await?,
@@ -454,11 +466,7 @@ impl MySqlSourceConnector {
         cancellation: &tokio_util::sync::CancellationToken,
         execution_lock: &tokio::sync::Mutex<Option<MySqlExecutionLock>>,
     ) -> anyhow::Result<(Conn, MySqlGtidState)> {
-        let replication = self.config.replication.as_ref().ok_or_else(|| {
-            replication_safety_violation(anyhow::anyhow!(
-                "MySQL replication configuration is missing"
-            ))
-        })?;
+        let replication = &self.config.replication.for_delivery(&durable.delivery_id)?;
         let timeout = Duration::from_millis(replication.bootstrap_timeout_ms);
         let preflight =
             inspect_mysql8_gtid_source(&self.config.connection, timeout, cancellation).await?;
@@ -532,11 +540,7 @@ impl MySqlSourceConnector {
     ) -> anyhow::Result<Arc<MySqlSnapshotStreamExecution>> {
         self.snapshot_stream
             .get_or_try_init(|| async move {
-                let replication = self.config.replication.as_ref().ok_or_else(|| {
-                    replication_safety_violation(anyhow::anyhow!(
-                        "MySQL replication configuration is missing"
-                    ))
-                })?;
+                let replication = &self.config.replication.for_delivery(&durable.delivery_id)?;
                 let timeout = Duration::from_millis(replication.bootstrap_timeout_ms);
                 let preview_tables = Arc::new(self.load_discovered_tables().await?);
                 let preflight = inspect_mysql8_gtid_source(
@@ -657,11 +661,7 @@ impl MySqlSourceConnector {
     ) -> anyhow::Result<Arc<MySqlStreamExecution>> {
         self.stream
             .get_or_try_init(|| async move {
-                let replication = self.config.replication.as_ref().ok_or_else(|| {
-                    replication_safety_violation(anyhow::anyhow!(
-                        "MySQL replication configuration is missing"
-                    ))
-                })?;
+                let replication = &self.config.replication.for_delivery(&durable.delivery_id)?;
                 let timeout = Duration::from_millis(replication.bootstrap_timeout_ms);
                 let tables = Arc::new(self.load_discovered_tables().await?);
                 let authoritative_tables =
@@ -722,18 +722,14 @@ impl MySqlSourceConnector {
 }
 
 impl SourceConnector for MySqlSourceConnector {
-    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
+    fn compatibility(&self, delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
         EndpointDescriptor::MySql(SourceDescriptor {
-            behavior: if self.config.replication.is_some() {
+            behavior: if delivery_type != DeliveryType::Batch {
                 SourceBehavior::ChangelogRows
             } else {
                 SourceBehavior::FiniteAppendOnlyRows
             },
-            delivery_modes: if self.config.replication.is_some() {
-                SourceDeliveryModes::STREAM_AND_BATCH_AND_STREAM
-            } else {
-                SourceDeliveryModes::BATCH
-            },
+            delivery_modes: SourceDeliveryModes::BATCH_AND_STREAM,
         })
     }
 
@@ -747,13 +743,14 @@ impl SourceConnector for MySqlSourceConnector {
                 cancellation,
                 delivery_type,
             } = context;
+            self.bind_mode(delivery_type)?;
             let tables = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("MySQL discovery cancelled"),
                 tables = self.discovered_tables() => tables?,
             };
             build_delivery_discovery(
-                self.config.replication.is_some(),
+                self.replication_enabled(),
                 delivery_type,
                 request,
                 &tables,
@@ -766,7 +763,8 @@ impl SourceConnector for MySqlSourceConnector {
         context: SourceExecutionContext,
     ) -> BoxFuture<'_, anyhow::Result<Option<PreparedSourceExecution>>> {
         Box::pin(async move {
-            if self.config.replication.is_none() {
+            self.bind_mode(context.delivery_type)?;
+            if !self.replication_enabled() {
                 return Ok(None);
             }
             let replay_identity = require_replication_replay_identity(context.replay_identity)
@@ -868,7 +866,7 @@ impl SourceConnector for MySqlSourceConnector {
         _cancellation: tokio_util::sync::CancellationToken,
     ) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
-            if phase != SourcePhase::Snapshot || self.config.replication.is_none() {
+            if phase != SourcePhase::Snapshot || !self.replication_enabled() {
                 return Ok(());
             }
             let execution = self
@@ -893,11 +891,7 @@ impl SourceConnector for MySqlSourceConnector {
                     ),
                 )));
             }
-            let replication = self.config.replication.as_ref().ok_or_else(|| {
-                classify_replication_error(replication_safety_violation(anyhow::anyhow!(
-                    "MySQL replication configuration is missing"
-                )))
-            })?;
+            let replication = &self.config.replication.for_delivery(&durable.delivery_id)?;
             let timeout = Duration::from_millis(replication.bootstrap_timeout_ms);
             let non_cancellable = tokio_util::sync::CancellationToken::new();
             let gtid_state = {
@@ -947,6 +941,7 @@ impl SourceConnector for MySqlSourceConnector {
         context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
+            self.bind_mode(context.delivery_type)?;
             let partition_id = context.partition_id;
             if context.phase == SourcePhase::Stream {
                 anyhow::ensure!(
@@ -1019,11 +1014,7 @@ impl SourceConnector for MySqlSourceConnector {
                         ),
                     )));
                 }
-                let replication = self.config.replication.as_ref().ok_or_else(|| {
-                    classify_replication_error(replication_safety_violation(anyhow::anyhow!(
-                        "MySQL replication configuration is missing"
-                    )))
-                })?;
+                let replication = &self.config.replication.for_delivery(&context.durable.delivery_id)?;
                 let (connection, gtid_state) = self
                     .acquire_stream_handoff(
                         source_identity,
@@ -1083,7 +1074,7 @@ impl SourceConnector for MySqlSourceConnector {
                 );
             } else {
                 anyhow::ensure!(
-                    self.config.replication.is_none(),
+                    !self.replication_enabled(),
                     "MySQL replication source execution is not prepared"
                 );
             }
@@ -1189,7 +1180,7 @@ impl SourceConnector for MySqlSourceConnector {
         &self,
         context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
-        if self.config.replication.is_some() {
+        if context.delivery_type != DeliveryType::Batch {
             return Box::pin(async {
                 anyhow::bail!(
                     "MySQL replication speedtest requires an isolated binlog execution boundary"

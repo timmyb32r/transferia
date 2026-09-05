@@ -3,13 +3,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "replication", "delivery_modes": ["stream", "batch_and_stream"], "record_semantics": ["changelog"], "batch_stream_handoff": "exact_switchover" } }))]
 pub struct MySqlReplicationConfig {
-    #[schemars(
-        title = "Replica server ID",
-        description = "Unique non-zero MySQL replication client ID used to fence this binlog reader on the source server",
-        range(min = 1)
-    )]
+    #[serde(skip)]
     pub server_id: u32,
 
     #[serde(default = "default_max_events")]
@@ -50,11 +45,17 @@ pub struct MySqlReplicationConfig {
 }
 
 impl MySqlReplicationConfig {
+    pub(crate) fn for_delivery(&self, delivery_id: &str) -> anyhow::Result<Self> {
+        anyhow::ensure!(!delivery_id.is_empty(), "MySQL replication requires a delivery ID");
+        // Match transfer_manager's fnv.New32(): FNV-1, not FNV-1a.
+        let server_id = delivery_id.bytes().fold(2_166_136_261_u32, |hash, byte| {
+            hash.wrapping_mul(16_777_619) ^ u32::from(byte)
+        });
+        anyhow::ensure!(server_id != 0, "MySQL delivery ID hashes to zero server ID");
+        Ok(Self { server_id, ..self.clone() })
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.server_id > 0,
-            "mysql.replication.server_id must be positive"
-        );
         anyhow::ensure!(
             self.max_events > 0,
             "mysql.replication.max_events must be positive"
@@ -83,6 +84,15 @@ impl MySqlReplicationConfig {
             "mysql.replication.poll_interval_ms must be shorter than bootstrap_timeout_ms so an idle binlog connection releases its execution lock before lock reacquisition times out"
         );
         Ok(())
+    }
+}
+
+impl Default for MySqlReplicationConfig {
+    fn default() -> Self {
+        Self { server_id: 0, max_events: default_max_events(),
+            max_transaction_bytes: default_max_transaction_bytes(),
+            poll_interval_ms: default_poll_interval_ms(),
+            bootstrap_timeout_ms: default_bootstrap_timeout_ms() }
     }
 }
 
