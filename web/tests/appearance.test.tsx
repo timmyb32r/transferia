@@ -399,6 +399,8 @@ describe("appearance preferences", () => {
     );
     expect(view.getAllByText("Only append-only records")).toHaveLength(1);
     const membership = view.getByRole("region", { name: "Property membership" });
+    expect(membership.classList.contains("expanded-members")).toBe(true);
+    expect(within(membership).queryByText("None")).toBeNull();
     expect(
       view
         .getByRole("navigation", { name: "Properties" })
@@ -418,11 +420,10 @@ describe("appearance preferences", () => {
     fireEvent.click(
       view.getByRole("button", { name: "Batch + stream delivery" }),
     );
-    expect(
-      within(membership)
-        .getByRole("list", { name: "Parsers without property" })
-        .textContent,
-    ).toBe("None");
+    expect(within(membership).queryByRole("list", { name: "Parsers without property" })).toBeNull();
+    expect(within(membership).getAllByRole("list").map((list) => list.getAttribute("aria-label")))
+      .toEqual(["Sources with property", "Sources without property"]);
+    expect(membership.classList.contains("sources-only")).toBe(true);
     expect(
       within(membership)
         .getByRole("list", { name: "Sources without property" })

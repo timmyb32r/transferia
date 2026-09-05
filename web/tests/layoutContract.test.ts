@@ -16,6 +16,10 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("lets both property membership lists use their full content height", () => {
+    expect(styles).toMatch(/\.property-members.expanded-members\s*\{[^}]*grid-template-rows: auto max-content auto max-content;/s);
+    expect(styles).toMatch(/\.property-members.expanded-members \.property-entity-names\s*\{[^}]*overflow: visible;[^}]*scrollbar-gutter: auto;/s);
+  });
   it("highlights the whole entity tile without changing its dimensions", () => {
     const rule = styles.match(/\.entity-catalog-list li:not\(\.entity-empty\):hover\s*\{([^}]*)\}/)?.[1];
     expect(rule).toContain("background: var(--surface-selected)");

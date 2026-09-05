@@ -389,6 +389,10 @@ export function CompatibilityMatrixDialog({
         candidate.source.key === source && candidate.sink.key === sink,
     )!;
   const normalizedMatrixSearch = matrixSearch.trim().toLocaleLowerCase();
+  const deliveryTypeProperty = selectedProperty?.key.startsWith("delivery_mode.") ?? false;
+  const propertyEntityGroups = deliveryTypeProperty
+    ? ENTITY_GROUPS.filter(({ kind }) => kind === "source")
+    : ENTITY_GROUPS;
   const matchesMatrixSearch = (title: string) =>
     normalizedMatrixSearch.length > 0 &&
     title.toLocaleLowerCase().includes(normalizedMatrixSearch);
@@ -677,19 +681,19 @@ export function CompatibilityMatrixDialog({
               </section>
             </nav>
             <section
-              class="property-members"
+              class={`property-members${deliveryTypeProperty ? " sources-only" : " expanded-members"}`}
               aria-label="Property membership"
               aria-live="polite"
             >
               {selectedProperty ? (
                 <>
                   <div class="property-entity-grid property-entity-headings">
-                    {ENTITY_GROUPS.map(({ kind }) => (
+                    {propertyEntityGroups.map(({ kind }) => (
                       <h3 key={kind}>{KIND_LABELS[kind]}</h3>
                     ))}
                   </div>
                   <div class="property-entity-grid property-has-row">
-                    {ENTITY_GROUPS.map(({ kind }) => (
+                    {propertyEntityGroups.map(({ kind }) => (
                       <EntityNameList
                         key={kind}
                         label={`${KIND_LABELS[kind]} with property`}
@@ -701,7 +705,7 @@ export function CompatibilityMatrixDialog({
                     Does not have property
                   </h3>
                   <div class="property-entity-grid property-missing-row">
-                    {ENTITY_GROUPS.map(({ kind }) => (
+                    {propertyEntityGroups.map(({ kind }) => (
                       <EntityNameList
                         key={kind}
                         label={`${KIND_LABELS[kind]} without property`}
@@ -743,7 +747,7 @@ function EntityNameList({
       {sorted.length > 0 ? (
         sorted.map((name) => <li key={name}>{name}</li>)
       ) : (
-        <li class="entity-empty">None</li>
+        <li class="entity-empty">-</li>
       )}
     </ul>
   );

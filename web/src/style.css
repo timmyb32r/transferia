@@ -4292,6 +4292,21 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   min-width: 0;
 }
 
+.property-members.sources-only .property-entity-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.property-members.expanded-members {
+  grid-template-rows: auto max-content auto max-content;
+  align-content: start;
+  overflow-y: auto;
+}
+
+.property-members.expanded-members .property-entity-names {
+  overflow: visible;
+  scrollbar-gutter: auto;
+}
+
 .property-entity-headings h3,
 .property-missing-heading {
   margin: 0;
