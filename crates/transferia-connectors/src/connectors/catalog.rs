@@ -355,7 +355,7 @@ fn build_base_connector_catalog(
     catalog.register(
         component_registration("data_generator")?
             .source::<crate::connectors::generator::DataGeneratorConfig, _, _>(
-            vec![DeliveryMode::Batch],
+            vec![DeliveryMode::Batch, DeliveryMode::Stream],
             false,
             || {
                 serde_json::json!({

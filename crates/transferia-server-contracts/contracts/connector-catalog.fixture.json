@@ -10474,6 +10474,32 @@
                     "type",
                     "data_size_bytes"
                   ]
+                },
+                {
+                  "title": "Infinite",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "infinite"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false,
+                  "x-ui": {
+                    "capabilities": {
+                      "component": "source",
+                      "key": "infinite_generator",
+                      "delivery_modes": [
+                        "stream"
+                      ],
+                      "record_semantics": [
+                        "append_only"
+                      ]
+                    }
+                  }
                 }
               ]
             }
@@ -10490,7 +10516,8 @@
           }
         },
         "delivery_modes": [
-          "batch"
+          "batch",
+          "stream"
         ],
         "record_semantics": [
           "append_only"

@@ -39,14 +39,16 @@ pub enum GenerationAmount {
         )]
         data_size_bytes: u64,
     },
+    #[schemars(title = "Infinite", extend("x-ui" = { "capabilities": { "component": "source", "key": "infinite_generator", "delivery_modes": ["stream"], "record_semantics": ["append_only"] } }))]
+    Infinite,
 }
 
 impl GenerationAmount {
-    fn total_rows(&self, row_bytes: u64) -> anyhow::Result<u64> {
+    fn total_rows(&self, row_bytes: u64) -> anyhow::Result<Option<u64>> {
         match self {
             Self::Rows { row_count } => {
                 anyhow::ensure!(*row_count > 0, "generator.row_count must be positive");
-                Ok(*row_count)
+                Ok(Some(*row_count))
             }
             Self::DataSize { data_size_bytes } => {
                 anyhow::ensure!(
@@ -57,8 +59,9 @@ impl GenerationAmount {
                     data_size_bytes.is_multiple_of(row_bytes),
                     "generator.data_size_bytes ({data_size_bytes}) must be divisible by the selected preset row width ({row_bytes} bytes)"
                 );
-                Ok(data_size_bytes / row_bytes)
+                Ok(Some(data_size_bytes / row_bytes))
             }
+            Self::Infinite => Ok(None),
         }
     }
 }
@@ -89,7 +92,9 @@ impl DataGeneratorConfig {
             "generator.table_name must not be empty"
         );
         self.preset.validate()?;
-        let total_rows = self.total_rows()?;
+        let Some(total_rows) = self.total_rows()? else {
+            return self.preset.validate_range(self.start_row, 1);
+        };
         let _ = self
             .start_row
             .checked_add(total_rows)
@@ -98,7 +103,7 @@ impl DataGeneratorConfig {
         Ok(())
     }
 
-    pub(super) fn total_rows(&self) -> anyhow::Result<u64> {
+    pub(super) fn total_rows(&self) -> anyhow::Result<Option<u64>> {
         self.amount.total_rows(self.row_bytes()?)
     }
 
@@ -171,10 +176,13 @@ impl DataGeneratorSourceConnector {
 }
 
 impl SourceConnector for DataGeneratorSourceConnector {
-    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
+    fn compatibility(&self, delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
+        let infinite = matches!(self.config.amount, GenerationAmount::Infinite);
         EndpointDescriptor::DataGenerator(SourceDescriptor {
-            behavior: SourceBehavior::FiniteAppendOnlyRows,
-            delivery_modes: SourceDeliveryModes::BATCH,
+            behavior: if infinite { SourceBehavior::AppendOnlyRows } else { SourceBehavior::FiniteAppendOnlyRows },
+            delivery_modes: if infinite || delivery_type == transferia_delivery_contracts::DeliveryType::Stream {
+                SourceDeliveryModes::STREAM
+            } else { SourceDeliveryModes::BATCH },
         })
     }
 
@@ -183,6 +191,10 @@ impl SourceConnector for DataGeneratorSourceConnector {
         context: SourceDiscoveryContext,
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
+            anyhow::ensure!(
+                self.compatibility(context.delivery_type).supports_delivery_type(context.delivery_type),
+                "generator amount does not support the selected delivery type"
+            );
             anyhow::ensure!(
                 !context.cancellation.is_cancelled(),
                 "data generator discovery cancelled"

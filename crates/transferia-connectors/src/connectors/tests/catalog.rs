@@ -99,7 +99,7 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
             .iter()
             .map(|variant| variant["title"].as_str())
             .collect::<Vec<_>>(),
-        vec![Some("Rows"), Some("Data size")]
+        vec![Some("Rows"), Some("Data size"), Some("Infinite")]
     );
     assert_eq!(
         catalog

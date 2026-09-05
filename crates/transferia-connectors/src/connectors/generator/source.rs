@@ -18,7 +18,7 @@ pub(super) struct DataGeneratorSource {
     memory: PipelineMemory,
     counters: Arc<SourceCounters>,
     next_row: u64,
-    end_row: u64,
+    end_row: Option<u64>,
     batch_target_bytes: u64,
 }
 
@@ -30,9 +30,8 @@ impl DataGeneratorSource {
     ) -> anyhow::Result<Self> {
         let total_rows = config.total_rows()?;
         let next_row = config.start_row;
-        let end_row = next_row
-            .checked_add(total_rows)
-            .ok_or_else(|| anyhow::anyhow!("generator row range overflows u64"))?;
+        let end_row = total_rows.map(|rows| next_row.checked_add(rows)
+            .ok_or_else(|| anyhow::anyhow!("generator row range overflows u64"))).transpose()?;
         let memory_limit = u64::try_from(memory.limit())?;
         let batch_target_bytes = memory_limit.min(GENERATED_BATCH_TARGET_BYTES);
         Ok(Self {
@@ -49,10 +48,14 @@ impl DataGeneratorSource {
 impl Source for DataGeneratorSource {
     fn read_batch(&mut self) -> BoxFuture<'_, DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
-            if self.next_row == self.end_row {
+            tokio::task::yield_now().await;
+            if Some(self.next_row) == self.end_row {
                 return Ok(SourceBatch::Finished);
             }
-            let remaining = self.end_row - self.next_row;
+            let remaining = self.end_row.unwrap_or(u64::MAX) - self.next_row;
+            if remaining == 0 {
+                return Err(DataPlaneFailure::fatal(anyhow::anyhow!("generator row identifiers exhausted u64")));
+            }
             let rows = self
                 .config
                 .rows_for_batch(self.next_row, remaining, self.batch_target_bytes)
@@ -60,6 +63,8 @@ impl Source for DataGeneratorSource {
             let batch_bytes_u64 = self
                 .config
                 .batch_bytes(self.next_row, rows)
+                .map_err(DataPlaneFailure::fatal)?;
+            self.config.preset.validate_range(self.next_row, rows)
                 .map_err(DataPlaneFailure::fatal)?;
             let batch_bytes = usize::try_from(batch_bytes_u64)
                 .map_err(|error| DataPlaneFailure::fatal(error.into()))?;

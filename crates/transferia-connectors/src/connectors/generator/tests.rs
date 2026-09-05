@@ -27,6 +27,53 @@ fn config() -> DataGeneratorConfig {
 }
 
 #[tokio::test]
+async fn infinite_generator_keeps_producing_bounded_batches() -> anyhow::Result<()> {
+    let mut config = config();
+    config.amount = GenerationAmount::Infinite;
+    config.validate()?;
+    assert_eq!(config.total_rows()?, None);
+    let mut source = DataGeneratorSource::new(config, PipelineMemory::new(1_024), Arc::new(SourceCounters::new()))?;
+    for _ in 0..100 {
+        match source.read_batch().await? {
+            SourceBatch::Typed { source_rows, .. } => assert!(source_rows > 0 && source_rows <= 12),
+            _ => panic!("infinite generator must not finish"),
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn generator_delivery_modes_follow_generation_amount() -> anyhow::Result<()> {
+    use transferia_delivery_contracts::DeliveryType;
+    for infinite in [false, true] {
+        let mut config = config();
+        if infinite { config.amount = GenerationAmount::Infinite; }
+        let connector = DataGeneratorSourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))?;
+        for (mode, expected) in [(DeliveryType::Batch, !infinite), (DeliveryType::Stream, true), (DeliveryType::BatchAndStream, false)] {
+            assert_eq!(connector.compatibility(mode).supports_delivery_type(mode), expected);
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn infinite_generator_fails_before_wrapping_identifiers() -> anyhow::Result<()> {
+    let mut config = config();
+    config.amount = GenerationAmount::Infinite;
+    config.start_row = u64::MAX;
+    let mut source = DataGeneratorSource::new(config, PipelineMemory::new(1_024), Arc::new(SourceCounters::new()))?;
+    assert!(source.read_batch().await.is_err());
+    let mut config = super::tests::config();
+    config.preset = DataGeneratorPreset::TransferLogs;
+    config.amount = GenerationAmount::Infinite;
+    config.start_row = i64::MAX as u64;
+    assert!(config.validate().is_err());
+    let mut source = DataGeneratorSource::new(config, PipelineMemory::new(1_024), Arc::new(SourceCounters::new()))?;
+    assert!(source.read_batch().await.is_err());
+    Ok(())
+}
+
+#[tokio::test]
 async fn generator_produces_the_exact_configured_logical_size() -> anyhow::Result<()> {
     let mut source = DataGeneratorSource::new(
         config(),
@@ -366,7 +413,7 @@ fn generator_accepts_an_exact_row_count() -> anyhow::Result<()> {
         row_count: 50_000_000,
     };
     config.validate()?;
-    assert_eq!(config.total_rows()?, 50_000_000);
+    assert_eq!(config.total_rows()?, Some(50_000_000));
     Ok(())
 }
 
