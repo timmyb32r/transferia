@@ -3552,6 +3552,26 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .column-table th.json-type-column {
   width: 10%;
 }
+.column-table th:nth-child(4) {
+  width: 15%;
+}
+.column-table th:nth-child(6) {
+  width: 24%;
+}
+:root .column-table td.arrow-type-cell .select-trigger {
+  height: 48px;
+  min-height: 48px;
+}
+:root .column-table td.arrow-type-cell .select-trigger > span:first-child {
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  font-size: 12px;
+  line-height: 18px;
+}
+:root .column-table td.arrow-type-cell .select-trigger > span:first-child::first-line {
+  font-size: 14px;
+}
 .system-column-key {
   display: flex;
   align-items: center;

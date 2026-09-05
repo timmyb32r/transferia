@@ -359,13 +359,18 @@ export function ColumnMappingsEditor({
                     </td>
                     {mainFields.map((field) => {
                       const original = node.properties[field];
-                      const child = field === "json_data_type" && original?.kind === "string" && original.enumValues !== undefined
+                      const child = field === "arrow_type" && original?.kind === "string" && original.enumValues !== undefined
+                        ? { ...original, xUi: { ...original.xUi, labels: {
+                            ...original.xUi.labels,
+                            ...Object.fromEntries(original.enumValues.filter((type): type is string => typeof type === "string" && type.startsWith("Timestamp(")).map((type) => [type, type.replace("Timestamp(", "Timestamp\n(")])),
+                          } } }
+                        : field === "json_data_type" && original?.kind === "string" && original.enumValues !== undefined
                         ? { ...original, enumValues: original.enumValues.filter((type) => type !== "decimal") }
                         : field === "json_data_type" && original?.kind === "union"
                           ? { ...original, branches: original.branches.filter((branch) => branch.constant !== "decimal") }
                           : original;
                       return (
-                        <td key={field}>
+                        <td key={field} class={field === "arrow_type" ? "arrow-type-cell" : undefined}>
                           {child && (
                             <NodeEditor
                               node={child}

@@ -16,6 +16,14 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("reserves two lines for Arrow types without wrapping timestamp parameters", () => {
+    const trigger = styles.split(':root .column-table td.arrow-type-cell .select-trigger {')[1]?.split("}")[0];
+    expect(trigger).toContain("height: 48px;");
+    expect(trigger).toContain("min-height: 48px;");
+    const label = styles.split(':root .column-table td.arrow-type-cell .select-trigger > span:first-child {')[1]?.split("}")[0];
+    expect(label).toContain("white-space: pre;");
+    expect(label).toContain("word-break: normal;");
+  });
   it("keeps action buttons 16px from the frame and centers their header", () => {
     expect(styles).toContain('.column-table .actions-column {\n  width: 80px;');
     expect(styles).toContain(':root .column-table th.actions-column {\n  padding-right: 16px;');

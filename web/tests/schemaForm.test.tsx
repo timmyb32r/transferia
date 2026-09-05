@@ -25,6 +25,22 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("breaks timestamp display after the type name without changing its value", () => {
+    const node: CompiledNode = {
+      kind: "object", xUi: {}, required: new Set(),
+      properties: { columns: {
+        kind: "array", xUi: { widget: "column_mappings" },
+        item: { kind: "object", xUi: {}, required: new Set(), properties: {
+          column_name: stringNode(),
+          arrow_type: { kind: "string", xUi: {}, enumValues: ["Utf8", "Timestamp(Microsecond, UTC)"] },
+        } },
+      } },
+    };
+    const onChange = vi.fn();
+    const view = render(<SchemaForm node={node} value={{ columns: [{ column_name: "time", arrow_type: "Timestamp(Microsecond, UTC)" }] }} onChange={onChange} />);
+    expect(view.container.querySelector(".arrow-type-cell .select-trigger > span")?.textContent).toBe("Timestamp\n(Microsecond, UTC)");
+    expect(onChange).not.toHaveBeenCalled();
+  });
   it("does not offer decimal in the JSON type column", () => {
     const node: CompiledNode = {
       kind: "object", xUi: {}, required: new Set(),
