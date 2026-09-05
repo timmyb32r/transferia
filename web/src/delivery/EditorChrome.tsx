@@ -101,44 +101,36 @@ export function EditorActions({
       onStop={onStop}
     />
   );
-  if (!editor.editing && editor.id !== undefined) {
-    const runtimeAllowsEditing =
-      editor.runtime.state === "created" ||
-      editor.runtime.state === "stopped" ||
-      editor.runtime.state === "failed";
-    return (
-      <div class="actions">
-        <Button
-          variant="danger"
-          disabled={blocked || runtimeIsActive || runtimeIsTransitioning}
-          onClick={onDelete}
-        >
-          Delete
-        </Button>
-        <Button
-          disabled={blocked || runtimeIsActive || runtimeIsTransitioning}
-          onClick={onClone}
-        >
-          Clone
-        </Button>
-        <Button disabled={blocked || !runtimeAllowsEditing} onClick={onEdit}>
-          Edit
-        </Button>
-        <Button
-          disabled={blocked || runtimeIsActive || runtimeIsTransitioning}
-          pending={validatePending}
-          onClick={validate}
-        >
-          Validate
-        </Button>
-        {transportControls}
-      </div>
-    );
-  }
+  const runtimeAllowsEditing =
+    editor.runtime.state === "created" ||
+    editor.runtime.state === "stopped" ||
+    editor.runtime.state === "failed";
+  const savedActionReason = editor.id === undefined
+    ? "Save the delivery first"
+    : editor.editing
+      ? "Finish editing the delivery first"
+      : blocked
+        ? "Another operation is in progress"
+        : runtimeIsActive || runtimeIsTransitioning
+          ? "Deactivate the delivery first"
+          : undefined;
   return (
     <div class="actions">
+      <Button variant="danger" disabled={savedActionReason !== undefined}
+        title={savedActionReason} onClick={onDelete}>
+        Delete
+      </Button>
+      <Button disabled={savedActionReason !== undefined}
+        title={savedActionReason} onClick={onClone}>
+        Clone
+      </Button>
+      <Button disabled={savedActionReason !== undefined || !runtimeAllowsEditing}
+        title={savedActionReason} onClick={onEdit}>
+        Edit
+      </Button>
       <Button
         disabled={
+          !editor.editing ||
           blocked ||
           runtimeIsActive ||
           runtimeIsTransitioning ||

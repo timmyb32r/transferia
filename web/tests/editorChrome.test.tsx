@@ -28,6 +28,32 @@ const editor = (runtime: EditorState["runtime"]): EditorState => ({
 
 describe("editor chrome", () => {
   afterEach(cleanup);
+  it("keeps the same action buttons mounted before saving, while viewing, and while editing", () => {
+    const onEdit = vi.fn();
+    const onClone = vi.fn();
+    const onDelete = vi.fn();
+    const props = { blocked: false, requiredFieldsComplete: true,
+      onMissingRequired: vi.fn(), onEdit, onClone, onDelete,
+      onSave: vi.fn(), onValidate: vi.fn(), onActivate: vi.fn(), onStop: vi.fn() };
+    const { id: _id, ...draft } = editor({ state: "stopped" });
+    const view = render(<EditorActions {...props} editor={draft} />);
+    const names = ["Delete", "Clone", "Edit", "Save", "Validate", "Deactivate", "Activate"];
+    const buttons = names.map((name) => view.getByRole("button", { name }) as HTMLButtonElement);
+    for (const button of buttons.slice(0, 3)) {
+      expect(button.disabled).toBe(true);
+      fireEvent.click(button);
+    }
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(onClone).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+    view.rerender(<EditorActions {...props} editor={{ ...editor({ state: "stopped" }), editing: false }} />);
+    expect(buttons.slice(0, 3).every((button) => !button.disabled)).toBe(true);
+    expect(buttons[3]!.disabled).toBe(true);
+    view.rerender(<EditorActions {...props} editor={{ ...editor({ state: "stopped" }), localRevision: 1 }} />);
+    expect(buttons.slice(0, 3).every((button) => button.disabled)).toBe(true);
+    expect(buttons[3]!.disabled).toBe(false);
+    names.forEach((name, index) => expect(view.getByRole("button", { name })).toBe(buttons[index]));
+  });
 
   it("keeps asynchronous feedback dismissible from the whole notice", () => {
     const dismiss = vi.fn();
@@ -344,7 +370,7 @@ describe("editor chrome", () => {
       />,
     );
 
-    expect(view.queryByRole("button", { name: "Save" })).toBeNull();
+    expect((view.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(view.getByRole("button", { name: "Edit" }));
     expect(onEdit).toHaveBeenCalledOnce();
     fireEvent.click(view.getByRole("button", { name: "Delete" }));
