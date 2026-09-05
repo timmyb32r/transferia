@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "replication", "delivery_modes": ["stream", "batch_and_stream"], "record_semantics": ["changelog"] } }))]
+#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "replication", "delivery_modes": ["stream", "batch_and_stream"], "record_semantics": ["changelog"], "batch_stream_handoff": "exact_switchover" } }))]
 pub struct MySqlReplicationConfig {
     #[schemars(
         title = "Replica server ID",

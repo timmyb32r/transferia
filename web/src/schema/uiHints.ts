@@ -18,6 +18,7 @@ export interface UiCapabilityHints {
   delivery_modes?: readonly ("batch" | "stream" | "batch_and_stream")[];
   record_semantics?: readonly ("append_only" | "changelog")[];
   properties?: readonly string[];
+  batch_stream_handoff?: "exact_switchover" | "overlapping";
 }
 
 export interface UiHints {
@@ -291,6 +292,7 @@ function decodeCapabilities(
         "delivery_modes",
         "record_semantics",
         "properties",
+        "batch_stream_handoff",
       ].includes(key),
   );
   if (unknown.length > 0)
@@ -300,6 +302,7 @@ function decodeCapabilities(
   const deliveryModes = object.delivery_modes;
   const recordSemantics = object.record_semantics;
   const properties = object.properties;
+  const handoff = object.batch_stream_handoff;
   if (
     component !== "source" &&
     component !== "destination" &&
@@ -356,6 +359,10 @@ function decodeCapabilities(
     if (properties !== undefined)
       fail(`${path}: endpoint capabilities cannot declare component properties`);
   }
+  if (handoff !== undefined && (
+    (handoff !== "exact_switchover" && handoff !== "overlapping") ||
+    component !== "source" || !deliveryModes?.includes("batch_and_stream")
+  )) fail(`${path}: batch_stream_handoff requires a supported handoff on a batch_and_stream source`);
   return {
     component,
     key,
@@ -372,6 +379,7 @@ function decodeCapabilities(
       ? {}
       : { record_semantics: recordSemantics as ("append_only" | "changelog")[] }),
     ...(properties === undefined ? {} : { properties: properties as string[] }),
+    ...(handoff === undefined ? {} : { batch_stream_handoff: handoff as "exact_switchover" | "overlapping" }),
   };
 }
 

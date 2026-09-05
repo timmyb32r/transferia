@@ -4412,7 +4412,8 @@
                   ],
                   "record_semantics": [
                     "changelog"
-                  ]
+                  ],
+                  "batch_stream_handoff": "exact_switchover"
                 }
               }
             }
@@ -5234,7 +5235,8 @@
               "record_semantics": [
                 "append_only",
                 "changelog"
-              ]
+              ],
+              "batch_stream_handoff": "exact_switchover"
             }
           },
           "$defs": {
@@ -8742,7 +8744,8 @@
                   ],
                   "record_semantics": [
                     "changelog"
-                  ]
+                  ],
+                  "batch_stream_handoff": "overlapping"
                 }
               }
             }

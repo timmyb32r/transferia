@@ -8,7 +8,7 @@ use crate::connectors::postgres::src_stream::PostgresReplicationConfig;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "postgres", "delivery_modes": ["batch", "stream", "batch_and_stream"], "record_semantics": ["append_only", "changelog"] } }))]
+#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "postgres", "delivery_modes": ["batch", "stream", "batch_and_stream"], "record_semantics": ["append_only", "changelog"], "batch_stream_handoff": "exact_switchover" } }))]
 pub struct PostgresSourceConfig {
     #[serde(flatten)]
     pub connection: PostgresConnectionConfig,

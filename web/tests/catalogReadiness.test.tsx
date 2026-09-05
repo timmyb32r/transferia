@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent } from "@testing-library/preact";
+import { cleanup, fireEvent, within } from "@testing-library/preact";
 import { afterEach, describe, expect, it } from "vitest";
 
 import catalogFixture from "../../crates/transferia-server-contracts/contracts/connector-catalog.fixture.json";
@@ -24,7 +24,7 @@ import {
 } from "../src/schema/compiler";
 import { SchemaForm } from "../src/schema/SchemaForm";
 import { configuredEndpointCapabilities, sourceRecordSemantics, DELIVERY_TYPES } from "../src/recordSemantics";
-import { compatibilityRoutes } from "../src/ui/CompatibilityMatrixDialog";
+import { compatibilityRoutes, catalogBatchStreamHandoffs, CompatibilityMatrixDialog } from "../src/ui/CompatibilityMatrixDialog";
 import type { JsonObject, JsonValue, UiCatalog } from "../src/types";
 import {
   nextRequiredTarget,
@@ -35,6 +35,48 @@ import { render } from "./support/render";
 afterEach(cleanup);
 
 describe("connector catalog readiness", () => {
+  it("shows source-owned snapshot handoffs in the existing combined-delivery property", () => {
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
+    const handoffs = catalogBatchStreamHandoffs(catalog);
+    expect(handoffs.get("PostgreSQL")).toBe("Exactly-once switchover");
+    expect(handoffs.get("MySQL")).toBe("Exactly-once switchover");
+    expect(handoffs.get("YDB")).toBe("Overlapping");
+    const view = render(<CompatibilityMatrixDialog catalog={catalog} onClose={() => {}} />);
+    fireEvent.click(view.getByRole("tab", { name: "Properties" }));
+    const tabs = view.getAllByRole("tab");
+    const propertyButtons = within(view.getByRole("navigation", { name: "Properties" })).getAllByRole("button");
+    const region = view.getByRole("region", { name: "Property membership" });
+    fireEvent.click(view.getByRole("button", { name: "Batch + stream delivery" }));
+    const sources = within(region).getByRole("list", { name: "Sources with property" });
+    expect(within(sources).getByText("PostgreSQL").closest("li")?.textContent).toContain("Exactly-once switchover");
+    expect(within(sources).getByText("MySQL").closest("li")?.textContent).toContain("Exactly-once switchover");
+    expect(within(sources).getByText("YDB").closest("li")?.textContent).toContain("Overlapping");
+    expect(within(region).getByText(/not end-to-end/)).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Batch delivery" }));
+    expect(view.getByRole("region", { name: "Property membership" })).toBe(region);
+    expect(view.getAllByRole("tab")).toEqual(tabs);
+    expect(within(view.getByRole("navigation", { name: "Properties" })).getAllByRole("button")).toEqual(propertyButtons);
+    expect(region.classList.contains("sources-only")).toBe(true);
+    expect(within(region).queryByText("Overlapping")).toBeNull();
+    const renamed = { ...catalog, connectors: catalog.connectors.map((connector) => ({ ...connector, key: `custom-${connector.key}`, title: `Custom ${connector.title}` })) };
+    expect(catalogBatchStreamHandoffs(renamed).get("Custom YDB")).toBe("Overlapping");
+    const unspecified = { ...catalog, connectors: catalog.connectors.map((connector) => ({
+      ...connector, ...(connector.source ? { source: { ...connector.source, schema: {} } } : {}),
+    })) };
+    expect(catalogBatchStreamHandoffs(unspecified).get("YDB")).toBe("-");
+  });
+
+  it("rejects invalid handoff metadata in frontend schema compilation", () => {
+    for (const [component, delivery_modes, batch_stream_handoff] of [
+      ["destination", ["batch_and_stream"], "overlapping"],
+      ["source", ["stream"], "exact_switchover"],
+      ["source", ["batch_and_stream"], "guessed"],
+    ] as Array<[string, string[], string]>) {
+      expect(() => compileSchema({ type: "object", "x-ui": { capabilities: {
+        component, key: "custom", delivery_modes, batch_stream_handoff, record_semantics: ["changelog"],
+      } } }, productionWidgetRegistry)).toThrow();
+    }
+  });
   it("advertises YDB overlap batch-and-stream without a strategy selector", () => {
     const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
     const endpoint = catalog.connectors.find((connector) => connector.key === "ydb")!.source!;

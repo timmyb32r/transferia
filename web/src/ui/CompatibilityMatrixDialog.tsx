@@ -200,6 +200,34 @@ function applicableKinds(property: string): CapabilityKind[] {
   return ["source", "destination"];
 }
 
+const HANDOFF_LABELS = {
+  exact_switchover: "Exactly-once switchover",
+  overlapping: "Overlapping",
+};
+
+export function catalogBatchStreamHandoffs(catalog: UiCatalog): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const connector of catalog.connectors) {
+    if (!connector.source?.delivery_modes.includes("batch_and_stream")) continue;
+    const labels = new Set<string>();
+    const visit = (value: unknown): void => {
+      if (!value || typeof value !== "object") return;
+      const object = value as Record<string, unknown>;
+      const ui = object["x-ui"] as { capabilities?: { component?: string; batch_stream_handoff?: string } } | undefined;
+      const capability = ui?.capabilities;
+      const handoff = capability?.batch_stream_handoff;
+      if (capability?.component === "source" &&
+        (handoff === "exact_switchover" || handoff === "overlapping")) {
+        labels.add(HANDOFF_LABELS[handoff]);
+      }
+      Object.values(object).forEach(visit);
+    };
+    visit(connector.source.schema);
+    result.set(connector.title, [...labels].sort().join(" / ") || "-");
+  }
+  return result;
+}
+
 function collectSchemaCapabilities(
   value: unknown,
   add: (property: string, kind: CapabilityKind, title: string) => void,
@@ -355,6 +383,7 @@ export function CompatibilityMatrixDialog({
     [catalog],
   );
   const routes = useMemo(() => compatibilityRoutes(catalog), [catalog]);
+  const handoffs = useMemo(() => catalogBatchStreamHandoffs(catalog), [catalog]);
   const capabilityGroups = useMemo(
     () => catalogCapabilityGroups(catalog),
     [catalog],
@@ -387,6 +416,7 @@ export function CompatibilityMatrixDialog({
     )!;
   const normalizedMatrixSearch = matrixSearch.trim().toLocaleLowerCase();
   const deliveryTypeProperty = selectedProperty?.key.startsWith("delivery_mode.") ?? false;
+  const handoffProperty = selectedProperty?.key === "delivery_mode.batch_and_stream";
   const propertyEntityGroups = deliveryTypeProperty
     ? ENTITY_GROUPS.filter(({ kind }) => kind === "source")
     : ENTITY_GROUPS;
@@ -686,7 +716,9 @@ export function CompatibilityMatrixDialog({
                 <>
                   <div class="property-entity-grid property-entity-headings">
                     {propertyEntityGroups.map(({ kind }) => (
-                      <h3 key={kind}>{KIND_LABELS[kind]}</h3>
+                      <h3 key={kind} title={handoffProperty ? "Snapshot-to-CDC transition only; not an end-to-end delivery guarantee." : undefined}>
+                        {KIND_LABELS[kind]}{handoffProperty ? " · snapshot → CDC handoff (not end-to-end)" : ""}
+                      </h3>
                     ))}
                   </div>
                   <div class="property-entity-grid property-has-row">
@@ -695,6 +727,7 @@ export function CompatibilityMatrixDialog({
                         key={kind}
                         label={`${KIND_LABELS[kind]} with property`}
                         names={selectedProperty.members.get(kind)}
+                        annotations={handoffProperty && kind === "source" ? handoffs : undefined}
                       />
                     ))}
                   </div>
@@ -732,9 +765,11 @@ export function CompatibilityMatrixDialog({
 function EntityNameList({
   label,
   names,
+  annotations,
 }: {
   label: string;
   names: Set<string> | undefined;
+  annotations?: Map<string, string> | undefined;
 }) {
   const sorted = [...(names ?? [])].sort((left, right) =>
     left.localeCompare(right),
@@ -742,7 +777,12 @@ function EntityNameList({
   return (
     <ul aria-label={label} class="property-entity-names">
       {sorted.length > 0 ? (
-        sorted.map((name) => <li key={name}>{name}</li>)
+        sorted.map((name) => (
+          <li key={name} class={annotations ? "property-handoff" : undefined}>
+            <span>{name}</span>
+            {annotations && <span class="property-handoff-label">{annotations.get(name) ?? "-"}</span>}
+          </li>
+        ))
       ) : (
         <li class="entity-empty">-</li>
       )}

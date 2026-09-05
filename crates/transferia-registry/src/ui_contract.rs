@@ -41,6 +41,14 @@ struct UiCapabilities {
     delivery_modes: Option<Vec<UiDeliveryType>>,
     record_semantics: Option<Vec<UiRecordSemantics>>,
     properties: Option<Vec<String>>,
+    batch_stream_handoff: Option<UiBatchStreamHandoff>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum UiBatchStreamHandoff {
+    ExactSwitchover,
+    Overlapping,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -129,6 +137,11 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
                     );
                 }
                 if let Some(capabilities) = &hints.capabilities {
+                    if capabilities.batch_stream_handoff.is_some() {
+                        anyhow::ensure!(capabilities.component == UiCapabilityComponent::Source
+                            && capabilities.delivery_modes.as_ref().is_some_and(|modes| modes.contains(&UiDeliveryType::BatchAndStream)),
+                            "{path}: batch_stream_handoff requires a batch_and_stream source");
+                    }
                     anyhow::ensure!(
                         !capabilities.key.is_empty(),
                         "{path}: capability key must not be empty"

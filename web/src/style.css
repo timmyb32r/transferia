@@ -4344,6 +4344,18 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   overflow-wrap: anywhere;
 }
 
+.property-entity-names .property-handoff {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.property-handoff-label {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .property-missing-heading {
   padding-top: 9px;
   border-top: 1px solid var(--line-inner);

@@ -15,6 +15,25 @@ use transferia_delivery_contracts::DeliveryType;
 
 use super::*;
 
+#[test]
+fn handoff_metadata_is_typed_and_restricted_to_combined_sources() {
+    for handoff in ["exact_switchover", "overlapping"] {
+        let mut schema = serde_json::json!({"type": "object", "x-ui": {"capabilities": {
+            "component": "source", "key": "arbitrary", "delivery_modes": ["batch_and_stream"],
+            "record_semantics": ["changelog"], "batch_stream_handoff": handoff
+        }}});
+        crate::ui_contract::validate_ui_dialect(&schema).unwrap();
+        schema["x-ui"]["capabilities"]["component"] = serde_json::json!("destination");
+        assert!(crate::ui_contract::validate_ui_dialect(&schema).is_err());
+        schema["x-ui"]["capabilities"]["component"] = serde_json::json!("source");
+        schema["x-ui"]["capabilities"]["delivery_modes"] = serde_json::json!(["stream"]);
+        assert!(crate::ui_contract::validate_ui_dialect(&schema).is_err());
+        schema["x-ui"]["capabilities"]["delivery_modes"] = serde_json::json!(["batch_and_stream"]);
+        schema["x-ui"]["capabilities"]["batch_stream_handoff"] = serde_json::json!("guessed");
+        assert!(crate::ui_contract::validate_ui_dialect(&schema).is_err());
+    }
+}
+
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct TestSourceConfig {
