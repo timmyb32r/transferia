@@ -58,6 +58,7 @@ export function DeliveryConfiguration({
     (selection?.sourceKey ?? "") !== "" &&
     (selection?.sinkKey ?? "") !== "";
   const allSourceConnectors = orderedEndpointConnectors(catalog, "source");
+  const routeSettingsAvailable = routeSelectionComplete && selection?.error === undefined;
   const allSinkConnectors = orderedEndpointConnectors(catalog, "sink");
   const sourceSampleLoader =
     selection?.error === undefined && selection?.source !== undefined
@@ -145,7 +146,7 @@ export function DeliveryConfiguration({
               : { endpoint: selection.source })}
             config={editor.config}
             readOnly={readOnly}
-            showSettings={routeSelectionComplete}
+            showSettings={routeSettingsAvailable}
             showRequiredErrors={requiredErrorScope !== "none"}
             onChoose={onChooseEndpoint}
             onConfig={onConfig}
@@ -161,7 +162,7 @@ export function DeliveryConfiguration({
               : { endpoint: selection.sink })}
             config={editor.config}
             readOnly={readOnly}
-            showSettings={routeSelectionComplete}
+            showSettings={routeSettingsAvailable}
             showRequiredErrors={
               requiredErrorScope === "endpoints" ||
               requiredErrorScope === "all"
@@ -169,8 +170,7 @@ export function DeliveryConfiguration({
             onChoose={onChooseEndpoint}
             onConfig={onConfig}
           />
-          {routeSelectionComplete &&
-            selection?.error === undefined &&
+          {routeSettingsAvailable &&
             selection?.source && (
               <ParserDetailsForm
                 node={compiledSchema(selection.source.schema, widgets)}
@@ -194,8 +194,7 @@ export function DeliveryConfiguration({
                 }
               />
             )}
-          {routeSelectionComplete &&
-            selection?.error === undefined &&
+          {routeSettingsAvailable &&
             selection?.sink && (
               <SerializerDetailsForm
                 node={compiledSchema(selection.sink.schema, widgets)}
@@ -221,7 +220,7 @@ export function DeliveryConfiguration({
           </div>
         )}
 
-        {routeSelectionComplete && (
+        {routeSettingsAvailable && (
           <section class="pipeline-section">
             <h2>Pipeline settings</h2>
             <CommonSettings

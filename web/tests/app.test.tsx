@@ -389,6 +389,17 @@ describe("App request orchestration", () => {
     expect(app.getByText("Host")).toBeTruthy();
     expect(app.getByText("Database")).toBeTruthy();
     expect(app.getByText("Pipeline settings")).toBeTruthy();
+    chooseFromSelect(app, "Delivery type", "Stream");
+    expect(app.getByText("Incompatible route")).toBeTruthy();
+    expect(app.queryByText("Host")).toBeNull();
+    expect(app.queryByText("Database")).toBeNull();
+    expect(app.queryByText("Pipeline settings")).toBeNull();
+    expect(app.getByRole("heading", { name: "Source" })).toBeTruthy();
+    expect(app.getByRole("heading", { name: "Destination" })).toBeTruthy();
+    chooseFromSelect(app, "Delivery type", "Batch");
+    expect(app.queryByText("Incompatible route")).toBeNull();
+    expect(app.getByText("Host")).toBeTruthy();
+    expect(app.getByText("Database")).toBeTruthy();
     scrollIntoView.mockClear();
 
     fireEvent.click(app.getByRole("tab", { name: "Data schema" }));
