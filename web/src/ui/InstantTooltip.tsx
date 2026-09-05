@@ -4,12 +4,10 @@ import { useId } from "preact/hooks";
 export function InstantTooltip({
   children,
   content,
-  placement = "bottom",
   class: className,
 }: {
   children: ComponentChildren;
   content: string;
-  placement?: "bottom" | "right";
   class?: string | undefined;
 }) {
   const tooltipId = useId();
@@ -25,7 +23,7 @@ export function InstantTooltip({
       <span
         id={tooltipId}
         role="tooltip"
-        class={`instant-tooltip-content ${placement}`}
+        class="visually-hidden"
       >
         {content}
       </span>

@@ -132,10 +132,8 @@ describe("delivery layout contract", () => {
     expect(styles).toContain("--disabled-text: #8a9099");
     expect(styles).toContain("--text-primary: #0b1220");
   });
-  it("anchors action tooltips inside the right edge of the page", () => {
-    expect(styles).toMatch(
-      /\.action-disabled-tooltip > \.instant-tooltip-content\.bottom\s*\{[^}]*left:\s*auto;[^}]*right:\s*0;[^}]*transform:\s*none;/s,
-    );
+  it("does not paint a duplicate action tooltip inside the page", () => {
+    expect(styles).not.toContain(".instant-tooltip-content");
   });
   it("keeps detached parser layout without a detached serializer row or bridge", () => {
     expect(styles).toContain('"sourcebridge . ."');

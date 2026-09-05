@@ -317,7 +317,6 @@ export function DeliverySidebar({
       </nav>
       <InstantTooltip
         class="sidebar-tool-tooltip"
-        placement="right"
         content={
           dataWidgetAvailable
             ? dataWidgetVisible

@@ -5,12 +5,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FormField } from "../src/ui/FormField";
 import { Button } from "../src/ui/Button";
+import { InstantTooltip } from "../src/ui/InstantTooltip";
 import { Disclosure } from "../src/ui/Disclosure";
 import { MultiSelectControl, SelectControl } from "../src/ui/SelectControl";
 
 afterEach(cleanup);
 
 describe("UI primitives", () => {
+  it("uses only the native visual tooltip and retains an accessible description", () => {
+    const view = render(<InstantTooltip content="Discovery failed"><button>Scan</button></InstantTooltip>);
+    const host = view.getByTitle("Discovery failed");
+    const description = view.getByRole("tooltip");
+    expect(description.className).toBe("visually-hidden");
+    expect(host.getAttribute("aria-describedby")).toBe(description.id);
+    expect(view.container.querySelector(".instant-tooltip-content")).toBeNull();
+  });
   it("uses the native disclosure hit area for the entire summary", () => {
     const view = render(
       <Disclosure
