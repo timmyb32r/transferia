@@ -8545,7 +8545,7 @@
               }
             },
             "replication": {
-              "description": "Configures ordinary YDB table replication from pre-created changefeeds.",
+              "description": "Configures CDC from pre-created changefeeds. Batch + stream captures topic\npositions, reads a separate snapshot, then replays overlapping changes.\nIn batch + stream, complete UPDATE images are explicitly applied as\nupserts; DELETE operations are preserved. Ordinary stream is unchanged.\nAn interrupted snapshot requires manual recovery with a clean destination.",
               "anyOf": [
                 {
                   "$ref": "#/$defs/YdbReplicationConfig"
@@ -8737,7 +8737,8 @@
                   "component": "source",
                   "key": "replication",
                   "delivery_modes": [
-                    "stream"
+                    "stream",
+                    "batch_and_stream"
                   ],
                   "record_semantics": [
                     "changelog"
@@ -8770,7 +8771,8 @@
         },
         "delivery_modes": [
           "batch",
-          "stream"
+          "stream",
+          "batch_and_stream"
         ],
         "record_semantics": [
           "append_only",

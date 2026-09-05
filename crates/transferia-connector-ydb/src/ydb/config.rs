@@ -230,7 +230,11 @@ pub struct YdbSourceConfig {
     )]
     pub session_shutdown_retry_initial_ms: u64,
 
-    /// Configures ordinary YDB table replication from pre-created changefeeds.
+    /// Configures CDC from pre-created changefeeds. Batch + stream captures topic
+    /// positions, reads a separate snapshot, then replays overlapping changes.
+    /// In batch + stream, complete UPDATE images are explicitly applied as
+    /// upserts; DELETE operations are preserved. Ordinary stream is unchanged.
+    /// An interrupted snapshot requires manual recovery with a clean destination.
     #[serde(default)]
     pub replication: Option<YdbReplicationConfig>,
 }

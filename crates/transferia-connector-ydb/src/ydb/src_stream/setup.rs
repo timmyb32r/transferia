@@ -32,12 +32,12 @@ use transferia_connector_support::external_request::observe_external_request;
 use transferia_core::failure::DataPlaneFailure;
 use transferia_registry::durable::{CompareExchangeResult, DurableContext, DurableLease};
 
-const RESOURCE_OWNER_VERSION: u8 = 1;
+const RESOURCE_OWNER_VERSION: u8 = 2;
 #[derive(Clone)]
 pub(in crate::ydb) struct ReplicationResources {
-    pub(super) tables: Arc<Vec<DiscoveredTable>>,
-    pub(super) topics: Arc<[String]>,
-    pub(super) topic_partition_ids: Arc<[i64]>,
+    pub(in crate::ydb) tables: Arc<Vec<DiscoveredTable>>,
+    pub(in crate::ydb) topics: Arc<[String]>,
+    pub(in crate::ydb) topic_partition_ids: Arc<[i64]>,
     identities: Arc<[ReplicationResourceIdentity]>,
 }
 
@@ -56,6 +56,13 @@ pub(in crate::ydb) struct ActiveReplicationSource {
 }
 
 impl PreparedReplication {
+    pub(in crate::ydb) async fn validate_resources(&self, config: &YdbSourceConfig, cancellation: &CancellationToken) -> anyhow::Result<()> {
+        let actual = discover_replication_resources(config, cancellation).await?;
+        anyhow::ensure!(actual.identities == self.resources.identities, "YDB replication resources changed during execution");
+        anyhow::ensure!(!self.fence_lost.is_cancelled(), "YDB replication execution fence lost");
+        Ok(())
+    }
+
     pub(in crate::ydb) fn claim_source(&self) -> anyhow::Result<ActiveReplicationSource> {
         claim_active_source(&self.active_source).map_err(replication_contract_violation)
     }
@@ -1222,7 +1229,7 @@ async fn describe_topic(
     decode_topic_operation(response.operation, "DescribeTopic")
 }
 
-fn decode_topic_operation<T: Message + Default>(
+pub(in crate::ydb) fn decode_topic_operation<T: Message + Default>(
     operation: Option<ydb_grpc::ydb_proto::operations::Operation>,
     name: &str,
 ) -> anyhow::Result<T> {

@@ -9,7 +9,7 @@ const MAX_GRPC_FRAME_BYTES: usize = u32::MAX as usize;
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "replication", "delivery_modes": ["stream"], "record_semantics": ["changelog"] } }))]
+#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "replication", "delivery_modes": ["stream", "batch_and_stream"], "record_semantics": ["changelog"] } }))]
 pub struct YdbReplicationConfig {
     #[schemars(
         title = "Changefeed name",

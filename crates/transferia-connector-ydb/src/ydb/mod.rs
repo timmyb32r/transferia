@@ -1,6 +1,7 @@
 mod config;
 mod sink;
 mod source;
+mod src_batch_and_stream;
 mod src_stream;
 mod transport;
 mod types;

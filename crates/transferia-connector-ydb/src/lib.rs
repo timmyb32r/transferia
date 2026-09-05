@@ -17,7 +17,7 @@ pub fn register(
     registry.register(
         ComponentRegistration::new("ydb", "YDB")
             .source::<ydb::YdbSourceConfig, _, _>(
-                vec![DeliveryMode::Batch, DeliveryMode::Stream],
+                vec![DeliveryMode::Batch, DeliveryMode::Stream, DeliveryMode::BatchAndStream],
                 false,
                 || {
                     serde_json::json!({

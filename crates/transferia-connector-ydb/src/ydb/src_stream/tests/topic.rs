@@ -8,6 +8,16 @@
 use super::*;
 
 #[test]
+fn overlap_never_skips_an_expired_boundary_including_offset_zero() {
+    assert_eq!(overlap_read_offset(0, 0, &OffsetsRange { start: 0, end: 0 }).unwrap(), 0);
+    assert_eq!(overlap_read_offset(0, 10, &OffsetsRange { start: 5, end: 12 }).unwrap(), 10);
+    assert_eq!(overlap_read_offset(11, 10, &OffsetsRange { start: 11, end: 12 }).unwrap(), 11);
+    assert!(overlap_read_offset(0, 0, &OffsetsRange { start: 1, end: 12 }).is_err());
+    assert!(overlap_read_offset(0, 10, &OffsetsRange { start: 11, end: 12 }).is_err());
+    assert!(overlap_read_offset(13, 10, &OffsetsRange { start: 0, end: 12 }).is_err());
+}
+
+#[test]
 fn commit_ranges_coalesce_only_exactly_adjacent_offsets() -> anyhow::Result<()> {
     assert_eq!(
         coalesce_ranges(vec![
@@ -531,4 +541,19 @@ fn only_the_exact_success_status_is_accepted() {
     assert!(validate_status(&response).is_err());
     response.status = i32::MAX;
     assert!(validate_status(&response).is_err());
+}
+#[test]
+fn bootstrap_ack_is_optional_exact_and_never_hides_a_data_commit() {
+    let mut pending = std::collections::HashMap::from([(1, 10)]);
+    let ack = |offset| super::PartitionCommittedOffset { partition_session_id: 1, committed_offset: offset };
+    assert!(super::filter_bootstrap_acks(&mut pending, vec![ack(10)]).is_empty());
+    assert_eq!(super::filter_bootstrap_acks(&mut pending, vec![ack(10)]).len(), 1);
+    pending.insert(1, 10);
+    assert_eq!(super::filter_bootstrap_acks(&mut pending, vec![ack(11)]).len(), 1);
+    assert_eq!(pending[&1], 10);
+    assert!(super::filter_bootstrap_acks(&mut pending, vec![ack(10)]).is_empty());
+    assert!(pending.is_empty());
+    pending.insert(1, 10);
+    assert_eq!(super::filter_bootstrap_acks(&mut pending, vec![ack(9)]).len(), 1);
+    assert_eq!(pending[&1], 10);
 }

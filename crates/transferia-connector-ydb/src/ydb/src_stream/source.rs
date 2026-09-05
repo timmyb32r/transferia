@@ -29,6 +29,7 @@ use transferia_core::data::schema::{
     META_CHANGE_OPERATION, META_LOW_CARDINALITY, META_MAX_LENGTH, META_OLD_KEY_OF,
     META_OLD_VALUE_OF, META_PRIMARY_KEY, META_SYSTEM_ROLE, SYSTEM_ROLE_SOURCE_DATABASE,
     SYSTEM_ROLE_SOURCE_TABLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    SYSTEM_ROLE_SOURCE_VERSION,
 };
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::TableData;
@@ -60,8 +61,13 @@ struct SourceMetadataColumn {
     data_type: DataType,
 }
 
-const fn source_metadata_columns() -> [SourceMetadataColumn; 4] {
+const fn source_metadata_columns() -> [SourceMetadataColumn; 5] {
     [
+        SourceMetadataColumn {
+            name: "_system_source_version",
+            role: SYSTEM_ROLE_SOURCE_VERSION,
+            data_type: DataType::UInt64,
+        },
         SourceMetadataColumn {
             name: "_system_source_database",
             role: SYSTEM_ROLE_SOURCE_DATABASE,
@@ -120,11 +126,11 @@ pub(in crate::ydb) fn replication_discovery(
                     .map(|(index, column)| old_schema_column(index, column)),
             );
             incoming_columns.extend(source_metadata_columns().map(|column| {
-                SchemaColumn::new(column.name.to_owned(), column.data_type, false)
+                SchemaColumn::new(column.name.to_owned(), column.data_type, metadata_nullable(column.role))
                     .with_system_role(column.role)
             }));
             incoming_columns.extend(YDB_REPLICATION_SYSTEM_COLUMNS.iter().map(|kind| {
-                SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
+                SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), *kind == SystemColumnKind::WriteTimestampMs)
             }));
 
             let mut stored_schema = table.schema.clone();
@@ -143,7 +149,7 @@ pub(in crate::ydb) fn replication_discovery(
                             SchemaColumn::new(
                                 kind.default_name().to_owned(),
                                 kind.data_type(),
-                                false,
+                                *kind == SystemColumnKind::WriteTimestampMs,
                             )
                         }),
                 );
@@ -165,6 +171,10 @@ pub(in crate::ydb) fn replication_discovery(
         datasets,
         performance_advice: Vec::new(),
     })
+}
+
+fn metadata_nullable(role: &str) -> bool {
+    matches!(role, SYSTEM_ROLE_SOURCE_TRANSACTION_ID | SYSTEM_ROLE_SOURCE_TIMESTAMP_MS)
 }
 
 fn old_schema_column(index: usize, column: &SchemaColumn) -> SchemaColumn {
@@ -203,6 +213,7 @@ struct ReplicationTable {
 }
 
 struct DecodedRecord {
+    source_version: u64,
     topic_path: Arc<str>,
     partition_id: i64,
     offset: i64,
@@ -224,6 +235,7 @@ pub(in crate::ydb) struct YdbReplicationSource {
 }
 
 struct ReplicationDecodeState {
+    overlap: bool,
     tables: Vec<ReplicationTable>,
     table_by_topic: HashMap<Arc<str>, usize>,
     database: Arc<str>,
@@ -237,11 +249,13 @@ impl YdbReplicationSource {
         cancellation: CancellationToken,
         memory: PipelineMemory,
         counters: Arc<SourceCounters>,
+        start_offsets: HashMap<String, i64>,
     ) -> anyhow::Result<Self> {
         let replication = config.replication.as_ref().ok_or_else(|| {
             fatal_connector_error(anyhow::anyhow!("YDB replication configuration is missing"))
         })?;
         let active_source = prepared.claim_source()?;
+        prepared.validate_resources(config, &cancellation).await.map_err(fatal_connector_error)?;
         if prepared.resources.tables.len() != prepared.resources.topics.len()
             || prepared.resources.tables.len() != prepared.resources.topic_partition_ids.len()
         {
@@ -324,6 +338,7 @@ impl YdbReplicationSource {
             ) => client?,
         };
         let session_cancellation = CancellationToken::new();
+        let overlap = !start_offsets.is_empty();
         let session = tokio::select! {
             biased;
             () = cancellation.cancelled() => anyhow::bail!("YDB replication source construction cancelled"),
@@ -347,6 +362,7 @@ impl YdbReplicationSource {
                 session_cancellation.clone(),
                 memory.clone(),
                 Arc::clone(&counters),
+                start_offsets,
             ) => session.map_err(|error| {
                 anyhow::Error::new(DataPlaneFailure::fatal_or_passthrough(error))
             })?,
@@ -364,6 +380,7 @@ impl YdbReplicationSource {
             actor_session_cancellation.cancel();
         });
         let decode_state = Arc::new(ReplicationDecodeState {
+            overlap,
             tables,
             table_by_topic,
             database: Arc::from(config.connection.database.as_str()),
@@ -435,8 +452,10 @@ impl ReplicationDecodeState {
                         record.topic_path
                     )
                 })?;
-            let event = self.tables[table_index].decoder.decode(&record.payload)?;
+            let mut event = self.tables[table_index].decoder.decode(&record.payload)?;
+            if self.overlap { reconcile_overlap(&mut event)?; }
             grouped[table_index].push(DecodedRecord {
+                source_version: cdc_row_version(record.offset, self.overlap)?,
                 topic_path: record.topic_path,
                 partition_id: record.partition_id,
                 offset: record.offset,
@@ -654,7 +673,7 @@ fn decode_and_materialization_admission_bytes(
             .and_then(|value| value.checked_add(record.topic_path.len()))
             .and_then(|value| value.checked_add(ChangeOperation::Update.code().len()))
             .and_then(|value| value.checked_add(16))
-            .and_then(|value| value.checked_add(5 * size_of::<i64>()))
+            .and_then(|value| value.checked_add(6 * size_of::<i64>()))
             .and_then(|value| value.checked_add(5 * size_of::<i32>()))
             .and_then(|value| value.checked_add(changed_mask.checked_mul(2)?))
             .ok_or_else(|| anyhow::anyhow!("YDB CDC metadata memory admission overflow"))?;
@@ -668,7 +687,7 @@ fn decode_and_materialization_admission_bytes(
     })
 }
 
-fn build_table_schema(table: &DiscoveredTable) -> anyhow::Result<Arc<Schema>> {
+pub(in crate::ydb) fn build_table_schema(table: &DiscoveredTable) -> anyhow::Result<Arc<Schema>> {
     anyhow::ensure!(
         table.columns.len() == table.schema.columns.len(),
         "YDB CDC physical and discovered schema widths differ for table '{}'",
@@ -701,14 +720,14 @@ fn build_table_schema(table: &DiscoveredTable) -> anyhow::Result<Arc<Schema>> {
         fields.push(Field::new(old.name, old.data_type, true).with_metadata(metadata));
     }
     fields.extend(source_metadata_columns().map(|column| {
-        Field::new(column.name, column.data_type.clone(), false).with_metadata(
-            SchemaColumn::new(column.name.to_owned(), column.data_type, false)
+        Field::new(column.name, column.data_type.clone(), metadata_nullable(column.role)).with_metadata(
+            SchemaColumn::new(column.name.to_owned(), column.data_type, metadata_nullable(column.role))
                 .with_system_role(column.role)
                 .arrow_metadata(),
         )
     }));
     fields.extend(YDB_REPLICATION_SYSTEM_COLUMNS.iter().map(|kind| {
-        let field = Field::new(kind.default_name(), kind.data_type(), false);
+        let field = Field::new(kind.default_name(), kind.data_type(), *kind == SystemColumnKind::WriteTimestampMs);
         if *kind == SystemColumnKind::ChangeOperation {
             field.with_metadata(HashMap::from([(
                 META_CHANGE_OPERATION.to_owned(),
@@ -721,7 +740,7 @@ fn build_table_schema(table: &DiscoveredTable) -> anyhow::Result<Arc<Schema>> {
     Ok(Arc::new(Schema::new(fields)))
 }
 
-fn schema_materialization_admission_bytes(table: &DiscoveredTable) -> anyhow::Result<usize> {
+pub(in crate::ydb) fn schema_materialization_admission_bytes(table: &DiscoveredTable) -> anyhow::Result<usize> {
     let field_count = table
         .schema
         .columns
@@ -1150,6 +1169,9 @@ fn source_metadata_array(
     rows: &[DecodedRecord],
 ) -> anyhow::Result<ArrayRef> {
     Ok(match role {
+        SYSTEM_ROLE_SOURCE_VERSION => Arc::new(UInt64Array::from(
+            rows.iter().map(|row| row.source_version).collect::<Vec<_>>()
+        )) as ArrayRef,
         SYSTEM_ROLE_SOURCE_DATABASE => {
             Arc::new(StringArray::from(vec![database; rows.len()])) as ArrayRef
         }
@@ -1180,6 +1202,24 @@ fn source_metadata_array(
         }
         _ => anyhow::bail!("unknown YDB source metadata role '{role}'"),
     })
+}
+
+fn cdc_row_version(offset: i64, overlap: bool) -> anyhow::Result<u64> {
+    // Version zero belongs to the snapshot; preserve the actual cursor in Offset.
+    Ok(u64::try_from(offset)? + u64::from(overlap))
+}
+
+fn reconcile_overlap(event: &mut DecodedYdbCdcEvent) -> anyhow::Result<()> {
+    if event.operation == ChangeOperation::Update {
+        anyhow::ensure!(event.current.iter().enumerate().all(|(index, value)|
+            !matches!(value, YdbCdcValue::Absent) && event.changed_columns.get(index / 8)
+                .is_some_and(|mask| mask & (1 << (index % 8)) != 0)),
+            "YDB overlap upsert requires a complete current row and changed-column mask");
+        // Explicit batch_and_stream reconciliation: full-image writes must also
+        // create rows absent from the later snapshot. Keep before-images intact.
+        event.operation = ChangeOperation::Create;
+    }
+    Ok(())
 }
 
 fn system_array(kind: SystemColumnKind, rows: &[DecodedRecord]) -> anyhow::Result<ArrayRef> {

@@ -8,6 +8,8 @@ pub const META_ARROW_EXTENSION_METADATA: &str = "ARROW:extension:metadata";
 /// Identifies an incoming control column that is never part of stored user data.
 pub const META_SYSTEM_ROLE: &str = "transferia.system_role";
 pub const SYSTEM_ROLE_SOURCE_DATABASE: &str = "source.database";
+/// Logical row ordering, independent of the transport cursor (for snapshot/CDC handoffs).
+pub const SYSTEM_ROLE_SOURCE_VERSION: &str = "source.version";
 pub const SYSTEM_ROLE_SOURCE_SCHEMA: &str = "source.schema";
 pub const SYSTEM_ROLE_SOURCE_TABLE: &str = "source.table";
 pub const SYSTEM_ROLE_SOURCE_TRANSACTION_ID: &str = "source.transaction_id";

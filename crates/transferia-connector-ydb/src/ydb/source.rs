@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use arrow::array::{ArrayRef, Int64Array, StringArray, UInt64Array};
@@ -18,6 +18,7 @@ use super::src_stream::{
 };
 use super::transport::{is_not_found_error, YdbClient};
 use super::types::{column_plans, dataset_schema, result_set_to_batch, ColumnPlan};
+use super::src_batch_and_stream::{OverlapExecution, OverlapSnapshot};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use transferia_core::data::message::SourceBatch;
@@ -35,7 +36,7 @@ use transferia_delivery_contracts::semantics::{
 use transferia_delivery_contracts::DeliveryType;
 use transferia_registry::{
     PreparedSourceExecution, SourceBuildContext, SourceConnector, SourceDiscoveryContext,
-    SourceExecutionContext, SourcePhase, SpeedtestUnsupported,
+    SourceExecutionContext, SourceExecutionPhase, SourcePhase, SpeedtestUnsupported,
 };
 
 const SYSTEM_COLUMN_KINDS: [SystemColumnKind; 4] = [
@@ -59,6 +60,8 @@ pub struct YdbSourceConnector {
     discovered: tokio::sync::OnceCell<Arc<Vec<DiscoveredTable>>>,
     replication_prepared: tokio::sync::Mutex<Option<Arc<PreparedReplication>>>,
     counters: Mutex<HashMap<i64, Arc<SourceCounters>>>,
+    delivery_type: OnceLock<DeliveryType>,
+    overlap: tokio::sync::Mutex<Option<Arc<OverlapExecution>>>,
 }
 
 impl YdbSourceConnector {
@@ -74,7 +77,32 @@ impl YdbSourceConnector {
             discovered: tokio::sync::OnceCell::new(),
             replication_prepared: tokio::sync::Mutex::new(None),
             counters: Mutex::new(HashMap::new()),
+            delivery_type: OnceLock::new(),
+            overlap: tokio::sync::Mutex::new(None),
         })
+    }
+
+    fn bind_mode(&self, mode: DeliveryType) -> anyhow::Result<()> {
+        anyhow::ensure!(*self.delivery_type.get_or_init(|| mode) == mode, "YDB connector cannot be reused across delivery modes");
+        Ok(())
+    }
+
+    async fn prepared_overlap(
+        &self,
+        prepared: Arc<PreparedReplication>,
+        durable: transferia_registry::durable::DurableContext,
+        cancellation: &tokio_util::sync::CancellationToken,
+    ) -> anyhow::Result<Arc<OverlapExecution>> {
+        let mut guard = self.overlap.lock().await;
+        if let Some(execution) = guard.as_ref() {
+            return Ok(Arc::clone(execution));
+        }
+        let execution = Arc::new(
+            OverlapExecution::prepare(&self.config, prepared, durable, cancellation)
+                .await.map_err(|error| anyhow::Error::new(DataPlaneFailure::fatal(error)))?
+        );
+        *guard = Some(Arc::clone(&execution));
+        Ok(execution)
     }
 
     async fn discovered_tables(&self) -> anyhow::Result<Arc<Vec<DiscoveredTable>>> {
@@ -130,6 +158,10 @@ impl YdbSourceConnector {
             if !current.fence_lost.is_cancelled() {
                 return Ok(Arc::clone(current));
             }
+            // A completed overlap keeps its phase in durable storage. Release
+            // the stale bootstrap owner too, so live stream recovery can fence
+            // a new execution rather than retaining its own expired lease.
+            self.overlap.lock().await.take();
         }
         // Release this connector's stale local execution lease before trying to reacquire it.
         // A still-live source keeps its own Arc and therefore continues to fence overlap.
@@ -152,7 +184,7 @@ impl SourceConnector for YdbSourceConnector {
                 SourceBehavior::FiniteAppendOnlyRows
             },
             delivery_modes: if self.config.replication.is_some() {
-                SourceDeliveryModes::STREAM
+                SourceDeliveryModes::STREAM_AND_BATCH_AND_STREAM
             } else {
                 SourceDeliveryModes::BATCH
             },
@@ -182,14 +214,19 @@ impl SourceConnector for YdbSourceConnector {
                 cancellation,
                 delivery_type,
             } = context;
+            self.bind_mode(delivery_type)?;
             if self.config.replication.is_some() {
                 anyhow::ensure!(
-                    delivery_type == DeliveryType::Stream,
-                    "YDB replication configuration supports only stream delivery, got '{}'",
+                    matches!(delivery_type, DeliveryType::Stream | DeliveryType::BatchAndStream),
+                    "YDB replication configuration supports stream and batch_and_stream delivery, got '{}'",
                     delivery_type.label()
                 );
                 let resources = discover_replication_resources(&self.config, &cancellation).await?;
-                return replication_discovery(request, &resources);
+                let mut discovery = replication_discovery(request, &resources)?;
+                if delivery_type == DeliveryType::BatchAndStream {
+                    discovery.source_topology = SourceTopology::CoLocatedStaticPartitions(vec![0]);
+                }
+                return Ok(discovery);
             }
             anyhow::ensure!(
                 delivery_type == DeliveryType::Batch,
@@ -252,6 +289,7 @@ impl SourceConnector for YdbSourceConnector {
         context: SourceExecutionContext,
     ) -> BoxFuture<'_, anyhow::Result<Option<PreparedSourceExecution>>> {
         Box::pin(async move {
+            self.bind_mode(context.delivery_type)?;
             if self.config.replication.is_none() {
                 anyhow::ensure!(
                     context.delivery_type == DeliveryType::Batch,
@@ -260,8 +298,8 @@ impl SourceConnector for YdbSourceConnector {
                 return Ok(None);
             }
             anyhow::ensure!(
-                context.delivery_type == DeliveryType::Stream,
-                "YDB replication configuration supports only stream delivery"
+                matches!(context.delivery_type, DeliveryType::Stream | DeliveryType::BatchAndStream),
+                "YDB replication configuration supports stream and batch_and_stream delivery"
             );
             let replay_identity = context.replay_identity.ok_or_else(|| {
                 replication_contract_violation(anyhow::anyhow!(
@@ -285,13 +323,42 @@ impl SourceConnector for YdbSourceConnector {
                     "YDB replication connector was prepared for a different delivery or replay identity"
                 )));
             }
-            let discovery = replication_discovery(context.request, &prepared.resources)
+            let mut discovery = replication_discovery(context.request, &prepared.resources)
                 .map_err(replication_contract_violation)?;
-            let remaining_phases = self.execution_phases(DeliveryType::Stream, &discovery)?;
+            let mut remaining_phases = self.execution_phases(context.delivery_type, &discovery)?;
+            if context.delivery_type == DeliveryType::BatchAndStream {
+                discovery.source_topology = SourceTopology::CoLocatedStaticPartitions(vec![0]);
+                let overlap = self.prepared_overlap(Arc::clone(&prepared), durable.clone(), &cancellation).await?;
+                if overlap.streaming().await { remaining_phases.remove(0); }
+            }
             Ok(Some(PreparedSourceExecution {
                 discovery,
                 remaining_phases,
             }))
+        })
+    }
+
+    fn execution_phases(&self, mode: DeliveryType, discovery: &DeliveryDiscovery) -> anyhow::Result<Vec<SourceExecutionPhase>> {
+        Ok(match mode {
+            DeliveryType::Batch => vec![SourceExecutionPhase { phase: SourcePhase::Snapshot, topology: discovery.source_topology.clone(), finite: true }],
+            DeliveryType::Stream => vec![SourceExecutionPhase { phase: SourcePhase::Stream, topology: discovery.source_topology.clone(), finite: false }],
+            DeliveryType::BatchAndStream => vec![
+                SourceExecutionPhase { phase: SourcePhase::Snapshot, topology: SourceTopology::CoLocatedStaticPartitions(vec![0]), finite: true },
+                SourceExecutionPhase { phase: SourcePhase::Stream, topology: SourceTopology::CoLocatedStaticPartitions(vec![0]), finite: false },
+            ],
+        })
+    }
+
+    fn complete_execution_phase(&self, phase: SourcePhase, durable: transferia_registry::durable::DurableContext,
+        cancellation: tokio_util::sync::CancellationToken) -> BoxFuture<'_, anyhow::Result<()>> {
+        Box::pin(async move {
+            if phase == SourcePhase::Snapshot && self.delivery_type.get() == Some(&DeliveryType::BatchAndStream) {
+                let execution = self.overlap.lock().await.clone().ok_or_else(|| anyhow::anyhow!("YDB overlap execution missing"))?;
+                anyhow::ensure!(execution.prepared.delivery_id == durable.delivery_id, "YDB overlap completion delivery mismatch");
+                execution.prepared.validate_resources(&self.config, &cancellation).await.map_err(replication_contract_violation)?;
+                execution.complete_snapshot().await.map_err(|error| anyhow::Error::new(DataPlaneFailure::fatal(error)))?;
+            }
+            Ok(())
         })
     }
 
@@ -301,8 +368,20 @@ impl SourceConnector for YdbSourceConnector {
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
             let partition_id = context.partition_id;
+            self.bind_mode(context.delivery_type)?;
+            if context.delivery_type == DeliveryType::BatchAndStream && context.phase == SourcePhase::Snapshot {
+                anyhow::ensure!(partition_id == 0, "YDB overlap snapshot has one partition");
+                let execution = self.overlap.lock().await.clone().ok_or_else(|| anyhow::anyhow!("YDB overlap snapshot was not prepared"))?;
+                anyhow::ensure!(execution.prepared.delivery_id == context.durable.delivery_id
+                    && context.replay_identity.as_deref() == Some(execution.prepared.replay_identity.as_ref()), "YDB overlap snapshot identity mismatch");
+                let counters = self.counters(partition_id);
+                self.metrics.register_source(partition_id, Arc::clone(&counters));
+                return OverlapSnapshot::new(self.config.clone(), Arc::clone(&execution), context.cancellation, counters, context.memory)
+                    .map(|source| Box::new(source) as Box<dyn Source>)
+                    .map_err(|error| anyhow::Error::new(DataPlaneFailure::fatal(error)));
+            }
             if self.config.replication.is_some() {
-                if context.delivery_type != DeliveryType::Stream
+                if !matches!(context.delivery_type, DeliveryType::Stream | DeliveryType::BatchAndStream)
                     || context.phase != SourcePhase::Stream
                 {
                     return Err(replication_contract_violation(anyhow::anyhow!(
@@ -341,12 +420,18 @@ impl SourceConnector for YdbSourceConnector {
                 let counters = self.counters(partition_id);
                 self.metrics
                     .register_source(partition_id, Arc::clone(&counters));
+                let start_offsets = if context.delivery_type == DeliveryType::BatchAndStream {
+                    let execution = self.prepared_overlap(Arc::clone(&prepared), context.durable.clone(), &context.cancellation).await?;
+                    anyhow::ensure!(execution.streaming().await, "YDB snapshot has not crossed the durable commit barrier");
+                    execution.start_offsets.clone()
+                } else { HashMap::new() };
                 let source = YdbReplicationSource::new(
                     &self.config,
                     prepared,
                     context.cancellation,
                     context.memory,
                     counters,
+                    start_offsets,
                 )
                 .await?;
                 return Ok(Box::new(source) as Box<dyn Source>);
@@ -375,6 +460,7 @@ impl SourceConnector for YdbSourceConnector {
                     self.config.session_shutdown_timeout(),
                     self.config.session_shutdown_retry_initial(),
                     counters,
+                    false,
                 )
                 .await?,
             ) as Box<dyn Source>)
@@ -401,7 +487,7 @@ impl SourceConnector for YdbSourceConnector {
     }
 }
 
-struct YdbSource {
+pub(super) struct YdbSource {
     client: YdbClient,
     session_id: Option<String>,
     stream: Streaming<ReadTableResponse>,
@@ -415,7 +501,7 @@ struct YdbSource {
 }
 
 impl YdbSource {
-    async fn new(
+    pub(super) async fn new(
         mut client: YdbClient,
         table: DiscoveredTable,
         partition_id: i64,
@@ -423,6 +509,7 @@ impl YdbSource {
         session_shutdown_timeout: Duration,
         session_shutdown_retry_initial: Duration,
         counters: Arc<SourceCounters>,
+        ordered: bool,
     ) -> anyhow::Result<Self> {
         let active_session_id = client.create_session().await?;
         let mut session_id = Some(active_session_id.clone());
@@ -435,7 +522,7 @@ impl YdbSource {
                 .iter()
                 .map(|column| column.name.clone())
                 .collect(),
-            ordered: false,
+            ordered,
             row_limit: 0,
             use_snapshot: feature_flag::Status::Enabled as i32,
             batch_limit_bytes: 0,

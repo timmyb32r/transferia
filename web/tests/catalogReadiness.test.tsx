@@ -35,6 +35,15 @@ import { render } from "./support/render";
 afterEach(cleanup);
 
 describe("connector catalog readiness", () => {
+  it("advertises YDB overlap batch-and-stream without a strategy selector", () => {
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
+    const endpoint = catalog.connectors.find((connector) => connector.key === "ydb")!.source!;
+    expect(endpoint.delivery_modes).toContain("batch_and_stream");
+    const schema = compileSchema(endpoint.schema, productionWidgetRegistry);
+    const capabilities = configuredEndpointCapabilities(endpoint, schema, { ...endpoint.initial, replication: {} }, "source");
+    expect(capabilities.delivery_modes).toContain("batch_and_stream");
+    expect(JSON.stringify(endpoint.schema)).not.toContain("snapshot_strategy");
+  });
   it.each(["kafka", "logbroker"])("starts %s sink with an unselected required serializer", (key) => {
     const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
     const endpoint = catalog.connectors.find((connector) => connector.key === key)!.sink!;
