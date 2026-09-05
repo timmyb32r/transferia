@@ -92,12 +92,20 @@ describe("appearance preferences", () => {
       Object.defineProperties(viewport, { clientWidth: { value: 500, configurable: true }, clientHeight: { value: 500, configurable: true } });
       resize();
       expect(content.style.transform).toBe("scale(0.5)");
+      expect(content.style.left).toBe("0px");
       Object.defineProperty(viewport, "clientHeight", { value: 125 });
       resize();
       expect(content.style.transform).toBe("scale(0.25)");
+      expect(content.style.left).toBe("125px");
       fireEvent.input(view.getByRole("searchbox"), { target: { value: "post" } });
       expect(document.querySelector(".compatibility-matrix-content")).toBe(content);
       expect(content.style.transform).toBe("scale(0.25)");
+      expect(content.style.left).toBe("125px");
+      Object.defineProperty(viewport, "clientHeight", { value: 500 });
+      Object.defineProperty(viewport, "clientWidth", { value: 1400 });
+      resize();
+      expect(content.style.transform).toBe("scale(1)");
+      expect(content.style.left).toBe("200px");
       view.unmount();
       expect(disconnect).toHaveBeenCalledOnce();
     } finally {

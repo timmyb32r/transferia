@@ -446,6 +446,7 @@ export function CompatibilityMatrixDialog({
         summary.style.gridTemplateRows = Array.from(table.rows, (row) => getComputedStyle(row).height).join(" ");
       }
       const scale = Math.min(1, viewport.clientWidth / content.offsetWidth, viewport.clientHeight / content.offsetHeight);
+      content.style.left = `${Math.max(0, (viewport.clientWidth - content.offsetWidth * scale) / 2)}px`;
       content.style.transform = `scale(${scale})`;
     };
     const observer = new ResizeObserver(fit);
