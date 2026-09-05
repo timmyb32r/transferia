@@ -147,7 +147,7 @@ pub struct TableConfig {
     /// `ClickHouse` sorting and primary keys do not enforce uniqueness, so the
     /// connector never infers this contract from table metadata.
     #[serde(default)]
-    #[schemars(title = "Unique row key")]
+    #[schemars(title = "Unique row key", extend("x-ui" = { "widget": "hidden" }))]
     pub primary_key: Vec<String>,
 }
 

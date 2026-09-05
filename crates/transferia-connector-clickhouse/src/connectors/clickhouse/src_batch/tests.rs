@@ -16,6 +16,13 @@ use super::connector::source_arrow_type;
 use super::*;
 
 #[test]
+fn unique_row_key_is_hidden_from_the_table_form() {
+    let schema = schemars::schema_for!(config::TableConfig);
+    let value = serde_json::to_value(schema).unwrap();
+    assert_eq!(value["properties"]["primary_key"]["x-ui"]["widget"], "hidden");
+}
+
+#[test]
 fn source_preserves_date_and_second_timestamp_types() -> anyhow::Result<()> {
     assert_eq!(
         source_arrow_type(&"Date".parse()?, "Date")?,

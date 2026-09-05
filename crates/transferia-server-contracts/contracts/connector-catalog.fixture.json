@@ -5695,7 +5695,10 @@
                   "items": {
                     "type": "string"
                   },
-                  "default": []
+                  "default": [],
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
                 }
               },
               "additionalProperties": false,
