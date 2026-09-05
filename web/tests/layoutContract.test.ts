@@ -16,6 +16,16 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("keeps action buttons 16px from the frame and centers their header", () => {
+    expect(styles).toContain('.column-table .actions-column {\n  width: 80px;');
+    expect(styles).toContain(':root .column-table th.actions-column {\n  padding-right: 16px;');
+    expect(styles).toContain(':root .column-table th.actions-column {\n  padding-left: 16px;\n  text-align: center;');
+  });
+  it("has no CSS-painted tooltips competing with native titles", () => {
+    expect(styles).not.toMatch(/content:\s*attr\((?:data-tooltip|title)\)/);
+    expect(styles).not.toContain(".help-tooltip");
+    expect(styles).not.toContain(".instant-tooltip-content");
+  });
   it("does not reserve a blank scrollbar strip beside table headers", () => {
     const shell = styles.split(".table-shell {")[1]?.split("}")[0];
     expect(shell).toContain("scrollbar-gutter: auto;");

@@ -399,8 +399,8 @@ export function ColumnMappingsEditor({
                     </td>
                     {showLowCardinality && (
                       <td
-                        class={`flag-column tooltip-host ${isStringArrowType(column.arrow_type) ? "" : "disabled"}`}
-                        data-tooltip="Low cardinality is meaningful only for string values"
+                        class={`flag-column ${isStringArrowType(column.arrow_type) ? "" : "disabled"}`}
+                        title={isStringArrowType(column.arrow_type) ? undefined : "Low cardinality is meaningful only for string values"}
                       >
                         <AutofillResistantInput
                           type="checkbox"

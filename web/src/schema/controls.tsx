@@ -126,7 +126,7 @@ export function SystemColumnsEditor({
                 <span
                   class="help"
                   tabindex={0}
-                  data-tooltip={node.properties[name]!.description}
+                  title={node.properties[name]!.description}
                 >
                   ?
                 </span>

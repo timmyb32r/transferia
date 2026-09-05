@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { extname, relative, resolve } from "node:path";
+import ts from "typescript";
 
 const root = resolve(import.meta.dirname, "../src");
 const sourceFiles = await collect(root);
@@ -13,6 +14,27 @@ for (const file of sourceFiles) {
   const source = await readFile(file, "utf8");
   const path = relative(root, file).replaceAll("\\", "/");
   const layer = path.split("/", 1)[0];
+  // Native titles are the only visual tooltip mechanism. Accessible tooltip
+  // descriptions must stay visually hidden, never become a second popup.
+  if (/data-tooltip|content\s*:\s*attr\(\s*title/.test(source))
+    violations.push(`${path}: use native title, not a second tooltip renderer`);
+  if (path.endsWith(".tsx")) {
+    const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const visit = (node) => {
+      if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+        const attributes = node.attributes.properties.filter(ts.isJsxAttribute);
+        const literal = (name) => attributes.find((attribute) => attribute.name.getText(tree) === name)?.initializer;
+        const role = literal("role");
+        if (role && ts.isStringLiteral(role) && role.text === "tooltip") {
+          const className = literal("class");
+          if (!className || !ts.isStringLiteral(className) || className.text !== "visually-hidden")
+            violations.push(`${path}: tooltip descriptions must use class="visually-hidden"; only native title may display a popup`);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(tree);
+  }
   for (const match of source.matchAll(/from\s+["']([^"']+)["']/g)) {
     const dependency = match[1];
     if (!dependency.startsWith(".")) continue;

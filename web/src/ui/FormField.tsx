@@ -25,9 +25,9 @@ export function FormField({
           {optional && <small class="optional">(optional)</small>}
         </span>
         {description && (
-          <span class="help" tabindex={0} aria-describedby={tooltipId}>
+          <span class="help" tabindex={0} aria-describedby={tooltipId} title={description}>
             <span aria-hidden="true">?</span>
-            <span id={tooltipId} role="tooltip" class="help-tooltip">
+            <span id={tooltipId} role="tooltip" class="visually-hidden">
               {description}
             </span>
           </span>

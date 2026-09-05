@@ -124,6 +124,8 @@ describe("UI primitives", () => {
     const tooltip = view.getByRole("tooltip");
     expect(help?.getAttribute("aria-describedby")).toBe(tooltip.id);
     expect(tooltip.textContent).toBe("ClickHouse native protocol port");
+    expect(help?.getAttribute("title")).toBe(tooltip.textContent);
+    expect(tooltip.className).toBe("visually-hidden");
   });
 
   it("navigates listbox options from the search input", () => {
