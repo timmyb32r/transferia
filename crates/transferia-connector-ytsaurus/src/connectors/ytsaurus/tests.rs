@@ -1133,15 +1133,14 @@ fn destination_delivery_modes_are_independent_of_append_only_semantics() -> anyh
             DeliveryType::BatchAndStream,
         ] {
             let supported = table_type == "dynamic_tables" || mode == DeliveryType::Batch;
-            let declared =
-                variant
-                    .pointer("/x-ui/capabilities/delivery_modes")
-                    .is_none_or(|modes| {
-                        modes
-                            .as_array()
-                            .unwrap()
-                            .contains(&serde_json::to_value(mode).unwrap())
-                    });
+            let declared = variant
+                .pointer("/x-ui/capabilities/delivery_modes")
+                .is_none_or(|modes| {
+                    modes
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::to_value(mode).unwrap())
+                });
             assert_eq!(
                 declared, supported,
                 "schema and runtime must agree for {table_type}/{mode:?}"
@@ -1454,8 +1453,8 @@ fn unique_sorted_snapshots_reject_multiple_source_partitions() -> anyhow::Result
         source_topology: SourceTopology::StaticPartitions(vec![0, 1]),
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
-            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
         datasets: vec![DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),
             incoming_schema: schema.clone(),
@@ -1783,8 +1782,8 @@ fn dynamic_snapshot_staging_requires_explicit_replacement_and_one_partition() ->
         source_topology: SourceTopology::StaticPartitions(partitions),
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
-            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
         datasets: vec![DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),
             incoming_schema: schema.clone(),
