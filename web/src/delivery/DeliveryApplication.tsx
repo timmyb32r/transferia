@@ -457,7 +457,7 @@ export function DeliveryApplication() {
         if (container === null) return;
         const excluded =
           scope === "source"
-            ? ".identity-card, .endpoint-card-sink, .serializer-details-card"
+            ? ".identity-card, .endpoint-card-sink"
             : scope === "endpoints"
               ? ".identity-card, .pipeline-section"
               : undefined;

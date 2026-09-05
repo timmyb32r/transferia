@@ -13,14 +13,3 @@ export function ParserDetailsForm(props: SchemaFormProps) {
     />
   );
 }
-
-export function SerializerDetailsForm(props: SchemaFormProps) {
-  return (
-    <VariantDetailsForm
-      {...props}
-      widget="serializer"
-      bridgeClass="sink-serializer-bridge"
-      cardClass="serializer-details-card"
-    />
-  );
-}

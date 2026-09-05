@@ -10,7 +10,6 @@ import { SchemaForm } from "../src/schema/SchemaForm";
 import { revealDetails } from "../src/schema/revealDetails";
 import {
   ParserDetailsForm,
-  SerializerDetailsForm,
 } from "../src/features/variantDetails/VariantDetailsForms";
 import { SelectControl } from "../src/ui/SelectControl";
 import type { CompiledNode } from "../src/schema/compiler";
@@ -1596,7 +1595,7 @@ describe("schema form", () => {
     expect(onChange).toHaveBeenCalledWith({ parser: null });
   });
 
-  it("renders serializer selection and settings separately", async () => {
+  it("renders serializer settings directly below its stable selector", () => {
     const node: CompiledNode = {
       kind: "object",
       xUi: {},
@@ -1645,64 +1644,26 @@ describe("schema form", () => {
         },
       },
     };
-    const changes: JsonValue[] = [];
-    const endpoint = render(
-      <SchemaForm
-        node={node}
-        value={{ serializer: { type: "json" } }}
-        variantUi={{
-          selectionOnly: ["serializer"],
-          onSelected: () => revealDetails(".serializer-details-card"),
-        }}
-        onChange={(next) => changes.push(next)}
-      />,
-    );
-    expect(endpoint.container.textContent).toContain("JSON");
-    expect(endpoint.container.textContent).not.toContain("Registry URL");
-    const route = document.createElement("section");
-    route.className = "route-composition";
-    const serializerSettings = document.createElement("section");
-    serializerSettings.className = "serializer-details-card";
-    serializerSettings.tabIndex = -1;
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(serializerSettings, "scrollIntoView", {
-      value: scrollIntoView,
-    });
-    route.append(serializerSettings);
-    document.body.append(route);
-    fireEvent.click(endpoint.container.querySelector(".select-trigger")!);
-    fireEvent.click(endpoint.getByRole("option", { name: "Schema Registry" }));
-    expect(changes.at(-1)).toEqual({
-      serializer: { type: "schema_registry", connection: "" },
-    });
-    await new Promise<void>((resolve) =>
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-    );
-    expect(scrollIntoView).toHaveBeenCalledWith({
-      behavior: "smooth",
-      block: "start",
-    });
-    route.remove();
-
-    const details = render(
-      <SerializerDetailsForm
-        node={node}
-        value={{
-          serializer: {
-            type: "schema_registry",
-            connection: "https://registry",
-          },
-        }}
-        onChange={() => undefined}
-      />,
-    );
-    expect(details.container.textContent).toContain("Schema Registry settings");
-    expect(details.getByDisplayValue("https://registry")).toBeTruthy();
-    expect(
-      details.container.querySelector(".sink-serializer-bridge"),
-    ).not.toBeNull();
+    function Harness() {
+      const [value, setValue] = useState<JsonValue>({ serializer: { type: "json" } });
+      return <SchemaForm node={node} value={value} onChange={setValue} />;
+    }
+    const view = render(<Harness />);
+    const trigger = view.container.querySelector(".select-trigger")!;
+    fireEvent.click(trigger);
+    fireEvent.click(view.getByRole("option", { name: "Schema Registry" }));
+    const input = view.getByRole("textbox", { name: "Registry URL" });
+    const field = trigger.closest(".serializer-inline-settings")!;
+    expect(field.contains(input)).toBe(true);
+    expect(trigger.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(view.container.querySelector(".serializer-details-card")).toBeNull();
+    expect(view.container.querySelector(".sink-serializer-bridge")).toBeNull();
+    input.focus();
+    fireEvent.input(input, { target: { value: "https://registry" } });
+    expect(document.activeElement).toBe(input);
+    expect(view.getByDisplayValue("https://registry")).toBe(input);
+    expect(view.container.querySelector(".select-trigger")).toBe(trigger);
   });
-
   it("shows partition IDs only when explicit partition selection is enabled", () => {
     const node: CompiledNode = {
       kind: "object",

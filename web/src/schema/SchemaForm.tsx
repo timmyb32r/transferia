@@ -523,7 +523,7 @@ function PropertyEditor({
     (node.kind === "array" && node.xUi.widget !== "partition_ranges") ||
     presentation?.wide ||
     node.xUi.control_width === "full";
-  const classes = `${wideRow ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`;
+  const classes = `${wideRow ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${node.xUi.widget === "serializer" ? "serializer-inline-settings" : ""} ${controlWidth}`;
   return (
     <FormField
       label={fieldLabelOverrides[name] ?? node.title ?? humanize(name)}

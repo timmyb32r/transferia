@@ -18,7 +18,6 @@ vi.mock("../src/delivery/EditorViews", () => ({
 }));
 vi.mock("../src/features/variantDetails/VariantDetailsForms", () => ({
   ParserDetailsForm: () => null,
-  SerializerDetailsForm: () => null,
 }));
 afterEach(cleanup);
 

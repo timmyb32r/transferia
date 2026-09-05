@@ -24,14 +24,14 @@ describe("delivery layout contract", () => {
     expect(hover).not.toMatch(/\b(width|height|padding|margin|border|transform)\s*:/);
   });
   it("gives nested serializer fields full width instead of repeated label columns", () => {
-    const row = styles.match(/\.serializer-details-card \.schema-object \.form-row:not\(\.form-row-wide\)\s*\{([^}]*)\}/)?.[1];
+    const row = styles.match(/\.serializer-inline-settings \.schema-object \.form-row:not\(\.form-row-wide\)\s*\{([^}]*)\}/)?.[1];
     expect(row).toContain("grid-template-columns: minmax(0, 1fr);");
     expect(row).toContain("align-items: start;");
-    const control = styles.match(/\.serializer-details-card \.form-row > \.field-control\s*\{([^}]*)\}/)?.[1];
+    const control = styles.match(/\.serializer-inline-settings \.form-row > \.field-control\s*\{([^}]*)\}/)?.[1];
     expect(control).toContain("width: 100%;");
     expect(control).toContain("min-width: 0;");
     // The layout must not depend on hover/focus: typing cannot move controls.
-    expect(styles).not.toMatch(/\.serializer-details-card[^{}]*:(?:hover|focus|focus-within)[^{}]*\{[^}]*(?:grid-template-columns|width|padding)\s*:/s);
+    expect(styles).not.toMatch(/\.serializer-inline-settings[^{}]*:(?:hover|focus|focus-within)[^{}]*\{[^}]*(?:grid-template-columns|width|padding)\s*:/s);
   });
   it("collapses empty route feedback and lets errors use their natural height", () => {
     expect(styles).toMatch(/\.route-feedback:empty\s*\{[^}]*display: none;/s);
@@ -90,27 +90,12 @@ describe("delivery layout contract", () => {
       /\.action-disabled-tooltip > \.instant-tooltip-content\.bottom\s*\{[^}]*left:\s*auto;[^}]*right:\s*0;[^}]*transform:\s*none;/s,
     );
   });
-  it("keeps serializer settings in the destination column on wide screens", () => {
-    expect(styles).toContain('"parser parser parser"\n    ". . serializer"');
-    expect(styles).toMatch(
-      /\.serializer-details-card\s*\{[^}]*grid-area:\s*serializer;[^}]*grid-column:\s*3;/s,
-    );
-    expect(styles).toMatch(
-      /@media \(max-width: 1300px\)[\s\S]*?\.serializer-details-card\s*\{[^}]*grid-column:\s*1;/,
-    );
-  });
-
-  it("uses the same panel corner radius for source and destination cards", () => {
-    const connectedRadius =
-      "border-radius: var(--radius-panel) var(--radius-panel) 0 0;";
-    const sourceRule = styles.match(
-      /:has\(> \.parser-details-card\) > \.endpoint-card-source\s*\{([^}]*)\}/,
-    );
-    const sinkRule = styles.match(
-      /:has\(> \.serializer-details-card\) > \.endpoint-card-sink\s*\{([^}]*)\}/,
-    );
-    expect(sourceRule?.[1]).toContain(connectedRadius);
-    expect(sinkRule?.[1]).toContain(connectedRadius);
+  it("keeps detached parser layout without a detached serializer row or bridge", () => {
+    expect(styles).toContain('"sourcebridge . ."');
+    expect(styles).toContain('"parser parser parser"');
+    expect(styles).not.toContain(".serializer-details-card");
+    expect(styles).not.toContain(".sink-serializer-bridge");
+    expect(styles).toMatch(/\.serializer-inline-settings > \.field-control,/);
   });
 
   it("reserves a fixed-height region for dynamic option errors", () => {

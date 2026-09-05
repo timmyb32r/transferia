@@ -121,9 +121,7 @@ export function EndpointCard(props: {
               ? { deliveryType: props.config.delivery_type }
               : {})}
             variantUi={{
-              selectionOnly: [
-                props.role === "source" ? "parser" : "serializer",
-              ],
+              selectionOnly: props.role === "source" ? ["parser"] : [],
               actions:
                 props.role === "source" && props.endpoint.message_preview
                   ? {
@@ -140,12 +138,9 @@ export function EndpointCard(props: {
                       ),
                     }
                   : {},
-              onSelected: (widget) =>
-                revealDetails(
-                  widget === "parser"
-                    ? ".parser-details-card"
-                    : ".serializer-details-card",
-                ),
+              onSelected: (widget) => {
+                if (widget === "parser") revealDetails(".parser-details-card");
+              },
             }}
             optionOverrides={check.options}
             connectionAction={

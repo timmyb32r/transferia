@@ -9,7 +9,6 @@ import { orderedEndpointConnectors } from "../connectorCatalog";
 import { CommonSettings, EndpointCard } from "./EditorViews";
 import {
   ParserDetailsForm,
-  SerializerDetailsForm,
 } from "../features/variantDetails/VariantDetailsForms";
 import { useWidgetRegistry } from "../schema/widgetRegistry";
 import type { EditorState } from "../state";
@@ -205,24 +204,6 @@ export function DeliveryConfiguration({
                   onConfig({
                     ...editor.config,
                     source: { [selection.sourceKey]: next },
-                  })
-                }
-              />
-            )}
-          {routeSettingsAvailable &&
-            selection?.sink && (
-              <SerializerDetailsForm
-                node={compiledSchema(selection.sink.schema, widgets)}
-                value={endpointValue(editor.config, "sink", selection.sinkKey)}
-                disabled={readOnly}
-                showRequiredErrors={
-                  requiredErrorScope === "endpoints" ||
-                  requiredErrorScope === "all"
-                }
-                onChange={(next) =>
-                  onConfig({
-                    ...editor.config,
-                    sink: { [selection.sinkKey]: next },
                   })
                 }
               />
