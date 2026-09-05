@@ -121,12 +121,12 @@ pub fn register_with_parsers(
                     },
                 })
             })
-            .sink::<logbroker::sink::LogbrokerSinkConfig, _, _>(
+            .sink_draft::<logbroker::sink::LogbrokerSinkConfig, _, _>(
                 || serde_json::json!({
                     "host": "", "port": 2135,
                     "topic": { "type": "topic", "topic_path": "" }, "partition_id": null,
                     "auth": { "type": "token", "token": "" },
-                    "serializer": { "type": "json" }, "driver": "ydb", "trusted_plaintext": true
+                    "serializer": {}, "driver": "ydb", "trusted_plaintext": true
                 }),
                 logbroker::build_sink_connector,
             )?

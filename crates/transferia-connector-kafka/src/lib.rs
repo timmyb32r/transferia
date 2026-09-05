@@ -98,13 +98,13 @@ pub fn register_with_parsers(
                 kafka::check_source_connection(&config).await?;
                 Ok(transferia_registry::ConnectionCheckResult::default())
             })
-            .sink::<kafka::KafkaSinkConfig, _, _>(
+            .sink_draft::<kafka::KafkaSinkConfig, _, _>(
                 || {
                     serde_json::json!({
                         "brokers": [""],
                         "topic": { "type": "topic", "topic": "" },
                         "security": { "type": "plaintext" },
-                        "serializer": { "type": "json" }, "partition": null,
+                        "serializer": {}, "partition": null,
                         "request_timeout_ms": 30_000, "max_in_flight": 16
                     })
                 },

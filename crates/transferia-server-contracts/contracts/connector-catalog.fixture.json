@@ -2059,9 +2059,7 @@
           }
         },
         "initial": {
-          "serializer": {
-            "type": "json"
-          },
+          "serializer": {},
           "driver": "ydb",
           "topic": {
             "type": "topic",
@@ -4150,9 +4148,7 @@
             "topic": ""
           },
           "request_timeout_ms": 30000,
-          "serializer": {
-            "type": "json"
-          },
+          "serializer": {},
           "partition": null,
           "installation": {
             "brokers": [

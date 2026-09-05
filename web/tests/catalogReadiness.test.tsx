@@ -35,6 +35,21 @@ import { render } from "./support/render";
 afterEach(cleanup);
 
 describe("connector catalog readiness", () => {
+  it.each(["kafka", "logbroker"])("starts %s sink with an unselected required serializer", (key) => {
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
+    const endpoint = catalog.connectors.find((connector) => connector.key === key)!.sink!;
+    const schema = compileSchema(endpoint.schema, productionWidgetRegistry);
+    expect(schema.kind).toBe("object");
+    if (schema.kind !== "object") throw new Error("Expected sink object schema");
+    const serializer = schema.properties.serializer!;
+    const initial = (endpoint.initial as JsonObject).serializer!;
+    expect(initial).toEqual({});
+    expect(schema.required.has("serializer")).toBe(true);
+    expect(isFieldComplete(serializer, initial, true)).toBe(false);
+    const view = render(<SchemaForm node={serializer} value={initial} onChange={() => undefined} />);
+    expect(view.getByRole("button", { name: "Not selected" })).toBeTruthy();
+    expect(view.queryByRole("button", { name: "JSON" })).toBeNull();
+  });
   const matrixCatalog = decodeApi("catalog_response", catalogFixture, "catalog");
   it.each(compatibilityRoutes(matrixCatalog).flatMap((route) => DELIVERY_TYPES.map((mode) => ({
     name: `${route.source.key} → ${route.sink.key} / ${mode}`, route, mode,
