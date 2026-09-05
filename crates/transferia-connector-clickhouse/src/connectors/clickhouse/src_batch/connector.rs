@@ -431,7 +431,29 @@ async fn discover_table(
         table.name
     );
     let mut schema = DatasetSchema::new(columns);
-    apply_declared_primary_key(&mut schema, &table)?;
+    let key_query = format!(
+        "SELECT primary_key, sorting_key FROM system.tables WHERE database = {} AND name = {}",
+        quote_string_literal(&table.database), quote_string_literal(&table.name),
+    );
+    let key_batches = client.query_all(&key_query).await
+        .map_err(|error| anyhow::anyhow!("cannot inspect ClickHouse source table key: {error}"))?;
+    let mut found_key = false;
+    for batch in key_batches {
+        anyhow::ensure!(batch.num_columns() == 2, "ClickHouse key metadata must contain two columns");
+        let primary = cast(batch.column(0), &DataType::Utf8)?;
+        let sorting = cast(batch.column(1), &DataType::Utf8)?;
+        let primary = primary.as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| anyhow::anyhow!("ClickHouse primary key metadata is not a string"))?;
+        let sorting = sorting.as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| anyhow::anyhow!("ClickHouse sorting key metadata is not a string"))?;
+        for row in 0..batch.num_rows() {
+            anyhow::ensure!(!found_key, "ClickHouse returned duplicate table key metadata");
+            anyhow::ensure!(!primary.is_null(row) && !sorting.is_null(row), "ClickHouse key metadata contains NULL");
+            apply_discovered_primary_key(&mut schema, &table, primary.value(row), sorting.value(row))?;
+            found_key = true;
+        }
+    }
+    anyhow::ensure!(found_key, "ClickHouse source table disappeared during key discovery");
     let physical_system_columns = classify_system_columns(&schema)?;
     Ok(DiscoveredTable {
         config: table,
@@ -440,15 +462,31 @@ async fn discover_table(
     })
 }
 
-pub(super) fn apply_declared_primary_key(
+pub(super) fn apply_discovered_primary_key(
     schema: &mut DatasetSchema,
     table: &TableConfig,
+    primary_key: &str,
+    sorting_key: &str,
 ) -> anyhow::Result<()> {
-    for key in &table.primary_key {
+    let selected = if primary_key == sorting_key { sorting_key } else { primary_key };
+    if matches!(selected.trim(), "" | "tuple()" | "()") {
+        return Ok(());
+    }
+    let selected = selected.trim();
+    let body = selected.strip_prefix('(').and_then(|key| key.strip_suffix(')')).unwrap_or(selected);
+    let mut keys = HashSet::new();
+    for key in body.split(',') {
+        let key = key.trim();
+        let key = key.strip_prefix('`').and_then(|key| key.strip_suffix('`')).unwrap_or(key);
+        validate_identifier(key).map_err(|_| anyhow::anyhow!(
+            "ClickHouse source key for '{}.{}' must contain plain column names; expressions are not supported",
+            table.database, table.name,
+        ))?;
+        anyhow::ensure!(keys.insert(key), "ClickHouse source key repeats column '{key}'");
         let column = schema
             .columns
             .iter_mut()
-            .find(|column| column.name == *key)
+            .find(|column| column.name == key)
             .ok_or_else(|| {
                 anyhow::anyhow!(
                     "ClickHouse source primary-key column '{}.{}.{}' does not exist",

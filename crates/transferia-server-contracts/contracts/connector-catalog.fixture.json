@@ -5687,18 +5687,6 @@
                 },
                 "name": {
                   "type": "string"
-                },
-                "primary_key": {
-                  "title": "Unique row key",
-                  "description": "Columns that the user guarantees identify one logical row uniquely.\n`ClickHouse` sorting and primary keys do not enforce uniqueness, so the\nconnector never infers this contract from table metadata.",
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "default": [],
-                  "x-ui": {
-                    "widget": "hidden"
-                  }
                 }
               },
               "additionalProperties": false,

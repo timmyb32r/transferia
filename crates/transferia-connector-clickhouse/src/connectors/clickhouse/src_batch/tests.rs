@@ -16,10 +16,10 @@ use super::connector::source_arrow_type;
 use super::*;
 
 #[test]
-fn unique_row_key_is_hidden_from_the_table_form() {
+fn table_form_has_no_manual_primary_key() {
     let schema = schemars::schema_for!(config::TableConfig);
     let value = serde_json::to_value(schema).unwrap();
-    assert_eq!(value["properties"]["primary_key"]["x-ui"]["widget"], "hidden");
+    assert!(value["properties"].get("primary_key").is_none());
 }
 
 #[test]
@@ -58,15 +58,11 @@ fn source_preserves_date_and_second_timestamp_types() -> anyhow::Result<()> {
 }
 
 #[test]
-fn explicit_primary_key_is_validated_and_never_inferred_from_clickhouse_sorting() {
+fn discovered_primary_key_is_validated() {
     let base = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\n";
     let duplicate =
         format!("{base}tables: [{{database: default, name: events, primary_key: [id, id]}}]\n");
-    assert!(ClickHouseSourceConnector::from_config(
-        serde_yaml::from_str(&duplicate).unwrap(),
-        Arc::new(MetricsRegistry::new()),
-    )
-    .is_err());
+    assert!(serde_yaml::from_str::<ClickHouseSourceConfig>(&duplicate).is_err());
 
     let mut schema = DatasetSchema::new(vec![
         SchemaColumn::new("id".into(), DataType::Int64, false),
@@ -76,9 +72,8 @@ fn explicit_primary_key_is_validated_and_never_inferred_from_clickhouse_sorting(
     let table = config::TableConfig {
         database: "default".into(),
         name: "events".into(),
-        primary_key: vec!["id".into()],
     };
-    connector::apply_declared_primary_key(&mut schema, &table).unwrap();
+    connector::apply_discovered_primary_key(&mut schema, &table, "id", "id, nullable").unwrap();
     assert!(schema.columns[0].primary_key);
     assert!(!schema.columns[1].primary_key);
 
@@ -91,11 +86,33 @@ fn explicit_primary_key_is_validated_and_never_inferred_from_clickhouse_sorting(
         let table = config::TableConfig {
             database: "default".into(),
             name: "events".into(),
-            primary_key: vec![key.into()],
         };
-        let error = connector::apply_declared_primary_key(&mut candidate, &table)
+        let error = connector::apply_discovered_primary_key(&mut candidate, &table, key, key)
             .expect_err("invalid primary key must fail discovery");
         assert!(error.to_string().contains(expected), "{error:#}");
+    }
+}
+
+#[test]
+fn metadata_key_selection_uses_primary_key_or_identical_sorting_key() {
+    let table = config::TableConfig { database: "default".into(), name: "events".into() };
+    for (primary, sorting, expected) in [
+        ("id", "id, version", vec!["id"]),
+        ("id, version", "id, version", vec!["id", "version"]),
+        ("(`id`, `version`)", "(`id`, `version`)", vec!["id", "version"]),
+        ("tuple()", "tuple()", vec![]),
+        ("", "", vec![]),
+    ] {
+        let mut schema = DatasetSchema::new(vec![
+            SchemaColumn::new("id".into(), DataType::Int64, false),
+            SchemaColumn::new("version".into(), DataType::Int64, false),
+        ]);
+        connector::apply_discovered_primary_key(&mut schema, &table, primary, sorting).unwrap();
+        assert_eq!(schema.columns.iter().filter(|column| column.primary_key).map(|column| column.name.as_str()).collect::<Vec<_>>(), expected);
+    }
+    for key in ["toYYYYMM(id)", "id, id", "tuple(id)"] {
+        let mut schema = DatasetSchema::new(vec![SchemaColumn::new("id".into(), DataType::Int64, false)]);
+        assert!(connector::apply_discovered_primary_key(&mut schema, &table, key, key).is_err());
     }
 }
 
@@ -228,7 +245,6 @@ fn converts_clickhouse_string_system_topic_to_utf8() -> anyhow::Result<()> {
         config: config::TableConfig {
             database: "db1".into(),
             name: "my_table".into(),
-            primary_key: Vec::new(),
         },
         schema: round_trip_schema(),
         physical_system_columns,
@@ -262,7 +278,6 @@ fn converts_parquet_milliseconds_to_discovered_seconds_only_when_exact() -> anyh
         config: config::TableConfig {
             database: "db1".into(),
             name: "events".into(),
-            primary_key: Vec::new(),
         },
         schema: DatasetSchema::new(vec![SchemaColumn::new(
             "event_time".into(),
@@ -316,7 +331,6 @@ fn timestamp_normalization_rejects_schema_drift_before_relabeling() -> anyhow::R
         config: config::TableConfig {
             database: "db1".into(),
             name: "events".into(),
-            primary_key: Vec::new(),
         },
         schema: DatasetSchema::new(vec![
             SchemaColumn::new("first".into(), DataType::Int64, false),
@@ -374,7 +388,6 @@ fn snapshot_normalization_preserves_discovered_column_metadata() -> anyhow::Resu
         config: config::TableConfig {
             database: "db1".into(),
             name: "events".into(),
-            primary_key: vec!["id".into()],
         },
         schema: DatasetSchema::new(vec![discovered.clone()]),
         physical_system_columns: transferia_core::SystemColumns::default(),

@@ -136,19 +136,15 @@ impl ClickHouseParquetCompression {
     }
 }
 
+/// Discovery uses the table's PRIMARY KEY, or ORDER BY when both keys match,
+/// as the delivery row identity. This is a delivery contract, not a claim that
+/// ClickHouse enforces uniqueness. Key expressions must be plain columns.
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TableConfig {
     pub database: String,
 
     pub name: String,
-
-    /// Columns that the user guarantees identify one logical row uniquely.
-    /// `ClickHouse` sorting and primary keys do not enforce uniqueness, so the
-    /// connector never infers this contract from table metadata.
-    #[serde(default)]
-    #[schemars(title = "Unique row key", extend("x-ui" = { "widget": "hidden" }))]
-    pub primary_key: Vec<String>,
 }
 
 impl ClickHouseSourceConfig {
@@ -177,18 +173,6 @@ impl ClickHouseSourceConfig {
                 .map_err(|error| error.context("invalid clickhouse.tables.database"))?;
             validate_identifier(&table.name)
                 .map_err(|error| error.context("invalid clickhouse.tables.name"))?;
-            let mut primary_keys = HashSet::with_capacity(table.primary_key.len());
-            for column in &table.primary_key {
-                validate_identifier(column)
-                    .map_err(|error| error.context("invalid clickhouse.tables.primary_key"))?;
-                anyhow::ensure!(
-                    primary_keys.insert(column.as_str()),
-                    "clickhouse.tables primary_key repeats column '{}' for '{}.{}'",
-                    column,
-                    table.database,
-                    table.name,
-                );
-            }
             anyhow::ensure!(
                 identities.insert((table.database.as_str(), table.name.as_str())),
                 "clickhouse.tables repeats source table '{}.{}'",
