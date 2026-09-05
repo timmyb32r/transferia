@@ -16,6 +16,12 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("stacks form labels in narrow containers without squeezing controls", () => {
+    expect(styles).toContain("container: form-space / inline-size;");
+    expect(styles).toMatch(/@container form-space \(max-width: 520px\)/);
+    expect(styles).toMatch(/:root .form-row:not\(\.form-row-wide\)\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\)/s);
+    expect(styles).toContain("repeat(auto-fit, minmax(min(100%, 260px), 1fr))");
+  });
   it("uses one cool neutral palette for the airy light editor and catalog", () => {
     const theme = styles.split(':root[data-design="airy-v0"][data-theme="light"] {')[1]?.split("}")[0];
     for (const token of ["--sidebar: #edf1f4;", "--panel2: #edf1f4;", "--line-strong: #cfd8de;", "--blue: #0d9488;", "--text-primary: #0b1220;"])

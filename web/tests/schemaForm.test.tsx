@@ -214,9 +214,10 @@ describe("schema form", () => {
         onChange={() => undefined}
       />,
     );
-    const amountRow = view.container.querySelector(".control-width-wide");
+    const amountRow = view.container.querySelector('[data-field-name="amount"]');
     expect(amountRow).not.toBeNull();
-    expect(amountRow?.classList.contains("form-row-wide")).toBe(false);
+    expect(amountRow?.classList.contains("form-row-wide")).toBe(true);
+    expect(amountRow?.classList.contains("control-width-full")).toBe(true);
     expect(amountRow?.classList.contains("control-width-enum")).toBe(false);
     const rowCount = within(amountRow as HTMLElement).getByLabelText(
       "Row count",
@@ -275,8 +276,9 @@ describe("schema form", () => {
         onChange={() => undefined}
       />,
     );
-    const routingRow = view.container.querySelector(".control-width-routing");
+    const routingRow = view.container.querySelector('[data-field-name="topic"]');
     expect(routingRow).not.toBeNull();
+    expect(routingRow?.classList.contains("control-width-full")).toBe(true);
     expect(routingRow?.classList.contains("control-width-enum")).toBe(false);
   });
 
@@ -1603,7 +1605,7 @@ describe("schema form", () => {
     );
     expect(
       incompleteDetails.container.querySelector(
-        ".column-table tr.required-incomplete",
+        ".column-table td.required-incomplete",
       ),
     ).not.toBeNull();
     expect(
@@ -1853,7 +1855,8 @@ describe("schema form", () => {
       />,
     );
     expect(container.querySelectorAll("thead")).toHaveLength(1);
-    expect(container.querySelectorAll("th")).toHaveLength(6);
+    expect(container.querySelectorAll("th")).toHaveLength(7);
+    expect(container.querySelector("thead")?.textContent).toContain("Key");
     expect(container.querySelector("thead")?.textContent).not.toContain(
       "JSON type",
     );

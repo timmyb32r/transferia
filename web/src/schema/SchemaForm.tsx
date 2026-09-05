@@ -486,7 +486,10 @@ function PropertyEditor({
   const effective = draftValue(node, value);
   const identifier = `field-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const presentation = widgets.presentation(node);
-  const controlWidth = controlWidthClass(
+  // Decide from the schema, not the selected value: choosing a branch must not
+  // suddenly change the selector's position or squeeze a form into an enum cap.
+  const compound = !selectionOnly && containsFormFields(node);
+  const controlWidth = compound ? "control-width-full" : controlWidthClass(
     name,
     node,
     presentation?.controlWidth,
@@ -519,6 +522,7 @@ function PropertyEditor({
       </div>
     );
   const wideRow =
+    (compound && node.xUi.control_width !== "installation") ||
     node.kind === "object" ||
     (node.kind === "array" && node.xUi.widget !== "partition_ranges") ||
     presentation?.wide ||
@@ -543,6 +547,22 @@ function PropertyEditor({
       />
     </FormField>
   );
+}
+
+function containsFormFields(node: CompiledNode): boolean {
+  if (node.hidden) return false;
+  switch (node.kind) {
+    case "object":
+      return Object.values(node.properties).some((child) => !child.hidden);
+    case "array":
+      return true;
+    case "nullable":
+      return containsFormFields(node.inner);
+    case "union":
+      return node.branches.some((branch) => branch.constant === undefined && containsFormFields(branch.node));
+    default:
+      return false;
+  }
 }
 
 function isDirectlyLabelled(node: CompiledNode): boolean {

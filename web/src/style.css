@@ -1167,11 +1167,12 @@ h3 {
 }
 .parse-policy-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
   gap: 14px;
 }
 .parse-policy-row > .form-row {
-  grid-template-columns: minmax(120px, 40%) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
 }
 .form-row {
   display: grid;
@@ -1202,6 +1203,31 @@ h3 {
 }
 .field-control {
   min-width: 0;
+}
+.schema-object,
+.foldout-content,
+.nested-section,
+.parse-policy-row {
+  container: form-space / inline-size;
+  min-width: 0;
+}
+
+/* Respond to the available form width, not the viewport: a desktop endpoint
+   can still contain a narrow auth/format branch. Keep at least 240px for a
+   normal control before spending width on a side-by-side label. */
+@container form-space (max-width: 520px) {
+  :root .form-row:not(.form-row-wide) {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 6px;
+  }
+  :root .form-row-installation > .field-control > .union-editor > div:first-child {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  :root .form-row-installation > .field-control > .union-editor > .nested-section {
+    grid-row: auto;
+  }
 }
 .nested-section,
 .foldout-content {
@@ -3338,7 +3364,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 }
 .parser-secondary-section > .schema-object {
   display: grid;
-  grid-template-columns: repeat(2, minmax(220px, 360px));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
   gap: 16px;
   max-width: none;
 }
@@ -4933,8 +4959,5 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   }
   .column-table {
     min-width: 930px;
-  }
-  .parser-secondary-section > .schema-object {
-    grid-template-columns: minmax(220px, 360px);
   }
 }

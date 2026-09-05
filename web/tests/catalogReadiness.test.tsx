@@ -657,6 +657,29 @@ describe("connector catalog readiness", () => {
     expect(sinkCount).toBeGreaterThan(0);
   });
 
+  it("does not constrain nested forms to a scalar control width in any catalog variant", () => {
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
+    let checked = 0;
+    for (const connector of catalog.connectors) {
+      for (const endpoint of [connector.source, connector.sink]) {
+        if (!endpoint) continue;
+        const node = compileSchema(endpoint.schema, productionWidgetRegistry);
+        for (const scenario of unionScenarios(node)) {
+          const view = render(<SchemaForm node={node} value={visibleWitness(node, endpoint.initial, true, scenario.forces)} onChange={() => {}} />);
+          for (const row of view.container.querySelectorAll(".form-row")) {
+            const control = row.querySelector(":scope > .field-control");
+            if (!control?.querySelector(".form-row")) continue;
+            expect(row.matches(".form-row-wide, .form-row-installation"), `${connector.key} ${scenario.label}: ${row.getAttribute("data-field-name")} squeezes a nested form`).toBe(true);
+            expect(row.matches(".control-width-enum, .control-width-medium, .control-width-parser"), `${connector.key} ${scenario.label}: nested form has a scalar width cap`).toBe(false);
+            checked += 1;
+          }
+          view.unmount();
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
   it("leaves no non-editable blocker undiscovered in any selectable endpoint variant", () => {
     const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
     let variantCount = 0;
