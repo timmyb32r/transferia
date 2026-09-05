@@ -1159,6 +1159,7 @@ h3 {
     transform: rotate(360deg);
   }
 }
+.foldout-content,
 .schema-object {
   display: grid;
   gap: 10px;
@@ -4773,6 +4774,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   margin-top: 20px;
   padding-top: 20px;
 }
+:root[data-design="airy-v0"] .foldout-content,
 :root[data-design="airy-v0"] .schema-object {
   gap: 14px;
 }

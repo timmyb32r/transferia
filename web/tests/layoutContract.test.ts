@@ -16,6 +16,10 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("uses identical field spacing for ordinary and advanced settings in every endpoint", () => {
+    expect(styles).toMatch(/\.foldout-content,\s*\.schema-object\s*\{\s*display:\s*grid;\s*gap:\s*10px;/s);
+    expect(styles).toMatch(/:root\[data-design="airy-v0"\] \.foldout-content,\s*:root\[data-design="airy-v0"\] \.schema-object\s*\{\s*gap:\s*14px;/s);
+  });
   it("keeps parser support columns fixed and hover feedback dimension-neutral", () => {
     expect(styles).toMatch(/\.parser-support-table\s*\{[^}]*width: 100%;[^}]*table-layout: fixed;/s);
     expect(styles).toMatch(/\.parser-support-status-column\s*\{[^}]*width: 38px;/s);
