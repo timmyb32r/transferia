@@ -547,8 +547,8 @@
   --blue: #1683e8;
   --blue-hover: #0876d7;
   --red: #d94852;
-  --text-primary: #17191f;
-  --text-secondary: #30333b;
+  --text-primary: #0b1220;
+  --text-secondary: #202938;
   --on-accent: #ffffff;
   --tooltip: #3e4149;
   --tooltip-text: #ffffff;
@@ -599,8 +599,8 @@
   --blue: #0d9488;
   --blue-hover: #0f7f76;
   --red: #dc5d68;
-  --text-primary: #111827;
-  --text-secondary: #4b5563;
+  --text-primary: #0b1220;
+  --text-secondary: #202938;
   --on-accent: #ffffff;
   --tooltip: #27312e;
   --tooltip-text: #ffffff;
@@ -889,8 +889,8 @@ h3 {
   display: inline-flex;
 }
 .performance-advice-tab-tooltip {
-  flex: 0 0 184px;
-  width: 184px;
+  flex: 0 0 220px;
+  width: 220px;
 }
 .performance-advice-tab-tooltip > button {
   display: inline-flex;
@@ -953,9 +953,9 @@ h3 {
   border-radius: 0;
   border-color: var(--line);
   background: var(--sidebar);
-  color: var(--muted);
+  color: var(--text-primary);
   font-size: 13px;
-  font-weight: 400;
+  font-weight: 500;
   white-space: nowrap;
 }
 .editor-view-tabs button + button {
@@ -2009,6 +2009,60 @@ button::after {
 .danger-button {
   color: var(--danger-text);
   border-color: var(--danger-border);
+}
+:root {
+  --disabled-text: #6b7280;
+  --disabled-surface: #f0f1f2;
+  --disabled-border: #d4d7dc;
+  --disabled-lock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cg fill='none' stroke='black' stroke-width='1.5'%3E%3Crect x='3' y='7' width='10' height='8' rx='1.5'/%3E%3Cpath d='M5 7V4a3 3 0 0 1 6 0v3'/%3E%3C/g%3E%3C/svg%3E");
+}
+:root[data-theme="dark"] {
+  --disabled-text: #9ca3af;
+  --disabled-surface: #282d34;
+  --disabled-border: #444b55;
+}
+:root button:disabled,
+:root button.diagnostic-disabled,
+:root button.diagnostic-disabled:hover {
+  opacity: 1;
+  color: var(--disabled-text);
+  background: var(--disabled-surface);
+  border-color: var(--disabled-border);
+  box-shadow: none;
+}
+:root .editor-view-tabs button.active {
+  font-weight: 700;
+}
+:root .editor-view-tabs button {
+  position: relative;
+  padding-inline: 25px;
+}
+:root .editor-view-tabs button:disabled,
+:root .editor-view-tabs button.diagnostic-disabled {
+  background: transparent;
+}
+.editor-view-tabs button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled)::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: calc(50% - 7px);
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  mask: var(--disabled-lock) center / contain no-repeat;
+}
+.transport-action:is(:disabled, .diagnostic-disabled) .transport-icon {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: currentColor;
+  mask: var(--disabled-lock) center / contain no-repeat;
+}
+.transport-action:is(:disabled, .diagnostic-disabled) .transport-icon::before,
+.transport-action:is(:disabled, .diagnostic-disabled) .transport-icon::after {
+  display: none;
 }
 .contract {
   margin-top: 12px;
@@ -4655,7 +4709,12 @@ button::after {
   box-shadow: 0 2px 7px var(--shadow);
 }
 :root[data-design="airy-v0"] .editor-view-tabs button.active::before {
-  display: none;
+  top: auto;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 0 0 6px 6px;
 }
 :root[data-design="airy-v0"] .editor-view > :first-child,
 :root[data-design="airy-v0"] .yaml-editor {
