@@ -123,6 +123,11 @@ impl ParserPlan {
     ) -> anyhow::Result<Self> {
         config.common.system_columns.validate()?;
         let kind = config.parser.kind()?;
+        anyhow::ensure!(
+            !matches!(config.common.table_naming, TableNaming::FromMessage)
+                || matches!(kind, "debezium" | "schema_registry"),
+            "table_naming 'from_message' is supported only by debezium and schema_registry parsers"
+        );
         let (parser, dataset_schema, parses_rows, discovered_system_columns, primary_key) =
             match kind {
                 "json_parser" => {

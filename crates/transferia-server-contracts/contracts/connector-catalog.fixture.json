@@ -548,20 +548,6 @@
                     "type"
                   ],
                   "additionalProperties": false
-                },
-                {
-                  "title": "From message",
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "from_message"
-                    }
-                  },
-                  "required": [
-                    "type"
-                  ],
-                  "additionalProperties": false
                 }
               ]
             },
@@ -2526,20 +2512,6 @@
                     "type": {
                       "type": "string",
                       "const": "from_topic_name"
-                    }
-                  },
-                  "required": [
-                    "type"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "title": "From message",
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "from_message"
                     }
                   },
                   "required": [

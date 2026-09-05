@@ -171,6 +171,25 @@ fn message_aware_parsers_offer_from_message_first_without_changing_json_defaults
     assert_eq!(common["$ref"], "#/$defs/TableNaming");
     let generic_naming = &schema["$defs"]["TableNaming"]["oneOf"];
     assert_eq!(generic_naming[0]["title"], "From config");
+    assert!(!generic_naming.to_string().contains("from_message"));
+    for parser in ["JsonParserSchema", "TskvParserSchema", "BenchmarkDiscardParserSchema"] {
+        assert_eq!(schema["$defs"][parser]["properties"]["common"]["$ref"], "#/$defs/CommonParserConfig");
+    }
+    assert_eq!(schema["$defs"]["RawToTableCommonConfig"]["properties"]["table_naming"]["$ref"], "#/$defs/TableNaming");
+    for parser in ["DebeziumParserSchema", "SchemaRegistryParserSchema"] {
+        assert_eq!(schema["$defs"][parser]["properties"]["common"]["$ref"], "#/$defs/MessageAwareCommonParserConfig");
+    }
+}
+
+#[test]
+fn non_message_aware_parsers_reject_from_message_before_preparation() {
+    for parser in ["json_parser", "tskv", "raw_to_table", "benchmark_discard", "custom_plugin"] {
+        let config: ParserConfig = serde_yaml::from_str(&format!(
+            "common:\n  table_naming: {{ type: from_message }}\n{parser}: {{}}\n"
+        )).unwrap();
+        let error = ParserPlan::from_config(&config, "topic").err().expect("unsupported naming");
+        assert!(error.to_string().contains("supported only by debezium and schema_registry"), "{parser}: {error:#}");
+    }
 }
 
 #[test]

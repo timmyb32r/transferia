@@ -237,7 +237,7 @@ pub enum TableNaming {
     #[default]
     FromTopicName,
 
-    #[schemars(title = "From message")]
+    #[schemars(skip)]
     FromMessage,
 }
 
