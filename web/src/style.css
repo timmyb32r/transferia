@@ -1931,15 +1931,17 @@ button::after {
 }
 .transport-controls {
   display: grid;
-  grid-template-columns: 112px 96px;
+  grid-template-columns: 132px 116px;
   gap: 6px;
-  flex: 0 0 214px;
+  flex: 0 0 254px;
 }
 .transport-controls > .instant-tooltip-host {
   display: block;
-  width: 96px;
+  width: 116px;
 }
 .transport-action {
+  position: relative;
+  padding-left: 26px;
   display: inline-flex;
   width: 100%;
   align-items: center;
@@ -2011,10 +2013,9 @@ button::after {
   border-color: var(--danger-border);
 }
 :root {
-  --disabled-text: #6b7280;
+  --disabled-text: #8a9099;
   --disabled-surface: #f0f1f2;
   --disabled-border: #d4d7dc;
-  --disabled-lock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cg fill='none' stroke='black' stroke-width='1.5'%3E%3Crect x='3' y='7' width='10' height='8' rx='1.5'/%3E%3Cpath d='M5 7V4a3 3 0 0 1 6 0v3'/%3E%3C/g%3E%3C/svg%3E");
 }
 :root[data-theme="dark"] {
   --disabled-text: #9ca3af;
@@ -2029,6 +2030,7 @@ button::after {
   background: var(--disabled-surface);
   border-color: var(--disabled-border);
   box-shadow: none;
+  font-weight: 400;
 }
 :root .editor-view-tabs button.active {
   font-weight: 700;
@@ -2041,28 +2043,17 @@ button::after {
 :root .editor-view-tabs button.diagnostic-disabled {
   background: transparent;
 }
-.editor-view-tabs button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled)::after {
-  content: "";
+.disabled-lock-icon {
+  scrollbar-gutter: auto;
   position: absolute;
   left: 7px;
   top: calc(50% - 7px);
   width: 14px;
   height: 14px;
-  background: currentColor;
-  mask: var(--disabled-lock) center / contain no-repeat;
+  visibility: hidden;
 }
-.transport-action:is(:disabled, .diagnostic-disabled) .transport-icon {
-  width: 12px;
-  height: 12px;
-  margin: 0;
-  border: 0;
-  border-radius: 0;
-  background: currentColor;
-  mask: var(--disabled-lock) center / contain no-repeat;
-}
-.transport-action:is(:disabled, .diagnostic-disabled) .transport-icon::before,
-.transport-action:is(:disabled, .diagnostic-disabled) .transport-icon::after {
-  display: none;
+button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-lock-icon {
+  visibility: visible;
 }
 .contract {
   margin-top: 12px;

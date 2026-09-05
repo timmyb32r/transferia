@@ -18,8 +18,9 @@ const styles =
 describe("delivery layout contract", () => {
   it("reserves tab icon space and overlays disabled locks without shifting labels", () => {
     expect(styles).toMatch(/:root \.editor-view-tabs button\s*\{[^}]*position: relative;[^}]*padding-inline: 25px;/s);
-    expect(styles).toMatch(/\.editor-view-tabs button:not\(\[aria-busy="true"\]\):is\(:disabled, \.diagnostic-disabled\)::after\s*\{[^}]*position: absolute;/s);
-    expect(styles).toContain("--disabled-text: #6b7280");
+    expect(styles).toMatch(/\.disabled-lock-icon\s*\{[^}]*position: absolute;/s);
+    expect(styles).not.toContain("--disabled-lock:");
+    expect(styles).toContain("--disabled-text: #8a9099");
     expect(styles).toContain("--text-primary: #0b1220");
   });
   it("anchors action tooltips inside the right edge of the page", () => {
