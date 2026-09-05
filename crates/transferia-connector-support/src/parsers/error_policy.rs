@@ -109,13 +109,38 @@ pub(crate) fn rejected_messages(
         Arc::new(StringArray::from_iter_values(
             messages.iter().map(|_| "Message decoding failed"),
         )),
-        Arc::new(messages.iter().map(|m| m.meta.write_timestamp_ms).collect::<Int64Array>()),
+        Arc::new(
+            messages
+                .iter()
+                .map(|m| m.meta.write_timestamp_ms)
+                .collect::<Int64Array>(),
+        ),
         Arc::new(keys.iter().map(|k| k.as_deref()).collect::<StringArray>()),
         Arc::new(StringArray::from_iter_values(headers.iter())),
-        Arc::new(messages.iter().map(|m| Some(m.tombstone)).collect::<BooleanArray>()),
-        Arc::new(messages.iter().map(|m| m.meta.topic.as_deref()).collect::<StringArray>()),
-        Arc::new(messages.iter().map(|m| m.meta.partition).collect::<Int64Array>()),
-        Arc::new(messages.iter().map(|m| m.meta.offset).collect::<Int64Array>()),
+        Arc::new(
+            messages
+                .iter()
+                .map(|m| Some(m.tombstone))
+                .collect::<BooleanArray>(),
+        ),
+        Arc::new(
+            messages
+                .iter()
+                .map(|m| m.meta.topic.as_deref())
+                .collect::<StringArray>(),
+        ),
+        Arc::new(
+            messages
+                .iter()
+                .map(|m| m.meta.partition)
+                .collect::<Int64Array>(),
+        ),
+        Arc::new(
+            messages
+                .iter()
+                .map(|m| m.meta.offset)
+                .collect::<Int64Array>(),
+        ),
     ];
     let fields = message_dlq_schema()
         .columns
