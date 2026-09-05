@@ -1552,15 +1552,30 @@ input[type="checkbox"]:disabled {
   position: relative;
   min-width: 0;
 }
+.dynamic-select {
+  position: relative;
+  min-width: 0;
+}
 .dynamic-select-status {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
   box-sizing: border-box;
-  height: 38px;
-  padding-top: 6px;
+  max-height: 90px;
+  padding: 6px 8px;
   overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--danger-text);
+  border-radius: 4px;
   color: var(--danger-text);
   font-size: 12px;
   line-height: 15px;
   overflow-wrap: anywhere;
+}
+.dynamic-select-status:empty {
+  display: none;
 }
 .dynamic-path-input-wrap input {
   width: 100%;

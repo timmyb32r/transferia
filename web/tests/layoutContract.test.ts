@@ -98,9 +98,15 @@ describe("delivery layout contract", () => {
     expect(styles).toMatch(/\.serializer-inline-settings > \.field-control,/);
   });
 
-  it("reserves a fixed-height region for dynamic option errors", () => {
+  it("keeps dynamic selects compact and option errors outside document flow", () => {
     expect(styles).toMatch(
-      /\.dynamic-select-status\s*\{[^}]*height:\s*38px;[^}]*overflow-y:\s*auto;/s,
+      /\.dynamic-select\s*\{[^}]*position:\s*relative;/s,
+    );
+    expect(styles).toMatch(
+      /\.dynamic-select-status\s*\{[^}]*position:\s*absolute;[^}]*top:\s*100%;/s,
+    );
+    expect(styles).toMatch(
+      /\.dynamic-select-status:empty\s*\{[^}]*display:\s*none;/s,
     );
   });
 
