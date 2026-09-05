@@ -4204,6 +4204,28 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   font-size: 13px;
 }
 
+.parser-support-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  align-self: start;
+  font-size: 12px;
+}
+.parser-support-status-column { width: 38px; }
+.parser-support-table th,
+.parser-support-table td {
+  padding: 7px 3px;
+  border-bottom: 1px solid var(--line-inner);
+  overflow-wrap: anywhere;
+}
+.parser-support-table th { text-align: left; font-weight: 500; }
+.parser-support-table thead th { font-weight: 700; }
+.parser-support-table td,
+.parser-support-table thead th:not(:first-child) { text-align: center; }
+.parser-support-table tbody tr:hover { background: var(--surface-selected); }
+.parser-support-table .parser-supported { color: var(--success-text); font-weight: 700; }
+.parser-support-table .parser-unsupported { color: var(--red); font-weight: 700; }
+
 .entity-catalog-list {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

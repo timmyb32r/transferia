@@ -16,6 +16,13 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("keeps parser support columns fixed and hover feedback dimension-neutral", () => {
+    expect(styles).toMatch(/\.parser-support-table\s*\{[^}]*width: 100%;[^}]*table-layout: fixed;/s);
+    expect(styles).toMatch(/\.parser-support-status-column\s*\{[^}]*width: 38px;/s);
+    const hover = styles.match(/\.parser-support-table tbody tr:hover\s*\{([^}]*)\}/)?.[1];
+    expect(hover).toContain("background:");
+    expect(hover).not.toMatch(/\b(width|height|padding|margin|border|transform)\s*:/);
+  });
   it("gives nested serializer fields full width instead of repeated label columns", () => {
     const row = styles.match(/\.serializer-details-card \.schema-object \.form-row:not\(\.form-row-wide\)\s*\{([^}]*)\}/)?.[1];
     expect(row).toContain("grid-template-columns: minmax(0, 1fr);");

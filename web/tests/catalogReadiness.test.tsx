@@ -24,7 +24,7 @@ import {
 } from "../src/schema/compiler";
 import { SchemaForm } from "../src/schema/SchemaForm";
 import { configuredEndpointCapabilities, sourceRecordSemantics, DELIVERY_TYPES } from "../src/recordSemantics";
-import { compatibilityRoutes, catalogBatchStreamHandoffs, CompatibilityMatrixDialog } from "../src/ui/CompatibilityMatrixDialog";
+import { compatibilityRoutes, catalogBatchStreamHandoffs, catalogParserSupport, CompatibilityMatrixDialog } from "../src/ui/CompatibilityMatrixDialog";
 import type { JsonObject, JsonValue, UiCatalog } from "../src/types";
 import {
   nextRequiredTarget,
@@ -35,6 +35,31 @@ import { render } from "./support/render";
 afterEach(cleanup);
 
 describe("connector catalog readiness", () => {
+  it("shows source-derived S3 and MQ parser support in Entities and Properties", () => {
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
+    const support = catalogParserSupport(catalog);
+    expect(support.get("S3 Parquet parser")).toEqual({ s3: true, mq: [] });
+    expect(support.get("Schema Registry parser")?.s3).toBe(false);
+    expect(support.get("Schema Registry parser")?.mq).toContain("Kafka");
+    const view = render(<CompatibilityMatrixDialog catalog={catalog} onClose={() => {}} />);
+    fireEvent.click(view.getByRole("tab", { name: "Entities" }));
+    const check = () => {
+      const table = within(view.getByRole("table", { name: "Parser source support" }));
+      expect(table.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Parser", "S3", "MQ"]);
+      const parquet = within(table.getByRole("rowheader", { name: "S3 Parquet parser" }).closest("tr")!);
+      expect(parquet.getByRole("cell", { name: "S3: supported" }).textContent).toBe("✓");
+      expect(parquet.getByRole("cell", { name: "MQ: not supported" }).textContent).toBe("×");
+      const registry = within(table.getByRole("rowheader", { name: "Schema Registry parser" }).closest("tr")!);
+      expect(registry.getByRole("cell", { name: "S3: not supported" }).textContent).toBe("×");
+      expect(registry.getByRole("cell", { name: "MQ: supported" }).textContent).toBe("✓");
+    };
+    check();
+    fireEvent.click(view.getByRole("tab", { name: "Properties" }));
+    fireEvent.click(view.getByRole("button", { name: "All parsers" }));
+    check();
+    const withoutQueues = { ...catalog, connectors: catalog.connectors.filter((connector) => !["kafka", "logbroker"].includes(connector.key)) };
+    expect(catalogParserSupport(withoutQueues).get("Schema Registry parser")).toBeUndefined();
+  });
   it("shows source-owned snapshot handoffs in the existing combined-delivery property", () => {
     const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
     const handoffs = catalogBatchStreamHandoffs(catalog);

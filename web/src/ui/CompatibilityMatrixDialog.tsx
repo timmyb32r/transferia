@@ -200,6 +200,23 @@ function applicableKinds(property: string): CapabilityKind[] {
   return ["source", "destination"];
 }
 
+export function catalogParserSupport(catalog: UiCatalog): Map<string, { s3: boolean; mq: string[] }> {
+  const result = new Map<string, { s3: boolean; mq: string[] }>();
+  for (const connector of catalog.connectors) {
+    if (!connector.source) continue;
+    collectSchemaCapabilities(connector.source.schema, (property, kind, title) => {
+      if (kind !== "parser" || property !== "component.parser") return;
+      const support = result.get(title) ?? { s3: false, mq: [] };
+      if (connector.key === "s3") support.s3 = true;
+      if (["kafka", "logbroker"].includes(connector.key) && !support.mq.includes(connector.title)) {
+        support.mq.push(connector.title);
+      }
+      result.set(title, support);
+    });
+  }
+  return result;
+}
+
 const HANDOFF_LABELS = {
   exact_switchover: "Exactly-once switchover",
   overlapping: "Overlapping",
@@ -384,6 +401,7 @@ export function CompatibilityMatrixDialog({
   );
   const routes = useMemo(() => compatibilityRoutes(catalog), [catalog]);
   const handoffs = useMemo(() => catalogBatchStreamHandoffs(catalog), [catalog]);
+  const parserSupport = useMemo(() => catalogParserSupport(catalog), [catalog]);
   const capabilityGroups = useMemo(
     () => catalogCapabilityGroups(catalog),
     [catalog],
@@ -398,7 +416,7 @@ export function CompatibilityMatrixDialog({
     },
   }));
   const propertyGroups = capabilityGroups.filter(
-    (group) => !group.key.startsWith("component."),
+    (group) => !group.key.startsWith("component.") || group.key === "component.parser",
   );
   const deliveryTypeProperties = propertyGroups.filter((group) =>
     group.key.startsWith("delivery_mode."),
@@ -408,6 +426,7 @@ export function CompatibilityMatrixDialog({
   );
   const selectedProperty =
     propertyGroups.find((group) => group.key === activeProperty) ??
+    propertyGroups.find((group) => !group.key.startsWith("component.")) ??
     propertyGroups[0];
   const route = (source: string, sink: string) =>
     routes.find(
@@ -661,6 +680,9 @@ export function CompatibilityMatrixDialog({
             {entityGroups.map(({ key, kind, label, group }) => (
               <section class="entity-list" key={key} aria-label={label}>
                 <h3>{label}</h3>
+                {kind === "parser" ? (
+                  <ParserSupportTable names={group.members.get(kind)} support={parserSupport} />
+                ) : (
                 <ul class="entity-catalog-list">
                   {(group.members.get(kind)?.size ?? 0) > 0 ? (
                     (kind === "source"
@@ -673,6 +695,7 @@ export function CompatibilityMatrixDialog({
                     <li class="entity-empty">None</li>
                   )}
                 </ul>
+                )}
               </section>
             ))}
           </div>
@@ -712,7 +735,9 @@ export function CompatibilityMatrixDialog({
               aria-label="Property membership"
               aria-live="polite"
             >
-              {selectedProperty ? (
+              {selectedProperty?.key === "component.parser" ? (
+                <ParserSupportTable names={selectedProperty.members.get("parser")} support={parserSupport} />
+              ) : selectedProperty ? (
                 <>
                   <div class="property-entity-grid property-entity-headings">
                     {propertyEntityGroups.map(({ kind }) => (
@@ -759,6 +784,33 @@ export function CompatibilityMatrixDialog({
       </section>
     </div>,
     document.body,
+  );
+}
+
+function ParserSupportTable({ names, support }: {
+  names: Set<string> | undefined;
+  support: ReturnType<typeof catalogParserSupport>;
+}) {
+  return (
+    <table class="parser-support-table" aria-label="Parser source support">
+      <colgroup><col /><col class="parser-support-status-column" /><col class="parser-support-status-column" /></colgroup>
+      <thead><tr><th scope="col">Parser</th><th scope="col">S3</th><th scope="col" title="Kafka / Logbroker">MQ</th></tr></thead>
+      <tbody>
+        {[...(names ?? [])].sort((a, b) => a.localeCompare(b)).map((name) => {
+          const entry = support.get(name);
+          return <tr key={name}>
+            <th scope="row">{name}</th>
+            {[{ label: "S3", supported: entry?.s3 ?? false, detail: "S3" },
+              { label: "MQ", supported: (entry?.mq.length ?? 0) > 0, detail: entry?.mq.join(" / ") || "Kafka / Logbroker" }].map(({ label, supported, detail }) => (
+              <td key={label} class={supported ? "parser-supported" : "parser-unsupported"}
+                aria-label={`${label}: ${supported ? "supported" : "not supported"}`} title={`${detail}: ${supported ? "supported" : "not supported"}`}>
+                <span aria-hidden="true">{supported ? "✓" : "×"}</span>
+              </td>
+            ))}
+          </tr>;
+        })}
+      </tbody>
+    </table>
   );
 }
 
