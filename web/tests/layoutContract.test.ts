@@ -16,6 +16,12 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("highlights the whole entity tile without changing its dimensions", () => {
+    const rule = styles.match(/\.entity-catalog-list li:not\(\.entity-empty\):hover\s*\{([^}]*)\}/)?.[1];
+    expect(rule).toContain("background: var(--surface-selected)");
+    expect(rule).toContain("box-shadow: inset");
+    expect(rule).not.toMatch(/\b(padding|margin|width|height|border|transform|scale)\s*:/);
+  });
   it("distinguishes green batch badges from cyan stream badges in both themes", () => {
     expect(styles).toMatch(/\.compatibility-badge.batch\s*\{[^}]*color: #bbf7d0;[^}]*background: #14532d;/s);
     expect(styles).toMatch(/\.compatibility-badge.stream\s*\{[^}]*color: #67e8f9;[^}]*background: #164e63;/s);

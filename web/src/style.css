@@ -4205,6 +4205,12 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   overflow-wrap: anywhere;
 }
 
+.entity-catalog-list li:not(.entity-empty):hover {
+  color: var(--text-primary);
+  background: var(--surface-selected);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 30%, transparent);
+}
+
 .property-browser {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);

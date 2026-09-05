@@ -632,8 +632,11 @@ export function CompatibilityMatrixDialog({
                 <h3>{label}</h3>
                 <ul class="entity-catalog-list">
                   {(group.members.get(kind)?.size ?? 0) > 0 ? (
-                    [...(group.members.get(kind) ?? [])]
-                      .sort((left, right) => left.localeCompare(right))
+                    (kind === "source"
+                      ? sources.map((source) => source.title)
+                      : kind === "destination"
+                        ? sinks.map((sink) => sink.title)
+                        : [...(group.members.get(kind) ?? [])].sort((left, right) => left.localeCompare(right)))
                       .map((entity) => <li key={entity}>{entity}</li>)
                   ) : (
                     <li class="entity-empty">None</li>

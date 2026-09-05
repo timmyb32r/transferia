@@ -74,6 +74,9 @@ describe("appearance preferences", () => {
     expect(view.getAllByRole("columnheader").at(-1)?.textContent).toContain("Discard");
     expect(view.queryByRole("rowheader", { name: /Discard/ })).toBeNull();
     expect(view.queryByRole("columnheader", { name: /Data generator/ })).toBeNull();
+    fireEvent.click(view.getByRole("tab", { name: "Entities" }));
+    expect(within(view.getByRole("region", { name: "All sources" })).getAllByRole("listitem").at(-1)?.textContent).toBe("Data generator (for benchmarks)");
+    expect(within(view.getByRole("region", { name: "All destinations" })).getAllByRole("listitem").at(-1)?.textContent).toBe("Discard (for benchmarks)");
   });
 
   it("fits the entire matrix in both dimensions and keeps its footprint stable while searching", () => {
