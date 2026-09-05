@@ -16,6 +16,16 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("uses one cool neutral palette for the airy light editor and catalog", () => {
+    const theme = styles.split(':root[data-design="airy-v0"][data-theme="light"] {')[1]?.split("}")[0];
+    for (const token of ["--sidebar: #edf1f4;", "--panel2: #edf1f4;", "--line-strong: #cfd8de;", "--blue: #0d9488;", "--text-primary: #0b1220;"])
+      expect(theme).toContain(token);
+    expect(theme).not.toContain("#f8faf9");
+    const tab = styles.split(':root[data-design="airy-v0"][data-theme="light"] .compatibility-tabs button[aria-selected="true"] {')[1]?.split("}")[0];
+    expect(tab).toContain("background: var(--panel);");
+    expect(tab).toContain("color: var(--text-primary);");
+    expect(styles).toContain('.compatibility-tabs button[aria-selected="true"]::after');
+  });
   it("does not spread a table validation error to all descendant controls", () => {
     expect(styles).not.toContain("\n.required-missing input,");
     expect(styles).not.toContain("\n.required-missing .select-trigger {");
@@ -152,7 +162,7 @@ describe("delivery layout contract", () => {
     expect(styles).toMatch(/:root \.editor-view-tabs button\s*\{[^}]*position: relative;[^}]*padding-inline: 25px;/s);
     expect(styles).toMatch(/\.disabled-lock-icon\s*\{[^}]*position: absolute;/s);
     expect(styles).not.toContain("--disabled-lock:");
-    expect(styles).toContain("--disabled-text: #8a9099");
+    expect(styles).toContain("--disabled-text: #89939d");
     expect(styles).toContain("--text-primary: #0b1220");
   });
   it("does not paint a duplicate action tooltip inside the page", () => {

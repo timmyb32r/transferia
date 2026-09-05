@@ -597,25 +597,25 @@
 :root[data-design="airy-v0"][data-theme="light"] {
   color-scheme: light;
   --canvas: #ffffff;
-  --sidebar: #f8faf9;
+  --sidebar: #edf1f4;
   --panel: #ffffff;
-  --panel2: #f8faf9;
+  --panel2: #edf1f4;
   --control: #ffffff;
-  --control-hover: #f5faf8;
+  --control-hover: #f1f5f8;
   --popup: #ffffff;
   --card: #ffffff;
-  --surface-hover: #f3f7f5;
-  --surface-active: #eaf5f1;
-  --surface-soft: #f8faf9;
-  --surface-selected: #eafaf5;
-  --field-border: #dfe5e2;
-  --line: #e4e9e7;
-  --line-inner: #edf1ef;
-  --line-strong: #cbd5d1;
-  --route-line: #d9e3df;
-  --muted: #7b8782;
-  --icon-muted: #8b9692;
-  --placeholder: #9ca7a2;
+  --surface-hover: #e8edf1;
+  --surface-active: #e5f2f0;
+  --surface-soft: #f1f5f8;
+  --surface-selected: #e5f2f0;
+  --field-border: #cfd8de;
+  --line: #dce3e8;
+  --line-inner: #e8edf1;
+  --line-strong: #cfd8de;
+  --route-line: #cfd8de;
+  --muted: #64717d;
+  --icon-muted: #89939d;
+  --placeholder: #89939d;
   --text-hover: #111827;
   --blue: #0d9488;
   --blue-hover: #0f7f76;
@@ -623,11 +623,11 @@
   --text-primary: #0b1220;
   --text-secondary: #202938;
   --on-accent: #ffffff;
-  --tooltip: #27312e;
+  --tooltip: #202938;
   --tooltip-text: #ffffff;
-  --yaml: #f7faf9;
-  --yaml-text: #183a35;
-  --shadow: rgba(34, 58, 51, 0.15);
+  --yaml: #f1f5f8;
+  --yaml-text: #202938;
+  --shadow: rgba(11, 18, 32, 0.12);
   --danger-surface: #fff4f5;
   --danger-border: #f2c4c8;
   --danger-text: #a93743;
@@ -2012,9 +2012,9 @@ button::after {
   border-color: var(--danger-border);
 }
 :root {
-  --disabled-text: #8a9099;
-  --disabled-surface: #f0f1f2;
-  --disabled-border: #d4d7dc;
+  --disabled-text: #89939d;
+  --disabled-surface: #e8edf1;
+  --disabled-border: #cfd8de;
 }
 :root[data-theme="dark"] {
   --disabled-text: #9ca3af;
@@ -4191,6 +4191,23 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   color: var(--blue);
   background: var(--surface-selected);
   border-color: color-mix(in srgb, var(--blue), transparent 58%);
+}
+:root[data-design="airy-v0"][data-theme="light"] .compatibility-tabs button[aria-selected="true"] {
+  position: relative;
+  color: var(--text-primary);
+  background: var(--panel);
+  border-color: var(--line-strong);
+  box-shadow: 0 1px 2px var(--shadow);
+}
+:root[data-design="airy-v0"][data-theme="light"] .compatibility-tabs button[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--blue);
+  border-radius: 0 0 var(--radius-control) var(--radius-control);
 }
 
 .capability-summary {
