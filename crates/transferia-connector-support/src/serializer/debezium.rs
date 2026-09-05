@@ -418,11 +418,11 @@ impl DebeziumBatchEncoder {
                 )?,
             },
             DebeziumSourceDialect::Ydb => DebeziumSourceMetadata::Ydb {
-                transaction_identity: role_array::<FixedSizeBinaryArray>(
+                transaction_identity: nullable_role_array::<FixedSizeBinaryArray>(
                     batch,
                     SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
                 )?,
-                event_timestamp_ms: system_array::<Int64Array>(
+                event_timestamp_ms: nullable_system_array::<Int64Array>(
                     batch,
                     SystemColumnKind::WriteTimestampMs,
                 )?,
@@ -439,7 +439,11 @@ impl DebeziumBatchEncoder {
             database: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_DATABASE)?,
             source_table: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_TABLE)?,
             source_metadata,
-            source_timestamp_ms: role_array::<Int64Array>(batch, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS)?,
+            source_timestamp_ms: if dialect == DebeziumSourceDialect::Ydb {
+                nullable_role_array::<Int64Array>(batch, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS)?
+            } else {
+                role_array::<Int64Array>(batch, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS)?
+            },
             user_ordinal_by_source_index,
         })
     }
@@ -596,19 +600,25 @@ impl DebeziumBatchEncoder {
                 transaction_identity,
                 event_timestamp_ms: _,
             } => {
-                let (step, tx_id) = ydb_transaction(transaction_identity.value(row), row)?;
                 output.extend_from_slice(b"\"ydb\",\"name\":");
                 write_json_string(&mut output, logical_name);
                 output.extend_from_slice(b",\"ts_ms\":");
-                write_i64(&mut output, self.source_timestamp_ms.value(row));
-                output.extend_from_slice(b",\"snapshot\":\"false\",\"db\":");
+                write_nullable_i64(&mut output, &self.source_timestamp_ms, row);
+                output.extend_from_slice(b",\"snapshot\":");
+                write_json_string(&mut output, if operation == "r" { "true" } else { "false" });
+                output.extend_from_slice(b",\"db\":");
                 write_json_string(&mut output, self.database.value(row));
                 output.extend_from_slice(b",\"table\":");
                 write_json_string(&mut output, self.source_table.value(row));
-                output.extend_from_slice(b",\"step\":");
-                write_u64(&mut output, step);
-                output.extend_from_slice(b",\"txId\":");
-                write_u64(&mut output, tx_id);
+                if operation == "r" {
+                    output.extend_from_slice(b",\"step\":null,\"txId\":null");
+                } else {
+                    let (step, tx_id) = ydb_transaction(transaction_identity.value(row), row)?;
+                    output.extend_from_slice(b",\"step\":");
+                    write_u64(&mut output, step);
+                    output.extend_from_slice(b",\"txId\":");
+                    write_u64(&mut output, tx_id);
+                }
                 output.push(b'}');
             }
         }
@@ -636,7 +646,7 @@ impl DebeziumBatchEncoder {
             }
             DebeziumSourceMetadata::Ydb {
                 event_timestamp_ms, ..
-            } => write_i64(&mut output, event_timestamp_ms.value(row)),
+            } => write_nullable_i64(&mut output, event_timestamp_ms, row),
         }
         output.extend_from_slice(b",\"transaction\":null}");
         Ok(output)
@@ -696,13 +706,20 @@ impl DebeziumBatchEncoder {
                 event_timestamp_ms,
             } => {
                 anyhow::ensure!(
-                    operation != "r",
-                    "YDB Debezium does not accept snapshot operations because YDB replication is stream-only"
-                );
-                anyhow::ensure!(
                     !self.database.value(row).is_empty()
                         && !self.source_table.value(row).is_empty(),
                     "YDB Debezium source database and table must be nonempty at row {row}"
+                );
+                if operation == "r" {
+                    anyhow::ensure!(transaction_identity.is_null(row) && self.source_timestamp_ms.is_null(row) && event_timestamp_ms.is_null(row),
+                        "YDB Debezium snapshot requires unknown transaction and timestamps to remain null at row {row}");
+                    return Ok(());
+                }
+                anyhow::ensure!(
+                    !transaction_identity.is_null(row)
+                        && !self.source_timestamp_ms.is_null(row)
+                        && !event_timestamp_ms.is_null(row),
+                    "YDB Debezium CDC row {row} requires transaction and timestamps"
                 );
                 let (step, _) = ydb_transaction(transaction_identity.value(row), row)?;
                 let source_timestamp = self.source_timestamp_ms.value(row);
@@ -815,6 +832,18 @@ fn system_array<T>(batch: &SinkBatch, kind: SystemColumnKind) -> anyhow::Result<
 where
     T: arrow::array::Array + Clone + 'static,
 {
+    let array = nullable_system_array::<T>(batch, kind)?;
+    anyhow::ensure!(
+        array.null_count() == 0,
+        "Debezium {kind:?} column contains null values"
+    );
+    Ok(array)
+}
+
+fn nullable_system_array<T>(batch: &SinkBatch, kind: SystemColumnKind) -> anyhow::Result<T>
+where
+    T: arrow::array::Array + Clone + 'static,
+{
     let column = batch
         .system_columns
         .get(kind)
@@ -826,10 +855,6 @@ where
         .downcast_ref::<T>()
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("Debezium {kind:?} column has the wrong Arrow type"))?;
-    anyhow::ensure!(
-        array.null_count() == 0,
-        "Debezium {kind:?} column contains null values"
-    );
     Ok(array)
 }
 
@@ -918,6 +943,14 @@ fn validate_message_size(
         "serialized queue message exceeds configured transport limit: message_bytes={bytes}, transport_limit_bytes={message_size_limit}"
     );
     Ok(())
+}
+
+fn write_nullable_i64(output: &mut Vec<u8>, values: &Int64Array, row: usize) {
+    if values.is_null(row) {
+        output.extend_from_slice(b"null");
+    } else {
+        write_i64(output, values.value(row));
+    }
 }
 
 fn write_i64(output: &mut Vec<u8>, value: i64) {

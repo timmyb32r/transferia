@@ -453,7 +453,7 @@ impl SerializerConfig {
                 (
                     SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
                     arrow::datatypes::DataType::Int64,
-                    false,
+                    dialect == DebeziumSourceDialect::Ydb,
                 ),
             ];
             match dialect {
@@ -559,7 +559,7 @@ impl SerializerConfig {
                 DebeziumSourceDialect::Ydb => required_roles.push((
                     SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
                     arrow::datatypes::DataType::FixedSizeBinary(16),
-                    false,
+                    true,
                 )),
             }
             for (role, data_type, nullable) in required_roles {
@@ -577,7 +577,7 @@ impl SerializerConfig {
                 );
                 if nullable {
                     anyhow::ensure!(
-                        matches[0].data_type == data_type && matches[0].nullable,
+                        matches[0].data_type == data_type && (matches[0].nullable || dialect == DebeziumSourceDialect::Ydb),
                         "Debezium dataset '{}' control role '{role}' must be nullable {data_type:?}",
                         dataset.name,
                     );

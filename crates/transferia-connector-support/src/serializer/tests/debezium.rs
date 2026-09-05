@@ -442,7 +442,7 @@ async fn ydb_values_only_and_runtime_metadata_are_strict() {
         .encode_batch(&snapshot_operation, DebeziumSourceDialect::Ydb, usize::MAX)
         .unwrap_err()
         .to_string();
-    assert!(error.contains("stream-only"), "{error}");
+    assert!(error.contains("snapshot requires unknown"), "{error}");
 
     let mut invalid_dynumber = ydb_cdc_batch().await;
     replace_column(
