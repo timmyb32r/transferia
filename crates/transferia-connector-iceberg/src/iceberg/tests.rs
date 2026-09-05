@@ -42,6 +42,7 @@ fn speedtest_row_count_discovery() -> DeliveryDiscovery {
         keep_system_columns: false,
         datasets: vec![
             DiscoveredDataset {
+                update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::Main,
                 name: Arc::from("events"),
                 incoming_schema: schema.clone(),
@@ -49,6 +50,7 @@ fn speedtest_row_count_discovery() -> DeliveryDiscovery {
                 system_columns: Vec::new(),
             },
             DiscoveredDataset {
+                update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::DeadLetterQueue,
                 name: Arc::from("events_dlq"),
                 incoming_schema: schema.clone(),
@@ -125,6 +127,7 @@ fn replica_discovery(source: &str, complete_old_image: bool) -> DeliveryDiscover
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: true,
         datasets: vec![DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),
             incoming_schema: DatasetSchema::new(incoming),

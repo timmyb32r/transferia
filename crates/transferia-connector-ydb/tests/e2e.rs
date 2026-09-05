@@ -70,6 +70,7 @@ fn discovery() -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),
             incoming_schema: schema.clone(),
@@ -90,6 +91,7 @@ fn changelog_discovery() -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),
             incoming_schema: DatasetSchema::new(vec![

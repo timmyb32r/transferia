@@ -22,6 +22,7 @@ fn projection_discovery(keep_system_columns: bool) -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns,
         datasets: vec![DiscoveredDataset {
+            update_policy: crate::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),
             incoming_schema,
@@ -165,6 +166,7 @@ fn cdc_control_columns_preserve_the_exact_arrow_extension_identity() -> anyhow::
         )
         .with_old_value_of("value".into());
     let dataset = DiscoveredDataset {
+        update_policy: crate::delivery::UpdatePolicy::Strict,
         role: DatasetRole::Main,
         name: Arc::from("events"),
         incoming_schema: DatasetSchema::default(),
@@ -188,6 +190,7 @@ fn semantic_control_columns_are_never_part_of_stored_user_data() -> anyhow::Resu
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: true,
         datasets: vec![DiscoveredDataset {
+            update_policy: crate::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),
             incoming_schema: DatasetSchema::new(vec![user.clone(), control.clone()]),

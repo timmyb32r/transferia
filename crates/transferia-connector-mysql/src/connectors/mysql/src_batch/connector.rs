@@ -1273,6 +1273,7 @@ pub(super) fn build_delivery_discovery(
                 );
             }
             DiscoveredDataset {
+                update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::Main,
                 name: Arc::from(table.config.name.as_str()),
                 incoming_schema: incoming,

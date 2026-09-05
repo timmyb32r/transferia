@@ -658,6 +658,7 @@ async fn sampled_delivery_sequence_preserves_batch_sizes_dataset_mix_and_dlq_fre
     let sampled = collector.snapshot()?;
     let mut discovered = discovery("a");
     discovered.datasets.push(DiscoveredDataset {
+        update_policy: transferia_core::delivery::UpdatePolicy::Strict,
         role: DatasetRole::Main,
         name: Arc::from("b"),
         incoming_schema: DatasetSchema::default(),
@@ -665,6 +666,7 @@ async fn sampled_delivery_sequence_preserves_batch_sizes_dataset_mix_and_dlq_fre
         system_columns: Vec::new(),
     });
     discovered.datasets.push(DiscoveredDataset {
+        update_policy: transferia_core::delivery::UpdatePolicy::Strict,
         role: DatasetRole::DeadLetterQueue,
         name: Arc::from("dlq"),
         incoming_schema: DatasetSchema::default(),
@@ -910,6 +912,7 @@ fn discovery(name: &str) -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from(name),
             incoming_schema: DatasetSchema::default(),

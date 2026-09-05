@@ -190,6 +190,7 @@ fn changelog_discovery(table: &str) -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from(table),
             incoming_schema: DatasetSchema::new(vec![
@@ -587,6 +588,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("copy_target"),
             incoming_schema: copy_schema.clone(),

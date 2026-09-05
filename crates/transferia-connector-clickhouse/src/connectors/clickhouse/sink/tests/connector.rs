@@ -366,6 +366,7 @@ fn discovery(table: &str, data_type: DataType) -> DeliveryDiscovery {
         keep_system_columns: false,
         datasets: vec![
             DiscoveredDataset {
+                update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::Main,
                 name: Arc::from(table),
                 incoming_schema: schema.clone(),
@@ -373,6 +374,7 @@ fn discovery(table: &str, data_type: DataType) -> DeliveryDiscovery {
                 system_columns: Vec::new(),
             },
             DiscoveredDataset {
+                update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::DeadLetterQueue,
                 name: Arc::from(format!("{table}_dlq")),
                 incoming_schema: schema.clone(),

@@ -88,6 +88,7 @@ impl ParserPlan {
             let dlq_table: Arc<str> = dlq_name(&table).into();
             vec![
                 DiscoveredDataset {
+                    update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                     role: DatasetRole::Main,
                     name: table,
                     incoming_schema: self.incoming_schema(),
@@ -95,6 +96,7 @@ impl ParserPlan {
                     system_columns: system_columns.clone(),
                 },
                 DiscoveredDataset {
+                    update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                     role: DatasetRole::DeadLetterQueue,
                     name: dlq_table,
                     incoming_schema: self.dlq_schema(true),

@@ -46,8 +46,19 @@ pub enum SchemaOrigin {
 }
 
 /// One dataset as seen at the sink boundary.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum UpdatePolicy {
+    #[default]
+    Strict,
+    /// Explicit snapshot-overlap reconciliation. Preserve the wire UPDATE and
+    /// before-image; state sinks apply complete same-key updates as upserts.
+    FullImageUpsert,
+}
+
+/// One dataset as seen at the sink boundary.
 #[derive(Debug, Clone)]
 pub struct DiscoveredDataset {
+    pub update_policy: UpdatePolicy,
     pub role: DatasetRole,
     pub name: Arc<str>,
     /// Schema carried by [`SinkBatch`], including routing system columns.
@@ -441,6 +452,38 @@ pub fn validate_stored_projection(
         .iter()
         .any(|column| column.kind == SystemColumnKind::ChangeOperation);
     validate_cdc_control_columns(dataset, changelog_input, &system_names)?;
+    if dataset.update_policy == UpdatePolicy::FullImageUpsert {
+        anyhow::ensure!(
+            changelog_input
+                && dataset
+                    .stored_schema
+                    .columns
+                    .iter()
+                    .any(|column| column.primary_key),
+            "dataset '{}' full-image upsert requires a keyed changelog",
+            dataset.name
+        );
+        for key in dataset
+            .stored_schema
+            .columns
+            .iter()
+            .filter(|column| column.primary_key)
+        {
+            anyhow::ensure!(
+                dataset
+                    .incoming_schema
+                    .columns
+                    .iter()
+                    .any(
+                        |column| column.old_value_of.as_deref() == Some(key.name.as_str())
+                            || column.old_key_of.as_deref() == Some(key.name.as_str())
+                    ),
+                "dataset '{}' full-image upsert requires an old primary-key pair for '{}'",
+                dataset.name,
+                key.name
+            );
+        }
+    }
     let mut versions = dataset.incoming_schema.columns.iter().filter(|column| {
         column.system_role.as_deref() == Some(crate::data::schema::SYSTEM_ROLE_SOURCE_VERSION)
     });

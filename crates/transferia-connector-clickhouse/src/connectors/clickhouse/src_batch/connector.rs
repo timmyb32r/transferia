@@ -247,6 +247,7 @@ impl SourceConnector for ClickHouseSourceConnector {
                         without_system_columns(&table.schema, &table.physical_system_columns)
                     };
                     DiscoveredDataset {
+                        update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                         role: DatasetRole::Main,
                         name: Arc::from(table.config.name.as_str()),
                         incoming_schema: incoming.clone(),

@@ -119,6 +119,7 @@ impl SourceConnector for IcebergSourceConnector {
                 let arrow_schema = iceberg::arrow::schema_to_arrow_schema(iceberg_schema)?;
                 let schema = dataset_schema(&arrow_schema, iceberg_schema);
                 datasets.push(DiscoveredDataset {
+                    update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                     role: DatasetRole::Main,
                     name: Arc::from(table_name.as_str()),
                     incoming_schema: schema.clone(),

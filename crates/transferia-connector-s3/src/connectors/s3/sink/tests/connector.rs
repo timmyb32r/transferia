@@ -33,6 +33,7 @@ fn discovered_dataset(
         ),
     ]);
     DiscoveredDataset {
+        update_policy: transferia_core::delivery::UpdatePolicy::Strict,
         role,
         name: Arc::from(name),
         stored_schema: DatasetSchema::new(vec![SchemaColumn::new(

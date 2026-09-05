@@ -691,6 +691,30 @@ pub fn project_sink_batch(
         .map(|&index| dataset.stored_schema.columns[index].clone())
         .collect::<Vec<_>>();
     let old_primary_keys = old_primary_key_batch(dataset, batch, &primary_key_columns)?;
+    if dataset.update_policy == crate::delivery::UpdatePolicy::FullImageUpsert {
+        for (row, operation) in parsed_operations.iter_mut().enumerate() {
+            if *operation != ChangeOperation::Update {
+                continue;
+            }
+            anyhow::ensure!(
+                parsed_changed_columns[row].iter().all(|changed| *changed),
+                "full-image upsert row {row} omits a current column"
+            );
+            let old = old_primary_keys
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("full-image upsert requires old primary keys"))?;
+            for (old_column, &index) in old.columns().iter().zip(&primary_key_indexes) {
+                anyhow::ensure!(
+                    old_column.slice(row, 1).to_data()
+                        == stored.column(index).slice(row, 1).to_data(),
+                    "full-image upsert row {row} changes its primary key"
+                );
+            }
+            // This projection is state-sink-only: the original batch still
+            // carries UPDATE and its complete before-image for queue serializers.
+            *operation = ChangeOperation::Create;
+        }
+    }
     Ok(ProjectedSinkBatch::Changelog(ChangelogBatch {
         rows: stored,
         operations: parsed_operations,

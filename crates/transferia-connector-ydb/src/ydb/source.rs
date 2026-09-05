@@ -269,6 +269,7 @@ impl SourceConnector for YdbSourceConnector {
                         name: Arc::from(table.config.name()),
                         stored_schema: if request.keep_system_columns {
                             incoming_schema.clone()
+                        update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                         } else {
                             table.schema.clone()
                         },

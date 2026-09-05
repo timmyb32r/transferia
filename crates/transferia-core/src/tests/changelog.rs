@@ -90,6 +90,7 @@ fn discovery() -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: true,
         datasets: vec![DiscoveredDataset {
+            update_policy: crate::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),
             incoming_schema: DatasetSchema::new(vec![
@@ -230,6 +231,7 @@ async fn append_only_projection_rejects_null_before_the_sink_side_effect() {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            update_policy: crate::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),
             incoming_schema: DatasetSchema::new(vec![incoming.clone()]),
@@ -489,6 +491,73 @@ async fn replica_identity_full_collapses_primary_key_changes_without_leaving_old
             .value(0),
         3
     );
+}
+
+#[tokio::test]
+async fn explicit_full_image_upsert_preserves_wire_update_and_rejects_key_moves() {
+    for (key, old_key, accepted) in [(7, 7, true), (8, 7, false)] {
+        let (mut discovery, batch) =
+            full_old_value_batch(vec![key], vec![Some(old_key)], vec![Some("u")]).await;
+        let ProjectedSinkBatch::Changelog(strict) = project_sink_batch(&discovery, &batch).unwrap()
+        else {
+            panic!("expected changelog");
+        };
+        assert_eq!(strict.operations(), [ChangeOperation::Update]);
+        discovery.datasets[0].update_policy = crate::delivery::UpdatePolicy::FullImageUpsert;
+        validate_stored_projection(&discovery, &discovery.datasets[0]).unwrap();
+        let projected = project_sink_batch(&discovery, &batch);
+        assert_eq!(projected.is_ok(), accepted);
+        if accepted {
+            let ProjectedSinkBatch::Changelog(upsert) = projected.unwrap() else {
+                panic!("expected changelog")
+            };
+            assert_eq!(
+                upsert.collapsed_runs().unwrap()[0].operation,
+                ChangeOperation::Create
+            );
+            let index = batch
+                .system_columns
+                .get(SystemColumnKind::ChangeOperation)
+                .unwrap()
+                .index;
+            assert_eq!(
+                batch
+                    .batch
+                    .column(index)
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .unwrap()
+                    .value(0),
+                "u"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn full_image_upsert_rejects_missing_old_keys_and_partial_images() {
+    let (mut missing_old, _) = batch_with_changed_masks(
+        vec![Some("u")],
+        vec![Some(7)],
+        vec![70],
+        vec![Some(&[0b11])],
+    )
+    .await;
+    missing_old.datasets[0].update_policy = crate::delivery::UpdatePolicy::FullImageUpsert;
+    assert!(validate_stored_projection(&missing_old, &missing_old.datasets[0]).is_err());
+
+    let (mut discovery, mut batch) =
+        full_old_value_batch(vec![7], vec![Some(7)], vec![Some("u")]).await;
+    discovery.datasets[0].update_policy = crate::delivery::UpdatePolicy::FullImageUpsert;
+    let index = batch
+        .system_columns
+        .get(SystemColumnKind::ChangedColumns)
+        .unwrap()
+        .index;
+    let mut arrays = batch.batch.columns().to_vec();
+    arrays[index] = Arc::new(BinaryArray::from(vec![Some(&[0b01][..])]));
+    batch.batch = RecordBatch::try_new(batch.batch.schema(), arrays).unwrap();
+    assert!(project_sink_batch(&discovery, &batch).is_err());
 }
 
 #[tokio::test]

@@ -71,6 +71,7 @@ fn discovery(name: Arc<str>) -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name,
             incoming_schema: schema(),

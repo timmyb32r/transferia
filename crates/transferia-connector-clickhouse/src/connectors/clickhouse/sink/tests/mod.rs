@@ -273,6 +273,7 @@ fn discovery() -> Arc<DeliveryDiscovery> {
         keep_system_columns: false,
         datasets: vec![
             DiscoveredDataset {
+                update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::Main,
                 name: Arc::from("events"),
                 incoming_schema: schema.clone(),
@@ -280,6 +281,7 @@ fn discovery() -> Arc<DeliveryDiscovery> {
                 system_columns: Vec::new(),
             },
             DiscoveredDataset {
+                update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::DeadLetterQueue,
                 name: Arc::from("events_dlq"),
                 incoming_schema: schema.clone(),
@@ -375,6 +377,7 @@ fn changelog_discovery() -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: true,
         datasets: vec![DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),
             incoming_schema: DatasetSchema::new(vec![

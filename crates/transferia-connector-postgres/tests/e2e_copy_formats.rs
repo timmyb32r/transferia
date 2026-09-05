@@ -248,6 +248,7 @@ async fn write_sink_batch(host: &str, port: u16, table: &str, format: &str) -> a
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from(table),
             incoming_schema: schema.clone(),

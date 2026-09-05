@@ -380,6 +380,7 @@ fn sink_dataset(name: &str, json_payload: bool) -> DiscoveredDataset {
         payload,
     ]);
     DiscoveredDataset {
+        update_policy: transferia_core::delivery::UpdatePolicy::Strict,
         role: DatasetRole::Main,
         name: Arc::from(name),
         incoming_schema: schema.clone(),
@@ -435,6 +436,7 @@ fn mysql_changelog_discovery() -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("cdc_rows"),
             incoming_schema: DatasetSchema::new(vec![

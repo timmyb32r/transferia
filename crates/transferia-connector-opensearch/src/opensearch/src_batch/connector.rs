@@ -228,6 +228,7 @@ impl SourceConnector for OpenSearchSourceConnector {
                         SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
                     }));
                     DiscoveredDataset {
+                        update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                         role: DatasetRole::Main,
                         name: Arc::clone(&index.name),
                         incoming_schema: incoming,

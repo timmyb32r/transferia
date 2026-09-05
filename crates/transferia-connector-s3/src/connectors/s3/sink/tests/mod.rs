@@ -433,6 +433,7 @@ fn test_discovery(keep_system_columns: bool) -> Arc<DeliveryDiscovery> {
         ]
         .into_iter()
         .map(|(role, name)| DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role,
             name: Arc::from(name),
             incoming_schema: incoming_schema.clone(),

@@ -157,6 +157,7 @@ fn discovery() -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: "events".into(),
             incoming_schema: DatasetSchema::new(vec![SchemaColumn::new(
