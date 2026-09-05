@@ -16,6 +16,11 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("does not spread a table validation error to all descendant controls", () => {
+    expect(styles).not.toContain("\n.required-missing input,");
+    expect(styles).not.toContain("\n.required-missing .select-trigger {");
+    expect(styles).toContain(".required-missing .column-table td.required-incomplete .select-trigger");
+  });
   it("reserves two lines for Arrow types without wrapping timestamp parameters", () => {
     const trigger = styles.split(':root .column-table td.arrow-type-cell .select-trigger {')[1]?.split("}")[0];
     expect(trigger).toContain("height: 48px;");

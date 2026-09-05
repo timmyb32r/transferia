@@ -1337,8 +1337,12 @@ button.diagnostic-disabled {
 .top-field.required-next.required-error > span {
   color: var(--red);
 }
-.required-missing input,
-.required-missing .select-trigger {
+.required-missing input:not(.column-editor input),
+.required-missing .select-trigger:not(.column-editor .select-trigger),
+.column-details .required-missing input,
+.column-details .required-missing .select-trigger,
+.required-missing .column-table td.required-incomplete input,
+.required-missing .column-table td.required-incomplete .select-trigger {
   border-color: var(--red) !important;
   box-shadow: inset 0 0 0 1px var(--red);
 }

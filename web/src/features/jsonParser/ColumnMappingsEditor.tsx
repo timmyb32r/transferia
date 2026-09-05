@@ -277,11 +277,10 @@ export function ColumnMappingsEditor({
               );
               const settingsExpanded = expandedSettings.has(index);
               const selected = selectedRows.has(index);
-              const incompleteRequiredMainField = rowIsIncomplete(raw);
               return (
                 <Fragment key={rowIds.values[index]}>
                   <tr
-                    class={`config-table-row ${!disabled && incompleteRequiredMainField ? "required-incomplete" : ""} ${selected ? "selected" : ""} ${draggedRow === index ? "dragged" : ""} ${dragTargetSlot === index && draggedRow !== index ? "drag-before" : ""} ${dragTargetSlot === value.length && index === value.length - 1 && draggedRow !== index ? "drag-after" : ""}`}
+                    class={`config-table-row ${selected ? "selected" : ""} ${draggedRow === index ? "dragged" : ""} ${dragTargetSlot === index && draggedRow !== index ? "drag-before" : ""} ${dragTargetSlot === value.length && index === value.length - 1 && draggedRow !== index ? "drag-after" : ""}`}
                     onDragOver={(event) => {
                       if (draggedRow === undefined) return;
                       event.preventDefault();
@@ -370,7 +369,10 @@ export function ColumnMappingsEditor({
                           ? { ...original, branches: original.branches.filter((branch) => branch.constant !== "decimal") }
                           : original;
                       return (
-                        <td key={field} class={field === "arrow_type" ? "arrow-type-cell" : undefined}>
+                        <td key={field} class={[
+                          field === "arrow_type" ? "arrow-type-cell" : "",
+                          !disabled && original && node.required.has(field) && !isComplete(original, column[field]) ? "required-incomplete" : "",
+                        ].filter(Boolean).join(" ")}>
                           {child && (
                             <NodeEditor
                               node={child}

@@ -25,6 +25,25 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("marks only the missing output cell, not filled rows or table checkboxes", () => {
+    const node: CompiledNode = {
+      kind: "object", xUi: {}, required: new Set(["columns"]),
+      properties: { columns: {
+        kind: "array", xUi: { widget: "column_mappings" },
+        item: { kind: "object", xUi: {}, required: new Set(["column_name", "arrow_type"]), properties: {
+          column_name: stringNode(), arrow_type: { kind: "string", xUi: {}, enumValues: ["Utf8"] },
+        } },
+      } },
+    };
+    const view = render(<SchemaForm node={node} showRequiredErrors value={{ columns: [
+      { column_name: "id", arrow_type: "Utf8" }, { column_name: "value", arrow_type: "" },
+    ] }} onChange={() => undefined} />);
+    const cells = view.container.querySelectorAll(".column-table td.required-incomplete");
+    expect(cells.length).toBe(1);
+    expect(cells[0]?.classList.contains("arrow-type-cell")).toBe(true);
+    expect(cells[0]?.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(view.container.querySelector("tr.required-incomplete")).toBeNull();
+  });
   it("breaks timestamp display after the type name without changing its value", () => {
     const node: CompiledNode = {
       kind: "object", xUi: {}, required: new Set(),
