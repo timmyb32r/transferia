@@ -16,6 +16,22 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("shades the three delivery islands without changing control geometry or dark themes", () => {
+    const selectors = [
+      ':root[data-theme="light"] .identity-card',
+      ':root[data-theme="light"] .route-composition > .endpoint-card',
+      ':root[data-theme="light"] .route-composition > .source-parser-bridge',
+      ':root[data-theme="light"] .route-composition > .parser-details-card',
+    ].join(",\n");
+    const rule = styles.split(`${selectors} {`)[1]?.split("}")[0];
+    expect(rule?.trim()).toBe("background: #edf1f4;\n  border-color: #cfd8de;");
+    for (const design of ["classic", "airy-v0"]) {
+      const theme = styles.split(`:root[data-design="${design}"][data-theme="light"] {`)[1]?.split("}")[0];
+      expect(theme).toContain("--control: #ffffff;");
+      expect(theme).toContain("--canvas: #ffffff;");
+    }
+    expect(styles).toContain(':root[data-theme="light"] .route-composition:has(> .parser-details-card) > .endpoint-card-source {\n  border-bottom-color: transparent;');
+  });
   it("uses identical field spacing for ordinary and advanced settings in every endpoint", () => {
     expect(styles).toMatch(/\.foldout-content,\s*\.schema-object\s*\{\s*display:\s*grid;\s*gap:\s*10px;/s);
     expect(styles).toMatch(/:root\[data-design="airy-v0"\] \.foldout-content,\s*:root\[data-design="airy-v0"\] \.schema-object\s*\{\s*gap:\s*14px;/s);

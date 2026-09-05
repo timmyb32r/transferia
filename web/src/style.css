@@ -1082,6 +1082,18 @@ h3 {
 .route-composition:has(> .parser-details-card) > .parser-details-card {
   border-color: var(--route-line);
 }
+/* Variant B: neutral islands, with white controls and unchanged geometry.
+   The parser bridge belongs to the source surface, not a separate island. */
+:root[data-theme="light"] .identity-card,
+:root[data-theme="light"] .route-composition > .endpoint-card,
+:root[data-theme="light"] .route-composition > .source-parser-bridge,
+:root[data-theme="light"] .route-composition > .parser-details-card {
+  background: #edf1f4;
+  border-color: #cfd8de;
+}
+:root[data-theme="light"] .route-composition:has(> .parser-details-card) > .endpoint-card-source {
+  border-bottom-color: transparent;
+}
 .source-parser-bridge {
   position: relative;
   z-index: 2;
