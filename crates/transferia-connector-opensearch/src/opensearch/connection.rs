@@ -11,6 +11,7 @@ use transferia_connector_support::outbound_http::{NetworkPolicy, OutboundHttpCli
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OpenSearchAuth {
+    #[schemars(title = "Username and password")]
     Basic {
         username: String,
 
@@ -18,6 +19,7 @@ pub enum OpenSearchAuth {
         password: String,
     },
 
+    #[schemars(title = "No authentication")]
     Anonymous,
 }
 

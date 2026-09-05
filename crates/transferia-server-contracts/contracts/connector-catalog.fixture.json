@@ -4804,7 +4804,8 @@
                     "type",
                     "username",
                     "password"
-                  ]
+                  ],
+                  "title": "Username and password"
                 },
                 {
                   "type": "object",
@@ -4817,7 +4818,8 @@
                   "required": [
                     "type"
                   ],
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "title": "No authentication"
                 }
               ]
             },
@@ -5067,7 +5069,8 @@
                     "type",
                     "username",
                     "password"
-                  ]
+                  ],
+                  "title": "Username and password"
                 },
                 {
                   "type": "object",
@@ -5080,7 +5083,8 @@
                   "required": [
                     "type"
                   ],
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "title": "No authentication"
                 }
               ]
             },
