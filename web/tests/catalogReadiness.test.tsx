@@ -213,6 +213,14 @@ describe("connector catalog readiness", () => {
     expect(view.queryByText("Plugin")).toBeNull();
     expect(view.queryByText("Replication bootstrap timeout")).toBeNull();
     expect(view.queryByText("COPY TO format")).not.toBeNull();
+    const advancedCount = view.queryAllByText("Advanced settings").length;
+    for (const deliveryType of ["stream", "batch_and_stream", "batch", "stream"]) {
+      view.rerender(<SchemaForm node={schema} value={postgres.initial} deliveryType={deliveryType} onChange={() => undefined} />);
+      expect(view.queryAllByText("Advanced settings")).toHaveLength(advancedCount);
+      expect(view.queryByText("Replication")).toBeNull();
+      expect(view.queryByText("Replication bootstrap timeout")).toBeNull();
+      expect(view.queryByText("Plugin") !== null).toBe(deliveryType !== "batch");
+    }
   });
 
   it("derives MySQL delivery modes and semantics from replication configuration", () => {

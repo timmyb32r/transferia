@@ -165,6 +165,20 @@ function textareaWidget(name: string): WidgetPlugin {
 function genericWidgets(): WidgetPlugin[] {
   return [
     {
+      name: "inline_object",
+      kinds: ["object"],
+      renderer: "property",
+      property: (context, { NodeEditor }) => (
+        <NodeEditor
+          node={context.node}
+          value={context.effectiveValue}
+          disabled={context.disabled}
+          path={context.path}
+          onChange={context.onChange}
+        />
+      ),
+    },
+    {
       name: "column_keys",
       kinds: ["array"],
       renderer: "generic",

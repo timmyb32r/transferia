@@ -156,8 +156,7 @@ function NodeEditor({
           PropertyEditor={PropertyEditor}
           isVisible={(child) =>
             child.xUi.delivery_types === undefined ||
-            deliveryType === undefined ||
-            child.xUi.delivery_types.includes(deliveryType)
+            child.xUi.delivery_types.includes(deliveryType ?? "")
           }
           onChange={onChange}
         />

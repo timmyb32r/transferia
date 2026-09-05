@@ -120,14 +120,18 @@ fn delivery_type_alone_selects_postgres_record_semantics() {
 }
 
 #[test]
-fn source_schema_hides_replication_without_a_capability_override() {
+fn source_schema_inlines_replication_plugin_only_for_replication_modes() {
     let schema = serde_json::to_value(schemars::schema_for!(PostgresSourceConfig)).unwrap();
     assert_eq!(schema.pointer("/x-ui/capabilities"), Some(&serde_json::json!({
         "component": "source", "key": "postgres",
         "delivery_modes": ["batch", "stream", "batch_and_stream"],
         "record_semantics": ["append_only", "changelog"]
     })));
-    assert_eq!(schema.pointer("/properties/replication/x-ui/widget"), Some(&serde_json::json!("hidden")));
+    assert_eq!(schema.pointer("/properties/replication/x-ui"), Some(&serde_json::json!({
+        "widget": "inline_object", "section": "advanced",
+        "delivery_types": ["stream", "batch_and_stream"]
+    })));
+    assert!(schema.pointer("/$defs/PostgresReplicationConfig/properties/plugin/x-ui/section").is_none());
     assert!(schema.pointer("/properties/replication/anyOf").is_none());
     assert!(schema.pointer("/$defs/PostgresReplicationConfig/x-ui/capabilities").is_none());
 }

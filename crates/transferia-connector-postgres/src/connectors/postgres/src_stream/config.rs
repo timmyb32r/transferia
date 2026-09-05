@@ -7,22 +7,22 @@ use crate::connectors::postgres::common::validate_identifier;
 #[serde(deny_unknown_fields)]
 pub struct PostgresReplicationConfig {
     #[serde(default)]
-    #[schemars(title = "Plugin", extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(title = "Plugin")]
     pub plugin: ReplicationPlugin,
 
     #[serde(default = "default_max_changes")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub max_changes: usize,
 
     #[serde(default = "default_poll_interval_ms")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub poll_interval_ms: u64,
 
     #[serde(default = "default_bootstrap_timeout_ms")]
     #[schemars(
         title = "Replication bootstrap timeout",
         description = "Maximum time in milliseconds for opening the replication session and exporting the exact slot snapshot",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub bootstrap_timeout_ms: u64,
 }

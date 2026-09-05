@@ -29,7 +29,7 @@ pub struct PostgresSourceConfig {
 
     /// Configures logical replication for stream and `batch_and_stream` deliveries.
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "widget": "inline_object", "section": "advanced", "delivery_types": ["stream", "batch_and_stream"] }))]
     pub replication: PostgresReplicationConfig,
 }
 

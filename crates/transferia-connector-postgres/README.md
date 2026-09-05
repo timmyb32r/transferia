@@ -6,6 +6,9 @@ snapshot before switching to replication. No Replication checkbox or nested
 replication Advanced settings are shown in the editor. Batch never acquires a
 replication slot or requires replica identity/publication privileges.
 
+Plugin is shown in the source's general Advanced settings only for `stream` and
+`batch_and_stream`; it is hidden for batch or when no delivery type is selected.
+
 Replication tuning is optional in YAML and does not enable or disable replication.
 When omitted, all replication settings use their defaults. `replication.plugin` supports:
 

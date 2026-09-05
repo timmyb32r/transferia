@@ -5209,7 +5209,12 @@
                 "bootstrap_timeout_ms": 30000
               },
               "x-ui": {
-                "widget": "hidden"
+                "widget": "inline_object",
+                "section": "advanced",
+                "delivery_types": [
+                  "stream",
+                  "batch_and_stream"
+                ]
               }
             }
           },
@@ -5268,9 +5273,6 @@
                   "$ref": "#/$defs/ReplicationPlugin",
                   "default": {
                     "type": "auto"
-                  },
-                  "x-ui": {
-                    "section": "advanced"
                   }
                 },
                 "max_changes": {
@@ -5279,7 +5281,7 @@
                   "minimum": 0,
                   "default": 4096,
                   "x-ui": {
-                    "section": "advanced"
+                    "widget": "hidden"
                   }
                 },
                 "poll_interval_ms": {
@@ -5288,7 +5290,7 @@
                   "minimum": 0,
                   "default": 100,
                   "x-ui": {
-                    "section": "advanced"
+                    "widget": "hidden"
                   }
                 },
                 "bootstrap_timeout_ms": {
@@ -5299,7 +5301,7 @@
                   "minimum": 0,
                   "default": 30000,
                   "x-ui": {
-                    "section": "advanced"
+                    "widget": "hidden"
                   }
                 }
               },
