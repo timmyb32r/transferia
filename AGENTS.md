@@ -91,6 +91,12 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 
 ## Frontend interaction stability: zero unexpected layout shift
 
+- Before changing frontend appearance, read [UI style guide](docs/ui-style-guide.md).
+  The approved light-theme direction is **A: cool slate + teal**. Reuse semantic
+  theme tokens; do not invent component-local neutral palettes. Update the guide
+  alongside any deliberately approved palette change. Preserve dark-theme and
+  semantic status distinctions.
+
 - In every selectable `oneOf`/`anyOf`, place the authored default branch first so
   it appears immediately after `Not selected`. When extensions contribute a
   preferred variant, schema composition must move that variant to the first
