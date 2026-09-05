@@ -14,7 +14,7 @@ import type {
 import { AutofillResistantInput } from "./AutofillResistantField";
 import { Button } from "./Button";
 import { InstantTooltip } from "./InstantTooltip";
-import { orderedEndpointConnectors } from "../delivery/editorConfig";
+import { orderedEndpointConnectors } from "../connectorCatalog";
 import {
   declaredSourceRecordSemantics,
   routeSupportsDeliveryType,

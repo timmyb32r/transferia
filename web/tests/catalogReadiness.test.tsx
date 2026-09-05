@@ -8,10 +8,10 @@ import { decodeApi } from "../src/api/contractDecoder";
 import {
   completionIssueLabel,
   configurationReadiness,
-  orderedEndpointConnectors,
   selectedEndpoints,
   validateCatalogSchemas,
 } from "../src/delivery/editorConfig";
+import { orderedEndpointConnectors } from "../src/connectorCatalog";
 import { productionWidgetRegistry } from "../src/features/formWidgetRegistry";
 import {
   branchMatches,

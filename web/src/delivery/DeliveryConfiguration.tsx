@@ -2,10 +2,10 @@ import {
   compiledSchema,
   endpointValue,
   isObject,
-  orderedEndpointConnectors,
   selectedEndpoints,
   stringValue,
 } from "./editorConfig";
+import { orderedEndpointConnectors } from "../connectorCatalog";
 import { CommonSettings, EndpointCard } from "./EditorViews";
 import {
   ParserDetailsForm,
