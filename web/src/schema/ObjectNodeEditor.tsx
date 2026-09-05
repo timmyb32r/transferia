@@ -153,7 +153,15 @@ export function ObjectNodeEditor({
                     {connectionAnchorPosition === "before" &&
                       connectionAnchor?.[0] === name &&
                       connectionAction}
-                    <PropertyEditor
+                    {node.properties.common?.xUi.widget === "parser_common" && name === "json_parser" ? (
+                      <NodeEditor
+                        node={child}
+                        value={value[name] ?? {}}
+                        disabled={disabled}
+                        path={`${path}/${name}`}
+                        onChange={(next) => onChange({ ...value, [name]: next })}
+                      />
+                    ) : <PropertyEditor
                       name={name}
                       node={child}
                       required={node.required.has(name)}
@@ -164,7 +172,7 @@ export function ObjectNodeEditor({
                       onParentChange={onChange}
                       path={`${path}/${name}`}
                       onChange={(next) => onChange({ ...value, [name]: next })}
-                    />
+                    />}
                     {connectionAnchorPosition === "after" &&
                       connectionAnchor?.[0] === name &&
                       connectionAction}

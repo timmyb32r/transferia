@@ -25,6 +25,26 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("omits the redundant JSON parser label while retaining its fields", () => {
+    const node: CompiledNode = {
+      kind: "object", xUi: {}, required: new Set(),
+      properties: {
+        common: {
+          kind: "object", xUi: { widget: "parser_common" },
+          required: new Set(), properties: {},
+        },
+        json_parser: {
+          kind: "object", title: "JSON parser", xUi: {},
+          required: new Set(),
+          properties: { json_framing: stringNode("JSON framing") },
+        },
+      },
+    };
+    const view = render(<SchemaForm node={node} value={{}} onChange={() => undefined} />);
+    expect(view.queryByText("JSON parser", { exact: true })).toBeNull();
+    expect(view.getByText("JSON framing", { exact: true })).toBeTruthy();
+    expect(view.getByText("Parser settings", { exact: true })).toBeTruthy();
+  });
   it("supports connector-specific field labels without changing shared schemas", () => {
     const node: CompiledNode = {
       kind: "object",
