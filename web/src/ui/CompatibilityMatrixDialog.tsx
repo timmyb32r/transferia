@@ -592,7 +592,10 @@ export function CompatibilityMatrixDialog({
               <caption>Sources by destinations</caption>
               <thead>
                 <tr>
-                  <th scope="col" onMouseEnter={() => setActiveCell(null)}>Source ↓ / Destination →</th>
+                  <th scope="col" onMouseEnter={() => setActiveCell(null)}>
+                    Source ↓ / Destination →
+                    <small class="matrix-order-hint" title="Benchmark connectors are listed last">ALPHABETICAL ORDER</small>
+                  </th>
                   {sinks.map((sink) => (
                     <th
                       scope="col"

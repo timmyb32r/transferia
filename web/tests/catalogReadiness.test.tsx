@@ -44,6 +44,7 @@ describe("connector catalog readiness", () => {
     expect(support.get("Schema Registry parser")?.s3).toBe(false);
     expect(support.get("Schema Registry parser")?.mq).toContain("Kafka");
     const view = render(<CompatibilityMatrixDialog catalog={catalog} onClose={() => {}} />);
+    expect(view.getByText("ALPHABETICAL ORDER").closest("th")?.textContent).toContain("Source ↓ / Destination →");
     fireEvent.click(view.getByRole("tab", { name: "Entities" }));
     const check = () => {
       const table = within(view.getByRole("table", { name: "Parser source support" }));

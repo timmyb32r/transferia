@@ -4489,6 +4489,14 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   table-layout: fixed;
 }
 
+.matrix-order-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
 .compatibility-table caption {
   position: absolute;
   width: 1px;
