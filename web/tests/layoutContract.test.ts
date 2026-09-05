@@ -16,6 +16,10 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("reserves stable feedback space above endpoint settings in every validation state", () => {
+    expect(styles).toMatch(/\.route-feedback\s*\{[^}]*height: 80px;/s);
+    expect(styles).toMatch(/\.route-feedback > \.compatibility-error\s*\{[^}]*box-sizing: border-box;[^}]*height: 100%;[^}]*margin: 0;[^}]*overflow: auto;/s);
+  });
   it("lets both property membership lists use their full content height", () => {
     expect(styles).toMatch(/\.property-members.expanded-members\s*\{[^}]*grid-template-rows: auto max-content auto max-content;/s);
     expect(styles).toMatch(/\.property-members.expanded-members \.property-entity-names\s*\{[^}]*overflow: visible;[^}]*scrollbar-gutter: auto;/s);

@@ -32,11 +32,16 @@ it.each(compatibilityRoutes(catalog).flatMap((route) => DELIVERY_TYPES.map((mode
   };
   const selection = selectedEndpoints(catalog, config, productionWidgetRegistry);
   const expected = route.supported.includes(mode);
-  const view = render(<DeliveryConfiguration catalog={catalog}
+  const configuration = (next: typeof selection) => <DeliveryConfiguration catalog={catalog}
     editor={{ sessionId: "route-test", editing: true, localRevision: 0, name: "Test", description: "", config,
       validation: { state: "draft" }, runtime: { state: "stopped" } }}
-    selection={selection} readOnly={false} requiredErrorScope="none"
-    onName={() => {}} onDescription={() => {}} onConfig={() => {}} onChooseEndpoint={() => {}} />);
+    selection={next} readOnly={false} requiredErrorScope="none"
+    onName={() => {}} onDescription={() => {}} onConfig={() => {}} onChooseEndpoint={() => {}} />;
+  const view = render(configuration(selection));
+  const feedback = view.getByRole("status");
+  const sourceSettings = view.getByRole("region", { name: "source" });
+  expect(feedback.compareDocumentPosition(sourceSettings) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  expect(feedback.nextElementSibling?.classList.contains("route-composition")).toBe(true);
   for (const role of ["source", "sink"]) {
     expect(view.getByRole("region", { name: role }).getAttribute("data-settings-visible")).toBe(String(expected));
   }
@@ -46,5 +51,14 @@ it.each(compatibilityRoutes(catalog).flatMap((route) => DELIVERY_TYPES.map((mode
     const readiness = configurationReadiness(catalog, config, productionWidgetRegistry);
     expect(readiness.selection.error).toBeTruthy();
     expect(readiness.complete).toBe(false);
+    const cleared = { ...selection };
+    delete cleared.error;
+    view.rerender(configuration(cleared));
+    expect(view.getByRole("status")).toBe(feedback);
+    expect(feedback.textContent).toBe("");
+    expect(view.getByRole("region", { name: "source" })).toBe(sourceSettings);
+    view.rerender(configuration(selection));
+    expect(view.getByRole("status")).toBe(feedback);
+    expect(feedback.textContent).toContain("Configuration required");
   }
 });

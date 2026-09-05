@@ -135,6 +135,21 @@ export function DeliveryConfiguration({
           </TopField>
         </section>
 
+        <div class="route-feedback" role="status" aria-live="polite">
+          {routeSelectionComplete && selection?.routeError && (
+            <div class="compatibility-error">
+              <strong>Incompatible route</strong>
+              <span>{selection.routeError}</span>
+            </div>
+          )}
+          {routeSettingsAvailable && selection?.error && (
+            <div class="compatibility-error">
+              <strong>Configuration required</strong>
+              <span>{selection.error}</span>
+            </div>
+          )}
+        </div>
+
         <section class="route-composition">
           <EndpointCard
             title="Source"
@@ -213,19 +228,6 @@ export function DeliveryConfiguration({
               />
             )}
         </section>
-        {routeSelectionComplete && selection?.routeError && (
-          <div class="compatibility-error">
-            <strong>Incompatible route</strong>
-            <span>{selection.routeError}</span>
-          </div>
-        )}
-        {routeSettingsAvailable && selection?.error && (
-          <div class="compatibility-error">
-            <strong>Configuration required</strong>
-            <span>{selection.error}</span>
-          </div>
-        )}
-
         {routeSettingsAvailable && (
           <section class="pipeline-section">
             <h2>Pipeline settings</h2>

@@ -2722,6 +2722,17 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .pipeline-section .byte-size-input {
   max-width: 300px;
 }
+.route-feedback {
+  /* Reserve feedback space even when valid: settings must not jump on edits. */
+  height: 80px;
+  margin-bottom: 14px;
+}
+.route-feedback > .compatibility-error {
+  box-sizing: border-box;
+  height: 100%;
+  margin: 0;
+  overflow: auto;
+}
 .compatibility-error {
   display: flex;
   gap: 10px;
