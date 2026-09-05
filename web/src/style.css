@@ -3598,6 +3598,14 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .column-table th:nth-child(6) {
   width: 17%;
 }
+.column-table th.json-type-column {
+  width: 10%;
+}
+.system-column-key {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .row-action {
   display: inline-grid;
   place-items: center;
@@ -3799,14 +3807,6 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   margin: 12px 0 2px;
   color: var(--muted);
   font-size: 12px;
-}
-.column-keys {
-  display: grid;
-  grid-template-columns: minmax(135px, 34%) minmax(0, 1fr);
-  align-items: center;
-  gap: 14px;
-  margin-top: 14px;
-  padding-top: 2px;
 }
 .multi-select-option {
   display: flex;

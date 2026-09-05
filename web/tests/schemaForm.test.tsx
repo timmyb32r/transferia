@@ -25,6 +25,30 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("does not offer decimal in the JSON type column", () => {
+    const node: CompiledNode = {
+      kind: "object", xUi: {}, required: new Set(),
+      properties: {
+        columns: {
+          kind: "array", xUi: { widget: "column_mappings" },
+          item: {
+            kind: "object", xUi: {}, required: new Set(),
+            properties: {
+              column_name: stringNode(),
+              json_data_type: {
+                kind: "string", xUi: {},
+                enumValues: ["string", "number", "boolean", "json", "decimal"],
+              },
+            },
+          },
+        },
+      },
+    };
+    const view = render(<SchemaForm node={node} value={{ columns: [{ column_name: "id", json_data_type: "string" }] }} onChange={() => undefined} />);
+    fireEvent.click(view.container.querySelector<HTMLButtonElement>(".column-table .select-trigger")!);
+    expect(view.queryByRole("option", { name: /decimal/i })).toBeNull();
+    expect(view.getByRole("option", { name: /number/i })).toBeTruthy();
+  });
   it("omits the redundant JSON parser label while retaining its fields", () => {
     const node: CompiledNode = {
       kind: "object", xUi: {}, required: new Set(),
@@ -1388,25 +1412,18 @@ describe("schema form", () => {
       container.querySelector(".schema-system-columns-panel"),
     ).not.toBeNull();
 
-    const keys = container.querySelector<HTMLButtonElement>(
-      ".column-keys .select-trigger",
-    );
-    expect(keys).not.toBeNull();
-    fireEvent.click(keys!);
-    const search = container.querySelector<HTMLInputElement>(
-      ".column-keys .select-search",
-    );
-    expect(search).not.toBeNull();
-    expect(search?.getAttribute("autocomplete")).toBe("none");
-    expect(search?.getAttribute("data-form-type")).toBe("other");
-    const id = getByRole("option", { name: /id/ });
-    expect(id.closest(".select-menu-floating")).not.toBeNull();
-    fireEvent.pointerDown(id, { button: 0, clientX: 1 });
-    expect(keys!.textContent).toContain("id");
-    fireEvent.input(search!, { target: { value: "source" } });
-    expect(getByRole("option", { name: /source_offset/ })).toBeTruthy();
-    fireEvent.click(getByRole("option", { name: /source_offset/ }));
-    expect(keys!.textContent).toContain("id, source_offset");
+    expect(container.querySelector(".column-keys")).toBeNull();
+    expect(getByRole("columnheader", { name: "Key", exact: true })).toBeTruthy();
+    const id = getByRole("checkbox", { name: "Key id", exact: true }) as HTMLInputElement;
+    const offset = getByRole("checkbox", { name: "Key source_offset", exact: true }) as HTMLInputElement;
+    expect(id.getAttribute("autocomplete")).toBe("none");
+    fireEvent.click(id);
+    fireEvent.click(offset);
+    expect(id.checked).toBe(true);
+    expect(offset.checked).toBe(true);
+    fireEvent.click(id);
+    expect(id.checked).toBe(false);
+    expect(offset.checked).toBe(true);
   });
 
   it("renders parser selection in the endpoint and details separately", () => {

@@ -5,7 +5,6 @@ import type { JsonValue } from "../../json";
 import { AutofillResistantInput } from "../../ui/AutofillResistantField";
 import { Button } from "../../ui/Button";
 import { DragHandleIcon, TrashIcon } from "../../ui/icons";
-import { MultiSelectControl } from "../../ui/SelectControl";
 import { ColumnActions } from "./ColumnActions";
 import {
   createColumnDragPreview,
@@ -97,6 +96,17 @@ export function ColumnMappingsEditor({
       />
     );
   const showLowCardinality = node.properties.low_cardinality !== undefined;
+  const keyCheckbox = (name: string) => (
+    <AutofillResistantInput
+      type="checkbox"
+      aria-label={`Key ${name || "unnamed column"}`}
+      disabled={disabled || name === ""}
+      checked={keys.includes(name)}
+      onChange={(event) => onChange(value, event.currentTarget.checked
+        ? uniqueStrings([...keys, name])
+        : keys.filter((key) => key !== name))}
+    />
+  );
   const allRowsSelected =
     value.length > 0 && selectedRows.size === value.length;
   const someRowsSelected = selectedRows.size > 0;
@@ -219,8 +229,9 @@ export function ColumnMappingsEditor({
                 />
               </th>
               {mainFields.map((field) => (
-                <th key={field}>{mainFieldLabels[field]}</th>
+                <th key={field} class={field === "json_data_type" ? "json-type-column" : undefined}>{mainFieldLabels[field]}</th>
               ))}
+              <th class="flag-column">Key</th>
               <th class="flag-column bulk-flag-column">
                 <span>Not null</span>
                 <IndeterminateCheckbox
@@ -347,7 +358,12 @@ export function ColumnMappingsEditor({
                       />
                     </td>
                     {mainFields.map((field) => {
-                      const child = node.properties[field];
+                      const original = node.properties[field];
+                      const child = field === "json_data_type" && original?.kind === "string" && original.enumValues !== undefined
+                        ? { ...original, enumValues: original.enumValues.filter((type) => type !== "decimal") }
+                        : field === "json_data_type" && original?.kind === "union"
+                          ? { ...original, branches: original.branches.filter((branch) => branch.constant !== "decimal") }
+                          : original;
                       return (
                         <td key={field}>
                           {child && (
@@ -366,6 +382,7 @@ export function ColumnMappingsEditor({
                         </td>
                       );
                     })}
+                    <td class="flag-column">{keyCheckbox(typeof column.column_name === "string" ? column.column_name : "")}</td>
                     <td class="flag-column">
                       <AutofillResistantInput
                         type="checkbox"
@@ -430,7 +447,7 @@ export function ColumnMappingsEditor({
                       <td />
                       <td
                         colSpan={
-                          mainFields.length + 2 + (showLowCardinality ? 1 : 0)
+                          mainFields.length + 3 + (showLowCardinality ? 1 : 0)
                         }
                       >
                         <section class="column-details">
@@ -485,28 +502,13 @@ export function ColumnMappingsEditor({
           + Add column
         </Button>
       </div>
-      <div class="column-keys">
-        <span class="field-label">
-          Keys <small class="optional">(optional)</small>
-        </span>
-        <MultiSelectControl
-          values={keys}
-          disabled={disabled}
-          placeholder="Not selected"
-          options={uniqueStrings([
-            ...value.flatMap((raw) => {
-              const column = isObject(raw) ? raw : {};
-              return typeof column.column_name === "string" &&
-                column.column_name !== ""
-                ? [column.column_name]
-                : [];
-            }),
-            ...additionalKeyOptions,
-            ...keys,
-          ]).map((name) => ({ value: name, label: name }))}
-          onChange={(next) => onChange(value, next)}
-        />
-      </div>
+      {uniqueStrings([...additionalKeyOptions, ...keys]).filter((name) =>
+        !value.some((raw) => isObject(raw) && raw.column_name === name),
+      ).map((name) => (
+        <label class="system-column-key" key={name}>
+          {keyCheckbox(name)} {name} — Key
+        </label>
+      ))}
     </div>
   );
 }
