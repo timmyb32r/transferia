@@ -65,6 +65,18 @@ into the neutral palette or rely solely on color to communicate them.
 
 ## Change discipline
 
+- A scalar control width cap must never constrain a nested form. Object, array,
+  optional-object and editable union settings use the full available row width;
+  determine this from the schema, not the selected branch, to keep the selector
+  stable. Installation selectors retain their full-row nested section.
+- Use the `form-space` container query for label placement: at 520px or less,
+  put labels above controls instead of consuming their width. Multi-column parser
+  settings wrap intrinsically; do not use viewport size as a proxy for field width.
+- The catalog readiness regression traverses selectable endpoint branches,
+  including parsers and serializers, and rejects scalar width caps on nested
+  forms. The CSS layout contract covers responsive stacking. These structural
+  checks do not replace browser geometry checks for custom table/cell editors.
+
 - No greenish or lavender neutral backgrounds mixed into the cool slate scale.
 - Change a shared role at the theme level, not through isolated screen overrides.
 - Keep dark-theme tokens separate: this palette does not authorize recoloring
