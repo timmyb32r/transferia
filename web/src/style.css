@@ -1926,6 +1926,9 @@ button.interaction-pending {
   position: relative;
   cursor: progress;
 }
+.editor-view-tabs button.interaction-pending {
+  cursor: pointer;
+}
 button.interaction-pending::after {
   position: absolute;
   top: 5px;

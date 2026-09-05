@@ -28,6 +28,30 @@ const editor = (runtime: EditorState["runtime"]): EditorState => ({
 
 describe("editor chrome", () => {
   afterEach(cleanup);
+  it("keeps UI and YAML tabs mounted and pending rather than natively disabled during YAML application", () => {
+    const onUi = vi.fn();
+    const onYaml = vi.fn();
+    const props = { active: "yaml" as const, dataSchemaAvailable: false,
+      onUi, onYaml, onDataSchema: vi.fn(), onPerformanceAdvice: vi.fn(), onLogs: vi.fn() };
+    const view = render(<EditorTabs {...props} disabled={false} />);
+    const tabs = ["UI", "YAML"].map((name) => view.getByRole("tab", { name }) as HTMLButtonElement);
+    view.rerender(<EditorTabs {...props} disabled />);
+    for (const tab of tabs) {
+      expect(tab.disabled).toBe(false);
+      expect(tab.getAttribute("aria-busy")).toBe("true");
+      expect(tab.classList.contains("interaction-pending")).toBe(true);
+      fireEvent.click(tab);
+    }
+    expect(onUi).not.toHaveBeenCalled();
+    expect(onYaml).not.toHaveBeenCalled();
+    view.rerender(<EditorTabs {...props} active="ui" disabled={false} />);
+    tabs.forEach((tab, index) => {
+      expect(view.getByRole("tab", { name: ["UI", "YAML"][index]! })).toBe(tab);
+      expect(tab.getAttribute("aria-busy")).toBe("false");
+    });
+    fireEvent.click(tabs[1]!);
+    expect(onYaml).toHaveBeenCalledOnce();
+  });
   it.each(["error", "success"] as const)("copies %s notices without dismissing them and reports clipboard failures", async (kind) => {
     let resolve!: () => void;
     const writeText = vi.fn().mockReturnValue(new Promise<void>((done) => { resolve = done; }));

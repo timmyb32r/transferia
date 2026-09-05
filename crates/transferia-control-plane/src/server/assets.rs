@@ -1,1 +1,1 @@
-pub use transferia_server_ui::{APP_JS, INDEX_HTML, STYLE_CSS};
+pub use transferia_server_ui::{APP_JS, INDEX_HTML, STYLE_CSS, APP_JS_GZIP, STYLE_CSS_GZIP, APP_JS_VERSION, STYLE_CSS_VERSION};

@@ -403,7 +403,7 @@ export function EditorTabs({
           role="tab"
           aria-selected={active === "ui"}
           class={active === "ui" ? "active" : ""}
-          disabled={disabled}
+          pending={disabled}
           onClick={onUi}
         >
           UI
@@ -412,7 +412,7 @@ export function EditorTabs({
           role="tab"
           aria-selected={active === "yaml"}
           class={active === "yaml" ? "active" : ""}
-          disabled={disabled}
+          pending={disabled}
           onClick={onYaml}
         >
           YAML

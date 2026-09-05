@@ -5,7 +5,7 @@ use axum::body::Body;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, ORIGIN};
-use axum::http::{HeaderValue, StatusCode, Uri};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -21,7 +21,7 @@ use super::api_contract::{
     SqlPlaygroundRequest, StopRequest, UpdateDraftRequest, WorkerLogReadQuery, YamlRequest,
     YamlResponse,
 };
-use super::assets::{APP_JS, INDEX_HTML, STYLE_CSS};
+use super::assets::{APP_JS, INDEX_HTML, STYLE_CSS, APP_JS_GZIP, STYLE_CSS_GZIP, APP_JS_VERSION, STYLE_CSS_VERSION};
 use super::service::{ControlPlane, ServiceError};
 use super::ui_catalog::UiCatalog;
 use transferia_runtime::RunId;
@@ -254,7 +254,7 @@ async fn no_store(request: axum::extract::Request, next: axum::middleware::Next)
     let mut response = next.run(request).await;
     response
         .headers_mut()
-        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        .entry(CACHE_CONTROL).or_insert(HeaderValue::from_static("no-store"));
     response
 }
 
@@ -274,12 +274,35 @@ async fn index() -> Response {
     asset(INDEX_HTML, "text/html; charset=utf-8", true)
 }
 
-async fn app_js() -> Response {
-    asset(APP_JS, "text/javascript; charset=utf-8", false)
+async fn app_js(uri: Uri, headers: HeaderMap) -> Response {
+    versioned_asset(APP_JS, APP_JS_GZIP, APP_JS_VERSION, "text/javascript; charset=utf-8", &uri, &headers)
 }
 
-async fn style_css() -> Response {
-    asset(STYLE_CSS, "text/css; charset=utf-8", false)
+async fn style_css(uri: Uri, headers: HeaderMap) -> Response {
+    versioned_asset(STYLE_CSS, STYLE_CSS_GZIP, STYLE_CSS_VERSION, "text/css; charset=utf-8", &uri, &headers)
+}
+
+fn versioned_asset(contents: &'static str, gzip: &'static [u8], version: &str, content_type: &'static str, uri: &Uri, headers: &HeaderMap) -> Response {
+    let accepts_gzip = headers.get_all("accept-encoding").iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .any(|entry| {
+            let mut parts = entry.split(';');
+            parts.next().is_some_and(|name| name.trim().eq_ignore_ascii_case("gzip"))
+                && parts.all(|parameter| parameter.trim().strip_prefix("q=").is_none_or(|q| q.parse::<f32>().is_ok_and(|q| q > 0.0 && q <= 1.0)))
+        });
+    let mut response = asset(contents, content_type, false);
+    response.headers_mut().insert("vary", HeaderValue::from_static("Accept-Encoding"));
+    if accepts_gzip {
+        *response.body_mut() = Body::from(gzip);
+        response.headers_mut().insert("content-encoding", HeaderValue::from_static("gzip"));
+    }
+    // Only the exact current content version is immutable. Never cache a new
+    // bundle under a stale version URL after the server has been upgraded.
+    if !version.is_empty() && uri.query() == Some(format!("v={version}").as_str()) {
+        response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("public, max-age=31536000, immutable"));
+    }
+    response
 }
 
 async fn health() -> Json<HealthResponse> {

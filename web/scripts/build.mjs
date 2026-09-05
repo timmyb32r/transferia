@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "esbuild";
+import { gzipSync } from "node:zlib";
 
 import { murmur3X64_128 } from "./murmur3-x64-128.mjs";
 
@@ -12,8 +13,8 @@ await build({
   bundle: true,
   format: "iife",
   target: "es2022",
-  minify: process.env.PROFILE === "release",
-  sourcemap: process.env.PROFILE === "release" ? false : "inline",
+  minify: true,
+  sourcemap: false,
   outfile: join(outputDirectory, "app.js"),
 });
 const [javascript, stylesheet, indexTemplate] = await Promise.all([
@@ -28,4 +29,8 @@ const index = indexTemplate
 await Promise.all([
   writeFile(join(outputDirectory, "index.html"), index),
   writeFile(join(outputDirectory, "style.css"), stylesheet),
+  ...[["app.js", javascript], ["style.css", stylesheet]].flatMap(([name, contents]) => [
+    writeFile(join(outputDirectory, `${name}.gz`), gzipSync(contents, { level: 9 })),
+    writeFile(join(outputDirectory, `${name}.version`), digest(contents)),
+  ]),
 ]);
