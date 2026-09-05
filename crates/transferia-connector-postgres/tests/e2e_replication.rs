@@ -85,6 +85,11 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
     assert_existing_slot_is_not_adopted(&host, port, &client).await?;
     let mut pgoutput = source(&host, port, "pgoutput").await?;
     let mut wal2json = source(&host, port, "wal2json").await?;
+    let mut automatic = source(&host, port, "auto").await?;
+    let automatic_plugin: String = client.query_one(
+        "SELECT plugin FROM pg_replication_slots WHERE slot_name = 'dttauto'", &[],
+    ).await?.get(0);
+    assert_eq!(automatic_plugin, "pgoutput");
     let pgoutput_before = slot_lsn(&client, "transferia_pgoutput").await?;
     let wal2json_before = slot_lsn(&client, "transferia_wal2json").await?;
 
@@ -103,6 +108,8 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
 
     let pgoutput_batch = read_changes(&mut pgoutput).await?;
     let wal2json_batch = read_changes(&mut wal2json).await?;
+    let automatic_batch = read_changes(&mut automatic).await?;
+    assert_same_change_rows(&pgoutput_batch, &automatic_batch);
     assert_same_change_rows(&pgoutput_batch, &wal2json_batch);
     assert_eq!(operations(&pgoutput_batch), ["c", "u", "d"]);
     assert_replica_identity_full_preserves_toasted_and_old_values(&pgoutput_batch);
@@ -114,6 +121,7 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
     wal2json
         .commit_offsets(std::slice::from_ref(&wal2json_batch.marker))
         .await?;
+    automatic.commit_offsets(std::slice::from_ref(&automatic_batch.marker)).await?;
     assert!(slot_lsn(&client, "transferia_pgoutput").await? > pgoutput_before);
     assert!(slot_lsn(&client, "transferia_wal2json").await? > wal2json_before);
 
@@ -139,6 +147,14 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
             .await
             .is_err()
     );
+    let before_truncate = slot_lsn(&client, "dttauto").await?;
+    client.batch_execute("TRUNCATE accounts").await?;
+    let error = tokio::time::timeout(Duration::from_secs(10), automatic.read_batch())
+        .await?
+        .err()
+        .context("automatic publication must not silently omit TRUNCATE")?;
+    assert!(format!("{error:#}").contains("TRUNCATE"));
+    assert_eq!(slot_lsn(&client, "dttauto").await?, before_truncate);
     Ok(())
 }
 
@@ -157,12 +173,12 @@ async fn assert_existing_slot_is_not_adopted(
     let before = slot_lsn(client, SLOT).await?;
     let connector = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: accounts }}\nreplication:\n  slot: {SLOT}\n  decoder: {{ type: pgoutput, publication: transferia_publication }}\n  poll_interval_ms: 10\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: accounts }}\nreplication:\n  plugin: {{ type: pgoutput, publication: transferia_publication }}\n  poll_interval_ms: 10\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
     let cancellation = CancellationToken::new();
-    let durable = transferia_test_support::durable_context();
+    let durable = transferia_test_support::durable_contexts(&[SLOT]).remove(0);
     let replay_identity: Arc<str> = Arc::from("foreign-slot-adoption-test");
     connector
         .delivery_discovery(SourceDiscoveryContext {
@@ -222,9 +238,16 @@ struct ChangeBatch {
 }
 
 async fn source(host: &str, port: u16, decoder: &str) -> anyhow::Result<Box<dyn Source>> {
+    let slot = match decoder {
+        "pgoutput" => "transferia_pgoutput",
+        "wal2json" => "transferia_wal2json",
+        "auto" => "dttauto",
+        other => anyhow::bail!("unsupported test plugin {other}"),
+    };
     let decoder = match decoder {
         "pgoutput" => "{ type: pgoutput, publication: transferia_publication }",
-        "wal2json" => "{ type: wal2_json }",
+        "wal2json" => "{ type: wal2json }",
+        "auto" => "{ type: auto }",
         other => anyhow::bail!("unsupported test decoder {other}"),
     };
     let connector = PostgresSourceConnector::from_config(
@@ -238,15 +261,9 @@ trusted_plaintext: true
 tables:
   - {{ schema: public, name: accounts }}
 replication:
-  slot: transferia_{decoder_name}
-  decoder: {decoder}
+  plugin: {decoder}
   poll_interval_ms: 10
-",
-            decoder_name = if decoder.contains("pgoutput") {
-                "pgoutput"
-            } else {
-                "wal2json"
-            }
+"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -260,7 +277,7 @@ replication:
         })
         .await?;
     let cancellation = CancellationToken::new();
-    let durable = transferia_test_support::durable_context();
+    let durable = transferia_test_support::durable_contexts(&[slot]).remove(0);
     connector
         .prepare_execution(SourceExecutionContext {
             request: transferia_core::delivery::DeliveryDiscoveryRequest {

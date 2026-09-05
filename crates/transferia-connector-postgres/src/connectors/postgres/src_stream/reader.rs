@@ -52,6 +52,8 @@ use transferia_registry::durable::DurableContext;
 pub struct PostgresReplicationSource {
     client: Arc<tokio::sync::Mutex<Client>>,
     config: PostgresReplicationConfig,
+    decoder: LogicalDecoder,
+    slot: String,
     database: Arc<str>,
     tables: HashMap<(Arc<str>, Arc<str>), DiscoveredTable>,
     authoritative_tables: Vec<DiscoveredTable>,
@@ -79,6 +81,7 @@ impl PostgresReplicationSource {
     pub(crate) async fn new(
         client: Arc<tokio::sync::Mutex<Client>>,
         config: PostgresReplicationConfig,
+        decoder: LogicalDecoder,
         source_identity: PostgresSourceIdentity,
         database: Arc<str>,
         tables: Vec<DiscoveredTable>,
@@ -88,15 +91,16 @@ impl PostgresReplicationSource {
         exact_start_lsn: Option<u64>,
         replay_identity: Arc<str>,
     ) -> anyhow::Result<Self> {
+        let slot = super::config::replication_slot(&durable.delivery_id)?.to_owned();
         let connection = client.lock().await;
-        if let LogicalDecoder::Pgoutput { publication } = &config.decoder {
-            validate_pgoutput_publication(&*connection, publication, &tables).await?;
+        if let LogicalDecoder::Pgoutput { publication } = &decoder {
+            validate_pgoutput_publication(&*connection, publication, &tables, matches!(config.plugin, super::config::ReplicationPlugin::Auto)).await?;
         } else {
             validate_relation_identities(&*connection, &tables).await?;
         }
         let (slot_tracker, committed_lsn) = ReplicationSlotTracker::prepare(
             &connection,
-            &config,
+            &decoder,
             &source_identity,
             &tables,
             durable,
@@ -121,6 +125,8 @@ impl PostgresReplicationSource {
         Ok(Self {
             client,
             config,
+            decoder,
+            slot,
             database,
             tables,
             authoritative_tables,
@@ -140,7 +146,7 @@ impl PostgresReplicationSource {
         }
         let limit = i32::try_from(self.config.max_changes)?;
         let mut connection = self.client.lock().await;
-        let rows = match &self.config.decoder {
+        let rows = match &self.decoder {
             LogicalDecoder::Pgoutput { publication } => {
                 let transaction = connection
                     .build_transaction()
@@ -154,12 +160,13 @@ impl PostgresReplicationSource {
                     &transaction,
                     publication,
                     &self.authoritative_tables,
+                    matches!(self.config.plugin, super::config::ReplicationPlugin::Auto),
                 )
                 .await?;
                 let rows = transaction
                     .query(
                         "SELECT lsn::text, xid::text, data FROM pg_logical_slot_peek_binary_changes($1, NULL, $2, 'proto_version', '1', 'publication_names', $3)",
-                        &[&self.config.slot, &limit, publication],
+                        &[&self.slot, &limit, publication],
                     )
                     .await?;
                 transaction.commit().await?;
@@ -177,7 +184,7 @@ impl PostgresReplicationSource {
                 let rows = transaction
                     .query(
                         "SELECT lsn::text, xid::text, data FROM pg_logical_slot_peek_binary_changes($1, NULL, $2, 'include-lsn', '1', 'include-timestamp', '1', 'include-types', '1', 'include-xids', '1', 'include-type-oids', '1')",
-                        &[&self.config.slot, &limit],
+                        &[&self.slot, &limit],
                     )
                     .await?;
                 transaction.commit().await?;
@@ -188,7 +195,7 @@ impl PostgresReplicationSource {
         if rows.is_empty() {
             return Ok(());
         }
-        match self.config.decoder {
+        match self.decoder {
             LogicalDecoder::Pgoutput { .. } => {
                 for row in rows {
                     let data: Vec<u8> = row.get(2);
@@ -557,7 +564,7 @@ impl Source for PostgresReplicationSource {
                 .await
                 .map_err(DataPlaneFailure::fatal)?;
             let connection = self.client.lock().await;
-            advance_slot(&connection, &self.config.slot, lsn)
+            advance_slot(&connection, &self.slot, lsn)
                 .await
                 .map_err(|error| {
                     if is_replication_safety_violation(&error) {

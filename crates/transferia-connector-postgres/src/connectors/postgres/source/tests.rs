@@ -102,7 +102,7 @@ fn snapshot_and_replication_declare_distinct_record_semantics() {
     )
     .unwrap();
     let replication: PostgresSourceConfig = serde_yaml::from_str(
-        "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - name: events\nreplication:\n  slot: transferia_slot\n  decoder:\n    type: pgoutput\n    publication: transferia_publication\n",
+        "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - name: events\nreplication:\n  plugin:\n    type: pgoutput\n    publication: transferia_publication\n",
     )
     .unwrap();
 

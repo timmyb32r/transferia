@@ -94,11 +94,12 @@ async fn exact_slot_snapshot_hands_off_and_resumes_for_each_decoder_and_copy_for
             "pgoutput",
             "{ type: pgoutput, publication: transferia_exact_publication }",
         ),
-        ("wal2json", "{ type: wal2_json }"),
+        ("wal2json", "{ type: wal2json }"),
+        ("auto", "{ type: auto }"),
     ] {
         for copy_format in ["binary", "text"] {
             restore_initial_rows(&client).await?;
-            let slot = format!("exact_{decoder_name}_{copy_format}");
+            let slot = format!("dttexact_{decoder_name}_{copy_format}");
             verify_exact_boundary(&host, port, &slot, decoder, copy_format, &client)
                 .await
                 .with_context(|| {
@@ -106,6 +107,55 @@ async fn exact_slot_snapshot_hands_off_and_resumes_for_each_decoder_and_copy_for
                 })?;
         }
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn automatic_plugin_works_without_wal2json_and_refuses_foreign_publications() -> anyhow::Result<()> {
+    let postgres = GenericImage::new("postgres", "17.6-bookworm")
+        .with_exposed_port(POSTGRES_PORT.tcp())
+        .with_wait_for(WaitFor::message_on_stderr("database system is ready to accept connections"))
+        .with_env_var("POSTGRES_PASSWORD", "test")
+        .with_env_var("POSTGRES_DB", "transferia")
+        .with_cmd(["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10"])
+        .start().await?;
+    let host = reachable_host(&postgres.get_host().await?);
+    let port = postgres.get_host_port_ipv4(POSTGRES_PORT.tcp()).await?;
+    let client = connect_with_retry(&connection_string(&host, port)).await?;
+    client.batch_execute(
+        "CREATE TABLE exact_a (id bigint PRIMARY KEY, payload text NOT NULL);\
+         ALTER TABLE exact_a REPLICA IDENTITY FULL;\
+         CREATE TABLE exact_b (id bigint PRIMARY KEY, payload text NOT NULL);\
+         ALTER TABLE exact_b REPLICA IDENTITY FULL;\
+         CREATE PUBLICATION dttforeign FOR TABLE exact_a, exact_b;"
+    ).await?;
+    let config = format!(
+        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: exact_a }}\n  - {{ schema: public, name: exact_b }}\nreplication: {{}}\n"
+    );
+    let connector = postgres_connector(&config)?;
+    let cancellation = CancellationToken::new();
+    let durable = transferia_test_support::durable_contexts(&["dttforeign"]).remove(0);
+    let before: u32 = client.query_one("SELECT oid FROM pg_publication WHERE pubname = 'dttforeign'", &[]).await?.get(0);
+    let error = connector.prepare_execution(combined_execution_context(&durable, &cancellation))
+        .await.err().context("auto must refuse an unrelated existing publication")?;
+    assert!(format!("{error:#}").contains("not owned by this transfer"));
+    let after: u32 = client.query_one("SELECT oid FROM pg_publication WHERE pubname = 'dttforeign'", &[]).await?.get(0);
+    assert_eq!(before, after, "a foreign publication was replaced");
+    assert_eq!(replication_slot_count(&client, "dttforeign").await?, 0);
+    let probes: i64 = client.query_one("SELECT count(*) FROM pg_replication_slots WHERE temporary", &[]).await?.get(0);
+    assert_eq!(probes, 0);
+    restore_initial_rows(&client).await?;
+    verify_exact_boundary(&host, port, "dttauto_pgonly", "{ type: auto }", "binary", &client).await?;
+    client.batch_execute("DROP PUBLICATION dttauto_pgonly").await?;
+    let durable = transferia_test_support::durable_contexts(&["dttauto_pgonly"]).remove(0);
+    let error = postgres_connector(&config)?
+        .prepare_execution(combined_execution_context(&durable, &cancellation))
+        .await.err().context("a publication missing behind an existing slot must not be recreated")?;
+    assert!(format!("{error:#}").contains("refusing to recreate"));
+    let publications: i64 = client.query_one(
+        "SELECT count(*) FROM pg_publication WHERE pubname = 'dttauto_pgonly'", &[],
+    ).await?.get(0);
+    assert_eq!(publications, 0);
     Ok(())
 }
 
@@ -213,12 +263,12 @@ async fn pgoutput_runtime_publication_drift_is_fatal_without_offset_progress() -
     let slot = "runtime_publication_drift";
     let connector = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: drift_events }}\nreplication:\n  slot: {slot}\n  decoder: {{ type: pgoutput, publication: publication_runtime_drift }}\n  poll_interval_ms: 10\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: drift_events }}\nreplication:\n  plugin: {{ type: pgoutput, publication: publication_runtime_drift }}\n  poll_interval_ms: 10\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
     let cancellation = CancellationToken::new();
-    let durable = transferia_test_support::durable_context();
+    let durable = transferia_test_support::durable_contexts(&[&slot]).remove(0);
     connector
         .delivery_discovery(SourceDiscoveryContext {
             request: DeliveryDiscoveryRequest {
@@ -354,10 +404,10 @@ async fn interrupted_snapshot_stays_failed_closed_after_the_user_drops_the_exact
 
     let slot = "manual_reset_slot";
     let config = format!(
-        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: manual_reset_events }}\nreplication:\n  slot: {slot}\n  decoder: {{ type: pgoutput, publication: manual_reset_publication }}\n  poll_interval_ms: 10\n"
+        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: manual_reset_events }}\nreplication:\n  plugin: {{ type: pgoutput, publication: manual_reset_publication }}\n  poll_interval_ms: 10\n"
     );
     let cancellation = CancellationToken::new();
-    let durable = transferia_test_support::durable_context();
+    let durable = transferia_test_support::durable_contexts(&[&slot]).remove(0);
     let state_key = format!("postgres-snapshot-stream-{slot}");
 
     let interrupted = postgres_connector(&config)?;
@@ -478,11 +528,11 @@ async fn global_slot_owner_fences_a_different_delivery_concurrently_and_sequenti
 
     let slot = "connector_lease_slot";
     let config = format!(
-        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: lease_events }}\nreplication:\n  slot: {slot}\n  decoder: {{ type: pgoutput, publication: lease_publication }}\n  poll_interval_ms: 10\n"
+        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: lease_events }}\nreplication:\n  plugin: {{ type: pgoutput, publication: lease_publication }}\n  poll_interval_ms: 10\n"
     );
     let cancellation = CancellationToken::new();
     let mut durables =
-        transferia_test_support::durable_contexts(&["slot-owner", "slot-contender"]).into_iter();
+        transferia_test_support::durable_contexts(&[slot, slot]).into_iter();
     let owner_durable = durables.next().expect("owner durable context");
     let contender_durable = durables.next().expect("contender durable context");
     let state_key = format!("postgres-snapshot-stream-{slot}");
@@ -507,7 +557,7 @@ async fn global_slot_owner_fences_a_different_delivery_concurrently_and_sequenti
     let resource_key = format!("postgres-replication-{system_identifier}-{database_oid}-{slot}");
 
     let mut isolated_durable = transferia_test_support::durable_context();
-    isolated_durable.delivery_id = Arc::from("isolated-root-contender");
+    isolated_durable.delivery_id = Arc::from(slot);
     let isolated_contender = postgres_connector(&config)?;
     isolated_contender
         .delivery_discovery(combined_discovery_context(&cancellation))
@@ -543,7 +593,7 @@ async fn global_slot_owner_fences_a_different_delivery_concurrently_and_sequenti
         .expect("slot ownership must be visible in the global resource namespace");
     let resource_owner_json: serde_json::Value = serde_json::from_slice(&resource_owner.payload)?;
     assert_eq!(resource_owner_json["version"], 1);
-    assert_eq!(resource_owner_json["delivery_id"], "slot-owner");
+    assert_eq!(resource_owner_json["delivery_id"], slot);
     assert_eq!(
         resource_owner_json["source"]["system_identifier"],
         system_identifier
@@ -614,13 +664,12 @@ async fn global_slot_owner_fences_a_different_delivery_concurrently_and_sequenti
     )
     .await
     .context("timed out checking persistent cross-delivery slot ownership")?
-    .expect_err("a different delivery must remain fenced after the live lease is released");
+    .expect_err("a different durable history must remain fenced after the live lease is released");
     let diagnostic = format!("{error:#}");
     assert!(
-        diagnostic.contains("already owned by delivery 'slot-owner'"),
+        diagnostic.contains("without matching batch_and_stream durable ownership"),
         "{diagnostic}"
     );
-    assert!(diagnostic.contains("slot-contender"), "{diagnostic}");
     assert_eq!(contender_durable.storage.read(&state_key).await?, None);
     assert_eq!(
         contender_durable
@@ -689,12 +738,12 @@ async fn assert_publication_rejected_before_execution(
     let slot = format!("rejected_{case}");
     let connector = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: publication_a }}\n  - {{ schema: public, name: publication_b }}\nreplication:\n  slot: {slot}\n  decoder: {{ type: pgoutput, publication: {publication} }}\n  poll_interval_ms: 10\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: publication_a }}\n  - {{ schema: public, name: publication_b }}\nreplication:\n  plugin: {{ type: pgoutput, publication: {publication} }}\n  poll_interval_ms: 10\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
     let cancellation = CancellationToken::new();
-    let durable = transferia_test_support::durable_context();
+    let durable = transferia_test_support::durable_contexts(&[&slot]).remove(0);
     let phase_key = format!("postgres-snapshot-stream-{slot}");
     let offset_key = format!("postgres-replication-{slot}");
     let (system_identifier, database_oid) = postgres_source_identity(client).await?;
@@ -766,11 +815,11 @@ async fn verify_exact_boundary(
     client: &tokio_postgres::Client,
 ) -> anyhow::Result<()> {
     let config = format!(
-        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: exact_a }}\n  - {{ schema: public, name: exact_b }}\nbatch_rows: 1\ncopy_to_format: {copy_format}\nreplication:\n  slot: {slot}\n  decoder: {decoder}\n  poll_interval_ms: 10\n"
+        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: exact_a }}\n  - {{ schema: public, name: exact_b }}\nbatch_rows: 1\ncopy_to_format: {copy_format}\nreplication:\n  plugin: {decoder}\n  poll_interval_ms: 10\n"
     );
     let connector = postgres_connector(&config)?;
     let cancellation = CancellationToken::new();
-    let durable = transferia_test_support::durable_context();
+    let durable = transferia_test_support::durable_contexts(&[&slot]).remove(0);
     let preview = connector
         .delivery_discovery(SourceDiscoveryContext {
             request: DeliveryDiscoveryRequest {
@@ -808,6 +857,19 @@ async fn verify_exact_boundary(
         "a fresh exact snapshot must retain the complete authoritative phase plan"
     );
     assert_replication_owner_count(client, 1).await?;
+
+    if decoder.contains("auto") {
+        let row = client.query_one(
+            "SELECT plugin FROM pg_replication_slots WHERE slot_name = $1", &[&slot],
+        ).await?;
+        assert_eq!(row.get::<_, String>(0), "pgoutput", "auto must prefer pgoutput when both plugins exist");
+        let published = client.query(
+            "SELECT tablename FROM pg_publication_tables WHERE pubname = $1 ORDER BY tablename", &[&slot],
+        ).await?;
+        assert_eq!(published.iter().map(|row| row.get::<_, String>(0)).collect::<Vec<_>>(), ["exact_a", "exact_b"]);
+        let row = client.query_one("SELECT count(*) FROM pg_replication_slots WHERE temporary", &[]).await?;
+        assert_eq!(row.get::<_, i64>(0), 0, "plugin probes must not leave temporary slots");
+    }
 
     mutate_after_boundary(client).await?;
     let snapshot = read_snapshot_phase(&connector, &durable, &cancellation).await?;

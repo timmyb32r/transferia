@@ -546,7 +546,8 @@ async fn exercise_postgres(iceberg: &IcebergFixture) -> anyhow::Result<()> {
         )
         .await?;
     let config = postgres_source_yaml(&host, port);
-    let durable = support::durable_context();
+    let mut durable = support::durable_context();
+    durable.delivery_id = Arc::from("iceberg_replica_slot");
     let replay_identity: Arc<str> = Arc::from("postgres-iceberg-replica-v1");
     let connector = postgres_connector(&config)?;
     let discovery = Arc::new(discover_stream(&connector).await?);
@@ -707,7 +708,7 @@ fn mysql_source_yaml(connection: &MySqlConnectionConfig) -> String {
 
 fn postgres_source_yaml(host: &str, port: u16) -> String {
     format!(
-        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: postgres_replica }}\nreplication:\n  slot: iceberg_replica_slot\n  decoder: {{ type: pgoutput, publication: iceberg_publication }}\n  poll_interval_ms: 10\n"
+        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: postgres_replica }}\nreplication:\n  plugin: {{ type: pgoutput, publication: iceberg_publication }}\n  poll_interval_ms: 10\n"
     )
 }
 

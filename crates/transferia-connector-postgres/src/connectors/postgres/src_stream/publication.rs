@@ -108,6 +108,7 @@ pub async fn validate_pgoutput_publication<C>(
     client: &C,
     publication: &str,
     tables: &[DiscoveredTable],
+    automatic: bool,
 ) -> anyhow::Result<()>
 where
     C: GenericClient + Sync,
@@ -126,7 +127,7 @@ where
         client.query(PUBLICATION_CONTRACT_SQL, &[&publication, &schemas, &names]),
     )
     .await?;
-    decode_and_validate_publication(publication, tables, &rows)
+    decode_and_validate_publication(publication, tables, &rows, automatic)
         .map_err(replication_contract_violation)
 }
 
@@ -134,6 +135,7 @@ fn decode_and_validate_publication(
     publication: &str,
     tables: &[DiscoveredTable],
     rows: &[tokio_postgres::Row],
+    automatic: bool,
 ) -> anyhow::Result<()> {
     let first = rows
         .first()
@@ -147,6 +149,12 @@ fn decode_and_validate_publication(
         has_attnames: first.try_get(5)?,
         has_rowfilter: first.try_get(6)?,
     };
+    if automatic {
+        anyhow::ensure!(
+            actions.truncate == Some(true),
+            "Automatic publication '{publication}' must publish TRUNCATE so unsupported changes fail closed"
+        );
+    }
     let published = rows
         .iter()
         .map(|row| {
@@ -197,10 +205,6 @@ fn validate_publication_contract(
             && actions.update == Some(true)
             && actions.delete == Some(true),
         "PostgreSQL publication '{publication}' must publish INSERT, UPDATE, and DELETE"
-    );
-    anyhow::ensure!(
-        !actions.truncate.unwrap_or(false),
-        "PostgreSQL publication '{publication}' must not publish TRUNCATE because Transferia's row-change model cannot represent table-level truncation; create a row-DML-only publication"
     );
     anyhow::ensure!(
         !actions.via_partition_root.unwrap_or(false),

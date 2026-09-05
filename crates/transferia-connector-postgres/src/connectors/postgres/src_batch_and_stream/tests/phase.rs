@@ -14,16 +14,12 @@ fn source() -> PostgresSourceIdentity {
     }
 }
 
-fn config() -> PostgresReplicationConfig {
-    PostgresReplicationConfig {
-        slot: "transferia_exact_boundary".to_owned(),
-        decoder: LogicalDecoder::Pgoutput {
-            publication: "transferia_publication".to_owned(),
-        },
-        max_changes: 4_096,
-        poll_interval_ms: 100,
-        bootstrap_timeout_ms: 30_000,
-    }
+fn config() -> LogicalDecoder {
+    LogicalDecoder::Pgoutput { publication: "transferia_publication".to_owned() }
+}
+
+fn durable_context() -> transferia_registry::durable::DurableContext {
+    transferia_test_support::durable_contexts(&["transferia_exact_boundary"]).remove(0)
 }
 
 fn tables() -> Vec<TableConfig> {
@@ -60,7 +56,7 @@ fn discovered_tables() -> Vec<DiscoveredTable> {
 
 #[tokio::test]
 async fn exact_boundary_becomes_the_only_resumable_stream_start() {
-    let durable = transferia_test_support::durable_context();
+    let durable = durable_context();
     let SnapshotStreamPreparation::Create(mut tracker) = SnapshotStreamTracker::claim_or_resume(
         &config(),
         &tables(),
@@ -104,7 +100,7 @@ async fn exact_boundary_becomes_the_only_resumable_stream_start() {
 #[tokio::test]
 async fn claimed_or_snapshot_state_never_invents_a_new_snapshot() {
     for mark_snapshot in [false, true] {
-        let durable = transferia_test_support::durable_context();
+        let durable = durable_context();
         let SnapshotStreamPreparation::Create(mut tracker) =
             SnapshotStreamTracker::claim_or_resume(
                 &config(),
@@ -150,7 +146,7 @@ async fn claimed_or_snapshot_state_never_invents_a_new_snapshot() {
 
 #[tokio::test]
 async fn durable_identity_rejects_replay_source_or_table_changes() {
-    let durable = transferia_test_support::durable_context();
+    let durable = durable_context();
     let SnapshotStreamPreparation::Create(mut tracker) = SnapshotStreamTracker::claim_or_resume(
         &config(),
         &tables(),
@@ -170,8 +166,7 @@ async fn durable_identity_rejects_replay_source_or_table_changes() {
     tracker.mark_streaming().await.unwrap();
     drop(tracker);
 
-    let mut changed_config = config();
-    changed_config.decoder = LogicalDecoder::Pgoutput {
+    let changed_config = LogicalDecoder::Pgoutput {
         publication: "other_publication".to_owned(),
     };
     let changed_tables = vec![TableConfig {
@@ -216,7 +211,7 @@ async fn durable_identity_rejects_replay_source_or_table_changes() {
 
 #[tokio::test]
 async fn slot_free_claimed_state_is_recycled_before_destination_delivery_can_start() {
-    let durable = transferia_test_support::durable_context();
+    let durable = durable_context();
     let SnapshotStreamPreparation::Create(tracker) = SnapshotStreamTracker::claim_or_resume(
         &config(),
         &tables(),
@@ -248,7 +243,7 @@ async fn slot_free_claimed_state_is_recycled_before_destination_delivery_can_sta
 
 #[tokio::test]
 async fn slot_free_snapshot_state_fails_closed_before_a_new_boundary_is_created() {
-    let durable = transferia_test_support::durable_context();
+    let durable = durable_context();
     let SnapshotStreamPreparation::Create(mut tracker) = SnapshotStreamTracker::claim_or_resume(
         &config(),
         &tables(),
@@ -296,7 +291,7 @@ async fn unowned_existing_slot_is_never_claimed() {
         &config(),
         &tables(),
         &source(),
-        transferia_test_support::durable_context(),
+        durable_context(),
         true,
         REPLAY_IDENTITY,
     )
@@ -311,7 +306,7 @@ async fn unowned_existing_slot_is_never_claimed() {
 
 #[tokio::test]
 async fn durable_phase_rejects_cluster_database_and_database_oid_drift() {
-    let durable = transferia_test_support::durable_context();
+    let durable = durable_context();
     let SnapshotStreamPreparation::Create(mut tracker) = SnapshotStreamTracker::claim_or_resume(
         &config(),
         &tables(),
@@ -355,7 +350,7 @@ async fn durable_phase_rejects_cluster_database_and_database_oid_drift() {
 
 #[tokio::test]
 async fn durable_phase_rejects_authoritative_oid_schema_and_replica_identity_drift() {
-    let durable = transferia_test_support::durable_context();
+    let durable = durable_context();
     let SnapshotStreamPreparation::Create(mut tracker) = SnapshotStreamTracker::claim_or_resume(
         &config(),
         &tables(),
@@ -419,7 +414,7 @@ async fn durable_phase_rejects_authoritative_oid_schema_and_replica_identity_dri
 
 #[tokio::test]
 async fn execution_lease_fences_a_concurrent_phase_claim() {
-    let durable = transferia_test_support::durable_context();
+    let durable = durable_context();
     let lease = durable
         .storage
         .acquire_execution_lease("postgres-replication-transferia_exact_boundary")
@@ -449,7 +444,7 @@ async fn execution_lease_fences_a_concurrent_phase_claim() {
 
 #[tokio::test]
 async fn durable_phase_payload_contains_identity_and_boundary_but_no_snapshot_token() {
-    let durable = transferia_test_support::durable_context();
+    let durable = durable_context();
     let SnapshotStreamPreparation::Create(mut tracker) = SnapshotStreamTracker::claim_or_resume(
         &config(),
         &tables(),

@@ -751,10 +751,11 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
     )
     .await?;
     let replay_identity: Arc<str> = Arc::from("postgres-all-types-revision-1");
-    let durable = support::durable_context();
+    let mut durable = support::durable_context();
+    durable.delivery_id = Arc::from("transferia_all_types");
     let replication = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 128\ntables:\n  - name: all_types\nreplication:\n  slot: transferia_all_types\n  decoder: {{ type: pgoutput, publication: transferia_all_types }}\n  poll_interval_ms: 10\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 128\ntables:\n  - name: all_types\nreplication:\n  plugin: {{ type: pgoutput, publication: transferia_all_types }}\n  poll_interval_ms: 10\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;

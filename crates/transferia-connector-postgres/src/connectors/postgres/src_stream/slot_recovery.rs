@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio_postgres::Client;
 use transferia_registry::durable::{CompareExchangeResult, DurableContext, DurableStorage};
 
-use super::config::{LogicalDecoder, PostgresReplicationConfig};
+use super::config::{LogicalDecoder};
 use super::identity::{
     authoritative_table_identities, AuthoritativeTableIdentity, PostgresSourceIdentity,
 };
@@ -99,7 +99,7 @@ pub(super) struct ReplicationSlotTracker {
 impl ReplicationSlotTracker {
     pub(super) async fn prepare(
         client: &Client,
-        config: &PostgresReplicationConfig,
+        decoder: &LogicalDecoder,
         source: &PostgresSourceIdentity,
         tables: &[DiscoveredTable],
         durable: DurableContext,
@@ -111,21 +111,22 @@ impl ReplicationSlotTracker {
                 "PostgreSQL replication replay identity must not be empty"
             )));
         }
-        let plugin = config.decoder.plugin().to_owned();
-        let publication = match &config.decoder {
+        let slot = super::config::replication_slot(&durable.delivery_id)?.to_owned();
+        let plugin = decoder.plugin().to_owned();
+        let publication = match decoder {
             LogicalDecoder::Pgoutput { publication } => Some(publication.clone()),
             LogicalDecoder::Wal2Json => None,
         };
         let authoritative_tables =
             authoritative_table_identities(tables).map_err(replication_safety_violation)?;
-        let key = format!("postgres-replication-{}", config.slot);
+        let key = format!("postgres-replication-{}", slot);
         let persisted = durable.storage.read(&key).await?;
         let persisted_lsn = persisted
             .as_ref()
             .map(|value| {
                 decode_state(
                     &value.payload,
-                    &config.slot,
+                    &slot,
                     &plugin,
                     publication.as_deref(),
                     source,
@@ -139,7 +140,7 @@ impl ReplicationSlotTracker {
             key,
             revision: persisted.as_ref().map(|value| value.revision),
             replay_identity,
-            slot: config.slot.clone(),
+            slot: slot.clone(),
             plugin: plugin.clone(),
             publication,
             source: source.clone(),
@@ -156,12 +157,12 @@ impl ReplicationSlotTracker {
             }
         }
         let requested_lsn = persisted_lsn.or(exact_start_lsn);
-        let committed_lsn = match existing_slot(client, &config.slot, source).await? {
+        let committed_lsn = match existing_slot(client, &slot, source).await? {
             Some(existing) => {
                 if existing.plugin != plugin {
                     return Err(replication_safety_violation(anyhow::anyhow!(
                         "PostgreSQL slot '{}' uses plugin '{}', configuration requires '{}'",
-                        config.slot,
+                        slot,
                         existing.plugin,
                         plugin,
                     )));
@@ -169,19 +170,19 @@ impl ReplicationSlotTracker {
                 let committed = requested_lsn.ok_or_else(|| {
                     replication_safety_violation(anyhow::anyhow!(
                         "PostgreSQL replication slot '{}' already exists, but this delivery has no durable offset or freshly created exact start position; refusing to adopt an unowned slot",
-                        config.slot,
+                        slot,
                     ))
                 })?;
                 if existing.committed_lsn > committed {
                     return Err(replication_safety_violation(anyhow::anyhow!(
                         "PostgreSQL slot '{}' confirmed LSN {} is ahead of durable LSN {}; refusing to skip uncommitted changes",
-                        config.slot,
+                        slot,
                         super::reader::format_lsn(existing.committed_lsn),
                         super::reader::format_lsn(committed),
                     )));
                 }
                 if committed > existing.committed_lsn {
-                    advance_slot(client, &config.slot, committed).await?;
+                    advance_slot(client, &slot, committed).await?;
                 }
                 committed
             }
@@ -189,24 +190,24 @@ impl ReplicationSlotTracker {
                 let committed = requested_lsn.ok_or_else(|| {
                     replication_safety_violation(anyhow::anyhow!(
                         "PostgreSQL replication slot '{}' does not exist and no durable committed LSN is available",
-                        config.slot,
+                        slot,
                     ))
                 })?;
                 let schema = pg_tm_aux_schema(client).await?.ok_or_else(|| {
                     replication_safety_violation(anyhow::anyhow!(
                         "PostgreSQL replication slot '{}' disappeared and pg_tm_aux is not installed",
-                        config.slot,
+                        slot,
                     ))
                 })?;
                 let created_lsn =
-                    recreate_slot(client, &schema, &config.slot, &plugin, committed).await?;
+                    recreate_slot(client, &schema, &slot, &plugin, committed).await?;
                 match recreated_slot_recovery_plan(created_lsn, committed)? {
                     RecreatedSlotRecoveryPlan::VerifyExact => {}
                     RecreatedSlotRecoveryPlan::CatchUpThenVerifyExact => {
-                        advance_slot(client, &config.slot, committed).await?;
+                        advance_slot(client, &slot, committed).await?;
                     }
                 }
-                verify_slot_exact(client, &config.slot, &plugin, source, committed).await?;
+                verify_slot_exact(client, &slot, &plugin, source, committed).await?;
                 committed
             }
         };

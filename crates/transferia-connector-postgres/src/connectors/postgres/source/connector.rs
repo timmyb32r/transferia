@@ -156,6 +156,8 @@ struct HeldReplicationOwnership {
 
     postgres_lease: Arc<tokio::sync::Mutex<tokio_postgres::Client>>,
 
+    decoder: LogicalDecoder,
+
     _lease: DurableLease,
 }
 
@@ -215,15 +217,15 @@ impl PostgresSourceConnector {
             self.config.replication.as_ref().ok_or_else(|| {
                 anyhow::anyhow!("PostgreSQL replication configuration is missing")
             })?;
+        let slot = super::super::src_stream::replication_slot(&durable.delivery_id)?;
         let held = self
             .replication_ownership
             .get_or_try_init(|| async {
-                let identity_client = connect(&self.config.connection).await?;
+                let mut identity_client = connect(&self.config.connection).await?;
                 let preflight_tables =
                     discover_replication_tables(&identity_client, &self.config.tables).await?;
-                if let LogicalDecoder::Pgoutput { publication } = &replication.decoder {
-                    validate_pgoutput_publication(&identity_client, publication, &preflight_tables)
-                        .await?;
+                if let super::super::src_stream::ReplicationPlugin::Pgoutput { publication } = &replication.plugin {
+                    validate_pgoutput_publication(&identity_client, publication, &preflight_tables, false).await?;
                 }
                 let source_identity = identify_source(
                     &self.config.connection,
@@ -232,7 +234,7 @@ impl PostgresSourceConnector {
                     Duration::from_millis(replication.bootstrap_timeout_ms),
                 )
                 .await?;
-                let resource_key = replication_resource_key(&source_identity, &replication.slot);
+                let resource_key = replication_resource_key(&source_identity, slot);
                 acquire_postgres_replication_lease(&identity_client, &resource_key).await?;
                 let lease = durable
                     .resource_storage
@@ -242,10 +244,20 @@ impl PostgresSourceConnector {
                     durable,
                     &resource_key,
                     &source_identity,
-                    &replication.slot,
+                    slot,
                 )
                 .await?;
+                let decoder = tokio::select! {
+                    _ = cancellation.cancelled() => anyhow::bail!("PostgreSQL plugin preparation cancelled"),
+                    result = tokio::time::timeout(
+                        Duration::from_millis(replication.bootstrap_timeout_ms),
+                        super::super::src_stream::resolve_plugin(
+                            &mut identity_client, &replication.plugin, slot, &resource_key, &preflight_tables,
+                        ),
+                    ) => result.map_err(|_| anyhow::anyhow!("PostgreSQL plugin/publication preparation timed out"))??,
+                };
                 Ok::<_, anyhow::Error>(HeldReplicationOwnership {
+                    decoder,
                     delivery_id: Arc::clone(&durable.delivery_id),
                     delivery_storage: Arc::clone(&durable.storage),
                     resource_storage: Arc::clone(&durable.resource_storage),
@@ -271,8 +283,8 @@ impl PostgresSourceConnector {
                     let client = connect(&self.config.connection).await?;
                     let tables = discover_replication_tables(&client, &self.config.tables).await?;
                     if let Some(replication) = &self.config.replication {
-                        if let LogicalDecoder::Pgoutput { publication } = &replication.decoder {
-                            validate_pgoutput_publication(&client, publication, &tables).await?;
+                        if let super::super::src_stream::ReplicationPlugin::Pgoutput { publication } = &replication.plugin {
+                            validate_pgoutput_publication(&client, publication, &tables, false).await?;
                         }
                     }
                     Ok(Arc::new(tables))
@@ -316,23 +328,28 @@ impl PostgresSourceConnector {
             self.config.replication.as_ref().ok_or_else(|| {
                 anyhow::anyhow!("PostgreSQL replication configuration is missing")
             })?;
+        let ownership = self.ensure_replication_resource_ownership(&durable, &cancellation).await?;
+        let decoder = &ownership.decoder;
+        let slot = super::super::src_stream::replication_slot(&durable.delivery_id)?.to_owned();
+        let slot = slot.as_str();
         let initialized_replay_identity = Arc::clone(&replay_identity);
         self.snapshot_stream
             .get_or_try_init(|| async move {
                 let identity_client = connect(&self.config.connection).await?;
                 let preflight_tables =
                     discover_replication_tables(&identity_client, &self.config.tables).await?;
-                if let LogicalDecoder::Pgoutput { publication } = &replication.decoder {
+                if let LogicalDecoder::Pgoutput { publication } = decoder {
                     validate_pgoutput_publication(
                         &identity_client,
                         publication,
                         &preflight_tables,
+                        matches!(replication.plugin, super::super::src_stream::ReplicationPlugin::Auto),
                     )
                     .await?;
                 }
-                let slot_exists = replication_slot_exists(&identity_client, &replication.slot).await?;
+                let slot_exists = replication_slot_exists(&identity_client, slot).await?;
                 let preparation = SnapshotStreamTracker::claim_or_resume(
-                    replication,
+                    decoder,
                     &self.config.tables,
                     &source_identity,
                     durable,
@@ -344,8 +361,8 @@ impl PostgresSourceConnector {
                     SnapshotStreamPreparation::Create(mut tracker) => {
                         let bootstrap = ReplicationSlotBootstrap::create(
                             &self.config.connection,
-                            &replication.slot,
-                            replication.decoder.plugin(),
+                            slot,
+                            decoder.plugin(),
                             &source_identity.system(),
                             &cancellation,
                             Duration::from_millis(replication.bootstrap_timeout_ms),
@@ -375,11 +392,12 @@ impl PostgresSourceConnector {
                             discover_replication_tables(&snapshot_client, &self.config.tables)
                                 .await?,
                         );
-                        if let LogicalDecoder::Pgoutput { publication } = &replication.decoder {
+                        if let LogicalDecoder::Pgoutput { publication } = decoder {
                             validate_pgoutput_publication(
                                 &*snapshot_client,
                                 publication,
                                 &tables,
+                                matches!(replication.plugin, super::super::src_stream::ReplicationPlugin::Auto),
                             )
                             .await?;
                         }
@@ -437,19 +455,20 @@ impl PostgresSourceConnector {
             self.config.replication.as_ref().ok_or_else(|| {
                 anyhow::anyhow!("PostgreSQL replication configuration is missing")
             })?;
+        let slot = super::super::src_stream::replication_slot(&ownership.delivery_id)?;
         self.stream_start_lsn
             .get_or_try_init(|| async {
                 let connection = ownership.postgres_lease.lock().await;
                 let slot_exists =
-                    replication_slot_exists(&connection, &replication.slot).await?;
+                    replication_slot_exists(&connection, slot).await?;
                 drop(connection);
                 if slot_exists {
                     return Ok::<Option<u64>, anyhow::Error>(None);
                 }
                 let bootstrap = ReplicationSlotBootstrap::create(
                     &self.config.connection,
-                    &replication.slot,
-                    replication.decoder.plugin(),
+                    slot,
+                    ownership.decoder.plugin(),
                     &ownership.source_identity.system(),
                     cancellation,
                     Duration::from_millis(replication.bootstrap_timeout_ms),
@@ -1123,6 +1142,7 @@ impl SourceConnector for PostgresSourceConnector {
                     let source = PostgresReplicationSource::new(
                         client,
                         replication.clone(),
+                        replication_ownership.ok_or_else(|| anyhow::anyhow!("PostgreSQL replication ownership is missing"))?.decoder.clone(),
                         source_identity,
                         Arc::from(self.config.connection.database.as_str()),
                         tables.as_ref().clone(),

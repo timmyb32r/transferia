@@ -1,5 +1,5 @@
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::connectors::postgres::common::validate_identifier;
 
@@ -7,9 +7,9 @@ use crate::connectors::postgres::common::validate_identifier;
 #[serde(deny_unknown_fields)]
 #[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "replication", "delivery_modes": ["stream", "batch_and_stream"], "record_semantics": ["changelog"] } }))]
 pub struct PostgresReplicationConfig {
-    pub slot: String,
-
-    pub decoder: LogicalDecoder,
+    #[serde(default)]
+    #[schemars(title = "Plugin", extend("x-ui" = { "section": "advanced" }))]
+    pub plugin: ReplicationPlugin,
 
     #[serde(default = "default_max_changes")]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]
@@ -30,8 +30,9 @@ pub struct PostgresReplicationConfig {
 
 impl PostgresReplicationConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
-        validate_identifier("replication slot", &self.slot)?;
-        self.decoder.validate()?;
+        if let ReplicationPlugin::Pgoutput { publication } = &self.plugin {
+            validate_identifier("publication", publication)?;
+        }
         anyhow::ensure!(
             self.max_changes > 0 && i32::try_from(self.max_changes).is_ok(),
             "replication.max_changes must be in 1..={}",
@@ -49,21 +50,36 @@ impl PostgresReplicationConfig {
     }
 }
 
-#[derive(Clone, Deserialize, JsonSchema)]
+pub(crate) fn replication_slot(delivery_id: &str) -> anyhow::Result<&str> {
+    anyhow::ensure!(
+        !delivery_id.is_empty()
+            && delivery_id.len() <= crate::connectors::postgres::common::MAX_IDENTIFIER_BYTES
+            && delivery_id.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'),
+        "PostgreSQL replication requires a transfer ID containing only lowercase ASCII letters, digits, and underscores, at most 63 bytes; the slot name must equal the transfer ID"
+    );
+    Ok(delivery_id)
+}
+
+#[derive(Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ReplicationPlugin {
+    #[default]
+    #[schemars(title = "auto")]
+    Auto,
+    #[schemars(title = "pgoutput")]
+    Pgoutput { publication: String },
+    #[serde(rename = "wal2json")]
+    #[schemars(title = "wal2json")]
+    Wal2Json,
+}
+
+#[derive(Clone)]
 pub enum LogicalDecoder {
     Pgoutput { publication: String },
     Wal2Json,
 }
 
 impl LogicalDecoder {
-    fn validate(&self) -> anyhow::Result<()> {
-        match self {
-            Self::Pgoutput { publication } => validate_identifier("publication", publication),
-            Self::Wal2Json => Ok(()),
-        }
-    }
-
     pub(crate) const fn plugin(&self) -> &'static str {
         match self {
             Self::Pgoutput { .. } => "pgoutput",

@@ -160,7 +160,7 @@ describe("record semantic selection", () => {
       configuredEndpointCapabilities(
         source,
         schema,
-        { replication: { slot: "events" } },
+        { replication: {} },
         "source",
       ),
     ).toEqual({
@@ -171,7 +171,7 @@ describe("record semantic selection", () => {
       configuredSourceSupportsDeliveryType(
         source,
         schema,
-        { replication: { slot: "events" } },
+        { replication: {} },
         "batch",
       ),
     ).toBe(false);
@@ -179,7 +179,7 @@ describe("record semantic selection", () => {
       sourceRecordSemantics(
         source,
         schema,
-        { replication: { slot: "events" } },
+        { replication: {} },
         "batch_and_stream",
       ),
     ).toEqual(["append_only", "changelog"]);
@@ -256,7 +256,6 @@ function endpointCapabilitySchema(key: string, deliveryModes: string[]) {
   return {
     type: "object" as const,
     properties: {
-      ...(key === "replication" ? { slot: { type: "string" as const } } : {}),
     },
     "x-ui": {
       capabilities: {

@@ -93,16 +93,13 @@ fn every_row_dml_action_is_required() {
 }
 
 #[test]
-fn truncate_and_partition_root_are_rejected() {
+fn truncate_reaches_the_fail_closed_decoder_but_partition_root_is_rejected() {
     let expected = [discovered("public", "events", 42)];
     let actual = [published("public", "events", 42)];
 
     let mut truncate = actions();
     truncate.truncate = Some(true);
-    let error = validate_publication_contract(PUBLICATION, truncate, &expected, &actual)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("must not publish TRUNCATE"), "{error}");
+    validate_publication_contract(PUBLICATION, truncate, &expected, &actual).unwrap();
 
     let mut root = actions();
     root.via_partition_root = Some(true);

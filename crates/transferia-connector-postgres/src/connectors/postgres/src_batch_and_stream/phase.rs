@@ -6,7 +6,7 @@ use transferia_registry::durable::{CompareExchangeResult, DurableContext, Durabl
 use crate::connectors::postgres::source::{DiscoveredTable, TableConfig};
 use crate::connectors::postgres::src_stream::{
     authoritative_table_identities, replication_safety_violation, AuthoritativeTableIdentity,
-    LogicalDecoder, PostgresReplicationConfig, PostgresSourceIdentity,
+    LogicalDecoder, PostgresSourceIdentity,
 };
 
 const STATE_VERSION: u8 = 3;
@@ -65,7 +65,7 @@ pub struct SnapshotStreamTracker {
 
 impl SnapshotStreamTracker {
     pub(crate) async fn claim_or_resume(
-        config: &PostgresReplicationConfig,
+        decoder: &LogicalDecoder,
         tables: &[TableConfig],
         source: &PostgresSourceIdentity,
         durable: DurableContext,
@@ -77,14 +77,16 @@ impl SnapshotStreamTracker {
                 "PostgreSQL batch_and_stream replay identity must not be empty"
             )));
         }
+        let slot = super::super::src_stream::replication_slot(&durable.delivery_id)?.to_owned();
         let identity = persisted_state(
-            config,
+            decoder,
             tables,
             source,
             replay_identity,
             PersistedPhase::Claimed,
+            &slot,
         );
-        let key = format!("postgres-snapshot-stream-{}", config.slot);
+        let key = format!("postgres-snapshot-stream-{}", slot);
         if let Some(current) = durable.storage.read(&key).await? {
             let persisted = decode_and_validate(&current.payload, &identity)
                 .map_err(replication_safety_violation)?;
@@ -104,7 +106,7 @@ impl SnapshotStreamTracker {
                     if slot_exists {
                         return Err(replication_safety_violation(anyhow::anyhow!(
                             "PostgreSQL batch_and_stream snapshot bootstrap was interrupted before its exact WAL boundary was persisted and replication slot '{}' still exists; remove that exact slot deliberately before retrying",
-                            config.slot
+                            slot
                         )));
                     }
                     let payload = serde_json::to_vec(&identity)?;
@@ -128,12 +130,12 @@ impl SnapshotStreamTracker {
                     let message = if slot_exists {
                         format!(
                             "PostgreSQL batch_and_stream snapshot was interrupted before its exact WAL handoff and replication slot '{}' still exists; the exported snapshot cannot survive process loss, so reset the destination snapshot attempt and remove that exact slot deliberately before retrying",
-                            config.slot
+                            slot
                         )
                     } else {
                         format!(
                             "PostgreSQL batch_and_stream snapshot was interrupted before its exact WAL handoff and replication slot '{}' is absent; refusing to bootstrap a new snapshot because the destination may contain rows committed from the previous snapshot attempt, so reset that destination attempt deliberately before retrying",
-                            config.slot
+                            slot
                         )
                     };
                     return Err(replication_safety_violation(anyhow::Error::msg(message)));
@@ -144,7 +146,7 @@ impl SnapshotStreamTracker {
         if slot_exists {
             return Err(replication_safety_violation(anyhow::anyhow!(
                 "PostgreSQL replication slot '{}' already exists without matching batch_and_stream durable ownership; refusing to replace or use it",
-                config.slot
+                slot
             )));
         }
 
@@ -266,18 +268,19 @@ impl SnapshotStreamTracker {
 }
 
 fn persisted_state(
-    config: &PostgresReplicationConfig,
+    decoder: &LogicalDecoder,
     tables: &[TableConfig],
     source: &PostgresSourceIdentity,
     replay_identity: &str,
     state: PersistedPhase,
+    slot: &str,
 ) -> PersistedState {
     PersistedState {
         version: STATE_VERSION,
         replay_identity: replay_identity.to_owned(),
-        slot: config.slot.clone(),
-        plugin: config.decoder.plugin().to_owned(),
-        publication: match &config.decoder {
+        slot: slot.to_owned(),
+        plugin: decoder.plugin().to_owned(),
+        publication: match decoder {
             LogicalDecoder::Pgoutput { publication } => Some(publication.clone()),
             LogicalDecoder::Wal2Json => None,
         },

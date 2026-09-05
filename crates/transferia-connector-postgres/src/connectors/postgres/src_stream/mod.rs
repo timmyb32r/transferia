@@ -2,13 +2,16 @@ mod config;
 mod event;
 mod identity;
 mod pgoutput;
+mod plugin;
 mod publication;
 mod reader;
 mod relation_identity;
 mod slot_recovery;
 mod wal2json;
 
-pub use config::{LogicalDecoder, PostgresReplicationConfig};
+pub use config::{LogicalDecoder, PostgresReplicationConfig, ReplicationPlugin};
+pub(crate) use config::replication_slot;
+pub(crate) use plugin::resolve_plugin;
 pub(crate) use identity::{
     authoritative_table_identities, AuthoritativeTableIdentity, PostgresSourceIdentity,
     PostgresSystemIdentity,

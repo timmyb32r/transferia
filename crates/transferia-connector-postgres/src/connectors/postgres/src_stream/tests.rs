@@ -7,7 +7,7 @@ use arrow::array::{
 use arrow::datatypes::{DataType, TimeUnit};
 use bytes::{BufMut, Bytes, BytesMut};
 
-use super::config::{LogicalDecoder, PostgresReplicationConfig};
+use super::config::{PostgresReplicationConfig, ReplicationPlugin};
 use super::event::{ChangeEvent, LogicalValue};
 use super::pgoutput::PgOutputDecoder;
 use super::reader::{
@@ -31,10 +31,9 @@ const COMMIT_MICROS: i64 = 1_234;
 const END_LSN: u64 = 101;
 
 #[test]
-fn replication_config_requires_valid_slot_and_decoder_settings() {
+fn replication_config_requires_valid_plugin_settings() {
     let valid = PostgresReplicationConfig {
-        slot: "transferia_slot".into(),
-        decoder: LogicalDecoder::Pgoutput {
+        plugin: ReplicationPlugin::Pgoutput {
             publication: "transferia_publication".into(),
         },
         max_changes: 4_096,
@@ -44,10 +43,6 @@ fn replication_config_requires_valid_slot_and_decoder_settings() {
     valid.validate().unwrap();
 
     for invalid in [
-        PostgresReplicationConfig {
-            slot: "bad-slot".into(),
-            ..valid.clone()
-        },
         PostgresReplicationConfig {
             max_changes: 0,
             ..valid.clone()
@@ -65,7 +60,7 @@ fn replication_config_requires_valid_slot_and_decoder_settings() {
             ..valid.clone()
         },
         PostgresReplicationConfig {
-            decoder: LogicalDecoder::Pgoutput {
+            plugin: ReplicationPlugin::Pgoutput {
                 publication: "bad publication".into(),
             },
             ..valid

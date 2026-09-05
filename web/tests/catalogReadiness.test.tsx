@@ -222,8 +222,7 @@ describe("connector catalog readiness", () => {
             postgres: {
               ...postgres.initial,
               replication: {
-                slot: "transferia",
-                decoder: { type: "wal2_json" },
+                plugin: { type: "wal2json" },
               },
             },
           },

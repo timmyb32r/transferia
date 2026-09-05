@@ -5256,11 +5256,15 @@
             "PostgresReplicationConfig": {
               "type": "object",
               "properties": {
-                "slot": {
-                  "type": "string"
-                },
-                "decoder": {
-                  "$ref": "#/$defs/LogicalDecoder"
+                "plugin": {
+                  "title": "Plugin",
+                  "$ref": "#/$defs/ReplicationPlugin",
+                  "default": {
+                    "type": "auto"
+                  },
+                  "x-ui": {
+                    "section": "advanced"
+                  }
                 },
                 "max_changes": {
                   "type": "integer",
@@ -5293,10 +5297,6 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "slot",
-                "decoder"
-              ],
               "x-ui": {
                 "capabilities": {
                   "component": "source",
@@ -5311,9 +5311,24 @@
                 }
               }
             },
-            "LogicalDecoder": {
+            "ReplicationPlugin": {
               "oneOf": [
                 {
+                  "title": "auto",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "auto"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "pgoutput",
                   "type": "object",
                   "properties": {
                     "publication": {
@@ -5331,11 +5346,12 @@
                   ]
                 },
                 {
+                  "title": "wal2json",
                   "type": "object",
                   "properties": {
                     "type": {
                       "type": "string",
-                      "const": "wal2_json"
+                      "const": "wal2json"
                     }
                   },
                   "required": [
