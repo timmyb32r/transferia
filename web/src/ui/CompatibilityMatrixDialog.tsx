@@ -440,11 +440,6 @@ export function CompatibilityMatrixDialog({
     if (!viewport || !content || typeof ResizeObserver === "undefined") return;
     const fit = () => {
       if (!content.offsetWidth || !content.offsetHeight) return;
-      const table = content.querySelector("table");
-      const summary = content.querySelector<HTMLElement>(".compatibility-gap-summary");
-      if (table?.offsetHeight && summary) {
-        summary.style.gridTemplateRows = Array.from(table.rows, (row) => getComputedStyle(row).height).join(" ");
-      }
       const scale = Math.min(1, viewport.clientWidth / content.offsetWidth, viewport.clientHeight / content.offsetHeight);
       content.style.left = `${Math.max(0, (viewport.clientWidth - content.offsetWidth * scale) / 2)}px`;
       content.style.transform = `scale(${scale})`;
@@ -628,10 +623,6 @@ export function CompatibilityMatrixDialog({
                 ))}
               </tbody>
             </table>
-            <aside class="compatibility-gap-summary" aria-label="Incomplete modes">
-              <div aria-hidden="true" />
-              {sources.map((source) => <SourceModeGapCell key={source.key} source={source} />)}
-            </aside>
             </div>
           </div>
         ) : activeTab === "entities" ? (
@@ -815,26 +806,5 @@ function CompatibilityCell({
         </span>
       )}
     </td>
-  );
-}
-
-function SourceModeGapCell({ source }: { source: ConnectorDefinition }) {
-  const modes = source.source!.delivery_modes;
-  const hasSnapshot = modes.includes("batch") || modes.includes("batch_and_stream");
-  const hasReplication =
-    modes.includes("stream") || modes.includes("batch_and_stream");
-  const gaps = [
-    ...(hasSnapshot ? [] : ["Snapshot is not implemented"]),
-    ...(hasReplication ? [] : ["Replication is not implemented"]),
-  ];
-
-  return (
-    <div class="compatibility-mode-gaps" aria-label={`${source.title}: incomplete modes`}>
-      <InstantTooltip content={gaps.length ? gaps.join("; ") : "Snapshot and replication are implemented"}>
-        <span class={`compatibility-gap-check${gaps.length ? " incomplete" : ""}`} aria-hidden="true">
-          {gaps.length ? "×" : "✓"}
-        </span>
-      </InstantTooltip>
-    </div>
   );
 }

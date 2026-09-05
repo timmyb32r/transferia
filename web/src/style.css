@@ -4390,31 +4390,9 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   --matrix-header-height: 56px;
   --matrix-row-height: 36px;
   position: absolute;
-  display: flex;
-  align-items: flex-start;
-  gap: 20px;
   width: max-content;
   transform-origin: top left;
   scrollbar-gutter: auto;
-}
-.compatibility-gap-summary {
-  display: grid;
-  grid-template-rows: var(--matrix-header-height);
-  grid-auto-rows: var(--matrix-row-height);
-  width: 180px;
-  font-size: 11px;
-}
-.compatibility-gap-summary .compatibility-mode-gaps {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.compatibility-gap-check {
-  color: var(--success-text);
-  font-size: 16px;
-}
-.compatibility-gap-check.incomplete {
-  color: var(--danger-text);
 }
 
 .compatibility-table {
@@ -4559,10 +4537,6 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .compatibility-table tr.search-match-row > td.selected-column {
   background: color-mix(in srgb, #a855f7 24%, var(--panel));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #a855f7 65%, transparent);
-}
-
-.compatibility-mode-gaps {
-  white-space: normal;
 }
 
 .compatibility-badges {

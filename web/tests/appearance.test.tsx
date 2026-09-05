@@ -443,16 +443,10 @@ describe("appearance preferences", () => {
     ).toBeTruthy();
     expect(view.queryByLabelText("Legend")).toBeNull();
     expect(view.queryByRole("columnheader", { name: "Incomplete modes" })).toBeNull();
-    expect(view.getByRole("complementary", { name: "Incomplete modes" })).toBeTruthy();
-    const gaps = view.getByRole("complementary", { name: "Incomplete modes" });
-    expect(within(gaps).queryByText("Incomplete modes")).toBeNull();
-    expect(gaps.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
-    const sourceRows = view.getAllByRole("rowheader");
-    expect(gaps.querySelectorAll(".compatibility-mode-gaps")).toHaveLength(sourceRows.length);
-    expect(gaps.querySelectorAll(".compatibility-gap-check").length).toBeGreaterThan(0);
-    expect(gaps.querySelector("strong")).toBeNull();
-    expect(within(gaps).getByLabelText("PostgreSQL: incomplete modes").textContent).toContain("✓");
-    expect(within(gaps).getByLabelText("Kafka: incomplete modes").querySelector(".incomplete")?.textContent).toContain("×");
+    expect(view.queryByRole("complementary", { name: "Incomplete modes" })).toBeNull();
+    const matrixContent = view.getByRole("table").parentElement!;
+    expect(matrixContent.children).toHaveLength(1);
+    expect(matrixContent.firstElementChild).toBe(view.getByRole("table"));
     expect(
       within(view.getByLabelText("PostgreSQL to PostgreSQL: Batch and Stream and Batch + stream supported"))
         .getAllByText(/^(B|S|B\+S)$/)
@@ -486,8 +480,6 @@ describe("appearance preferences", () => {
     fireEvent.click(s3ColumnButton);
     expect(postgresRowButton.getAttribute("aria-pressed")).toBe("false");
     expect(s3ColumnButton.getAttribute("aria-pressed")).toBe("false");
-    expect(view.getByRole("tooltip", { name: "Snapshot is not implemented" })).toBeTruthy();
-    expect(view.getByRole("tooltip", { name: "Replication is not implemented" })).toBeTruthy();
 
     const intersection = view.getByLabelText(
       "PostgreSQL to S3: Batch supported; Stream and Batch + stream not supported",
