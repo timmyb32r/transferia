@@ -23,6 +23,11 @@ pub use decoder::SchemaDecoder;
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SchemaRegistryParserConfig {
+    #[serde(default)]
+    #[schemars(title = "On Parse Error", extend("x-ui" = { "labels": {
+        "fail": "Fail delivery", "dlq": "Send to DLQ", "drop": "Drop"
+    } }))]
+    pub on_parse_error: super::error_policy::OnParseError,
     pub connection: SchemaRegistryConnection,
 }
 
@@ -48,6 +53,7 @@ pub(crate) fn decoded_record_projection() -> JsonParserConfig {
 }
 
 pub struct SchemaRegistryParser {
+    on_parse_error: super::error_policy::OnParseError,
     registry: RegistryClient,
     json: Arc<JsonParser>,
 }
@@ -60,6 +66,7 @@ impl SchemaRegistryParser {
     ) -> anyhow::Result<Self> {
         let projection = decoded_record_projection();
         Ok(Self {
+            on_parse_error: config.on_parse_error,
             registry: RegistryClient::new(&config.connection)?,
             json: Arc::new(JsonParser::new(&projection, system_config, table)?),
         })
@@ -69,6 +76,7 @@ impl SchemaRegistryParser {
 impl ParserFactory for SchemaRegistryParser {
     fn create_session(self: Arc<Self>, memory_limit_bytes: usize) -> Box<dyn ParserSession> {
         Box::new(SchemaRegistryParserSession {
+            parser: Arc::clone(&self),
             registry: self.registry.clone(),
             decoder: SchemaDecoder::default(),
             json: Arc::clone(&self.json).create_session(memory_limit_bytes),
@@ -79,6 +87,7 @@ impl ParserFactory for SchemaRegistryParser {
 }
 
 struct SchemaRegistryParserSession {
+    parser: Arc<SchemaRegistryParser>,
     registry: RegistryClient,
     decoder: SchemaDecoder,
     json: Box<dyn ParserSession>,
@@ -103,7 +112,10 @@ impl SchemaRegistryParserSession {
 
 impl ParserSession for SchemaRegistryParserSession {
     fn output_memory_bound(&self, messages: &[Message]) -> usize {
-        self.json.output_memory_bound(messages).saturating_add(
+        let dlq_bound = if self.parser.on_parse_error == super::error_policy::OnParseError::Dlq {
+            super::error_policy::message_dlq_bound(messages)
+        } else { 0 };
+        self.json.output_memory_bound(messages).saturating_add(dlq_bound).saturating_add(
             messages
                 .iter()
                 .map(|message| message.value.len())
@@ -115,13 +127,15 @@ impl ParserSession for SchemaRegistryParserSession {
         &mut self,
         messages: Vec<Message>,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
-        let schema_ids = messages
-            .iter()
-            .map(|message| {
-                crate::schema_registry::ConfluentEnvelope::decode(&message.value)
-                    .map(|envelope| envelope.schema_id)
-            })
-            .collect::<anyhow::Result<HashSet<_>>>()?;
+        let mut rejected = Vec::new();
+        let mut valid = Vec::with_capacity(messages.len());
+        let mut schema_ids = HashSet::new();
+        for message in messages {
+            match crate::schema_registry::ConfluentEnvelope::decode(&message.value) {
+                Ok(envelope) => { schema_ids.insert(envelope.schema_id); valid.push(message); }
+                Err(error) => if self.parser.on_parse_error.retain_in_dlq(error)? { rejected.push(message); },
+            }
+        }
         let registry = self.registry.clone();
         let schemas = self.runtime()?.block_on(async move {
             let mut schemas = HashMap::with_capacity(schema_ids.len());
@@ -131,9 +145,9 @@ impl ParserSession for SchemaRegistryParserSession {
             anyhow::Ok(schemas)
         })?;
 
-        let mut decoded = Vec::with_capacity(messages.len());
+        let mut decoded = Vec::with_capacity(valid.len());
         let mut decoded_bytes = 0_usize;
-        for message in messages {
+        for message in valid {
             let envelope = crate::schema_registry::ConfluentEnvelope::decode(&message.value)?;
             let schema = schemas.get(&envelope.schema_id).ok_or_else(|| {
                 anyhow::anyhow!(
@@ -141,9 +155,14 @@ impl ParserSession for SchemaRegistryParserSession {
                     envelope.schema_id
                 )
             })?;
-            let value = serde_json::json!({
-                "data": self.decoder.decode(schema, envelope.payload)?,
-            });
+            let data = match self.decoder.decode(schema, envelope.payload) {
+                Ok(data) => data,
+                Err(error) => {
+                    if self.parser.on_parse_error.retain_in_dlq(error)? { rejected.push(message); }
+                    continue;
+                }
+            };
+            let value = serde_json::json!({ "data": data });
             let value = serde_json::to_vec(&value)?;
             decoded_bytes = decoded_bytes
                 .checked_add(value.len())
@@ -161,7 +180,10 @@ impl ParserSession for SchemaRegistryParserSession {
                 meta: message.meta,
             });
         }
-        self.json.parse_into(decoded)
+        let (main, unexpected_dlq) = self.json.parse_into(decoded)?;
+        anyhow::ensure!(unexpected_dlq.is_none(), "normalized Schema Registry projection produced DLQ");
+        let dlq = super::error_policy::rejected_messages(&main.table, &rejected, self.memory_limit_bytes)?;
+        Ok((main, dlq))
     }
 }
 

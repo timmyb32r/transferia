@@ -2,6 +2,7 @@ pub mod benchmark_discard;
 pub mod config;
 pub mod debezium;
 pub mod detection;
+pub mod error_policy;
 pub mod json_parser;
 mod native_source;
 mod plugin;
@@ -47,6 +48,8 @@ pub struct ParserPlan {
     discovered_system_columns: Vec<DiscoveredSystemColumn>,
     primary_key: Arc<[String]>,
     dlq_dataset_schema: DatasetSchema,
+    /// Envelope DLQ has its own complete metadata, independent of main-row roles.
+    envelope_dlq: bool,
 }
 
 impl ParserPlan {
@@ -62,6 +65,7 @@ impl ParserPlan {
             discovered_system_columns: Vec::new(),
             primary_key: Arc::from([]),
             dlq_dataset_schema: default_dlq_schema(),
+            envelope_dlq: false,
         }
     }
 
@@ -95,7 +99,7 @@ impl ParserPlan {
                     name: dlq_table,
                     incoming_schema: self.dlq_schema(true),
                     stored_schema: self.dlq_schema(request.keep_system_columns),
-                    system_columns,
+                    system_columns: if self.envelope_dlq { Vec::new() } else { system_columns },
                 },
             ]
         } else {
@@ -227,7 +231,8 @@ impl ParserPlan {
             record_semantics: RecordSemantics::AppendOnly,
             discovered_system_columns,
             primary_key,
-            dlq_dataset_schema: default_dlq_schema(),
+            dlq_dataset_schema: if kind == "schema_registry" { error_policy::message_dlq_schema() } else { default_dlq_schema() },
+            envelope_dlq: kind == "schema_registry",
         })
     }
 
@@ -265,7 +270,8 @@ impl ParserPlan {
             record_semantics: RecordSemantics::Changelog,
             discovered_system_columns,
             primary_key: Arc::from(["message_key_base64".to_owned()]),
-            dlq_dataset_schema: default_dlq_schema(),
+            dlq_dataset_schema: error_policy::message_dlq_schema(),
+            envelope_dlq: true,
         })
     }
 
@@ -307,6 +313,7 @@ impl ParserPlan {
             discovered_system_columns,
             primary_key: Arc::from(parser_config.keys.clone()),
             dlq_dataset_schema: default_dlq_schema(),
+            envelope_dlq: false,
         })
     }
 
@@ -344,6 +351,7 @@ impl ParserPlan {
             discovered_system_columns,
             primary_key: primary_key.into(),
             dlq_dataset_schema: dlq_dataset_schema.unwrap_or_else(default_dlq_schema),
+            envelope_dlq: false,
         })
     }
 
@@ -385,6 +393,7 @@ impl ParserPlan {
             discovered_system_columns,
             primary_key: Arc::from(parser_config.keys.clone()),
             dlq_dataset_schema: default_dlq_schema(),
+            envelope_dlq: false,
         })
     }
 
@@ -413,6 +422,7 @@ impl ParserPlan {
             discovered_system_columns: Vec::new(),
             primary_key: Arc::from(raw_to_table::PRIMARY_KEY.map(str::to_owned)),
             dlq_dataset_schema: raw_to_table::dlq_dataset_schema(),
+            envelope_dlq: false,
         })
     }
 
@@ -431,6 +441,7 @@ impl ParserPlan {
             discovered_system_columns: Vec::new(),
             primary_key: Arc::from([]),
             dlq_dataset_schema: default_dlq_schema(),
+            envelope_dlq: false,
         }
     }
 
@@ -535,7 +546,7 @@ impl ParserPlan {
     #[must_use]
     pub fn dlq_schema(&self, keep_system_columns: bool) -> DatasetSchema {
         let mut columns = self.dlq_dataset_schema.columns.clone();
-        if keep_system_columns {
+        if keep_system_columns && !self.envelope_dlq {
             columns.extend(self.discovered_system_columns.iter().map(|column| {
                 SchemaColumn::new(column.name.to_string(), column.kind.data_type(), false)
             }));

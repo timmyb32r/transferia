@@ -99,6 +99,11 @@ const ROLE_COLUMNS: [(&str, &str, &str, JsonDataType); 10] = [
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DebeziumParserConfig {
+    #[serde(default)]
+    #[schemars(title = "On Parse Error", extend("x-ui" = { "labels": {
+        "fail": "Fail delivery", "dlq": "Send to DLQ", "drop": "Drop"
+    } }))]
+    pub on_parse_error: super::error_policy::OnParseError,
     #[schemars(title = "Schema Registry")]
     pub connection: SchemaRegistryConnection,
 }
@@ -210,6 +215,7 @@ fn debezium_columns() -> Vec<ColumnMapping> {
 }
 
 pub struct DebeziumParser {
+    on_parse_error: super::error_policy::OnParseError,
     json: Arc<JsonParser>,
     incoming_schema: DatasetSchema,
     registry: RegistryClient,
@@ -227,6 +233,7 @@ impl DebeziumParser {
         let projection = config.normalized_projection();
         let registry = RegistryClient::new(&config.connection)?;
         Ok(Self {
+            on_parse_error: config.on_parse_error,
             json: Arc::new(JsonParser::new(
                 &projection,
                 &SystemColumnsConfig::default(),
@@ -317,8 +324,12 @@ impl ParserSession for DebeziumParserSession {
             .iter()
             .map(|message| message.value.len())
             .sum::<usize>();
+        let dlq_bound = if self.parser.on_parse_error == super::error_policy::OnParseError::Dlq {
+            super::error_policy::message_dlq_bound(messages)
+        } else { 0 };
         self.json
             .output_memory_bound(messages)
+            .saturating_add(dlq_bound)
             .saturating_add(input.saturating_mul(2))
     }
 
@@ -326,32 +337,47 @@ impl ParserSession for DebeziumParserSession {
         &mut self,
         messages: Vec<Message>,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
+        let mut rejected = Vec::new();
+        let mut valid = Vec::with_capacity(messages.len());
+        for message in messages {
+            let result = (|| {
+              if message.tombstone {
+                anyhow::ensure!(message.value.is_empty(), "Debezium tombstone carries a nonempty value");
+                anyhow::ensure!(message.key.is_some(), "Debezium tombstone must carry a message key");
+                Ok(())
+              } else {
+                ConfluentEnvelope::decode(&message.value).map(|_| ())
+              }
+            })();
+            match result {
+                Ok(()) if message.tombstone => {},
+                Ok(()) => valid.push(message),
+                Err(error) => if self.parser.on_parse_error.retain_in_dlq(error)? { rejected.push(message); },
+            }
+        }
+        let messages = valid;
         let schemas = self.registry_schemas(&messages)?;
         let mut normalized = Vec::with_capacity(messages.len());
         let mut changed = Vec::with_capacity(messages.len());
         let mut decoded_bytes = 0_usize;
         for message in messages {
-            if message.tombstone {
-                anyhow::ensure!(
-                    message.value.is_empty(),
-                    "Debezium tombstone carries a nonempty value"
-                );
-                anyhow::ensure!(
-                    message.key.is_some(),
-                    "Debezium tombstone must carry a message key"
-                );
-                continue;
-            }
-            let decoded = self.decode_value(&message, &schemas)?;
-            let envelope = unwrap_payload(decoded)?;
-            if self.parser.validate_message_table {
-                validate_message_table(&envelope, &self.parser.table)?;
-            }
-            let key = message
-                .key
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("Debezium message must carry its record key"))?;
-            let (value, mask) = normalize_envelope(&envelope, key)?;
+            let result = (|| {
+                let decoded = self.decode_value(&message, &schemas)?;
+                let envelope = unwrap_payload(decoded)?;
+                if self.parser.validate_message_table {
+                    validate_message_table(&envelope, &self.parser.table)?;
+                }
+                let key = message.key.as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("Debezium message must carry its record key"))?;
+                normalize_envelope(&envelope, key)
+            })();
+            let (value, mask) = match result {
+                Ok(value) => value,
+                Err(error) => {
+                    if self.parser.on_parse_error.retain_in_dlq(error)? { rejected.push(message); }
+                    continue;
+                }
+            };
             let value = serde_json::to_vec(&value)?;
             decoded_bytes = decoded_bytes
                 .checked_add(value.len())
@@ -438,7 +464,8 @@ impl ParserSession for DebeziumParserSession {
                 name: Arc::from(SystemColumnKind::ChangedColumns.default_name()),
             },
         ]);
-        Ok((main, None))
+        let dlq = super::error_policy::rejected_messages(&main.table, &rejected, self.memory_limit_bytes)?;
+        Ok((main, dlq))
     }
 }
 

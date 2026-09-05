@@ -9,12 +9,13 @@ use crate::schema_registry::{
 };
 
 #[test]
-fn editor_exposes_only_schema_registry_settings() -> anyhow::Result<()> {
+fn editor_exposes_schema_registry_and_parse_error_policy() -> anyhow::Result<()> {
     let schema = serde_json::to_value(schemars::schema_for!(DebeziumParserConfig))?;
     let properties = schema["properties"]
         .as_object()
         .ok_or_else(|| anyhow::anyhow!("Debezium config properties are absent"))?;
-    assert_eq!(properties.keys().collect::<Vec<_>>(), ["connection"]);
+    assert_eq!(properties.keys().collect::<Vec<_>>(), ["connection", "on_parse_error"]);
+    assert_eq!(properties["on_parse_error"]["title"], "On Parse Error");
     assert_eq!(properties["connection"]["title"], "Schema Registry");
     Ok(())
 }
@@ -109,6 +110,7 @@ fn message_derived_table_is_revalidated_for_every_envelope() {
 
 fn config() -> DebeziumParserConfig {
     DebeziumParserConfig {
+        on_parse_error: Default::default(),
         connection: SchemaRegistryConnection {
             url: "http://registry.invalid".to_owned(),
             request_timeout_ms: 1_000,

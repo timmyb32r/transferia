@@ -1180,6 +1180,17 @@
             "SchemaRegistryParserConfig": {
               "type": "object",
               "properties": {
+                "on_parse_error": {
+                  "title": "On Parse Error",
+                  "$ref": "#/$defs/OnParseError",
+                  "x-ui": {
+                    "labels": {
+                      "fail": "Fail delivery",
+                      "dlq": "Send to DLQ",
+                      "drop": "Drop"
+                    }
+                  }
+                },
                 "connection": {
                   "$ref": "#/$defs/SchemaRegistryConnection"
                 }
@@ -1187,6 +1198,26 @@
               "additionalProperties": false,
               "required": [
                 "connection"
+              ]
+            },
+            "OnParseError": {
+              "description": "Explicit handling of malformed records, never transport or resource failures.",
+              "oneOf": [
+                {
+                  "title": "Fail delivery",
+                  "type": "string",
+                  "const": "fail"
+                },
+                {
+                  "title": "Send to DLQ",
+                  "type": "string",
+                  "const": "dlq"
+                },
+                {
+                  "title": "Drop",
+                  "type": "string",
+                  "const": "drop"
+                }
               ]
             },
             "SchemaRegistryConnection": {
@@ -1317,6 +1348,17 @@
             "DebeziumParserConfig": {
               "type": "object",
               "properties": {
+                "on_parse_error": {
+                  "title": "On Parse Error",
+                  "$ref": "#/$defs/OnParseError",
+                  "x-ui": {
+                    "labels": {
+                      "fail": "Fail delivery",
+                      "dlq": "Send to DLQ",
+                      "drop": "Drop"
+                    }
+                  }
+                },
                 "connection": {
                   "title": "Schema Registry",
                   "$ref": "#/$defs/SchemaRegistryConnection"
@@ -3150,6 +3192,17 @@
             "SchemaRegistryParserConfig": {
               "type": "object",
               "properties": {
+                "on_parse_error": {
+                  "title": "On Parse Error",
+                  "$ref": "#/$defs/OnParseError",
+                  "x-ui": {
+                    "labels": {
+                      "fail": "Fail delivery",
+                      "dlq": "Send to DLQ",
+                      "drop": "Drop"
+                    }
+                  }
+                },
                 "connection": {
                   "$ref": "#/$defs/SchemaRegistryConnection"
                 }
@@ -3157,6 +3210,26 @@
               "additionalProperties": false,
               "required": [
                 "connection"
+              ]
+            },
+            "OnParseError": {
+              "description": "Explicit handling of malformed records, never transport or resource failures.",
+              "oneOf": [
+                {
+                  "title": "Fail delivery",
+                  "type": "string",
+                  "const": "fail"
+                },
+                {
+                  "title": "Send to DLQ",
+                  "type": "string",
+                  "const": "dlq"
+                },
+                {
+                  "title": "Drop",
+                  "type": "string",
+                  "const": "drop"
+                }
               ]
             },
             "SchemaRegistryConnection": {
@@ -3287,6 +3360,17 @@
             "DebeziumParserConfig": {
               "type": "object",
               "properties": {
+                "on_parse_error": {
+                  "title": "On Parse Error",
+                  "$ref": "#/$defs/OnParseError",
+                  "x-ui": {
+                    "labels": {
+                      "fail": "Fail delivery",
+                      "dlq": "Send to DLQ",
+                      "drop": "Drop"
+                    }
+                  }
+                },
                 "connection": {
                   "title": "Schema Registry",
                   "$ref": "#/$defs/SchemaRegistryConnection"

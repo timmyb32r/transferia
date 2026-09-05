@@ -2,6 +2,56 @@ use super::*;
 
 mod detection;
 
+#[test]
+fn registry_parsers_apply_error_policy_and_preserve_original_envelopes() -> anyhow::Result<()> {
+    use arrow::array::StringArray;
+    use base64::Engine as _;
+    for parser in ["debezium", "schema_registry"] {
+        for policy in ["fail", "dlq", "drop"] {
+            let config: ParserConfig = serde_yaml::from_str(&format!(
+                "common:\n  table_naming: {{type: from_config, name: events}}\n{parser}:\n  on_parse_error: {policy}\n  connection: {{url: 'http://registry.invalid'}}\n"
+            ))?;
+            let plan = ParserPlan::from_config(&config, "topic")?;
+            let mut session = plan.parser().create_session(1024 * 1024);
+            let mut message = Message::new(bytes::Bytes::from_static(b"not a wire envelope"));
+            message.key = Some(bytes::Bytes::from_static(b"original-key"));
+            message.headers = Arc::from([
+                transferia_core::data::message::MessageHeader { key: Arc::from("h"), value: None },
+                transferia_core::data::message::MessageHeader { key: Arc::from("h"), value: Some(bytes::Bytes::from_static(b"v")) },
+            ]);
+            let result = session.parse_into(vec![message]);
+            if policy == "fail" { assert!(result.is_err()); continue; }
+            let (main, dlq) = result?;
+            assert_eq!(main.batch.num_rows(), 0);
+            if policy == "drop" { assert!(dlq.is_none()); continue; }
+            let dlq = dlq.expect("explicit DLQ policy retains invalid message");
+            assert_eq!(dlq.batch.num_rows(), 1);
+            assert_eq!(dlq.batch.num_columns(), plan.dlq_schema(true).columns.len());
+            for (field, column) in dlq.batch.schema().fields().iter().zip(plan.dlq_schema(true).columns.iter()) {
+                assert_eq!(field.name(), &column.name);
+                assert_eq!(field.data_type(), &column.data_type);
+            }
+            let string = |index| dlq.batch.column(index).as_any().downcast_ref::<StringArray>().unwrap().value(0);
+            assert_eq!(base64::engine::general_purpose::STANDARD.decode(string(0))?, b"not a wire envelope");
+            assert_eq!(base64::engine::general_purpose::STANDARD.decode(string(3))?, b"original-key");
+            assert_eq!(serde_json::from_str::<serde_json::Value>(string(4))?, serde_json::json!([["h", null], ["h", "dg=="]]));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn new_parse_error_policies_default_to_fail_and_reject_unknown_values() -> anyhow::Result<()> {
+    let schema = serde_json::to_value(schemars::schema_for!(config::ParserSchema))?;
+    for name in ["DebeziumParserConfig", "SchemaRegistryParserConfig"] {
+        assert_eq!(schema["$defs"][name]["properties"]["on_parse_error"]["title"], "On Parse Error");
+        assert_eq!(schema["$defs"][name]["properties"]["on_parse_error"]["default"], "fail");
+    }
+    assert!(serde_yaml::from_str::<error_policy::OnParseError>("ignore").is_err());
+    assert_eq!(error_policy::OnParseError::default(), error_policy::OnParseError::Fail);
+    Ok(())
+}
+
 #[derive(serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct TestPluginConfig {
