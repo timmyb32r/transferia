@@ -936,6 +936,11 @@ h3 {
   left: calc(100% + 8px);
   transform: translateY(-50%);
 }
+.action-disabled-tooltip > .instant-tooltip-content.bottom {
+  left: auto;
+  right: 0;
+  transform: none;
+}
 .instant-tooltip-host:hover > .instant-tooltip-content,
 .instant-tooltip-host:focus > .instant-tooltip-content,
 .instant-tooltip-host:focus-within > .instant-tooltip-content {

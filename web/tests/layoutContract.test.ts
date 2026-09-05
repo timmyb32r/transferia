@@ -16,6 +16,11 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("anchors action tooltips inside the right edge of the page", () => {
+    expect(styles).toMatch(
+      /\.action-disabled-tooltip > \.instant-tooltip-content\.bottom\s*\{[^}]*left:\s*auto;[^}]*right:\s*0;[^}]*transform:\s*none;/s,
+    );
+  });
   it("keeps serializer settings in the destination column on wide screens", () => {
     expect(styles).toContain('"parser parser parser"\n    ". . serializer"');
     expect(styles).toMatch(
