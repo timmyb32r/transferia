@@ -75,7 +75,10 @@ describe("App request orchestration", () => {
     await waitFor(() =>
       expect(slot?.textContent).toBe(`TRANSFER ID · ${transferId}`),
     );
-    fireEvent.click(app.getByRole("button", { name: "Copy transfer ID" }));
+    const copyButton = app.getByRole("button", { name: "Copy transfer ID" });
+    expect(copyButton.querySelector("span.ui-icon.copy-icon")).toBeTruthy();
+    expect(copyButton.querySelector("svg")).toBeNull();
+    fireEvent.click(copyButton);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(transferId));
     expect(app.getByRole("button", { name: "Transfer ID copied" })).toBeTruthy();
     expect(view.container.querySelector(".transfer-id-slot")).toBe(slot);

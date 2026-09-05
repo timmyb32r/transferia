@@ -137,10 +137,7 @@ function TransferIdentity({ id }: { id: string | undefined }) {
           title={copyState === "error" ? "Copy failed" : "Copy transfer ID"}
           onClick={() => void copy()}
         >
-          <svg class="ui-icon" viewBox="0 0 16 16" aria-hidden="true">
-            <rect x="5.5" y="5.5" width="8" height="8" rx="1" />
-            <path d="M10.5 5.5V3.25a.75.75 0 0 0-.75-.75h-6.5a.75.75 0 0 0-.75.75v6.5c0 .41.34.75.75.75H5.5" />
-          </svg>
+          <span class="ui-icon copy-icon" aria-hidden="true" />
         </Button>
       )}
     </div>

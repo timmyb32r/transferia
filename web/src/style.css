@@ -23,6 +23,27 @@
   opacity: 1;
   visibility: visible;
 }
+.copy-icon {
+  position: relative;
+}
+.copy-icon::before,
+.copy-icon::after {
+  content: "";
+  position: absolute;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+.copy-icon::before {
+  top: 1px;
+  left: 1px;
+}
+.copy-icon::after {
+  top: 5px;
+  left: 5px;
+}
 .eye-icon {
   background: currentColor;
 }
