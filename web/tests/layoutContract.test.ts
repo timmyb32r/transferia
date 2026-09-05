@@ -16,6 +16,12 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("does not reserve a blank scrollbar strip beside table headers", () => {
+    const shell = styles.split(".table-shell {")[1]?.split("}")[0];
+    expect(shell).toContain("scrollbar-gutter: auto;");
+    expect(shell).toContain("overflow-x: auto;");
+    expect(shell).not.toMatch(/(?:max-)?height\s*:/);
+  });
   it("gives output columns a framed zebra surface without overriding cell states", () => {
     const shell = styles.split(':root[data-theme="light"] .table-shell:has(> .column-table) {')[1]?.split("}")[0];
     expect(shell).toContain("background: #ffffff;");

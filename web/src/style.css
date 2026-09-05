@@ -3431,6 +3431,8 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   width: 100%;
   min-width: 0;
   overflow-x: auto;
+  /* Content determines the height; there is no vertical scrollbar to reserve. */
+  scrollbar-gutter: auto;
   border-top: 1px solid var(--line-inner);
   border-bottom: 1px solid var(--line-inner);
 }
