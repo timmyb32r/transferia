@@ -233,7 +233,9 @@ fn reports_benchmark_discard_behavior() {
     }
 
     let source = connector(&json_config("")).unwrap();
-    let EndpointDescriptor::Logbroker(descriptor) = source.compatibility(transferia_delivery_contracts::DeliveryType::Stream) else {
+    let EndpointDescriptor::Logbroker(descriptor) =
+        source.compatibility(transferia_delivery_contracts::DeliveryType::Stream)
+    else {
         panic!("expected PQv1 descriptor")
     };
     assert_eq!(descriptor.behavior, SourceBehavior::AppendOnlyRows);

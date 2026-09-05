@@ -94,7 +94,10 @@ impl IcebergSourceConnector {
 }
 
 impl SourceConnector for IcebergSourceConnector {
-    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
+    fn compatibility(
+        &self,
+        _delivery_type: transferia_delivery_contracts::DeliveryType,
+    ) -> EndpointDescriptor {
         EndpointDescriptor::IcebergSource(SourceDescriptor {
             behavior: SourceBehavior::FiniteAppendOnlyRows,
             delivery_modes: SourceDeliveryModes::BATCH,

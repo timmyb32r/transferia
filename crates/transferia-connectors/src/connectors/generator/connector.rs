@@ -176,13 +176,24 @@ impl DataGeneratorSourceConnector {
 }
 
 impl SourceConnector for DataGeneratorSourceConnector {
-    fn compatibility(&self, delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
+    fn compatibility(
+        &self,
+        delivery_type: transferia_delivery_contracts::DeliveryType,
+    ) -> EndpointDescriptor {
         let infinite = matches!(self.config.amount, GenerationAmount::Infinite);
         EndpointDescriptor::DataGenerator(SourceDescriptor {
-            behavior: if infinite { SourceBehavior::AppendOnlyRows } else { SourceBehavior::FiniteAppendOnlyRows },
-            delivery_modes: if infinite || delivery_type == transferia_delivery_contracts::DeliveryType::Stream {
+            behavior: if infinite {
+                SourceBehavior::AppendOnlyRows
+            } else {
+                SourceBehavior::FiniteAppendOnlyRows
+            },
+            delivery_modes: if infinite
+                || delivery_type == transferia_delivery_contracts::DeliveryType::Stream
+            {
                 SourceDeliveryModes::STREAM
-            } else { SourceDeliveryModes::BATCH },
+            } else {
+                SourceDeliveryModes::BATCH
+            },
         })
     }
 
@@ -192,7 +203,8 @@ impl SourceConnector for DataGeneratorSourceConnector {
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
             anyhow::ensure!(
-                self.compatibility(context.delivery_type).supports_delivery_type(context.delivery_type),
+                self.compatibility(context.delivery_type)
+                    .supports_delivery_type(context.delivery_type),
                 "generator amount does not support the selected delivery type"
             );
             anyhow::ensure!(

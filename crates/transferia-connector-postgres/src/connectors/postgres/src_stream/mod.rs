@@ -9,13 +9,13 @@ mod relation_identity;
 mod slot_recovery;
 mod wal2json;
 
-pub use config::{LogicalDecoder, PostgresReplicationConfig, ReplicationPlugin};
 pub(crate) use config::replication_slot;
-pub(crate) use plugin::resolve_plugin;
+pub use config::{LogicalDecoder, PostgresReplicationConfig, ReplicationPlugin};
 pub(crate) use identity::{
     authoritative_table_identities, AuthoritativeTableIdentity, PostgresSourceIdentity,
     PostgresSystemIdentity,
 };
+pub(crate) use plugin::resolve_plugin;
 pub(crate) use publication::{is_replication_contract_violation, validate_pgoutput_publication};
 pub(crate) use reader::PostgresReplicationSource;
 pub(crate) use slot_recovery::{is_replication_safety_violation, replication_safety_violation};

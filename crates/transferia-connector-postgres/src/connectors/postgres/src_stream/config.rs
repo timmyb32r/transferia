@@ -60,7 +60,7 @@ impl PostgresReplicationConfig {
     }
 }
 
-pub(crate) fn replication_slot(delivery_id: &str) -> anyhow::Result<&str> {
+pub fn replication_slot(delivery_id: &str) -> anyhow::Result<&str> {
     anyhow::ensure!(
         !delivery_id.is_empty()
             && delivery_id.len() <= crate::connectors::postgres::common::MAX_IDENTIFIER_BYTES

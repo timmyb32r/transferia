@@ -325,11 +325,7 @@ async fn exact_snapshot_boundary_has_no_gap_overlap_or_duplicate() -> anyhow::Re
     )
     .await?;
 
-    let config = source_yaml(
-        &fixture.source,
-        &["exact_accounts", "exact_aux"],
-        true,
-    );
+    let config = source_yaml(&fixture.source, &["exact_accounts", "exact_aux"], true);
     let connector = mysql_connector(&config)?;
     let durable = TestDurable::new("mysql-exact-boundary");
     let cancellation = CancellationToken::new();
@@ -579,11 +575,7 @@ async fn exhaustive_physical_types_match_snapshot_and_binlog_exactly() -> anyhow
     )
     .await?;
 
-    let config = source_yaml(
-        &fixture.source,
-        &["type_parity"],
-        true,
-    );
+    let config = source_yaml(&fixture.source, &["type_parity"], true);
     let connector = mysql_connector(&config)?;
     let durable = TestDurable::new("mysql-exhaustive-type-parity");
     let cancellation = CancellationToken::new();
@@ -786,11 +778,7 @@ async fn exhaustive_physical_types_match_snapshot_and_binlog_exactly() -> anyhow
     stream.commit_offsets(&[deleted.marker]).await?;
 
     stream.shutdown().await?;
-    let unsupported = source_yaml(
-        &fixture.source,
-        &["unsupported_virtual"],
-        true,
-    );
+    let unsupported = source_yaml(&fixture.source, &["unsupported_virtual"], true);
     let unsupported_durable = TestDurable::new("mysql-unsupported-virtual-column");
     let diagnostic = reject_before_execution(
         &unsupported,
@@ -820,11 +808,7 @@ async fn durable_offset_replays_until_commit_and_filtered_transactions_checkpoin
         ],
     )
     .await?;
-    let config = source_yaml(
-        &fixture.source,
-        &["replay_events"],
-        true,
-    );
+    let config = source_yaml(&fixture.source, &["replay_events"], true);
     let durable = TestDurable::new("mysql-replay");
     let cancellation = CancellationToken::new();
 
@@ -927,11 +911,7 @@ async fn runtime_schema_drift_is_fatal_without_offset_progress() -> anyhow::Resu
             "CREATE TABLE drift_events (id BIGINT PRIMARY KEY, payload VARCHAR(255) NOT NULL) ENGINE=InnoDB",
         )
         .await?;
-    let config = source_yaml(
-        &fixture.source,
-        &["drift_events"],
-        true,
-    );
+    let config = source_yaml(&fixture.source, &["drift_events"], true);
     let durable = TestDurable::new("mysql-schema-drift");
     let cancellation = CancellationToken::new();
     let connector = prepare_stream(&config, &durable.context, &cancellation).await?;
@@ -990,11 +970,7 @@ async fn rotation_resumes_exactly_and_purged_required_history_is_fatal() -> anyh
             "CREATE TABLE rotate_events (id BIGINT PRIMARY KEY, payload VARCHAR(255) NOT NULL) ENGINE=InnoDB",
         )
         .await?;
-    let config = source_yaml(
-        &fixture.source,
-        &["rotate_events"],
-        true,
-    );
+    let config = source_yaml(&fixture.source, &["rotate_events"], true);
     let durable = TestDurable::new("mysql-rotation");
     let cancellation = CancellationToken::new();
 
@@ -1087,11 +1063,7 @@ async fn mysql_named_lock_fences_independent_durable_roots_without_disrupting_ow
             "CREATE TABLE fenced_events (id BIGINT PRIMARY KEY, payload VARCHAR(255) NOT NULL) ENGINE=InnoDB",
         )
         .await?;
-    let config = source_yaml(
-        &fixture.source,
-        &["fenced_events"],
-        true,
-    );
+    let config = source_yaml(&fixture.source, &["fenced_events"], true);
     let cancellation = CancellationToken::new();
     let owner_durable = TestDurable::new("mysql-lock-owner");
     let contender_durable = TestDurable::new("mysql-lock-owner");
@@ -1154,11 +1126,7 @@ async fn invalid_server_contracts_fail_before_durable_state() -> anyhow::Result<
         )
         .await?;
     let durable = TestDurable::new("mysql-no-binlog");
-    let config = source_yaml(
-        &no_binlog.source,
-        &["no_binlog_events"],
-        true,
-    );
+    let config = source_yaml(&no_binlog.source, &["no_binlog_events"], true);
     let error =
         reject_before_execution(&config, DeliveryType::Stream, &durable, &cancellation).await?;
     assert!(error.to_lowercase().contains("log_bin"), "{error}");
@@ -1176,11 +1144,7 @@ async fn invalid_server_contracts_fail_before_durable_state() -> anyhow::Result<
     )
     .await?;
     let durable = TestDurable::new("mysql-minimal-row-image");
-    let config = source_yaml(
-        &invalid_image.source,
-        &["minimal_events"],
-        true,
-    );
+    let config = source_yaml(&invalid_image.source, &["minimal_events"], true);
     let error = reject_before_execution(
         &config,
         DeliveryType::BatchAndStream,
@@ -1200,11 +1164,7 @@ async fn invalid_server_contracts_fail_before_durable_state() -> anyhow::Result<
         .query_drop("SET GLOBAL binlog_transaction_compression = 'ON'")
         .await?;
     let durable = TestDurable::new("mysql-compressed-transactions");
-    let config = source_yaml(
-        &invalid_image.source,
-        &["minimal_events"],
-        true,
-    );
+    let config = source_yaml(&invalid_image.source, &["minimal_events"], true);
     let error =
         reject_before_execution(&config, DeliveryType::Stream, &durable, &cancellation).await?;
     let diagnostic = error.to_lowercase();
@@ -1224,11 +1184,7 @@ async fn invalid_server_contracts_fail_before_durable_state() -> anyhow::Result<
         )
         .await?;
     let durable = TestDurable::new("mysql-no-primary-key");
-    let config = source_yaml(
-        &invalid_image.source,
-        &["no_primary_key"],
-        true,
-    );
+    let config = source_yaml(&invalid_image.source, &["no_primary_key"], true);
     let error =
         reject_before_execution(&config, DeliveryType::Stream, &durable, &cancellation).await?;
     let diagnostic = error.to_lowercase();
@@ -1250,11 +1206,7 @@ async fn interrupted_snapshot_is_not_silently_restarted() -> anyhow::Result<()> 
         ],
     )
     .await?;
-    let config = source_yaml(
-        &fixture.source,
-        &["interrupted_events"],
-        true,
-    );
+    let config = source_yaml(&fixture.source, &["interrupted_events"], true);
     let durable = TestDurable::new("mysql-interrupted-snapshot");
     let cancellation = CancellationToken::new();
     let connector = mysql_connector(&config)?;
@@ -1365,11 +1317,7 @@ async fn mariadb_rejects_replication_early_while_batch_snapshot_remains_supporte
     assert_eq!(ids.value(0), 1);
     source.shutdown().await?;
 
-    let replication_config = source_yaml(
-        &fixture.source,
-        &["mariadb_events"],
-        true,
-    );
+    let replication_config = source_yaml(&fixture.source, &["mariadb_events"], true);
     for delivery_type in [DeliveryType::Stream, DeliveryType::BatchAndStream] {
         let durable = TestDurable::new(match delivery_type {
             DeliveryType::Stream => "mariadb-stream",
@@ -2027,7 +1975,11 @@ fn source_yaml(
         .map(|table| format!("  - name: {table}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let replication = if replication_limits { "replication:\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n" } else { "" };
+    let replication = if replication_limits {
+        "replication:\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n"
+    } else {
+        ""
+    };
     format!(
         "host: '{}'\nport: {}\ndatabase: {}\nusername: {}\npassword: {}\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: binary\ntables:\n{tables}\n{replication}",
         connection.host,

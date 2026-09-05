@@ -412,13 +412,18 @@ impl MySqlSourceConnector {
     }
 
     fn bind_mode(&self, mode: DeliveryType) -> anyhow::Result<()> {
-        anyhow::ensure!(*self.delivery_type.get_or_init(|| mode) == mode,
-            "MySQL connector cannot be reused across delivery modes");
+        anyhow::ensure!(
+            *self.delivery_type.get_or_init(|| mode) == mode,
+            "MySQL connector cannot be reused across delivery modes"
+        );
         Ok(())
     }
 
     fn replication_enabled(&self) -> bool {
-        matches!(self.delivery_type.get(), Some(DeliveryType::Stream | DeliveryType::BatchAndStream))
+        matches!(
+            self.delivery_type.get(),
+            Some(DeliveryType::Stream | DeliveryType::BatchAndStream)
+        )
     }
 
     async fn discovered_tables(&self) -> anyhow::Result<Arc<Vec<DiscoveredTable>>> {
@@ -722,12 +727,15 @@ impl MySqlSourceConnector {
 }
 
 impl SourceConnector for MySqlSourceConnector {
-    fn compatibility(&self, delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
+    fn compatibility(
+        &self,
+        delivery_type: transferia_delivery_contracts::DeliveryType,
+    ) -> EndpointDescriptor {
         EndpointDescriptor::MySql(SourceDescriptor {
-            behavior: if delivery_type != DeliveryType::Batch {
-                SourceBehavior::ChangelogRows
-            } else {
+            behavior: if delivery_type == DeliveryType::Batch {
                 SourceBehavior::FiniteAppendOnlyRows
+            } else {
+                SourceBehavior::ChangelogRows
             },
             delivery_modes: SourceDeliveryModes::BATCH_AND_STREAM,
         })
@@ -749,12 +757,7 @@ impl SourceConnector for MySqlSourceConnector {
                 () = cancellation.cancelled() => anyhow::bail!("MySQL discovery cancelled"),
                 tables = self.discovered_tables() => tables?,
             };
-            build_delivery_discovery(
-                self.replication_enabled(),
-                delivery_type,
-                request,
-                &tables,
-            )
+            build_delivery_discovery(self.replication_enabled(), delivery_type, request, &tables)
         })
     }
 
@@ -1014,7 +1017,10 @@ impl SourceConnector for MySqlSourceConnector {
                         ),
                     )));
                 }
-                let replication = &self.config.replication.for_delivery(&context.durable.delivery_id)?;
+                let replication = &self
+                    .config
+                    .replication
+                    .for_delivery(&context.durable.delivery_id)?;
                 let (connection, gtid_state) = self
                     .acquire_stream_handoff(
                         source_identity,

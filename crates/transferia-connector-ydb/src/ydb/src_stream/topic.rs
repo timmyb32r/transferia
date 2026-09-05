@@ -153,10 +153,18 @@ impl TopicSession {
                 "YDB replication repeats changefeed topic '{topic}'"
             );
         }
-        let start_offsets = start_offsets.into_iter().map(|(topic, offset)| (canonical_topic_path(&topic).to_owned(), offset)).collect::<HashMap<_, _>>();
-        anyhow::ensure!(start_offsets.is_empty() || (start_offsets.len() == configured_topics.len()
-            && configured_topics.keys().all(|topic| start_offsets.get(topic.as_ref()).is_some_and(|offset| *offset >= 0))),
-            "YDB overlap offsets do not match configured topics");
+        let start_offsets = start_offsets
+            .into_iter()
+            .map(|(topic, offset)| (canonical_topic_path(&topic).to_owned(), offset))
+            .collect::<HashMap<_, _>>();
+        anyhow::ensure!(
+            start_offsets.is_empty()
+                || (start_offsets.len() == configured_topics.len()
+                    && configured_topics.keys().all(|topic| start_offsets
+                        .get(topic.as_ref())
+                        .is_some_and(|offset| *offset >= 0))),
+            "YDB overlap offsets do not match configured topics"
+        );
         let configured_topic_bytes = configured_topics_heap_bytes(&configured_topics)?
             .checked_add(start_offsets_heap_bytes(&start_offsets)?)
             .ok_or_else(|| anyhow!("YDB topic memory overflow"))?;
@@ -504,9 +512,11 @@ impl TopicSession {
                         invalidated: false,
                     },
                 );
-                let bootstrap_commit = start_offset.filter(|offset| *offset > request.committed_offset);
+                let bootstrap_commit =
+                    start_offset.filter(|offset| *offset > request.committed_offset);
                 if let Some(offset) = bootstrap_commit {
-                    self.bootstrap_commits.insert(session.partition_session_id, offset);
+                    self.bootstrap_commits
+                        .insert(session.partition_session_id, offset);
                 }
                 self.send(ClientMessage::StartPartitionSessionResponse(
                     StartPartitionSessionResponse {
@@ -524,9 +534,15 @@ impl TopicSession {
                     !response.partitions_committed_offsets.is_empty(),
                     "YDB Topic commit response contains no partition offsets"
                 );
-                let offsets = filter_bootstrap_acks(&mut self.bootstrap_commits, response.partitions_committed_offsets);
-                if offsets.is_empty() { Ok(SessionEvent::Continue) }
-                else { Ok(SessionEvent::CommitAck(offsets)) }
+                let offsets = filter_bootstrap_acks(
+                    &mut self.bootstrap_commits,
+                    response.partitions_committed_offsets,
+                );
+                if offsets.is_empty() {
+                    Ok(SessionEvent::Continue)
+                } else {
+                    Ok(SessionEvent::CommitAck(offsets))
+                }
             }
             ServerMessage::StopPartitionSessionRequest(request) => {
                 let Some(state) = self
@@ -770,7 +786,8 @@ impl TopicSession {
     fn remove_settled_invalidated_sessions(&mut self) {
         self.partition_sessions
             .retain(|_, state| !settled_invalidated(state));
-        self.bootstrap_commits.retain(|session, _| self.partition_sessions.contains_key(session));
+        self.bootstrap_commits
+            .retain(|session, _| self.partition_sessions.contains_key(session));
     }
 
     fn push_buffered_batch(&mut self, batch: TopicBatch) -> anyhow::Result<()> {
@@ -806,7 +823,10 @@ impl TopicSession {
         configured_topics_heap_bytes(&self.configured_topics)?
             .checked_add(start_offsets_heap_bytes(&self.start_offsets)?)
             .ok_or_else(|| fatal(anyhow!("YDB overlap offset accounting overflow")))?
-            .checked_add(hash_table_allocation_bytes(self.bootstrap_commits.capacity(), size_of::<(i64, i64)>())?)
+            .checked_add(hash_table_allocation_bytes(
+                self.bootstrap_commits.capacity(),
+                size_of::<(i64, i64)>(),
+            )?)
             .ok_or_else(|| fatal(anyhow!("YDB bootstrap commit accounting overflow")))?
             .checked_add(partition_sessions_heap_bytes(&self.partition_sessions)?)
             .ok_or_else(|| fatal(anyhow!("YDB Topic session-state accounting overflow")))
@@ -909,30 +929,48 @@ fn tonic_codec_buffer_bytes(max_response_bytes: usize) -> anyhow::Result<usize> 
         .ok_or_else(|| fatal(anyhow!("YDB Topic codec buffer accounting overflow")))
 }
 
-fn overlap_read_offset(committed: i64, baseline: i64, retained: &OffsetsRange) -> anyhow::Result<i64> {
-    anyhow::ensure!(baseline >= 0 && committed >= 0 && retained.start >= 0 && retained.end >= retained.start,
-        "YDB overlap received invalid offsets");
+fn overlap_read_offset(
+    committed: i64,
+    baseline: i64,
+    retained: &OffsetsRange,
+) -> anyhow::Result<i64> {
+    anyhow::ensure!(
+        baseline >= 0 && committed >= 0 && retained.start >= 0 && retained.end >= retained.start,
+        "YDB overlap received invalid offsets"
+    );
     let offset = committed.max(baseline);
     anyhow::ensure!(offset >= retained.start && offset <= retained.end,
         "YDB overlap replay position is outside the retained range; refusing to skip lost CDC records");
     Ok(offset)
 }
 
-fn filter_bootstrap_acks(pending: &mut HashMap<i64, i64>, offsets: Vec<PartitionCommittedOffset>) -> Vec<PartitionCommittedOffset> {
-    offsets.into_iter().filter(|offset| {
-        if let Some(expected) = pending.get(&offset.partition_session_id).copied() {
-            if offset.committed_offset == expected {
-                pending.remove(&offset.partition_session_id);
-                return false;
+fn filter_bootstrap_acks(
+    pending: &mut HashMap<i64, i64>,
+    offsets: Vec<PartitionCommittedOffset>,
+) -> Vec<PartitionCommittedOffset> {
+    offsets
+        .into_iter()
+        .filter(|offset| {
+            if let Some(expected) = pending.get(&offset.partition_session_id).copied() {
+                if offset.committed_offset == expected {
+                    pending.remove(&offset.partition_session_id);
+                    return false;
+                }
             }
-        }
-        true
-    }).collect()
+            true
+        })
+        .collect()
 }
 
 fn start_offsets_heap_bytes(offsets: &HashMap<String, i64>) -> anyhow::Result<usize> {
-    offsets.keys().try_fold(hash_table_allocation_bytes(offsets.capacity(), size_of::<(String, i64)>())?, |bytes, key|
-        bytes.checked_add(key.capacity()).ok_or_else(|| anyhow!("YDB overlap offset memory overflow")))
+    offsets.keys().try_fold(
+        hash_table_allocation_bytes(offsets.capacity(), size_of::<(String, i64)>())?,
+        |bytes, key| {
+            bytes
+                .checked_add(key.capacity())
+                .ok_or_else(|| anyhow!("YDB overlap offset memory overflow"))
+        },
+    )
 }
 
 fn configured_topics_heap_bytes(topics: &HashMap<Arc<str>, i64>) -> anyhow::Result<usize> {

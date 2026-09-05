@@ -30,8 +30,13 @@ impl DataGeneratorSource {
     ) -> anyhow::Result<Self> {
         let total_rows = config.total_rows()?;
         let next_row = config.start_row;
-        let end_row = total_rows.map(|rows| next_row.checked_add(rows)
-            .ok_or_else(|| anyhow::anyhow!("generator row range overflows u64"))).transpose()?;
+        let end_row = total_rows
+            .map(|rows| {
+                next_row
+                    .checked_add(rows)
+                    .ok_or_else(|| anyhow::anyhow!("generator row range overflows u64"))
+            })
+            .transpose()?;
         let memory_limit = u64::try_from(memory.limit())?;
         let batch_target_bytes = memory_limit.min(GENERATED_BATCH_TARGET_BYTES);
         Ok(Self {
@@ -54,7 +59,9 @@ impl Source for DataGeneratorSource {
             }
             let remaining = self.end_row.unwrap_or(u64::MAX) - self.next_row;
             if remaining == 0 {
-                return Err(DataPlaneFailure::fatal(anyhow::anyhow!("generator row identifiers exhausted u64")));
+                return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
+                    "generator row identifiers exhausted u64"
+                )));
             }
             let rows = self
                 .config
@@ -64,7 +71,9 @@ impl Source for DataGeneratorSource {
                 .config
                 .batch_bytes(self.next_row, rows)
                 .map_err(DataPlaneFailure::fatal)?;
-            self.config.preset.validate_range(self.next_row, rows)
+            self.config
+                .preset
+                .validate_range(self.next_row, rows)
                 .map_err(DataPlaneFailure::fatal)?;
             let batch_bytes = usize::try_from(batch_bytes_u64)
                 .map_err(|error| DataPlaneFailure::fatal(error.into()))?;

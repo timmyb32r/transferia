@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio_postgres::Client;
 use transferia_registry::durable::{CompareExchangeResult, DurableContext, DurableStorage};
 
-use super::config::{LogicalDecoder};
+use super::config::LogicalDecoder;
 use super::identity::{
     authoritative_table_identities, AuthoritativeTableIdentity, PostgresSourceIdentity,
 };
@@ -119,7 +119,7 @@ impl ReplicationSlotTracker {
         };
         let authoritative_tables =
             authoritative_table_identities(tables).map_err(replication_safety_violation)?;
-        let key = format!("postgres-replication-{}", slot);
+        let key = format!("postgres-replication-{slot}");
         let persisted = durable.storage.read(&key).await?;
         let persisted_lsn = persisted
             .as_ref()
@@ -169,8 +169,7 @@ impl ReplicationSlotTracker {
                 }
                 let committed = requested_lsn.ok_or_else(|| {
                     replication_safety_violation(anyhow::anyhow!(
-                        "PostgreSQL replication slot '{}' already exists, but this delivery has no durable offset or freshly created exact start position; refusing to adopt an unowned slot",
-                        slot,
+                        "PostgreSQL replication slot '{slot}' already exists, but this delivery has no durable offset or freshly created exact start position; refusing to adopt an unowned slot",
                     ))
                 })?;
                 if existing.committed_lsn > committed {
@@ -189,18 +188,15 @@ impl ReplicationSlotTracker {
             None => {
                 let committed = requested_lsn.ok_or_else(|| {
                     replication_safety_violation(anyhow::anyhow!(
-                        "PostgreSQL replication slot '{}' does not exist and no durable committed LSN is available",
-                        slot,
+                        "PostgreSQL replication slot '{slot}' does not exist and no durable committed LSN is available",
                     ))
                 })?;
                 let schema = pg_tm_aux_schema(client).await?.ok_or_else(|| {
                     replication_safety_violation(anyhow::anyhow!(
-                        "PostgreSQL replication slot '{}' disappeared and pg_tm_aux is not installed",
-                        slot,
+                        "PostgreSQL replication slot '{slot}' disappeared and pg_tm_aux is not installed",
                     ))
                 })?;
-                let created_lsn =
-                    recreate_slot(client, &schema, &slot, &plugin, committed).await?;
+                let created_lsn = recreate_slot(client, &schema, &slot, &plugin, committed).await?;
                 match recreated_slot_recovery_plan(created_lsn, committed)? {
                     RecreatedSlotRecoveryPlan::VerifyExact => {}
                     RecreatedSlotRecoveryPlan::CatchUpThenVerifyExact => {

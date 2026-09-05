@@ -147,6 +147,7 @@ PRODUCTION_ALLOWED = {
 }
 
 DEV_EXTRA = {
+    "transferia-delivery": {"transferia-test-support"},
     "transferia-connector-clickhouse": {"transferia-test-support"},
     "transferia-connector-iceberg": {"transferia-test-support"},
     "transferia-connector-kafka": {"transferia-test-support"},

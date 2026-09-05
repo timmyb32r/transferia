@@ -584,7 +584,8 @@ impl ControlPlane {
             .into_iter()
             .next()
             .context("speedtest destination installation resolution returned no configuration")?;
-        let delivery_type = resolve_delivery_type(config, &source_kind, |mode| source.compatibility(mode))?;
+        let delivery_type =
+            resolve_delivery_type(config, &source_kind, |mode| source.compatibility(mode))?;
 
         let speedtest_id = new_speedtest_delivery_id()?;
         let mut materialized = serde_json::Map::new();
@@ -1123,9 +1124,10 @@ impl ControlPlane {
             let source_connector = catalog
                 .build_source(source_kind, source_config)
                 .map_err(|error| ServiceError::Validation(error.to_string()))?;
-            let delivery_type =
-                resolve_delivery_type(config, source_kind, |mode| source_connector.compatibility(mode))
-                    .map_err(|error| ServiceError::Validation(error.to_string()))?;
+            let delivery_type = resolve_delivery_type(config, source_kind, |mode| {
+                source_connector.compatibility(mode)
+            })
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
             let discovery = source_connector
                 .delivery_discovery(SourceDiscoveryContext {
                     request,
@@ -1743,7 +1745,9 @@ fn resolve_delivery_type(
             // This must never infer a combined run and create stream identities.
             Ok(DeliveryType::Batch)
         }
-        None if descriptor(DeliveryType::Stream).supports_delivery_type(DeliveryType::Stream) => Ok(DeliveryType::Stream),
+        None if descriptor(DeliveryType::Stream).supports_delivery_type(DeliveryType::Stream) => {
+            Ok(DeliveryType::Stream)
+        }
         None => anyhow::bail!("source '{source_kind}' does not support a speedtest delivery mode"),
     }
 }

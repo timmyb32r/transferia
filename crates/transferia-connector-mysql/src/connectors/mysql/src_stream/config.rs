@@ -46,13 +46,19 @@ pub struct MySqlReplicationConfig {
 
 impl MySqlReplicationConfig {
     pub(crate) fn for_delivery(&self, delivery_id: &str) -> anyhow::Result<Self> {
-        anyhow::ensure!(!delivery_id.is_empty(), "MySQL replication requires a delivery ID");
+        anyhow::ensure!(
+            !delivery_id.is_empty(),
+            "MySQL replication requires a delivery ID"
+        );
         // Match transfer_manager's fnv.New32(): FNV-1, not FNV-1a.
         let server_id = delivery_id.bytes().fold(2_166_136_261_u32, |hash, byte| {
             hash.wrapping_mul(16_777_619) ^ u32::from(byte)
         });
         anyhow::ensure!(server_id != 0, "MySQL delivery ID hashes to zero server ID");
-        Ok(Self { server_id, ..self.clone() })
+        Ok(Self {
+            server_id,
+            ..self.clone()
+        })
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
@@ -89,10 +95,13 @@ impl MySqlReplicationConfig {
 
 impl Default for MySqlReplicationConfig {
     fn default() -> Self {
-        Self { server_id: 0, max_events: default_max_events(),
+        Self {
+            server_id: 0,
+            max_events: default_max_events(),
             max_transaction_bytes: default_max_transaction_bytes(),
             poll_interval_ms: default_poll_interval_ms(),
-            bootstrap_timeout_ms: default_bootstrap_timeout_ms() }
+            bootstrap_timeout_ms: default_bootstrap_timeout_ms(),
+        }
     }
 }
 

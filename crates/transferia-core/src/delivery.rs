@@ -441,13 +441,18 @@ pub fn validate_stored_projection(
         .iter()
         .any(|column| column.kind == SystemColumnKind::ChangeOperation);
     validate_cdc_control_columns(dataset, changelog_input, &system_names)?;
-    let mut versions = dataset.incoming_schema.columns.iter()
-        .filter(|column| column.system_role.as_deref() == Some(crate::data::schema::SYSTEM_ROLE_SOURCE_VERSION));
+    let mut versions = dataset.incoming_schema.columns.iter().filter(|column| {
+        column.system_role.as_deref() == Some(crate::data::schema::SYSTEM_ROLE_SOURCE_VERSION)
+    });
     if let Some(column) = versions.next() {
         anyhow::ensure!(changelog_input && column.data_type == arrow::datatypes::DataType::UInt64 && !column.nullable,
             "dataset '{}' logical source version must be non-null UInt64 changelog control metadata", dataset.name);
     }
-    anyhow::ensure!(versions.next().is_none(), "dataset '{}' has multiple logical source versions", dataset.name);
+    anyhow::ensure!(
+        versions.next().is_none(),
+        "dataset '{}' has multiple logical source versions",
+        dataset.name
+    );
     let expected = dataset
         .incoming_schema
         .columns

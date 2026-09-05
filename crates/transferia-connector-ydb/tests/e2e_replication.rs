@@ -130,81 +130,153 @@ type SerializedMessage = (Option<Vec<u8>>, Option<Vec<u8>>);
 type SerializedMessages = Vec<SerializedMessage>;
 
 #[tokio::test]
-async fn ydb_overlap_snapshots_then_reconciles_update_delete_without_early_stream() -> anyhow::Result<()> {
+async fn ydb_overlap_snapshots_then_reconciles_update_delete_without_early_stream(
+) -> anyhow::Result<()> {
     let container = GenericImage::new(YDB_IMAGE, YDB_TAG)
         .with_exposed_port(YDB_PORT.tcp())
         .with_wait_for(WaitFor::healthcheck())
         .with_startup_timeout(Duration::from_mins(2))
         .with_env_var("YDB_USE_IN_MEMORY_PDISKS", "true")
         .with_env_var("GRPC_PORT", YDB_PORT.to_string())
-        .with_health_check(Healthcheck::cmd(["/health_check"])
-            .with_interval(Duration::from_secs(1)).with_timeout(Duration::from_secs(3)).with_retries(90))
-        .start().await?;
+        .with_health_check(
+            Healthcheck::cmd(["/health_check"])
+                .with_interval(Duration::from_secs(1))
+                .with_timeout(Duration::from_secs(3))
+                .with_retries(90),
+        )
+        .start()
+        .await?;
     let connection = YdbConnectionConfig {
-        endpoint: format!("grpc://{}:{}", reachable_host(&container.get_host().await?), container.get_host_port_ipv4(YDB_PORT.tcp()).await?),
-        database: "/local".into(), trusted_plaintext: true, auth: YdbAuth::Anonymous,
-        request_timeout_ms: 10_000, max_rpc_message_bytes: 256 * 1024 * 1024,
+        endpoint: format!(
+            "grpc://{}:{}",
+            reachable_host(&container.get_host().await?),
+            container.get_host_port_ipv4(YDB_PORT.tcp()).await?
+        ),
+        database: "/local".into(),
+        trusted_plaintext: true,
+        auth: YdbAuth::Anonymous,
+        request_timeout_ms: 10_000,
+        max_rpc_message_bytes: 256 * 1024 * 1024,
     };
     wait_for_ydb(&connection).await?;
     let mut admin = TestYdbAdmin::connect(&connection).await?;
     admin.create_coordination_node(COORDINATION_NODE).await?;
     let table = "/local/overlap_events";
-    admin.execute_scheme(format!("CREATE TABLE `{table}` (id Uint64 NOT NULL, value Uint64 NOT NULL, PRIMARY KEY (id));")).await?;
+    admin
+        .execute_scheme(format!(
+            "CREATE TABLE `{table}` (id Uint64 NOT NULL, value Uint64 NOT NULL, PRIMARY KEY (id));"
+        ))
+        .await?;
     admin.add_exact_changefeed(table, CHANGEFEED).await?;
     admin.wait_for_exact_changefeed(table, CHANGEFEED).await?;
-    admin.add_consumer(&topic_path(table, CHANGEFEED), CONSUMER).await?;
-    admin.execute_data(format!("UPSERT INTO `{table}` (id, value) VALUES (1u, 10u), (2u, 20u);")).await?;
+    admin
+        .add_consumer(&topic_path(table, CHANGEFEED), CONSUMER)
+        .await?;
+    admin
+        .execute_data(format!(
+            "UPSERT INTO `{table}` (id, value) VALUES (1u, 10u), (2u, 20u);"
+        ))
+        .await?;
     let durable = transferia_test_support::durable_context();
     let cancellation = CancellationToken::new();
     let connector = connector(&connection, table, CHANGEFEED, CONSUMER)?;
-    let prepared = connector.prepare_execution(SourceExecutionContext {
-        request: DeliveryDiscoveryRequest { keep_system_columns: false },
-        cancellation: cancellation.clone(), delivery_type: DeliveryType::BatchAndStream,
-        replay_identity: Some(Arc::from(REPLAY_IDENTITY)), durable: durable.clone(),
-    }).await?.context("missing overlap preparation")?;
+    let prepared = connector
+        .prepare_execution(SourceExecutionContext {
+            request: DeliveryDiscoveryRequest {
+                keep_system_columns: false,
+            },
+            cancellation: cancellation.clone(),
+            delivery_type: DeliveryType::BatchAndStream,
+            replay_identity: Some(Arc::from(REPLAY_IDENTITY)),
+            durable: durable.clone(),
+        })
+        .await?
+        .context("missing overlap preparation")?;
     assert_eq!(prepared.remaining_phases.len(), 2);
-    let build = |phase| SourceBuildContext { partition_id: 0, phase,
-        delivery_type: DeliveryType::BatchAndStream, replay_identity: Some(Arc::from(REPLAY_IDENTITY)),
-        cancellation: cancellation.clone(), memory: PipelineMemory::new(128 * 1024 * 1024), durable: durable.clone() };
-    assert!(connector.build_source(build(SourcePhase::Stream)).await.is_err());
-    assert!(connector.complete_execution_phase(SourcePhase::Snapshot, durable.clone(), cancellation.clone()).await.is_err());
+    let build = |phase| SourceBuildContext {
+        partition_id: 0,
+        phase,
+        delivery_type: DeliveryType::BatchAndStream,
+        replay_identity: Some(Arc::from(REPLAY_IDENTITY)),
+        cancellation: cancellation.clone(),
+        memory: PipelineMemory::new(128 * 1024 * 1024),
+        durable: durable.clone(),
+    };
+    assert!(connector
+        .build_source(build(SourcePhase::Stream))
+        .await
+        .is_err());
+    assert!(connector
+        .complete_execution_phase(SourcePhase::Snapshot, durable.clone(), cancellation.clone())
+        .await
+        .is_err());
     // These changes precede the table snapshot but follow the captured CDC
     // boundary. UPDATE 1 must work even though row 1 is absent from the snapshot.
-    admin.execute_data(format!("UPDATE `{table}` SET value = 11u WHERE id = 1u;")).await?;
-    admin.execute_data(format!("DELETE FROM `{table}` WHERE id = 1u;")).await?;
-    admin.execute_data(format!("UPDATE `{table}` SET value = 22u WHERE id = 2u;")).await?;
+    admin
+        .execute_data(format!("UPDATE `{table}` SET value = 11u WHERE id = 1u;"))
+        .await?;
+    admin
+        .execute_data(format!("DELETE FROM `{table}` WHERE id = 1u;"))
+        .await?;
+    admin
+        .execute_data(format!("UPDATE `{table}` SET value = 22u WHERE id = 2u;"))
+        .await?;
     let mut snapshot = connector.build_source(build(SourcePhase::Snapshot)).await?;
     let mut state = BTreeMap::new();
-    while let SourceBatch::Typed { tables, commit_marker, .. } = snapshot.read_batch().await? {
+    while let SourceBatch::Typed {
+        tables,
+        commit_marker,
+        ..
+    } = snapshot.read_batch().await?
+    {
         apply_overlap_tables(&prepared.discovery, tables, &mut state).await?;
-        if let Some(marker) = commit_marker { snapshot.commit_offsets(&[marker]).await?; }
+        if let Some(marker) = commit_marker {
+            snapshot.commit_offsets(&[marker]).await?;
+        }
     }
     assert_eq!(state, BTreeMap::from([(2, 22)]));
     snapshot.shutdown().await?;
     drop(snapshot);
-    assert!(connector.build_source(build(SourcePhase::Snapshot)).await.is_err());
-    connector.complete_execution_phase(SourcePhase::Snapshot, durable.clone(), cancellation.clone()).await?;
+    assert!(connector
+        .build_source(build(SourcePhase::Snapshot))
+        .await
+        .is_err());
+    connector
+        .complete_execution_phase(SourcePhase::Snapshot, durable.clone(), cancellation.clone())
+        .await?;
     let mut stream = connector.build_source(build(SourcePhase::Stream)).await?;
     let mut saw_delete = false;
     let mut saw_second_update = false;
     tokio::time::timeout(TEST_TIMEOUT, async {
         while !saw_delete || !saw_second_update {
-            let SourceBatch::Typed { tables, commit_marker, .. } = stream.read_batch().await? else { anyhow::bail!("unexpected CDC batch") };
+            let SourceBatch::Typed {
+                tables,
+                commit_marker,
+                ..
+            } = stream.read_batch().await?
+            else {
+                anyhow::bail!("unexpected CDC batch")
+            };
             for table in &tables {
                 let operations = array_by_name::<StringArray>(table, "_system_change_operation")?;
                 let ids = array_by_name::<UInt64Array>(table, "id")?;
                 let values = array_by_name::<UInt64Array>(table, "value")?;
                 for row in 0..table.batch.num_rows() {
                     saw_delete |= ids.value(row) == 1 && operations.value(row) == "d";
-                    saw_second_update |= ids.value(row) == 2 && operations.value(row) == "c" && values.value(row) == 22;
+                    saw_second_update |= ids.value(row) == 2
+                        && operations.value(row) == "c"
+                        && values.value(row) == 22;
                     assert_ne!(operations.value(row), "u");
                 }
             }
             apply_overlap_tables(&prepared.discovery, tables, &mut state).await?;
-            if let Some(marker) = commit_marker { stream.commit_offsets(&[marker]).await?; }
+            if let Some(marker) = commit_marker {
+                stream.commit_offsets(&[marker]).await?;
+            }
         }
         Ok::<_, anyhow::Error>(())
-    }).await??;
+    })
+    .await??;
     assert_eq!(state, BTreeMap::from([(2, 22)]));
     stream.shutdown().await?;
     drop(stream);
@@ -214,23 +286,52 @@ async fn ydb_overlap_snapshots_then_reconciles_update_delete_without_early_strea
     Ok(())
 }
 
-async fn apply_overlap_tables(discovery: &DeliveryDiscovery, tables: Vec<TableData>, state: &mut BTreeMap<u64, u64>) -> anyhow::Result<()> {
+async fn apply_overlap_tables(
+    discovery: &DeliveryDiscovery,
+    tables: Vec<TableData>,
+    state: &mut BTreeMap<u64, u64>,
+) -> anyhow::Result<()> {
     for table in tables {
         let bytes = table.batch.get_array_memory_size();
-        let batch = SinkBatch { table: table.table, is_dlq: false, byte_size: bytes,
-            batch: table.batch, system_columns: table.system_columns,
-            memory: PipelineMemory::new(bytes.max(1)).reserve(bytes).await };
-        let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(discovery, &batch)? else { anyhow::bail!("overlap lost changelog semantics") };
+        let batch = SinkBatch {
+            table: table.table,
+            is_dlq: false,
+            byte_size: bytes,
+            batch: table.batch,
+            system_columns: table.system_columns,
+            memory: PipelineMemory::new(bytes.max(1)).reserve(bytes).await,
+        };
+        let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(discovery, &batch)?
+        else {
+            anyhow::bail!("overlap lost changelog semantics")
+        };
         for run in changelog.collapsed_runs()? {
-            let ids = run.batch.column_by_name("id").context("missing id")?.as_any().downcast_ref::<UInt64Array>().context("invalid id type")?;
+            let ids = run
+                .batch
+                .column_by_name("id")
+                .context("missing id")?
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .context("invalid id type")?;
             for row in 0..run.batch.num_rows() {
                 match run.operation {
-                    transferia_core::ChangeOperation::Create | transferia_core::ChangeOperation::SnapshotRead => {
-                        let values = run.batch.column_by_name("value").context("missing value")?.as_any().downcast_ref::<UInt64Array>().context("invalid value type")?;
+                    transferia_core::ChangeOperation::Create
+                    | transferia_core::ChangeOperation::SnapshotRead => {
+                        let values = run
+                            .batch
+                            .column_by_name("value")
+                            .context("missing value")?
+                            .as_any()
+                            .downcast_ref::<UInt64Array>()
+                            .context("invalid value type")?;
                         state.insert(ids.value(row), values.value(row));
                     }
-                    transferia_core::ChangeOperation::Delete => { state.remove(&ids.value(row)); }
-                    transferia_core::ChangeOperation::Update => anyhow::bail!("overlap emitted strict update"),
+                    transferia_core::ChangeOperation::Delete => {
+                        state.remove(&ids.value(row));
+                    }
+                    transferia_core::ChangeOperation::Update => {
+                        anyhow::bail!("overlap emitted strict update")
+                    }
                 }
             }
         }

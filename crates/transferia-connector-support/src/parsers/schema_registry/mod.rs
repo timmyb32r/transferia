@@ -114,13 +114,18 @@ impl ParserSession for SchemaRegistryParserSession {
     fn output_memory_bound(&self, messages: &[Message]) -> usize {
         let dlq_bound = if self.parser.on_parse_error == super::error_policy::OnParseError::Dlq {
             super::error_policy::message_dlq_bound(messages)
-        } else { 0 };
-        self.json.output_memory_bound(messages).saturating_add(dlq_bound).saturating_add(
-            messages
-                .iter()
-                .map(|message| message.value.len())
-                .sum::<usize>(),
-        )
+        } else {
+            0
+        };
+        self.json
+            .output_memory_bound(messages)
+            .saturating_add(dlq_bound)
+            .saturating_add(
+                messages
+                    .iter()
+                    .map(|message| message.value.len())
+                    .sum::<usize>(),
+            )
     }
 
     fn parse_into(
@@ -132,8 +137,15 @@ impl ParserSession for SchemaRegistryParserSession {
         let mut schema_ids = HashSet::new();
         for message in messages {
             match crate::schema_registry::ConfluentEnvelope::decode(&message.value) {
-                Ok(envelope) => { schema_ids.insert(envelope.schema_id); valid.push(message); }
-                Err(error) => if self.parser.on_parse_error.retain_in_dlq(error)? { rejected.push(message); },
+                Ok(envelope) => {
+                    schema_ids.insert(envelope.schema_id);
+                    valid.push(message);
+                }
+                Err(error) => {
+                    if self.parser.on_parse_error.retain_in_dlq(error)? {
+                        rejected.push(message);
+                    }
+                }
             }
         }
         let registry = self.registry.clone();
@@ -158,7 +170,9 @@ impl ParserSession for SchemaRegistryParserSession {
             let data = match self.decoder.decode(schema, envelope.payload) {
                 Ok(data) => data,
                 Err(error) => {
-                    if self.parser.on_parse_error.retain_in_dlq(error)? { rejected.push(message); }
+                    if self.parser.on_parse_error.retain_in_dlq(error)? {
+                        rejected.push(message);
+                    }
                     continue;
                 }
             };
@@ -181,8 +195,15 @@ impl ParserSession for SchemaRegistryParserSession {
             });
         }
         let (main, unexpected_dlq) = self.json.parse_into(decoded)?;
-        anyhow::ensure!(unexpected_dlq.is_none(), "normalized Schema Registry projection produced DLQ");
-        let dlq = super::error_policy::rejected_messages(&main.table, &rejected, self.memory_limit_bytes)?;
+        anyhow::ensure!(
+            unexpected_dlq.is_none(),
+            "normalized Schema Registry projection produced DLQ"
+        );
+        let dlq = super::error_policy::rejected_messages(
+            &main.table,
+            &rejected,
+            self.memory_limit_bytes,
+        )?;
         Ok((main, dlq))
     }
 }

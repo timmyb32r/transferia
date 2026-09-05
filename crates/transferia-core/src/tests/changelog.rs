@@ -25,23 +25,57 @@ fn schema_column(name: &str, nullable: bool, primary_key: bool) -> SchemaColumn 
 #[tokio::test]
 async fn logical_versions_are_independent_of_transport_offsets_and_validated() {
     let mut discovery = discovery();
+    discovery.keep_system_columns = false;
     let mut batch = batch(vec![Some("r"), Some("u")], vec![Some(1), Some(1)]).await;
     let column = SchemaColumn::new("row_version".into(), DataType::UInt64, false)
         .with_system_role(crate::data::schema::SYSTEM_ROLE_SOURCE_VERSION);
-    discovery.datasets[0].incoming_schema.columns.push(column.clone());
-    let mut fields = batch.batch.schema().fields().iter().cloned().collect::<Vec<_>>();
-    fields.push(Arc::new(Field::new("row_version", DataType::UInt64, false).with_metadata(column.arrow_metadata())));
+    discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .push(column.clone());
+    let mut fields = batch
+        .batch
+        .schema()
+        .fields()
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    fields.push(Arc::new(
+        Field::new("row_version", DataType::UInt64, false).with_metadata(column.arrow_metadata()),
+    ));
     let mut arrays = batch.batch.columns().to_vec();
     arrays.push(Arc::new(arrow::array::UInt64Array::from(vec![0, 1])));
     batch.batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays).unwrap();
     validate_stored_projection(&discovery, &discovery.datasets[0]).unwrap();
-    let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(&discovery, &batch).unwrap() else { panic!("expected changelog") };
+    let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(&discovery, &batch).unwrap()
+    else {
+        panic!("expected changelog")
+    };
     assert_eq!(changelog.source_versions(), [0, 1]);
-    assert_eq!(batch.batch.column(3).as_any().downcast_ref::<Int64Array>().unwrap().value(0), 100);
-    discovery.datasets[0].incoming_schema.columns.last_mut().unwrap().nullable = true;
+    assert_eq!(
+        batch
+            .batch
+            .column(3)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        100
+    );
+    discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .last_mut()
+        .unwrap()
+        .nullable = true;
     assert!(validate_stored_projection(&discovery, &discovery.datasets[0]).is_err());
     assert!(project_sink_batch(&discovery, &batch).is_err());
-    discovery.datasets[0].incoming_schema.columns.last_mut().unwrap().nullable = false;
+    discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .last_mut()
+        .unwrap()
+        .nullable = false;
     discovery.datasets[0].incoming_schema.columns.push(column);
     assert!(validate_stored_projection(&discovery, &discovery.datasets[0]).is_err());
     assert!(project_sink_batch(&discovery, &batch).is_err());

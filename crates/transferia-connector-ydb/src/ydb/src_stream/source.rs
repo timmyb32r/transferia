@@ -126,11 +126,19 @@ pub(in crate::ydb) fn replication_discovery(
                     .map(|(index, column)| old_schema_column(index, column)),
             );
             incoming_columns.extend(source_metadata_columns().map(|column| {
-                SchemaColumn::new(column.name.to_owned(), column.data_type, metadata_nullable(column.role))
-                    .with_system_role(column.role)
+                SchemaColumn::new(
+                    column.name.to_owned(),
+                    column.data_type,
+                    metadata_nullable(column.role),
+                )
+                .with_system_role(column.role)
             }));
             incoming_columns.extend(YDB_REPLICATION_SYSTEM_COLUMNS.iter().map(|kind| {
-                SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), *kind == SystemColumnKind::WriteTimestampMs)
+                SchemaColumn::new(
+                    kind.default_name().to_owned(),
+                    kind.data_type(),
+                    *kind == SystemColumnKind::WriteTimestampMs,
+                )
             }));
 
             let mut stored_schema = table.schema.clone();
@@ -174,7 +182,7 @@ pub(in crate::ydb) fn replication_discovery(
 }
 
 fn metadata_nullable(role: &str) -> bool {
-    matches!(role, SYSTEM_ROLE_SOURCE_TRANSACTION_ID | SYSTEM_ROLE_SOURCE_TIMESTAMP_MS)
+    role == SYSTEM_ROLE_SOURCE_TRANSACTION_ID
 }
 
 fn old_schema_column(index: usize, column: &SchemaColumn) -> SchemaColumn {
@@ -255,7 +263,10 @@ impl YdbReplicationSource {
             fatal_connector_error(anyhow::anyhow!("YDB replication configuration is missing"))
         })?;
         let active_source = prepared.claim_source()?;
-        prepared.validate_resources(config, &cancellation).await.map_err(fatal_connector_error)?;
+        prepared
+            .validate_resources(config, &cancellation)
+            .await
+            .map_err(fatal_connector_error)?;
         if prepared.resources.tables.len() != prepared.resources.topics.len()
             || prepared.resources.tables.len() != prepared.resources.topic_partition_ids.len()
         {
@@ -453,7 +464,9 @@ impl ReplicationDecodeState {
                     )
                 })?;
             let mut event = self.tables[table_index].decoder.decode(&record.payload)?;
-            if self.overlap { reconcile_overlap(&mut event)?; }
+            if self.overlap {
+                reconcile_overlap(&mut event)?;
+            }
             grouped[table_index].push(DecodedRecord {
                 source_version: cdc_row_version(record.offset, self.overlap)?,
                 topic_path: record.topic_path,
@@ -720,14 +733,27 @@ pub(in crate::ydb) fn build_table_schema(table: &DiscoveredTable) -> anyhow::Res
         fields.push(Field::new(old.name, old.data_type, true).with_metadata(metadata));
     }
     fields.extend(source_metadata_columns().map(|column| {
-        Field::new(column.name, column.data_type.clone(), metadata_nullable(column.role)).with_metadata(
-            SchemaColumn::new(column.name.to_owned(), column.data_type, metadata_nullable(column.role))
-                .with_system_role(column.role)
-                .arrow_metadata(),
+        Field::new(
+            column.name,
+            column.data_type.clone(),
+            metadata_nullable(column.role),
+        )
+        .with_metadata(
+            SchemaColumn::new(
+                column.name.to_owned(),
+                column.data_type,
+                metadata_nullable(column.role),
+            )
+            .with_system_role(column.role)
+            .arrow_metadata(),
         )
     }));
     fields.extend(YDB_REPLICATION_SYSTEM_COLUMNS.iter().map(|kind| {
-        let field = Field::new(kind.default_name(), kind.data_type(), *kind == SystemColumnKind::WriteTimestampMs);
+        let field = Field::new(
+            kind.default_name(),
+            kind.data_type(),
+            *kind == SystemColumnKind::WriteTimestampMs,
+        );
         if *kind == SystemColumnKind::ChangeOperation {
             field.with_metadata(HashMap::from([(
                 META_CHANGE_OPERATION.to_owned(),
@@ -740,7 +766,9 @@ pub(in crate::ydb) fn build_table_schema(table: &DiscoveredTable) -> anyhow::Res
     Ok(Arc::new(Schema::new(fields)))
 }
 
-pub(in crate::ydb) fn schema_materialization_admission_bytes(table: &DiscoveredTable) -> anyhow::Result<usize> {
+pub(in crate::ydb) fn schema_materialization_admission_bytes(
+    table: &DiscoveredTable,
+) -> anyhow::Result<usize> {
     let field_count = table
         .schema
         .columns
@@ -1170,7 +1198,9 @@ fn source_metadata_array(
 ) -> anyhow::Result<ArrayRef> {
     Ok(match role {
         SYSTEM_ROLE_SOURCE_VERSION => Arc::new(UInt64Array::from(
-            rows.iter().map(|row| row.source_version).collect::<Vec<_>>()
+            rows.iter()
+                .map(|row| row.source_version)
+                .collect::<Vec<_>>(),
         )) as ArrayRef,
         SYSTEM_ROLE_SOURCE_DATABASE => {
             Arc::new(StringArray::from(vec![database; rows.len()])) as ArrayRef
@@ -1211,10 +1241,18 @@ fn cdc_row_version(offset: i64, overlap: bool) -> anyhow::Result<u64> {
 
 fn reconcile_overlap(event: &mut DecodedYdbCdcEvent) -> anyhow::Result<()> {
     if event.operation == ChangeOperation::Update {
-        anyhow::ensure!(event.current.iter().enumerate().all(|(index, value)|
-            !matches!(value, YdbCdcValue::Absent) && event.changed_columns.get(index / 8)
-                .is_some_and(|mask| mask & (1 << (index % 8)) != 0)),
-            "YDB overlap upsert requires a complete current row and changed-column mask");
+        anyhow::ensure!(
+            event
+                .current
+                .iter()
+                .enumerate()
+                .all(|(index, value)| !matches!(value, YdbCdcValue::Absent)
+                    && event
+                        .changed_columns
+                        .get(index / 8)
+                        .is_some_and(|mask| mask & (1 << (index % 8)) != 0)),
+            "YDB overlap upsert requires a complete current row and changed-column mask"
+        );
         // Explicit batch_and_stream reconciliation: full-image writes must also
         // create rows absent from the later snapshot. Keep before-images intact.
         event.operation = ChangeOperation::Create;

@@ -97,24 +97,39 @@ fn source_rejects_the_old_connection_string() {
 
 #[test]
 fn delivery_type_alone_selects_postgres_record_semantics() {
-    for settings in ["", "\nreplication:\n  plugin:\n    type: pgoutput\n    publication: transferia_publication\n"] {
+    for settings in [
+        "",
+        "\nreplication:\n  plugin:\n    type: pgoutput\n    publication: transferia_publication\n",
+    ] {
         let config: PostgresSourceConfig = serde_yaml::from_str(&format!(
             "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - name: events\n{settings}",
         )).unwrap();
-        let connector = PostgresSourceConnector::from_config(config, Arc::new(MetricsRegistry::default())).unwrap();
-        for mode in [DeliveryType::Batch, DeliveryType::Stream, DeliveryType::BatchAndStream] {
+        let connector =
+            PostgresSourceConnector::from_config(config, Arc::new(MetricsRegistry::default()))
+                .unwrap();
+        for mode in [
+            DeliveryType::Batch,
+            DeliveryType::Stream,
+            DeliveryType::BatchAndStream,
+        ] {
             let descriptor = connector.compatibility(mode);
             assert!(descriptor.supports_delivery_type(mode));
-            assert_eq!(descriptor.record_semantics(), Some(if mode == DeliveryType::Batch {
-                RecordSemantics::AppendOnly
-            } else {
-                RecordSemantics::Changelog
-            }));
-            assert_eq!(descriptor.source_behavior(), Some(if mode == DeliveryType::Batch {
-                SourceBehavior::FiniteAppendOnlyRows
-            } else {
-                SourceBehavior::ChangelogRows
-            }));
+            assert_eq!(
+                descriptor.record_semantics(),
+                Some(if mode == DeliveryType::Batch {
+                    RecordSemantics::AppendOnly
+                } else {
+                    RecordSemantics::Changelog
+                })
+            );
+            assert_eq!(
+                descriptor.source_behavior(),
+                Some(if mode == DeliveryType::Batch {
+                    SourceBehavior::FiniteAppendOnlyRows
+                } else {
+                    SourceBehavior::ChangelogRows
+                })
+            );
         }
     }
 }
@@ -122,18 +137,29 @@ fn delivery_type_alone_selects_postgres_record_semantics() {
 #[test]
 fn source_schema_inlines_replication_plugin_only_for_replication_modes() {
     let schema = serde_json::to_value(schemars::schema_for!(PostgresSourceConfig)).unwrap();
-    assert_eq!(schema.pointer("/x-ui/capabilities"), Some(&serde_json::json!({
-        "component": "source", "key": "postgres",
-        "delivery_modes": ["batch", "stream", "batch_and_stream"],
-        "record_semantics": ["append_only", "changelog"]
-    })));
-    assert_eq!(schema.pointer("/properties/replication/x-ui"), Some(&serde_json::json!({
-        "widget": "inline_object", "section": "advanced",
-        "delivery_types": ["stream", "batch_and_stream"]
-    })));
-    assert!(schema.pointer("/$defs/PostgresReplicationConfig/properties/plugin/x-ui/section").is_none());
+    assert_eq!(
+        schema.pointer("/x-ui/capabilities"),
+        Some(&serde_json::json!({
+            "component": "source", "key": "postgres",
+            "batch_stream_handoff": "exact_switchover",
+            "delivery_modes": ["batch", "stream", "batch_and_stream"],
+            "record_semantics": ["append_only", "changelog"]
+        }))
+    );
+    assert_eq!(
+        schema.pointer("/properties/replication/x-ui"),
+        Some(&serde_json::json!({
+            "widget": "inline_object", "section": "advanced",
+            "delivery_types": ["stream", "batch_and_stream"]
+        }))
+    );
+    assert!(schema
+        .pointer("/$defs/PostgresReplicationConfig/properties/plugin/x-ui/section")
+        .is_none());
     assert!(schema.pointer("/properties/replication/anyOf").is_none());
-    assert!(schema.pointer("/$defs/PostgresReplicationConfig/x-ui/capabilities").is_none());
+    assert!(schema
+        .pointer("/$defs/PostgresReplicationConfig/x-ui/capabilities")
+        .is_none());
 }
 
 #[tokio::test]
@@ -142,19 +168,34 @@ async fn batch_preparation_needs_no_replication_context_and_cannot_reuse_stream_
         "host: 127.0.0.1\nport: 1\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - name: events\n",
     ).unwrap();
     let context = |delivery_type| transferia_registry::SourceExecutionContext {
-        request: transferia_core::delivery::DeliveryDiscoveryRequest { keep_system_columns: true },
+        request: transferia_core::delivery::DeliveryDiscoveryRequest {
+            keep_system_columns: true,
+        },
         cancellation: tokio_util::sync::CancellationToken::new(),
         delivery_type,
         replay_identity: None,
         durable: transferia_test_support::durable_context(),
     };
-    let connector = PostgresSourceConnector::from_config(config.clone(), Arc::new(MetricsRegistry::default())).unwrap();
+    let connector =
+        PostgresSourceConnector::from_config(config.clone(), Arc::new(MetricsRegistry::default()))
+            .unwrap();
     // No server is listening: batch preparation must not connect or validate a slot ID.
-    assert!(connector.prepare_execution(context(DeliveryType::Batch)).await.unwrap().is_none());
-    let error = connector.prepare_execution(context(DeliveryType::Stream)).await.unwrap_err();
+    assert!(connector
+        .prepare_execution(context(DeliveryType::Batch))
+        .await
+        .unwrap()
+        .is_none());
+    let error = connector
+        .prepare_execution(context(DeliveryType::Stream))
+        .await
+        .unwrap_err();
     assert!(error.to_string().contains("different delivery type"));
-    let stream = PostgresSourceConnector::from_config(config, Arc::new(MetricsRegistry::default())).unwrap();
-    let error = stream.prepare_execution(context(DeliveryType::Stream)).await.unwrap_err();
+    let stream =
+        PostgresSourceConnector::from_config(config, Arc::new(MetricsRegistry::default())).unwrap();
+    let error = stream
+        .prepare_execution(context(DeliveryType::Stream))
+        .await
+        .unwrap_err();
     assert!(error.to_string().contains("replay identity"));
 }
 

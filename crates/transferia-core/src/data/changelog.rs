@@ -500,16 +500,41 @@ pub fn project_sink_batch(
         .as_any()
         .downcast_ref::<StringArray>()
         .ok_or_else(|| anyhow::anyhow!("changelog operation column must be Arrow Utf8"))?;
-    let mut version_columns = dataset.incoming_schema.columns.iter().enumerate()
-        .filter(|(_, column)| column.system_role.as_deref() == Some(super::schema::SYSTEM_ROLE_SOURCE_VERSION));
+    let mut version_columns =
+        dataset
+            .incoming_schema
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(_, column)| {
+                column.system_role.as_deref() == Some(super::schema::SYSTEM_ROLE_SOURCE_VERSION)
+            });
     let explicit_version = version_columns.next();
-    anyhow::ensure!(version_columns.next().is_none(), "changelog dataset '{}' has multiple source versions", dataset.name);
-    let explicit_versions = explicit_version.map(|(index, column)| {
-        anyhow::ensure!(!dataset.stored_schema.columns.iter().any(|stored| stored.name == column.name),
-            "source version is control metadata and cannot be stored as a user column");
-        batch.batch.column(index).as_any().downcast_ref::<arrow::array::UInt64Array>()
-            .ok_or_else(|| anyhow::anyhow!("explicit changelog source version must be Arrow UInt64"))
-    }).transpose()?;
+    anyhow::ensure!(
+        version_columns.next().is_none(),
+        "changelog dataset '{}' has multiple source versions",
+        dataset.name
+    );
+    let explicit_versions = explicit_version
+        .map(|(index, column)| {
+            anyhow::ensure!(
+                !dataset
+                    .stored_schema
+                    .columns
+                    .iter()
+                    .any(|stored| stored.name == column.name),
+                "source version is control metadata and cannot be stored as a user column"
+            );
+            batch
+                .batch
+                .column(index)
+                .as_any()
+                .downcast_ref::<arrow::array::UInt64Array>()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("explicit changelog source version must be Arrow UInt64")
+                })
+        })
+        .transpose()?;
     let source_version = batch
         .system_columns
         .get(SystemColumnKind::Offset)
@@ -587,7 +612,11 @@ pub fn project_sink_batch(
         })?;
         parsed_operations.push(operation);
         if let Some(versions) = explicit_versions {
-            anyhow::ensure!(!versions.is_null(row), "changelog dataset '{}' row {row} has a null source version", dataset.name);
+            anyhow::ensure!(
+                !versions.is_null(row),
+                "changelog dataset '{}' row {row} has a null source version",
+                dataset.name
+            );
             parsed_source_versions.push(versions.value(row));
         } else {
             anyhow::ensure!(

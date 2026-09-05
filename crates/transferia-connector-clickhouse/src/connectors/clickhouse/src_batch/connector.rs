@@ -198,7 +198,10 @@ impl ClickHouseSourceConnector {
 }
 
 impl SourceConnector for ClickHouseSourceConnector {
-    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
+    fn compatibility(
+        &self,
+        _delivery_type: transferia_delivery_contracts::DeliveryType,
+    ) -> EndpointDescriptor {
         EndpointDescriptor::ClickHouseSource(SourceDescriptor {
             behavior: SourceBehavior::FiniteAppendOnlyRows,
             delivery_modes: SourceDeliveryModes::BATCH,

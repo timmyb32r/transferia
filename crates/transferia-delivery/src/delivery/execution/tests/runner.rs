@@ -100,7 +100,10 @@ struct PhaseSourceConnector {
 }
 
 impl SourceConnector for PhaseSourceConnector {
-    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
+    fn compatibility(
+        &self,
+        _delivery_type: transferia_delivery_contracts::DeliveryType,
+    ) -> EndpointDescriptor {
         EndpointDescriptor::DataGenerator(SourceDescriptor {
             behavior: SourceBehavior::ChangelogRows,
             delivery_modes: SourceDeliveryModes::BATCH_AND_STREAM,

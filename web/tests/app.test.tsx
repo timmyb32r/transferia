@@ -657,12 +657,15 @@ describe("App request orchestration", () => {
 
     const name = app.getByLabelText("Delivery name") as HTMLInputElement;
     expect(name.disabled).toBe(true);
-    expect(app.queryByRole("button", { name: "Save" })).toBeNull();
+    const save = app.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
 
     fireEvent.click(app.getByRole("button", { name: "Edit" }));
 
     expect(name.disabled).toBe(false);
-    expect(app.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(app.getByRole("button", { name: "Save" })).toBe(save);
+    fireEvent.input(name, { target: { value: "Edited delivery" } });
+    expect(save.disabled).toBe(false);
   });
 
   it("clones a saved delivery under the next name with independent state", async () => {
@@ -1121,6 +1124,7 @@ describe("App request orchestration", () => {
     expect(available.parentElement).toBe(host);
     expect(app.getByRole("tab", { name: "Logs" })).toBe(logs);
     expect(available.getAttribute("aria-disabled")).toBe("false");
+    await waitFor(() => expect((available as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(available);
     expect(
       await app.findByRole("heading", { name: "Performance advice" }),

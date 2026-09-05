@@ -326,7 +326,9 @@ impl ParserSession for DebeziumParserSession {
             .sum::<usize>();
         let dlq_bound = if self.parser.on_parse_error == super::error_policy::OnParseError::Dlq {
             super::error_policy::message_dlq_bound(messages)
-        } else { 0 };
+        } else {
+            0
+        };
         self.json
             .output_memory_bound(messages)
             .saturating_add(dlq_bound)
@@ -341,18 +343,28 @@ impl ParserSession for DebeziumParserSession {
         let mut valid = Vec::with_capacity(messages.len());
         for message in messages {
             let result = (|| {
-              if message.tombstone {
-                anyhow::ensure!(message.value.is_empty(), "Debezium tombstone carries a nonempty value");
-                anyhow::ensure!(message.key.is_some(), "Debezium tombstone must carry a message key");
-                Ok(())
-              } else {
-                ConfluentEnvelope::decode(&message.value).map(|_| ())
-              }
+                if message.tombstone {
+                    anyhow::ensure!(
+                        message.value.is_empty(),
+                        "Debezium tombstone carries a nonempty value"
+                    );
+                    anyhow::ensure!(
+                        message.key.is_some(),
+                        "Debezium tombstone must carry a message key"
+                    );
+                    Ok(())
+                } else {
+                    ConfluentEnvelope::decode(&message.value).map(|_| ())
+                }
             })();
             match result {
-                Ok(()) if message.tombstone => {},
+                Ok(()) if message.tombstone => {}
                 Ok(()) => valid.push(message),
-                Err(error) => if self.parser.on_parse_error.retain_in_dlq(error)? { rejected.push(message); },
+                Err(error) => {
+                    if self.parser.on_parse_error.retain_in_dlq(error)? {
+                        rejected.push(message);
+                    }
+                }
             }
         }
         let messages = valid;
@@ -367,14 +379,18 @@ impl ParserSession for DebeziumParserSession {
                 if self.parser.validate_message_table {
                     validate_message_table(&envelope, &self.parser.table)?;
                 }
-                let key = message.key.as_deref()
+                let key = message
+                    .key
+                    .as_deref()
                     .ok_or_else(|| anyhow::anyhow!("Debezium message must carry its record key"))?;
                 normalize_envelope(&envelope, key)
             })();
             let (value, mask) = match result {
                 Ok(value) => value,
                 Err(error) => {
-                    if self.parser.on_parse_error.retain_in_dlq(error)? { rejected.push(message); }
+                    if self.parser.on_parse_error.retain_in_dlq(error)? {
+                        rejected.push(message);
+                    }
                     continue;
                 }
             };
@@ -464,7 +480,11 @@ impl ParserSession for DebeziumParserSession {
                 name: Arc::from(SystemColumnKind::ChangedColumns.default_name()),
             },
         ]);
-        let dlq = super::error_policy::rejected_messages(&main.table, &rejected, self.memory_limit_bytes)?;
+        let dlq = super::error_policy::rejected_messages(
+            &main.table,
+            &rejected,
+            self.memory_limit_bytes,
+        )?;
         Ok((main, dlq))
     }
 }

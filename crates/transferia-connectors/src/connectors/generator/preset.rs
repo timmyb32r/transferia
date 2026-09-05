@@ -115,9 +115,13 @@ impl DataGeneratorPreset {
 
     pub(super) fn validate_range(&self, start: u64, rows: u64) -> anyhow::Result<()> {
         if matches!(self, Self::TransferLogs) {
-            let end = start.checked_add(rows).ok_or_else(|| anyhow::anyhow!("generator row range overflows u64"))?;
-            anyhow::ensure!(end <= (i64::MAX as u64) - 185_528 + 1,
-                "generator transfer logs row range exceeds Int64 field capacity");
+            let end = start
+                .checked_add(rows)
+                .ok_or_else(|| anyhow::anyhow!("generator row range overflows u64"))?;
+            anyhow::ensure!(
+                end <= (i64::MAX as u64) - 185_528 + 1,
+                "generator transfer logs row range exceeds Int64 field capacity"
+            );
         }
         if matches!(self, Self::ClickBench) {
             clickbench::validate_range(start, rows)?;

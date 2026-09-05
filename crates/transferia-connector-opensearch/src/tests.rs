@@ -172,10 +172,22 @@ fn checker_config_accepts_null_auth_and_ignores_endpoint_specific_fields() {
 fn checker_requires_both_basic_credentials_but_allows_explicit_anonymous() {
     for (auth, complete) in [
         (serde_json::Value::Null, false),
-        (serde_json::json!({"type": "basic", "username": "", "password": ""}), false),
-        (serde_json::json!({"type": "basic", "username": "user", "password": ""}), false),
-        (serde_json::json!({"type": "basic", "username": "", "password": "secret"}), false),
-        (serde_json::json!({"type": "basic", "username": "user", "password": "secret"}), true),
+        (
+            serde_json::json!({"type": "basic", "username": "", "password": ""}),
+            false,
+        ),
+        (
+            serde_json::json!({"type": "basic", "username": "user", "password": ""}),
+            false,
+        ),
+        (
+            serde_json::json!({"type": "basic", "username": "", "password": "secret"}),
+            false,
+        ),
+        (
+            serde_json::json!({"type": "basic", "username": "user", "password": "secret"}),
+            true,
+        ),
         (serde_json::json!({"type": "anonymous"}), true),
     ] {
         let config: opensearch::OpenSearchConnectionCheckConfig =

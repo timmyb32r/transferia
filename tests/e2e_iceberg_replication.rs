@@ -701,7 +701,7 @@ fn postgres_connector(config: &str) -> anyhow::Result<PostgresSourceConnector> {
 
 fn mysql_source_yaml(connection: &MySqlConnectionConfig) -> String {
     format!(
-        "host: '{}'\nport: {}\ndatabase: transferia\nusername: {}\npassword: {}\ntrusted_plaintext: true\ntables:\n  - name: mysql_replica\nreplication:\n  server_id: 454545\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n",
+        "host: '{}'\nport: {}\ndatabase: transferia\nusername: {}\npassword: {}\ntrusted_plaintext: true\ntables:\n  - name: mysql_replica\nreplication:\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n",
         connection.host, connection.port, connection.username, connection.password,
     )
 }

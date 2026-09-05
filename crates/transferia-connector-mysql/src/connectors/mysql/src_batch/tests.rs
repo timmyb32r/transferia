@@ -779,8 +779,13 @@ fn read_protocol_is_a_user_visible_advanced_choice() -> anyhow::Result<()> {
 #[test]
 fn source_schema_hides_replication_and_declares_all_delivery_modes() {
     let schema = serde_json::to_value(schemars::schema_for!(MySqlSourceConfig)).unwrap();
-    assert_eq!(schema["properties"]["replication"]["x-ui"]["widget"], "hidden");
-    assert!(schema.pointer("/$defs/MySqlReplicationConfig/properties/server_id").is_none());
+    assert_eq!(
+        schema["properties"]["replication"]["x-ui"]["widget"],
+        "hidden"
+    );
+    assert!(schema
+        .pointer("/$defs/MySqlReplicationConfig/properties/server_id")
+        .is_none());
     assert_eq!(
         schema.pointer("/x-ui/capabilities"),
         Some(&serde_json::json!({

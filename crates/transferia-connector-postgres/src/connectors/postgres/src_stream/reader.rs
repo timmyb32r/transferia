@@ -94,7 +94,13 @@ impl PostgresReplicationSource {
         let slot = super::config::replication_slot(&durable.delivery_id)?.to_owned();
         let connection = client.lock().await;
         if let LogicalDecoder::Pgoutput { publication } = &decoder {
-            validate_pgoutput_publication(&*connection, publication, &tables, matches!(config.plugin, super::config::ReplicationPlugin::Auto)).await?;
+            validate_pgoutput_publication(
+                &*connection,
+                publication,
+                &tables,
+                matches!(config.plugin, super::config::ReplicationPlugin::Auto),
+            )
+            .await?;
         } else {
             validate_relation_identities(&*connection, &tables).await?;
         }

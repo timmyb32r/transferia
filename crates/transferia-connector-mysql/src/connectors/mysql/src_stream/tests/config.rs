@@ -2,10 +2,9 @@ use super::super::MySqlReplicationConfig;
 
 #[test]
 fn replication_defaults_and_delivery_owned_server_id() {
-    let config: MySqlReplicationConfig = serde_json::from_value(serde_json::json!({}))
-    .unwrap();
+    let config: MySqlReplicationConfig = serde_json::from_value(serde_json::json!({})).unwrap();
     assert_eq!(config.server_id, 0);
-    assert_eq!(config.for_delivery("hello").unwrap().server_id, 0xb6fa7167);
+    assert_eq!(config.for_delivery("hello").unwrap().server_id, 0xb6fa_7167);
     assert!(config.for_delivery("").is_err());
     assert_eq!(config.max_events, 4_096);
     assert_eq!(config.max_transaction_bytes, 64 * 1024 * 1024);
@@ -13,7 +12,10 @@ fn replication_defaults_and_delivery_owned_server_id() {
     assert_eq!(config.bootstrap_timeout_ms, 30_000);
     config.validate().unwrap();
 
-    assert!(serde_json::from_value::<MySqlReplicationConfig>(serde_json::json!({"server_id": 42})).is_err());
+    assert!(
+        serde_json::from_value::<MySqlReplicationConfig>(serde_json::json!({"server_id": 42}))
+            .is_err()
+    );
 }
 
 #[test]

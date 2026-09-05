@@ -247,8 +247,8 @@ function ActivationButton({
       <span>Activate</span>
     </Button>
   );
-  return reason === undefined ? button : (
-    <InstantTooltip content={reason} class="action-disabled-tooltip">
+  return (
+    <InstantTooltip content={reason ?? "Activate delivery"} class="action-disabled-tooltip">
       {button}
     </InstantTooltip>
   );

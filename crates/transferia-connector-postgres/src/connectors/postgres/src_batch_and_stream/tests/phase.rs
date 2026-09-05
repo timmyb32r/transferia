@@ -15,7 +15,9 @@ fn source() -> PostgresSourceIdentity {
 }
 
 fn config() -> LogicalDecoder {
-    LogicalDecoder::Pgoutput { publication: "transferia_publication".to_owned() }
+    LogicalDecoder::Pgoutput {
+        publication: "transferia_publication".to_owned(),
+    }
 }
 
 fn durable_context() -> transferia_registry::durable::DurableContext {

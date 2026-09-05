@@ -138,9 +138,13 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
                 }
                 if let Some(capabilities) = &hints.capabilities {
                     if capabilities.batch_stream_handoff.is_some() {
-                        anyhow::ensure!(capabilities.component == UiCapabilityComponent::Source
-                            && capabilities.delivery_modes.as_ref().is_some_and(|modes| modes.contains(&UiDeliveryType::BatchAndStream)),
-                            "{path}: batch_stream_handoff requires a batch_and_stream source");
+                        anyhow::ensure!(
+                            capabilities.component == UiCapabilityComponent::Source
+                                && capabilities.delivery_modes.as_ref().is_some_and(
+                                    |modes| modes.contains(&UiDeliveryType::BatchAndStream)
+                                ),
+                            "{path}: batch_stream_handoff requires a batch_and_stream source"
+                        );
                     }
                     anyhow::ensure!(
                         !capabilities.key.is_empty(),

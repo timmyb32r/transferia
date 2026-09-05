@@ -50,10 +50,7 @@ fn parser_schema_declares_s3_matrix_capabilities() {
     let schema = serde_json::to_value(schema_for!(S3InputParser)).unwrap();
     let variants = schema["oneOf"].as_array().unwrap();
 
-    for (title, key) in [
-        ("Parquet parser", "s3_parquet"),
-        ("JSON parser", "s3_json"),
-    ] {
+    for (title, key) in [("Parquet parser", "s3_parquet"), ("JSON parser", "s3_json")] {
         let variant = variants
             .iter()
             .find(|variant| variant["title"] == title)

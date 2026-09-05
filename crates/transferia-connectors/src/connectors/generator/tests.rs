@@ -32,7 +32,11 @@ async fn infinite_generator_keeps_producing_bounded_batches() -> anyhow::Result<
     config.amount = GenerationAmount::Infinite;
     config.validate()?;
     assert_eq!(config.total_rows()?, None);
-    let mut source = DataGeneratorSource::new(config, PipelineMemory::new(1_024), Arc::new(SourceCounters::new()))?;
+    let mut source = DataGeneratorSource::new(
+        config,
+        PipelineMemory::new(1_024),
+        Arc::new(SourceCounters::new()),
+    )?;
     for _ in 0..100 {
         match source.read_batch().await? {
             SourceBatch::Typed { source_rows, .. } => assert!(source_rows > 0 && source_rows <= 12),
@@ -47,10 +51,20 @@ fn generator_delivery_modes_follow_generation_amount() -> anyhow::Result<()> {
     use transferia_delivery_contracts::DeliveryType;
     for infinite in [false, true] {
         let mut config = config();
-        if infinite { config.amount = GenerationAmount::Infinite; }
-        let connector = DataGeneratorSourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))?;
-        for (mode, expected) in [(DeliveryType::Batch, !infinite), (DeliveryType::Stream, true), (DeliveryType::BatchAndStream, false)] {
-            assert_eq!(connector.compatibility(mode).supports_delivery_type(mode), expected);
+        if infinite {
+            config.amount = GenerationAmount::Infinite;
+        }
+        let connector =
+            DataGeneratorSourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))?;
+        for (mode, expected) in [
+            (DeliveryType::Batch, !infinite),
+            (DeliveryType::Stream, true),
+            (DeliveryType::BatchAndStream, false),
+        ] {
+            assert_eq!(
+                connector.compatibility(mode).supports_delivery_type(mode),
+                expected
+            );
         }
     }
     Ok(())
@@ -61,14 +75,22 @@ async fn infinite_generator_fails_before_wrapping_identifiers() -> anyhow::Resul
     let mut config = config();
     config.amount = GenerationAmount::Infinite;
     config.start_row = u64::MAX;
-    let mut source = DataGeneratorSource::new(config, PipelineMemory::new(1_024), Arc::new(SourceCounters::new()))?;
+    let mut source = DataGeneratorSource::new(
+        config,
+        PipelineMemory::new(1_024),
+        Arc::new(SourceCounters::new()),
+    )?;
     assert!(source.read_batch().await.is_err());
     let mut config = super::tests::config();
     config.preset = DataGeneratorPreset::TransferLogs;
     config.amount = GenerationAmount::Infinite;
     config.start_row = i64::MAX as u64;
     assert!(config.validate().is_err());
-    let mut source = DataGeneratorSource::new(config, PipelineMemory::new(1_024), Arc::new(SourceCounters::new()))?;
+    let mut source = DataGeneratorSource::new(
+        config,
+        PipelineMemory::new(1_024),
+        Arc::new(SourceCounters::new()),
+    )?;
     assert!(source.read_batch().await.is_err());
     Ok(())
 }

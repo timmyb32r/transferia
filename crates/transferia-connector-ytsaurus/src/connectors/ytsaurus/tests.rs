@@ -1102,11 +1102,21 @@ fn only_dynamic_sink_without_a_proxy_role_recommends_dedicated_proxies() -> anyh
 fn destination_delivery_modes_are_independent_of_append_only_semantics() -> anyhow::Result<()> {
     use transferia_delivery_contracts::DeliveryType;
     let schema = serde_json::to_value(schema_for!(YTsaurusSinkConfig))?;
-    let variants = schema.pointer("/$defs/YTsaurusTableMode/oneOf").unwrap().as_array().unwrap();
+    let variants = schema
+        .pointer("/$defs/YTsaurusTableMode/oneOf")
+        .unwrap()
+        .as_array()
+        .unwrap();
     for table_type in ["static_tables", "dynamic_tables"] {
-        let variant = variants.iter().find(|variant|
-            variant.pointer("/properties/type/const").and_then(serde_json::Value::as_str) == Some(table_type)
-        ).unwrap();
+        let variant = variants
+            .iter()
+            .find(|variant| {
+                variant
+                    .pointer("/properties/type/const")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(table_type)
+            })
+            .unwrap();
         let config = serde_yaml::from_str::<YTsaurusSinkConfig>(&format!(
             "tables: {{ type: {table_type}, replace_tables: true, path: //tmp/output }}\nauth: {{ type: token, token: test }}\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntrusted_native_rpc_plaintext: true\n",
         ))?;
@@ -1114,11 +1124,25 @@ fn destination_delivery_modes_are_independent_of_append_only_semantics() -> anyh
         assert!(connector.compatibility().accepts_record_semantics(
             transferia_delivery_contracts::semantics::RecordSemantics::AppendOnly,
         ));
-        for mode in [DeliveryType::Batch, DeliveryType::Stream, DeliveryType::BatchAndStream] {
+        for mode in [
+            DeliveryType::Batch,
+            DeliveryType::Stream,
+            DeliveryType::BatchAndStream,
+        ] {
             let supported = table_type == "dynamic_tables" || mode == DeliveryType::Batch;
-            let declared = variant.pointer("/x-ui/capabilities/delivery_modes")
-                .map_or(true, |modes| modes.as_array().unwrap().contains(&serde_json::to_value(mode).unwrap()));
-            assert_eq!(declared, supported, "schema and runtime must agree for {table_type}/{mode:?}");
+            let declared =
+                variant
+                    .pointer("/x-ui/capabilities/delivery_modes")
+                    .is_none_or(|modes| {
+                        modes
+                            .as_array()
+                            .unwrap()
+                            .contains(&serde_json::to_value(mode).unwrap())
+                    });
+            assert_eq!(
+                declared, supported,
+                "schema and runtime must agree for {table_type}/{mode:?}"
+            );
             assert_eq!(connector.delivery_modes().contains(&mode), supported);
             assert_eq!(connector.validate_delivery_type(mode).is_ok(), supported);
         }

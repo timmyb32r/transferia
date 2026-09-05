@@ -128,7 +128,10 @@ fn source_consumer(config: &KafkaSourceConfig, group: &str) -> anyhow::Result<St
 }
 
 impl SourceConnector for KafkaSourceConnector {
-    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
+    fn compatibility(
+        &self,
+        _delivery_type: transferia_delivery_contracts::DeliveryType,
+    ) -> EndpointDescriptor {
         EndpointDescriptor::Kafka(SourceDescriptor {
             behavior: self.parser_plan.source_behavior(),
             delivery_modes: SourceDeliveryModes::STREAM,

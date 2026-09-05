@@ -13,6 +13,11 @@ SPEC.loader.exec_module(boundaries)
 
 
 class CrateBoundariesTest(unittest.TestCase):
+    def test_delivery_test_support_is_allowed_only_for_tests(self):
+        dependency = "transferia-test-support"
+        self.assertNotIn(dependency, boundaries.PRODUCTION_ALLOWED["transferia-delivery"])
+        self.assertIn(dependency, boundaries.DEV_EXTRA["transferia-delivery"])
+
     def test_connector_pipeline_dependency_is_allowed_only_for_tests(self):
         manifest = {
             "dependencies": {"transferia-pipeline": {"path": "../transferia-pipeline"}},

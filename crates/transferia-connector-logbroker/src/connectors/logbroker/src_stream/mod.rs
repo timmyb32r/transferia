@@ -479,7 +479,10 @@ pub async fn check_topic_connection(
 }
 
 impl SourceConnector for PqV1DriverSourceConnector {
-    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
+    fn compatibility(
+        &self,
+        _delivery_type: transferia_delivery_contracts::DeliveryType,
+    ) -> EndpointDescriptor {
         EndpointDescriptor::Logbroker(SourceDescriptor {
             behavior: self.behavior,
             delivery_modes: SourceDeliveryModes::STREAM,
@@ -589,7 +592,10 @@ async fn connect_client(
 }
 
 impl SourceConnector for YdbDriverSourceConnector {
-    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
+    fn compatibility(
+        &self,
+        _delivery_type: transferia_delivery_contracts::DeliveryType,
+    ) -> EndpointDescriptor {
         EndpointDescriptor::Logbroker(SourceDescriptor {
             behavior: self.behavior,
             delivery_modes: SourceDeliveryModes::STREAM,

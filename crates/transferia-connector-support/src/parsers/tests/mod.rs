@@ -9,32 +9,66 @@ fn registry_parsers_apply_error_policy_and_preserve_original_envelopes() -> anyh
     for parser in ["debezium", "schema_registry"] {
         for policy in ["fail", "dlq", "drop"] {
             let config: ParserConfig = serde_yaml::from_str(&format!(
-                "common:\n  table_naming: {{type: from_config, name: events}}\n{parser}:\n  on_parse_error: {policy}\n  connection: {{url: 'http://registry.invalid'}}\n"
+                "common:\n  table_naming: {{type: from_config, name: events}}\n{parser}:\n  on_parse_error: {policy}\n  connection: {{url: 'http://registry.invalid', request_timeout_ms: 1000}}\n"
             ))?;
             let plan = ParserPlan::from_config(&config, "topic")?;
             let mut session = plan.parser().create_session(1024 * 1024);
             let mut message = Message::new(bytes::Bytes::from_static(b"not a wire envelope"));
             message.key = Some(bytes::Bytes::from_static(b"original-key"));
             message.headers = Arc::from([
-                transferia_core::data::message::MessageHeader { key: Arc::from("h"), value: None },
-                transferia_core::data::message::MessageHeader { key: Arc::from("h"), value: Some(bytes::Bytes::from_static(b"v")) },
+                transferia_core::data::message::MessageHeader {
+                    key: Arc::from("h"),
+                    value: None,
+                },
+                transferia_core::data::message::MessageHeader {
+                    key: Arc::from("h"),
+                    value: Some(bytes::Bytes::from_static(b"v")),
+                },
             ]);
             let result = session.parse_into(vec![message]);
-            if policy == "fail" { assert!(result.is_err()); continue; }
+            if policy == "fail" {
+                assert!(result.is_err());
+                continue;
+            }
             let (main, dlq) = result?;
             assert_eq!(main.batch.num_rows(), 0);
-            if policy == "drop" { assert!(dlq.is_none()); continue; }
+            if policy == "drop" {
+                assert!(dlq.is_none());
+                continue;
+            }
             let dlq = dlq.expect("explicit DLQ policy retains invalid message");
             assert_eq!(dlq.batch.num_rows(), 1);
             assert_eq!(dlq.batch.num_columns(), plan.dlq_schema(true).columns.len());
-            for (field, column) in dlq.batch.schema().fields().iter().zip(plan.dlq_schema(true).columns.iter()) {
+            for (field, column) in dlq
+                .batch
+                .schema()
+                .fields()
+                .iter()
+                .zip(plan.dlq_schema(true).columns.iter())
+            {
                 assert_eq!(field.name(), &column.name);
                 assert_eq!(field.data_type(), &column.data_type);
             }
-            let string = |index| dlq.batch.column(index).as_any().downcast_ref::<StringArray>().unwrap().value(0);
-            assert_eq!(base64::engine::general_purpose::STANDARD.decode(string(0))?, b"not a wire envelope");
-            assert_eq!(base64::engine::general_purpose::STANDARD.decode(string(3))?, b"original-key");
-            assert_eq!(serde_json::from_str::<serde_json::Value>(string(4))?, serde_json::json!([["h", null], ["h", "dg=="]]));
+            let string = |index| {
+                dlq.batch
+                    .column(index)
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .unwrap()
+                    .value(0)
+            };
+            assert_eq!(
+                base64::engine::general_purpose::STANDARD.decode(string(0))?,
+                b"not a wire envelope"
+            );
+            assert_eq!(
+                base64::engine::general_purpose::STANDARD.decode(string(3))?,
+                b"original-key"
+            );
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(string(4))?,
+                serde_json::json!([["h", null], ["h", "dg=="]])
+            );
         }
     }
     Ok(())
@@ -44,11 +78,20 @@ fn registry_parsers_apply_error_policy_and_preserve_original_envelopes() -> anyh
 fn new_parse_error_policies_default_to_fail_and_reject_unknown_values() -> anyhow::Result<()> {
     let schema = serde_json::to_value(schemars::schema_for!(config::ParserSchema))?;
     for name in ["DebeziumParserConfig", "SchemaRegistryParserConfig"] {
-        assert_eq!(schema["$defs"][name]["properties"]["on_parse_error"]["title"], "On Parse Error");
-        assert_eq!(schema["$defs"][name]["properties"]["on_parse_error"]["default"], "fail");
+        assert_eq!(
+            schema["$defs"][name]["properties"]["on_parse_error"]["title"],
+            "On Parse Error"
+        );
+        assert_eq!(
+            schema["$defs"][name]["properties"]["on_parse_error"]["default"],
+            "fail"
+        );
     }
     assert!(serde_yaml::from_str::<error_policy::OnParseError>("ignore").is_err());
-    assert_eq!(error_policy::OnParseError::default(), error_policy::OnParseError::Fail);
+    assert_eq!(
+        error_policy::OnParseError::default(),
+        error_policy::OnParseError::Fail
+    );
     Ok(())
 }
 
@@ -222,23 +265,50 @@ fn message_aware_parsers_offer_from_message_first_without_changing_json_defaults
     let generic_naming = &schema["$defs"]["TableNaming"]["oneOf"];
     assert_eq!(generic_naming[0]["title"], "From config");
     assert!(!generic_naming.to_string().contains("from_message"));
-    for parser in ["JsonParserSchema", "TskvParserSchema", "BenchmarkDiscardParserSchema"] {
-        assert_eq!(schema["$defs"][parser]["properties"]["common"]["$ref"], "#/$defs/CommonParserConfig");
+    for parser in [
+        "JsonParserSchema",
+        "TskvParserSchema",
+        "BenchmarkDiscardParserSchema",
+    ] {
+        assert_eq!(
+            schema["$defs"][parser]["properties"]["common"]["$ref"],
+            "#/$defs/CommonParserConfig"
+        );
     }
-    assert_eq!(schema["$defs"]["RawToTableCommonConfig"]["properties"]["table_naming"]["$ref"], "#/$defs/TableNaming");
+    assert_eq!(
+        schema["$defs"]["RawToTableCommonConfig"]["properties"]["table_naming"]["$ref"],
+        "#/$defs/TableNaming"
+    );
     for parser in ["DebeziumParserSchema", "SchemaRegistryParserSchema"] {
-        assert_eq!(schema["$defs"][parser]["properties"]["common"]["$ref"], "#/$defs/MessageAwareCommonParserConfig");
+        assert_eq!(
+            schema["$defs"][parser]["properties"]["common"]["$ref"],
+            "#/$defs/MessageAwareCommonParserConfig"
+        );
     }
 }
 
 #[test]
 fn non_message_aware_parsers_reject_from_message_before_preparation() {
-    for parser in ["json_parser", "tskv", "raw_to_table", "benchmark_discard", "custom_plugin"] {
+    for parser in [
+        "json_parser",
+        "tskv",
+        "raw_to_table",
+        "benchmark_discard",
+        "custom_plugin",
+    ] {
         let config: ParserConfig = serde_yaml::from_str(&format!(
             "common:\n  table_naming: {{ type: from_message }}\n{parser}: {{}}\n"
-        )).unwrap();
-        let error = ParserPlan::from_config(&config, "topic").err().expect("unsupported naming");
-        assert!(error.to_string().contains("supported only by debezium and schema_registry"), "{parser}: {error:#}");
+        ))
+        .unwrap();
+        let error = ParserPlan::from_config(&config, "topic")
+            .err()
+            .expect("unsupported naming");
+        assert!(
+            error
+                .to_string()
+                .contains("supported only by debezium and schema_registry"),
+            "{parser}: {error:#}"
+        );
     }
 }
 

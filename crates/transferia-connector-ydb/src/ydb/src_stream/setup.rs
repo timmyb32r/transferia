@@ -56,10 +56,20 @@ pub(in crate::ydb) struct ActiveReplicationSource {
 }
 
 impl PreparedReplication {
-    pub(in crate::ydb) async fn validate_resources(&self, config: &YdbSourceConfig, cancellation: &CancellationToken) -> anyhow::Result<()> {
+    pub(in crate::ydb) async fn validate_resources(
+        &self,
+        config: &YdbSourceConfig,
+        cancellation: &CancellationToken,
+    ) -> anyhow::Result<()> {
         let actual = discover_replication_resources(config, cancellation).await?;
-        anyhow::ensure!(actual.identities == self.resources.identities, "YDB replication resources changed during execution");
-        anyhow::ensure!(!self.fence_lost.is_cancelled(), "YDB replication execution fence lost");
+        anyhow::ensure!(
+            actual.identities == self.resources.identities,
+            "YDB replication resources changed during execution"
+        );
+        anyhow::ensure!(
+            !self.fence_lost.is_cancelled(),
+            "YDB replication execution fence lost"
+        );
         Ok(())
     }
 

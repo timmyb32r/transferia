@@ -12,13 +12,13 @@ use ydb_grpc::ydb_proto::status_ids::StatusCode;
 use ydb_grpc::ydb_proto::table::{ReadTableRequest, ReadTableResponse};
 
 use super::config::{YdbSourceConfig, YdbTableConfig};
+use super::src_batch_and_stream::{OverlapExecution, OverlapSnapshot};
 use super::src_stream::{
     discover_replication_resources, prepare_replication, replication_contract_violation,
     replication_discovery, PreparedReplication, YdbReplicationSource,
 };
 use super::transport::{is_not_found_error, YdbClient};
 use super::types::{column_plans, dataset_schema, result_set_to_batch, ColumnPlan};
-use super::src_batch_and_stream::{OverlapExecution, OverlapSnapshot};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use transferia_core::data::message::SourceBatch;
@@ -83,7 +83,10 @@ impl YdbSourceConnector {
     }
 
     fn bind_mode(&self, mode: DeliveryType) -> anyhow::Result<()> {
-        anyhow::ensure!(*self.delivery_type.get_or_init(|| mode) == mode, "YDB connector cannot be reused across delivery modes");
+        anyhow::ensure!(
+            *self.delivery_type.get_or_init(|| mode) == mode,
+            "YDB connector cannot be reused across delivery modes"
+        );
         Ok(())
     }
 
@@ -99,9 +102,11 @@ impl YdbSourceConnector {
         }
         let execution = Arc::new(
             OverlapExecution::prepare(&self.config, prepared, durable, cancellation)
-                .await.map_err(|error| anyhow::Error::new(DataPlaneFailure::fatal(error)))?
+                .await
+                .map_err(|error| anyhow::Error::new(DataPlaneFailure::fatal(error)))?,
         );
         *guard = Some(Arc::clone(&execution));
+        drop(guard);
         Ok(execution)
     }
 
@@ -176,7 +181,10 @@ impl YdbSourceConnector {
 }
 
 impl SourceConnector for YdbSourceConnector {
-    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
+    fn compatibility(
+        &self,
+        _delivery_type: transferia_delivery_contracts::DeliveryType,
+    ) -> EndpointDescriptor {
         EndpointDescriptor::YdbSource(SourceDescriptor {
             behavior: if self.config.replication.is_some() {
                 SourceBehavior::ChangelogRows
@@ -298,7 +306,10 @@ impl SourceConnector for YdbSourceConnector {
                 return Ok(None);
             }
             anyhow::ensure!(
-                matches!(context.delivery_type, DeliveryType::Stream | DeliveryType::BatchAndStream),
+                matches!(
+                    context.delivery_type,
+                    DeliveryType::Stream | DeliveryType::BatchAndStream
+                ),
                 "YDB replication configuration supports stream and batch_and_stream delivery"
             );
             let replay_identity = context.replay_identity.ok_or_else(|| {
@@ -328,8 +339,12 @@ impl SourceConnector for YdbSourceConnector {
             let mut remaining_phases = self.execution_phases(context.delivery_type, &discovery)?;
             if context.delivery_type == DeliveryType::BatchAndStream {
                 discovery.source_topology = SourceTopology::CoLocatedStaticPartitions(vec![0]);
-                let overlap = self.prepared_overlap(Arc::clone(&prepared), durable.clone(), &cancellation).await?;
-                if overlap.streaming().await { remaining_phases.remove(0); }
+                let overlap = self
+                    .prepared_overlap(Arc::clone(&prepared), durable.clone(), &cancellation)
+                    .await?;
+                if overlap.streaming().await {
+                    remaining_phases.remove(0);
+                }
             }
             Ok(Some(PreparedSourceExecution {
                 discovery,
@@ -338,25 +353,66 @@ impl SourceConnector for YdbSourceConnector {
         })
     }
 
-    fn execution_phases(&self, mode: DeliveryType, discovery: &DeliveryDiscovery) -> anyhow::Result<Vec<SourceExecutionPhase>> {
+    fn execution_phases(
+        &self,
+        mode: DeliveryType,
+        discovery: &DeliveryDiscovery,
+    ) -> anyhow::Result<Vec<SourceExecutionPhase>> {
         Ok(match mode {
-            DeliveryType::Batch => vec![SourceExecutionPhase { phase: SourcePhase::Snapshot, topology: discovery.source_topology.clone(), finite: true }],
-            DeliveryType::Stream => vec![SourceExecutionPhase { phase: SourcePhase::Stream, topology: discovery.source_topology.clone(), finite: false }],
+            DeliveryType::Batch => vec![SourceExecutionPhase {
+                phase: SourcePhase::Snapshot,
+                topology: discovery.source_topology.clone(),
+                finite: true,
+            }],
+            DeliveryType::Stream => vec![SourceExecutionPhase {
+                phase: SourcePhase::Stream,
+                topology: discovery.source_topology.clone(),
+                finite: false,
+            }],
             DeliveryType::BatchAndStream => vec![
-                SourceExecutionPhase { phase: SourcePhase::Snapshot, topology: SourceTopology::CoLocatedStaticPartitions(vec![0]), finite: true },
-                SourceExecutionPhase { phase: SourcePhase::Stream, topology: SourceTopology::CoLocatedStaticPartitions(vec![0]), finite: false },
+                SourceExecutionPhase {
+                    phase: SourcePhase::Snapshot,
+                    topology: SourceTopology::CoLocatedStaticPartitions(vec![0]),
+                    finite: true,
+                },
+                SourceExecutionPhase {
+                    phase: SourcePhase::Stream,
+                    topology: SourceTopology::CoLocatedStaticPartitions(vec![0]),
+                    finite: false,
+                },
             ],
         })
     }
 
-    fn complete_execution_phase(&self, phase: SourcePhase, durable: transferia_registry::durable::DurableContext,
-        cancellation: tokio_util::sync::CancellationToken) -> BoxFuture<'_, anyhow::Result<()>> {
+    fn complete_execution_phase(
+        &self,
+        phase: SourcePhase,
+        durable: transferia_registry::durable::DurableContext,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
-            if phase == SourcePhase::Snapshot && self.delivery_type.get() == Some(&DeliveryType::BatchAndStream) {
-                let execution = self.overlap.lock().await.clone().ok_or_else(|| anyhow::anyhow!("YDB overlap execution missing"))?;
-                anyhow::ensure!(execution.prepared.delivery_id == durable.delivery_id, "YDB overlap completion delivery mismatch");
-                execution.prepared.validate_resources(&self.config, &cancellation).await.map_err(replication_contract_violation)?;
-                execution.complete_snapshot().await.map_err(|error| anyhow::Error::new(DataPlaneFailure::fatal(error)))?;
+            if phase == SourcePhase::Snapshot
+                && self.delivery_type.get() == Some(&DeliveryType::BatchAndStream)
+            {
+                let execution = self
+                    .overlap
+                    .lock()
+                    .await
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("YDB overlap execution missing"))?;
+                anyhow::ensure!(
+                    execution.prepared.delivery_id == durable.delivery_id,
+                    "YDB overlap completion delivery mismatch"
+                );
+                execution
+                    .prepared
+                    .validate_resources(&self.config, &cancellation)
+                    .await
+                    .map_err(replication_contract_violation)?;
+                execution
+                    .complete_snapshot()
+                    .await
+                    .map_err(|error| anyhow::Error::new(DataPlaneFailure::fatal(error)))?;
             }
             Ok(())
         })
@@ -369,20 +425,40 @@ impl SourceConnector for YdbSourceConnector {
         Box::pin(async move {
             let partition_id = context.partition_id;
             self.bind_mode(context.delivery_type)?;
-            if context.delivery_type == DeliveryType::BatchAndStream && context.phase == SourcePhase::Snapshot {
+            if context.delivery_type == DeliveryType::BatchAndStream
+                && context.phase == SourcePhase::Snapshot
+            {
                 anyhow::ensure!(partition_id == 0, "YDB overlap snapshot has one partition");
-                let execution = self.overlap.lock().await.clone().ok_or_else(|| anyhow::anyhow!("YDB overlap snapshot was not prepared"))?;
-                anyhow::ensure!(execution.prepared.delivery_id == context.durable.delivery_id
-                    && context.replay_identity.as_deref() == Some(execution.prepared.replay_identity.as_ref()), "YDB overlap snapshot identity mismatch");
+                let execution = self
+                    .overlap
+                    .lock()
+                    .await
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("YDB overlap snapshot was not prepared"))?;
+                anyhow::ensure!(
+                    execution.prepared.delivery_id == context.durable.delivery_id
+                        && context.replay_identity.as_deref()
+                            == Some(execution.prepared.replay_identity.as_ref()),
+                    "YDB overlap snapshot identity mismatch"
+                );
                 let counters = self.counters(partition_id);
-                self.metrics.register_source(partition_id, Arc::clone(&counters));
-                return OverlapSnapshot::new(self.config.clone(), Arc::clone(&execution), context.cancellation, counters, context.memory)
-                    .map(|source| Box::new(source) as Box<dyn Source>)
-                    .map_err(|error| anyhow::Error::new(DataPlaneFailure::fatal(error)));
+                self.metrics
+                    .register_source(partition_id, Arc::clone(&counters));
+                return OverlapSnapshot::new(
+                    self.config.clone(),
+                    Arc::clone(&execution),
+                    context.cancellation,
+                    counters,
+                    context.memory,
+                )
+                .map(|source| Box::new(source) as Box<dyn Source>)
+                .map_err(|error| anyhow::Error::new(DataPlaneFailure::fatal(error)));
             }
             if self.config.replication.is_some() {
-                if !matches!(context.delivery_type, DeliveryType::Stream | DeliveryType::BatchAndStream)
-                    || context.phase != SourcePhase::Stream
+                if !matches!(
+                    context.delivery_type,
+                    DeliveryType::Stream | DeliveryType::BatchAndStream
+                ) || context.phase != SourcePhase::Stream
                 {
                     return Err(replication_contract_violation(anyhow::anyhow!(
                         "YDB replication source can be built only for the stream phase"
@@ -421,10 +497,21 @@ impl SourceConnector for YdbSourceConnector {
                 self.metrics
                     .register_source(partition_id, Arc::clone(&counters));
                 let start_offsets = if context.delivery_type == DeliveryType::BatchAndStream {
-                    let execution = self.prepared_overlap(Arc::clone(&prepared), context.durable.clone(), &context.cancellation).await?;
-                    anyhow::ensure!(execution.streaming().await, "YDB snapshot has not crossed the durable commit barrier");
+                    let execution = self
+                        .prepared_overlap(
+                            Arc::clone(&prepared),
+                            context.durable.clone(),
+                            &context.cancellation,
+                        )
+                        .await?;
+                    anyhow::ensure!(
+                        execution.streaming().await,
+                        "YDB snapshot has not crossed the durable commit barrier"
+                    );
                     execution.start_offsets.clone()
-                } else { HashMap::new() };
+                } else {
+                    HashMap::new()
+                };
                 let source = YdbReplicationSource::new(
                     &self.config,
                     prepared,

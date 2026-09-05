@@ -57,7 +57,7 @@ export function Button({
       aria-disabled={disabled || pending || undefined}
       aria-busy={pending}
       onClick={(event) => {
-        if (pending) {
+        if (disabled || pending) {
           event.preventDefault();
           event.stopPropagation();
           return;

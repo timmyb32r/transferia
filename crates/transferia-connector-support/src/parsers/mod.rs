@@ -99,7 +99,11 @@ impl ParserPlan {
                     name: dlq_table,
                     incoming_schema: self.dlq_schema(true),
                     stored_schema: self.dlq_schema(request.keep_system_columns),
-                    system_columns: if self.envelope_dlq { Vec::new() } else { system_columns },
+                    system_columns: if self.envelope_dlq {
+                        Vec::new()
+                    } else {
+                        system_columns
+                    },
                 },
             ]
         } else {
@@ -231,7 +235,11 @@ impl ParserPlan {
             record_semantics: RecordSemantics::AppendOnly,
             discovered_system_columns,
             primary_key,
-            dlq_dataset_schema: if kind == "schema_registry" { error_policy::message_dlq_schema() } else { default_dlq_schema() },
+            dlq_dataset_schema: if kind == "schema_registry" {
+                error_policy::message_dlq_schema()
+            } else {
+                default_dlq_schema()
+            },
             envelope_dlq: kind == "schema_registry",
         })
     }

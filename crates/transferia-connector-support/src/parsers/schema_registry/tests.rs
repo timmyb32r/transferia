@@ -33,7 +33,8 @@ fn schema_registry_public_config_is_complete_and_editable() {
     let properties = runtime_schema["properties"]
         .as_object()
         .expect("runtime parser properties are an object");
-    assert_eq!(properties.len(), 1);
+    assert_eq!(properties.len(), 2);
+    assert!(properties.contains_key("on_parse_error"));
     assert!(properties.contains_key("connection"));
     for removed in [
         "json_parser",

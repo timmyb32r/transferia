@@ -86,9 +86,13 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
     let mut pgoutput = source(&host, port, "pgoutput").await?;
     let mut wal2json = source(&host, port, "wal2json").await?;
     let mut automatic = source(&host, port, "auto").await?;
-    let automatic_plugin: String = client.query_one(
-        "SELECT plugin FROM pg_replication_slots WHERE slot_name = 'dttauto'", &[],
-    ).await?.get(0);
+    let automatic_plugin: String = client
+        .query_one(
+            "SELECT plugin FROM pg_replication_slots WHERE slot_name = 'dttauto'",
+            &[],
+        )
+        .await?
+        .get(0);
     assert_eq!(automatic_plugin, "pgoutput");
     let pgoutput_before = slot_lsn(&client, "transferia_pgoutput").await?;
     let wal2json_before = slot_lsn(&client, "transferia_wal2json").await?;
@@ -121,7 +125,9 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
     wal2json
         .commit_offsets(std::slice::from_ref(&wal2json_batch.marker))
         .await?;
-    automatic.commit_offsets(std::slice::from_ref(&automatic_batch.marker)).await?;
+    automatic
+        .commit_offsets(std::slice::from_ref(&automatic_batch.marker))
+        .await?;
     assert!(slot_lsn(&client, "transferia_pgoutput").await? > pgoutput_before);
     assert!(slot_lsn(&client, "transferia_wal2json").await? > wal2json_before);
 

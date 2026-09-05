@@ -395,7 +395,10 @@ impl YTsaurusSourceConnector {
 }
 
 impl SourceConnector for YTsaurusSourceConnector {
-    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
+    fn compatibility(
+        &self,
+        _delivery_type: transferia_delivery_contracts::DeliveryType,
+    ) -> EndpointDescriptor {
         EndpointDescriptor::YTsaurus(SourceDescriptor {
             behavior: if self.config.benchmark_discard.is_some() {
                 SourceBehavior::BenchmarkDiscard

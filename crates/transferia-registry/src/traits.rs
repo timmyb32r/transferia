@@ -279,7 +279,11 @@ pub trait SinkConnector: Send + Sync {
 
     /// Delivery modes accepted by this configured destination, independently of record semantics.
     fn delivery_modes(&self) -> &'static [DeliveryType] {
-        &[DeliveryType::Batch, DeliveryType::Stream, DeliveryType::BatchAndStream]
+        &[
+            DeliveryType::Batch,
+            DeliveryType::Stream,
+            DeliveryType::BatchAndStream,
+        ]
     }
 
     fn validate_delivery_type(&self, delivery_type: DeliveryType) -> anyhow::Result<()> {
@@ -287,7 +291,11 @@ pub trait SinkConnector: Send + Sync {
             self.delivery_modes().contains(&delivery_type),
             "configured destination does not support '{}' delivery; allowed modes: {}",
             delivery_type.label(),
-            self.delivery_modes().iter().map(|mode| format!("'{}'", mode.label())).collect::<Vec<_>>().join(", ")
+            self.delivery_modes()
+                .iter()
+                .map(|mode| format!("'{}'", mode.label()))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
         Ok(())
     }

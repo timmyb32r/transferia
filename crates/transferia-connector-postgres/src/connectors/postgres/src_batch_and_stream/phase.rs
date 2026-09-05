@@ -86,7 +86,7 @@ impl SnapshotStreamTracker {
             PersistedPhase::Claimed,
             &slot,
         );
-        let key = format!("postgres-snapshot-stream-{}", slot);
+        let key = format!("postgres-snapshot-stream-{slot}");
         if let Some(current) = durable.storage.read(&key).await? {
             let persisted = decode_and_validate(&current.payload, &identity)
                 .map_err(replication_safety_violation)?;
@@ -105,8 +105,7 @@ impl SnapshotStreamTracker {
                 PersistedPhase::Claimed => {
                     if slot_exists {
                         return Err(replication_safety_violation(anyhow::anyhow!(
-                            "PostgreSQL batch_and_stream snapshot bootstrap was interrupted before its exact WAL boundary was persisted and replication slot '{}' still exists; remove that exact slot deliberately before retrying",
-                            slot
+                            "PostgreSQL batch_and_stream snapshot bootstrap was interrupted before its exact WAL boundary was persisted and replication slot '{slot}' still exists; remove that exact slot deliberately before retrying"
                         )));
                     }
                     let payload = serde_json::to_vec(&identity)?;
@@ -129,13 +128,11 @@ impl SnapshotStreamTracker {
                 PersistedPhase::Snapshot { .. } => {
                     let message = if slot_exists {
                         format!(
-                            "PostgreSQL batch_and_stream snapshot was interrupted before its exact WAL handoff and replication slot '{}' still exists; the exported snapshot cannot survive process loss, so reset the destination snapshot attempt and remove that exact slot deliberately before retrying",
-                            slot
+                            "PostgreSQL batch_and_stream snapshot was interrupted before its exact WAL handoff and replication slot '{slot}' still exists; the exported snapshot cannot survive process loss, so reset the destination snapshot attempt and remove that exact slot deliberately before retrying"
                         )
                     } else {
                         format!(
-                            "PostgreSQL batch_and_stream snapshot was interrupted before its exact WAL handoff and replication slot '{}' is absent; refusing to bootstrap a new snapshot because the destination may contain rows committed from the previous snapshot attempt, so reset that destination attempt deliberately before retrying",
-                            slot
+                            "PostgreSQL batch_and_stream snapshot was interrupted before its exact WAL handoff and replication slot '{slot}' is absent; refusing to bootstrap a new snapshot because the destination may contain rows committed from the previous snapshot attempt, so reset that destination attempt deliberately before retrying"
                         )
                     };
                     return Err(replication_safety_violation(anyhow::Error::msg(message)));
@@ -145,8 +142,7 @@ impl SnapshotStreamTracker {
 
         if slot_exists {
             return Err(replication_safety_violation(anyhow::anyhow!(
-                "PostgreSQL replication slot '{}' already exists without matching batch_and_stream durable ownership; refusing to replace or use it",
-                slot
+                "PostgreSQL replication slot '{slot}' already exists without matching batch_and_stream durable ownership; refusing to replace or use it"
             )));
         }
 

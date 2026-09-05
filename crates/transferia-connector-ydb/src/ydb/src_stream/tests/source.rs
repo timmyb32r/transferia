@@ -11,9 +11,19 @@ use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::failure::FailureDisposition;
 
 #[test]
+fn source_timestamp_is_required_in_discovery_and_runtime_metadata() {
+    assert!(!super::metadata_nullable(
+        transferia_core::data::schema::SYSTEM_ROLE_SOURCE_TIMESTAMP_MS
+    ));
+}
+
+#[test]
 fn first_cdc_record_strictly_follows_snapshot_even_at_offset_zero() {
     assert_eq!(super::cdc_row_version(0, true).unwrap(), 1);
-    assert_eq!(super::cdc_row_version(i64::MAX, true).unwrap(), i64::MAX as u64 + 1);
+    assert_eq!(
+        super::cdc_row_version(i64::MAX, true).unwrap(),
+        i64::MAX as u64 + 1
+    );
     assert_eq!(super::cdc_row_version(0, false).unwrap(), 0);
     assert_eq!(super::cdc_row_version(42, false).unwrap(), 42);
     assert!(super::cdc_row_version(-1, true).is_err());
@@ -21,20 +31,36 @@ fn first_cdc_record_strictly_follows_snapshot_even_at_offset_zero() {
 
 #[test]
 fn overlap_reconciles_complete_updates_without_changing_deletes_or_before_images() {
-    use std::sync::Arc;
-    use ydb_grpc::ydb_proto::{Type, r#type::{PrimitiveTypeId, Type as TypeKind}, table::ColumnMeta};
     use crate::ydb::types::column_plans;
-    let columns = column_plans(vec![ColumnMeta { name: "id".into(),
-        r#type: Some(Type { r#type: Some(TypeKind::TypeId(PrimitiveTypeId::Int64 as i32)) }),
-        ..Default::default() }], &["id".into()]).unwrap();
+    use std::sync::Arc;
+    use ydb_grpc::ydb_proto::{
+        r#type::{PrimitiveTypeId, Type as TypeKind},
+        table::ColumnMeta,
+        Type,
+    };
+    let columns = column_plans(
+        vec![ColumnMeta {
+            name: "id".into(),
+            r#type: Some(Type {
+                r#type: Some(TypeKind::TypeId(PrimitiveTypeId::Int64 as i32)),
+            }),
+            ..Default::default()
+        }],
+        &["id".into()],
+    )
+    .unwrap();
     let decoder = super::YdbCdcDecoder::new(Arc::from(columns), 1024).unwrap();
-    let mut update = decoder.decode(br#"{"key":[7],"update":{},"oldImage":{},"newImage":{},"ts":[1,2]}"#).unwrap();
+    let mut update = decoder
+        .decode(br#"{"key":[7],"update":{},"oldImage":{},"newImage":{},"ts":[1,2]}"#)
+        .unwrap();
     assert_eq!(update.operation, transferia_core::ChangeOperation::Update);
     let old = update.old.clone();
     super::reconcile_overlap(&mut update).unwrap();
     assert_eq!(update.operation, transferia_core::ChangeOperation::Create);
     assert_eq!(update.old, old);
-    let mut delete = decoder.decode(br#"{"key":[7],"erase":{},"oldImage":{},"ts":[2,3]}"#).unwrap();
+    let mut delete = decoder
+        .decode(br#"{"key":[7],"erase":{},"oldImage":{},"ts":[2,3]}"#)
+        .unwrap();
     super::reconcile_overlap(&mut delete).unwrap();
     assert_eq!(delete.operation, transferia_core::ChangeOperation::Delete);
     update.operation = transferia_core::ChangeOperation::Update;

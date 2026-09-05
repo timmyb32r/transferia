@@ -319,7 +319,11 @@ impl SinkConnector for YTsaurusSinkConnector {
         if self.config.static_tables() {
             &[DeliveryType::Batch]
         } else {
-            &[DeliveryType::Batch, DeliveryType::Stream, DeliveryType::BatchAndStream]
+            &[
+                DeliveryType::Batch,
+                DeliveryType::Stream,
+                DeliveryType::BatchAndStream,
+            ]
         }
     }
 

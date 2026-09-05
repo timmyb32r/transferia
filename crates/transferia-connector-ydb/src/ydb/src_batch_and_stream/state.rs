@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -10,7 +10,9 @@ use transferia_registry::durable::{CompareExchangeResult, DurableContext, Durabl
 use ydb_grpc::ydb_proto::topic::{DescribeTopicRequest, DescribeTopicResult};
 
 use super::super::config::YdbSourceConfig;
-use super::super::src_stream::{PreparedReplication, decode_topic_operation, replication_contract_violation};
+use super::super::src_stream::{
+    decode_topic_operation, replication_contract_violation, PreparedReplication,
+};
 use super::super::transport::YdbClient;
 
 const STATE_KEY: &str = "ydb-overlap";
@@ -48,12 +50,23 @@ impl OverlapExecution {
             (value, state)
         } else {
             let mut offsets = HashMap::new();
-            let client = observe_external_request("ydb", "overlap_connect", YdbClient::connect(&config.connection)).await?;
-            for (topic, partition) in prepared.resources.topics.iter()
-                .zip(prepared.resources.topic_partition_ids.iter()) {
+            let client = observe_external_request(
+                "ydb",
+                "overlap_connect",
+                YdbClient::connect(&config.connection),
+            )
+            .await?;
+            for (topic, partition) in prepared
+                .resources
+                .topics
+                .iter()
+                .zip(prepared.resources.topic_partition_ids.iter())
+            {
                 let request = client.request(DescribeTopicRequest {
-                    path: topic.clone(), include_stats: true,
-                    include_location: false, operation_params: None,
+                    path: topic.clone(),
+                    include_stats: true,
+                    include_location: false,
+                    operation_params: None,
                 });
                 let mut service = client.topic_service();
                 let response = tokio::select! {
@@ -64,36 +77,60 @@ impl OverlapExecution {
                         tokio::time::timeout(client.timeout(), service.describe_topic(request))) =>
                         response.map_err(|_| anyhow::anyhow!("YDB overlap offset capture timed out"))??.into_inner(),
                 };
-                let result: DescribeTopicResult = decode_topic_operation(response.operation, "DescribeTopic")?;
-                anyhow::ensure!(result.partitions.len() == 1, "YDB overlap topic partition count changed");
-                let info = result.partitions.first().ok_or_else(|| anyhow::anyhow!("YDB omitted overlap partition"))?;
-                anyhow::ensure!(info.partition_id == *partition && info.active
-                    && info.parent_partition_ids.is_empty() && info.child_partition_ids.is_empty(),
-                    "YDB overlap partition identity changed");
-                let range = info.partition_stats.and_then(|stats| stats.partition_offsets)
+                let result: DescribeTopicResult =
+                    decode_topic_operation(response.operation, "DescribeTopic")?;
+                anyhow::ensure!(
+                    result.partitions.len() == 1,
+                    "YDB overlap topic partition count changed"
+                );
+                let info = result
+                    .partitions
+                    .first()
+                    .ok_or_else(|| anyhow::anyhow!("YDB omitted overlap partition"))?;
+                anyhow::ensure!(
+                    info.partition_id == *partition
+                        && info.active
+                        && info.parent_partition_ids.is_empty()
+                        && info.child_partition_ids.is_empty(),
+                    "YDB overlap partition identity changed"
+                );
+                let range = info
+                    .partition_stats
+                    .and_then(|stats| stats.partition_offsets)
                     .ok_or_else(|| anyhow::anyhow!("YDB omitted overlap offset range"))?;
-                anyhow::ensure!(range.start >= 0 && range.end >= range.start, "YDB invalid overlap offset range");
+                anyhow::ensure!(
+                    range.start >= 0 && range.end >= range.start,
+                    "YDB invalid overlap offset range"
+                );
                 offsets.insert(topic.clone(), range.end);
             }
             let state = State {
-                version: 1, delivery_id: durable.delivery_id.to_string(),
-                replay_identity: prepared.replay_identity.to_string(), start_offsets: offsets,
+                version: 1,
+                delivery_id: durable.delivery_id.to_string(),
+                replay_identity: prepared.replay_identity.to_string(),
+                start_offsets: offsets,
                 streaming: false,
             };
             let payload = serde_json::to_vec(&state)?;
             // Persist before destination preparation or any snapshot read. Even an
             // ambiguous write stops recovery, rather than repeating a fresh snapshot.
-            let value = match durable.storage.compare_exchange(STATE_KEY, None, &payload).await? {
+            let value = match durable
+                .storage
+                .compare_exchange(STATE_KEY, None, &payload)
+                .await?
+            {
                 CompareExchangeResult::Applied(value) => value,
                 CompareExchangeResult::Conflict(_) => anyhow::bail!("{RECOVERY}"),
             };
             (value, state)
         };
         Ok(Self {
-            prepared, start_offsets: state.start_offsets.clone(),
+            prepared,
+            start_offsets: state.start_offsets.clone(),
             snapshot_finished: AtomicBool::new(state.streaming),
             snapshot_claimed: AtomicBool::new(state.streaming),
-            state: Mutex::new((value, state)), durable,
+            state: Mutex::new((value, state)),
+            durable,
         })
     }
 
@@ -102,33 +139,56 @@ impl OverlapExecution {
     }
 
     pub(super) fn claim_snapshot(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(!self.snapshot_claimed.swap(true, Ordering::AcqRel), "{RECOVERY}");
+        anyhow::ensure!(
+            !self.snapshot_claimed.swap(true, Ordering::AcqRel),
+            "{RECOVERY}"
+        );
         self.check_fence()
     }
 
     pub(super) fn check_fence(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(!self.prepared.fence_lost.is_cancelled(), "YDB overlap execution fence lost");
+        anyhow::ensure!(
+            !self.prepared.fence_lost.is_cancelled(),
+            "YDB overlap execution fence lost"
+        );
         Ok(())
     }
 
     pub(in crate::ydb) async fn complete_snapshot(&self) -> anyhow::Result<()> {
         self.check_fence()?;
         let mut current = self.state.lock().await;
-        if current.1.streaming { return Ok(()); }
+        if current.1.streaming {
+            return Ok(());
+        }
         let next = streaming_state(&current.1, self.snapshot_finished.load(Ordering::Acquire))?;
         let payload = serde_json::to_vec(&next)?;
-        let value = match self.durable.storage.compare_exchange(STATE_KEY, Some(current.0.revision), &payload).await? {
+        let value = match self
+            .durable
+            .storage
+            .compare_exchange(STATE_KEY, Some(current.0.revision), &payload)
+            .await?
+        {
             CompareExchangeResult::Applied(value) => value,
-            CompareExchangeResult::Conflict(_) => anyhow::bail!("YDB overlap phase changed unexpectedly"),
+            CompareExchangeResult::Conflict(_) => {
+                anyhow::bail!("YDB overlap phase changed unexpectedly")
+            }
         };
         *current = (value, next);
+        drop(current);
         self.check_fence()
     }
 }
 
 fn decode_resume(payload: &[u8], prepared: &PreparedReplication) -> anyhow::Result<State> {
-    let state: State = serde_json::from_slice(payload).map_err(|_| replication_contract_violation(anyhow::anyhow!("invalid YDB overlap durable state")))?;
-    validate_state(&state, &prepared.delivery_id, &prepared.replay_identity, &prepared.resources.topics)?;
+    let state: State = serde_json::from_slice(payload).map_err(|_| {
+        replication_contract_violation(anyhow::anyhow!("invalid YDB overlap durable state"))
+    })?;
+    validate_state(
+        &state,
+        &prepared.delivery_id,
+        &prepared.replay_identity,
+        &prepared.resources.topics,
+    )?;
     require_streaming(&state)?;
     Ok(state)
 }
@@ -145,12 +205,26 @@ fn streaming_state(state: &State, finished: bool) -> anyhow::Result<State> {
     Ok(next)
 }
 
-fn validate_state(state: &State, delivery_id: &str, replay_identity: &str, topics: &[String]) -> anyhow::Result<()> {
-    anyhow::ensure!(state.version == 1 && state.delivery_id == delivery_id && state.replay_identity == replay_identity,
-        "YDB overlap durable state belongs to another delivery or replay identity");
-    anyhow::ensure!(state.start_offsets.len() == topics.len()
-        && topics.iter().all(|topic| state.start_offsets.get(topic).is_some_and(|offset| *offset >= 0)),
-        "YDB overlap durable offsets do not match the source topics");
+fn validate_state(
+    state: &State,
+    delivery_id: &str,
+    replay_identity: &str,
+    topics: &[String],
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        state.version == 1
+            && state.delivery_id == delivery_id
+            && state.replay_identity == replay_identity,
+        "YDB overlap durable state belongs to another delivery or replay identity"
+    );
+    anyhow::ensure!(
+        state.start_offsets.len() == topics.len()
+            && topics.iter().all(|topic| state
+                .start_offsets
+                .get(topic)
+                .is_some_and(|offset| *offset >= 0)),
+        "YDB overlap durable offsets do not match the source topics"
+    );
     Ok(())
 }
 

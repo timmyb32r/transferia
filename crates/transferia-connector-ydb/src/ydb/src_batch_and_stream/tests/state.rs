@@ -1,8 +1,13 @@
 use super::*;
 
 fn state() -> State {
-    State { version: 1, delivery_id: "dtt123".into(), replay_identity: "config".into(),
-        start_offsets: HashMap::from([("/db/t/feed".into(), 0)]), streaming: false }
+    State {
+        version: 1,
+        delivery_id: "dtt123".into(),
+        replay_identity: "config".into(),
+        start_offsets: HashMap::from([("/db/t/feed".into(), 0)]),
+        streaming: false,
+    }
 }
 
 #[test]
