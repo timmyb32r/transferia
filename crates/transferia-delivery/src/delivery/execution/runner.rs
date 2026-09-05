@@ -655,7 +655,7 @@ async fn start_pipeline(
             .performance_advice
             .extend(sink_connector.performance_advice());
         semantics = validate_discovered_pipeline(
-            &source_connector.compatibility(),
+            &source_connector.compatibility(config.delivery_type),
             &sink_connector.compatibility(),
             sink_connector.limits(),
             &authoritative,

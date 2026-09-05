@@ -52,7 +52,7 @@ async fn clickbench_schema_passes_clickhouse_limits_without_network() -> anyhow:
     let sink = ClickHouseSinkConnector::from_config(sink_config)?;
 
     validate_discovered_pipeline(
-        &source.compatibility(),
+        &source.compatibility(transferia::delivery::config::yaml::DeliveryType::Batch),
         &sink.compatibility(),
         sink.limits(),
         &discovery,

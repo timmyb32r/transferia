@@ -100,7 +100,7 @@ struct PhaseSourceConnector {
 }
 
 impl SourceConnector for PhaseSourceConnector {
-    fn compatibility(&self) -> EndpointDescriptor {
+    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
         EndpointDescriptor::DataGenerator(SourceDescriptor {
             behavior: SourceBehavior::ChangelogRows,
             delivery_modes: SourceDeliveryModes::BATCH_AND_STREAM,
@@ -460,7 +460,7 @@ fn phase_pipeline_plan(
     sink: Arc<PhaseSinkConnector>,
     discovery: DeliveryDiscovery,
 ) -> PipelinePlan {
-    let config = serde_yaml::from_str(
+    let config: crate::delivery::config::yaml::Config = serde_yaml::from_str(
         r"
 delivery_id: phase-runner-test
 delivery_name: Test delivery
@@ -477,7 +477,7 @@ pipeline_memory_limit_bytes: 1048576
     )
     .expect("phase runner test config");
     let semantics = transferia_delivery_contracts::semantics::validate_pipeline(
-        &source.compatibility(),
+        &source.compatibility(config.delivery_type),
         &sink.compatibility(),
         &discovery,
         true,

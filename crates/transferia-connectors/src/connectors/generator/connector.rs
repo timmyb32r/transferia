@@ -171,7 +171,7 @@ impl DataGeneratorSourceConnector {
 }
 
 impl SourceConnector for DataGeneratorSourceConnector {
-    fn compatibility(&self) -> EndpointDescriptor {
+    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
         EndpointDescriptor::DataGenerator(SourceDescriptor {
             behavior: SourceBehavior::FiniteAppendOnlyRows,
             delivery_modes: SourceDeliveryModes::BATCH,

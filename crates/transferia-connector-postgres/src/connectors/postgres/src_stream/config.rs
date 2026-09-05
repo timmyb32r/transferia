@@ -3,9 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::connectors::postgres::common::validate_identifier;
 
-#[derive(Clone, Deserialize, JsonSchema)]
+#[derive(Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "replication", "delivery_modes": ["stream", "batch_and_stream"], "record_semantics": ["changelog"] } }))]
 pub struct PostgresReplicationConfig {
     #[serde(default)]
     #[schemars(title = "Plugin", extend("x-ui" = { "section": "advanced" }))]
@@ -26,6 +25,17 @@ pub struct PostgresReplicationConfig {
         extend("x-ui" = { "section": "advanced" })
     )]
     pub bootstrap_timeout_ms: u64,
+}
+
+impl Default for PostgresReplicationConfig {
+    fn default() -> Self {
+        Self {
+            plugin: ReplicationPlugin::Auto,
+            max_changes: default_max_changes(),
+            poll_interval_ms: default_poll_interval_ms(),
+            bootstrap_timeout_ms: default_bootstrap_timeout_ms(),
+        }
+    }
 }
 
 impl PostgresReplicationConfig {

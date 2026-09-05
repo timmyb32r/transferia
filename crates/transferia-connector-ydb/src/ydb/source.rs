@@ -144,7 +144,7 @@ impl YdbSourceConnector {
 }
 
 impl SourceConnector for YdbSourceConnector {
-    fn compatibility(&self) -> EndpointDescriptor {
+    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
         EndpointDescriptor::YdbSource(SourceDescriptor {
             behavior: if self.config.replication.is_some() {
                 SourceBehavior::ChangelogRows

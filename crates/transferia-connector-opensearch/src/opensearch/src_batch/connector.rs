@@ -198,7 +198,7 @@ impl OpenSearchSourceConnector {
 }
 
 impl SourceConnector for OpenSearchSourceConnector {
-    fn compatibility(&self) -> EndpointDescriptor {
+    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
         EndpointDescriptor::OpenSearchSource(SourceDescriptor {
             behavior: SourceBehavior::FiniteAppendOnlyRows,
             delivery_modes: SourceDeliveryModes::BATCH,

@@ -584,8 +584,7 @@ impl ControlPlane {
             .into_iter()
             .next()
             .context("speedtest destination installation resolution returned no configuration")?;
-        let descriptor = source.compatibility();
-        let delivery_type = resolve_delivery_type(config, &source_kind, &descriptor)?;
+        let delivery_type = resolve_delivery_type(config, &source_kind, |mode| source.compatibility(mode))?;
 
         let speedtest_id = new_speedtest_delivery_id()?;
         let mut materialized = serde_json::Map::new();
@@ -1125,7 +1124,7 @@ impl ControlPlane {
                 .build_source(source_kind, source_config)
                 .map_err(|error| ServiceError::Validation(error.to_string()))?;
             let delivery_type =
-                resolve_delivery_type(config, source_kind, &source_connector.compatibility())
+                resolve_delivery_type(config, source_kind, |mode| source_connector.compatibility(mode))
                     .map_err(|error| ServiceError::Validation(error.to_string()))?;
             let discovery = source_connector
                 .delivery_discovery(SourceDiscoveryContext {
@@ -1721,7 +1720,7 @@ fn endpoint_configuration(config: &Value, section: &str) -> Result<(String, Valu
 fn resolve_delivery_type(
     config: &Value,
     source_kind: &str,
-    descriptor: &transferia_delivery_contracts::semantics::EndpointDescriptor,
+    descriptor: impl Fn(DeliveryType) -> transferia_delivery_contracts::semantics::EndpointDescriptor,
 ) -> anyhow::Result<DeliveryType> {
     let explicit = config
         .get("delivery_type")
@@ -1732,19 +1731,19 @@ fn resolve_delivery_type(
     match explicit {
         Some(delivery_type) => {
             anyhow::ensure!(
-                descriptor.supports_delivery_type(delivery_type),
+                descriptor(delivery_type).supports_delivery_type(delivery_type),
                 "source '{source_kind}' does not support delivery_type '{}'",
                 delivery_type.label()
             );
             Ok(delivery_type)
         }
-        None if descriptor.supports_delivery_type(DeliveryType::Batch) => {
+        None if descriptor(DeliveryType::Batch).supports_delivery_type(DeliveryType::Batch) => {
             // A source that supports both modes is benchmarked as a finite
             // snapshot unless the user explicitly selected stream delivery.
             // This must never infer a combined run and create stream identities.
             Ok(DeliveryType::Batch)
         }
-        None if descriptor.supports_delivery_type(DeliveryType::Stream) => Ok(DeliveryType::Stream),
+        None if descriptor(DeliveryType::Stream).supports_delivery_type(DeliveryType::Stream) => Ok(DeliveryType::Stream),
         None => anyhow::bail!("source '{source_kind}' does not support a speedtest delivery mode"),
     }
 }

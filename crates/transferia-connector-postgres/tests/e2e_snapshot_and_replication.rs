@@ -817,6 +817,11 @@ async fn verify_exact_boundary(
     let config = format!(
         "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: exact_a }}\n  - {{ schema: public, name: exact_b }}\nbatch_rows: 1\ncopy_to_format: {copy_format}\nreplication:\n  plugin: {decoder}\n  poll_interval_ms: 10\n"
     );
+    let config = if decoder.contains("auto") {
+        config.replace("replication:\n  plugin: { type: auto }\n  poll_interval_ms: 10\n", "")
+    } else {
+        config
+    };
     let connector = postgres_connector(&config)?;
     let cancellation = CancellationToken::new();
     let durable = transferia_test_support::durable_contexts(&[&slot]).remove(0);

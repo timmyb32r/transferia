@@ -277,7 +277,7 @@ fn pqv1_driver_is_selected_through_logbroker_and_validated() -> anyhow::Result<(
     value.allow_ttl_rewind = true;
     let connector = build_source_connector(value, Arc::new(MetricsRegistry::new()))?;
     assert!(matches!(
-        connector.compatibility(),
+        connector.compatibility(transferia_delivery_contracts::DeliveryType::Stream),
         EndpointDescriptor::Logbroker(_)
     ));
 
@@ -286,7 +286,7 @@ fn pqv1_driver_is_selected_through_logbroker_and_validated() -> anyhow::Result<(
     )?;
     let connector = build_source_connector(dynamic, Arc::new(MetricsRegistry::new()))?;
     assert!(matches!(
-        connector.compatibility(),
+        connector.compatibility(transferia_delivery_contracts::DeliveryType::Stream),
         EndpointDescriptor::Logbroker(_)
     ));
     Ok(())

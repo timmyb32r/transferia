@@ -5199,14 +5199,18 @@
             },
             "replication": {
               "description": "Configures logical replication for stream and `batch_and_stream` deliveries.",
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/PostgresReplicationConfig"
+              "$ref": "#/$defs/PostgresReplicationConfig",
+              "default": {
+                "plugin": {
+                  "type": "auto"
                 },
-                {
-                  "type": "null"
-                }
-              ]
+                "max_changes": 4096,
+                "poll_interval_ms": 100,
+                "bootstrap_timeout_ms": 30000
+              },
+              "x-ui": {
+                "widget": "hidden"
+              }
             }
           },
           "additionalProperties": false,
@@ -5220,12 +5224,15 @@
           "x-ui": {
             "capabilities": {
               "component": "source",
-              "key": "snapshot",
+              "key": "postgres",
               "delivery_modes": [
-                "batch"
+                "batch",
+                "stream",
+                "batch_and_stream"
               ],
               "record_semantics": [
-                "append_only"
+                "append_only",
+                "changelog"
               ]
             }
           },
@@ -5296,20 +5303,7 @@
                   }
                 }
               },
-              "additionalProperties": false,
-              "x-ui": {
-                "capabilities": {
-                  "component": "source",
-                  "key": "replication",
-                  "delivery_modes": [
-                    "stream",
-                    "batch_and_stream"
-                  ],
-                  "record_semantics": [
-                    "changelog"
-                  ]
-                }
-              }
+              "additionalProperties": false
             },
             "ReplicationPlugin": {
               "oneOf": [
@@ -5364,12 +5358,11 @@
           }
         },
         "initial": {
-          "replication": null,
           "copy_to_format": "binary",
+          "batch_rows": 16384,
           "database": "",
           "username": "",
           "password": "",
-          "batch_rows": 16384,
           "tables": [
             {
               "schema": "",

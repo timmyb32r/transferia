@@ -117,7 +117,8 @@ pub enum SpeedtestUnsupported {
 }
 
 pub trait SourceConnector: Send + Sync {
-    fn compatibility(&self) -> EndpointDescriptor;
+    /// Describe the record semantics of the requested mode, not a UI toggle.
+    fn compatibility(&self, delivery_type: DeliveryType) -> EndpointDescriptor;
 
     /// Reject source configurations whose proven peak source-side working set
     /// cannot fit the delivery's explicit per-partition memory budget.

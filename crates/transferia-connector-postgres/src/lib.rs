@@ -34,8 +34,7 @@ pub fn register(
                         "host": "", "port": 5432, "database": "", "username": "",
                         "password": "", "trusted_plaintext": true,
                         "tables": [{ "schema": "", "name": "" }], "batch_rows": 16384,
-                        "copy_to_format": "binary",
-                        "replication": null
+                        "copy_to_format": "binary"
                     })
                 },
                 {

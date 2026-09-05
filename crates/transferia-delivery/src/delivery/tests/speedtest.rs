@@ -32,7 +32,7 @@ struct ShutdownFailingSource;
 struct UnisolatedSourceConnector;
 
 impl SourceConnector for UnisolatedSourceConnector {
-    fn compatibility(&self) -> EndpointDescriptor {
+    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
         EndpointDescriptor::Discard
     }
 

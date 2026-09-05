@@ -8,7 +8,7 @@ use crate::connectors::postgres::src_stream::PostgresReplicationConfig;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "snapshot", "delivery_modes": ["batch"], "record_semantics": ["append_only"] } }))]
+#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "postgres", "delivery_modes": ["batch", "stream", "batch_and_stream"], "record_semantics": ["append_only", "changelog"] } }))]
 pub struct PostgresSourceConfig {
     #[serde(flatten)]
     pub connection: PostgresConnectionConfig,
@@ -29,7 +29,8 @@ pub struct PostgresSourceConfig {
 
     /// Configures logical replication for stream and `batch_and_stream` deliveries.
     #[serde(default)]
-    pub replication: Option<PostgresReplicationConfig>,
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub replication: PostgresReplicationConfig,
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -46,9 +47,7 @@ impl PostgresSourceConfig {
         self.connection.validate()?;
         anyhow::ensure!(!self.tables.is_empty(), "postgres.tables must not be empty");
         anyhow::ensure!(self.batch_rows > 0, "postgres.batch_rows must be positive");
-        if let Some(replication) = &self.replication {
-            replication.validate()?;
-        }
+        self.replication.validate()?;
         let mut names = std::collections::HashSet::new();
         for table in &self.tables {
             validate_identifier("schema", &table.schema)?;

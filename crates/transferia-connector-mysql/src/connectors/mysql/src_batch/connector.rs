@@ -722,7 +722,7 @@ impl MySqlSourceConnector {
 }
 
 impl SourceConnector for MySqlSourceConnector {
-    fn compatibility(&self) -> EndpointDescriptor {
+    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
         EndpointDescriptor::MySql(SourceDescriptor {
             behavior: if self.config.replication.is_some() {
                 SourceBehavior::ChangelogRows

@@ -160,14 +160,14 @@ fn speedtest_never_infers_combined_delivery_for_a_dual_mode_source() -> anyhow::
     );
 
     assert_eq!(
-        resolve_delivery_type(&serde_json::json!({}), "dual", &descriptor)?,
+        resolve_delivery_type(&serde_json::json!({}), "dual", |_| descriptor.clone())?,
         DeliveryType::Batch
     );
     assert_eq!(
         resolve_delivery_type(
             &serde_json::json!({ "delivery_type": "stream" }),
             "dual",
-            &descriptor,
+            |_| descriptor.clone(),
         )?,
         DeliveryType::Stream
     );

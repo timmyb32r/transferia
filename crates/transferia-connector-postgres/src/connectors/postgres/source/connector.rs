@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::Cursor;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use futures_util::future::BoxFuture;
@@ -142,6 +142,8 @@ pub struct PostgresSourceConnector {
     snapshot_stream: tokio::sync::OnceCell<Arc<SnapshotStreamExecution>>,
     stream_start_lsn: tokio::sync::OnceCell<Option<u64>>,
     replication_ownership: tokio::sync::OnceCell<HeldReplicationOwnership>,
+
+    delivery_type: OnceLock<DeliveryType>,
     counters: Mutex<HashMap<i64, Arc<SourceCounters>>>,
 }
 
@@ -204,6 +206,7 @@ impl PostgresSourceConnector {
             snapshot_stream: tokio::sync::OnceCell::new(),
             stream_start_lsn: tokio::sync::OnceCell::new(),
             replication_ownership: tokio::sync::OnceCell::new(),
+            delivery_type: OnceLock::new(),
             counters: Mutex::new(HashMap::new()),
         })
     }
@@ -213,10 +216,7 @@ impl PostgresSourceConnector {
         durable: &DurableContext,
         cancellation: &tokio_util::sync::CancellationToken,
     ) -> anyhow::Result<&HeldReplicationOwnership> {
-        let replication =
-            self.config.replication.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("PostgreSQL replication configuration is missing")
-            })?;
+        let replication = &self.config.replication;
         let slot = super::super::src_stream::replication_slot(&durable.delivery_id)?;
         let held = self
             .replication_ownership
@@ -276,16 +276,23 @@ impl PostgresSourceConnector {
         Ok(held)
     }
 
-    async fn discovered_tables(&self) -> anyhow::Result<Arc<Vec<DiscoveredTable>>> {
+    fn bind_delivery_type(&self, delivery_type: DeliveryType) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            *self.delivery_type.get_or_init(|| delivery_type) == delivery_type,
+            "PostgreSQL source connector cannot be reused for a different delivery type"
+        );
+        Ok(())
+    }
+
+    async fn discovered_tables(&self, delivery_type: DeliveryType) -> anyhow::Result<Arc<Vec<DiscoveredTable>>> {
+        self.bind_delivery_type(delivery_type)?;
         self.discovered
             .get_or_try_init(|| async {
-                if self.config.replication.is_some() {
+                if delivery_type != DeliveryType::Batch {
                     let client = connect(&self.config.connection).await?;
                     let tables = discover_replication_tables(&client, &self.config.tables).await?;
-                    if let Some(replication) = &self.config.replication {
-                        if let super::super::src_stream::ReplicationPlugin::Pgoutput { publication } = &replication.plugin {
-                            validate_pgoutput_publication(&client, publication, &tables, false).await?;
-                        }
+                    if let super::super::src_stream::ReplicationPlugin::Pgoutput { publication } = &self.config.replication.plugin {
+                        validate_pgoutput_publication(&client, publication, &tables, false).await?;
                     }
                     Ok(Arc::new(tables))
                 } else {
@@ -324,10 +331,7 @@ impl PostgresSourceConnector {
         source_identity: PostgresSourceIdentity,
         replay_identity: Arc<str>,
     ) -> anyhow::Result<Arc<SnapshotStreamExecution>> {
-        let replication =
-            self.config.replication.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("PostgreSQL replication configuration is missing")
-            })?;
+        let replication = &self.config.replication;
         let ownership = self.ensure_replication_resource_ownership(&durable, &cancellation).await?;
         let decoder = &ownership.decoder;
         let slot = super::super::src_stream::replication_slot(&durable.delivery_id)?.to_owned();
@@ -451,10 +455,7 @@ impl PostgresSourceConnector {
         ownership: &HeldReplicationOwnership,
         cancellation: &tokio_util::sync::CancellationToken,
     ) -> anyhow::Result<()> {
-        let replication =
-            self.config.replication.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("PostgreSQL replication configuration is missing")
-            })?;
+        let replication = &self.config.replication;
         let slot = super::super::src_stream::replication_slot(&ownership.delivery_id)?;
         self.stream_start_lsn
             .get_or_try_init(|| async {
@@ -825,18 +826,14 @@ fn build_delivery_discovery(
 }
 
 impl SourceConnector for PostgresSourceConnector {
-    fn compatibility(&self) -> EndpointDescriptor {
+    fn compatibility(&self, delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
         EndpointDescriptor::Postgres(SourceDescriptor {
-            behavior: if self.config.replication.is_some() {
+            behavior: if delivery_type != DeliveryType::Batch {
                 SourceBehavior::ChangelogRows
             } else {
                 SourceBehavior::FiniteAppendOnlyRows
             },
-            delivery_modes: if self.config.replication.is_some() {
-                SourceDeliveryModes::STREAM_AND_BATCH_AND_STREAM
-            } else {
-                SourceDeliveryModes::BATCH
-            },
+            delivery_modes: SourceDeliveryModes::BATCH_AND_STREAM,
         })
     }
 
@@ -850,9 +847,9 @@ impl SourceConnector for PostgresSourceConnector {
                 cancellation,
                 delivery_type,
             } = context;
-            let tables = tokio::select! { biased; () = cancellation.cancelled() => anyhow::bail!("PostgreSQL discovery cancelled"), tables = self.discovered_tables() => tables? };
+            let tables = tokio::select! { biased; () = cancellation.cancelled() => anyhow::bail!("PostgreSQL discovery cancelled"), tables = self.discovered_tables(delivery_type) => tables? };
             build_delivery_discovery(
-                self.config.replication.is_some(),
+                delivery_type != DeliveryType::Batch,
                 delivery_type,
                 request,
                 &tables,
@@ -865,7 +862,8 @@ impl SourceConnector for PostgresSourceConnector {
         context: SourceExecutionContext,
     ) -> BoxFuture<'_, anyhow::Result<Option<PreparedSourceExecution>>> {
         Box::pin(async move {
-            let replay_identity = if self.config.replication.is_some() {
+            self.bind_delivery_type(context.delivery_type)?;
+            let replay_identity = if context.delivery_type != DeliveryType::Batch {
                 Some(
                     require_replication_replay_identity(context.replay_identity.clone())
                         .map_err(classify_replication_connector_error)?,
@@ -873,7 +871,7 @@ impl SourceConnector for PostgresSourceConnector {
             } else {
                 None
             };
-            let replication_ownership = if self.config.replication.is_some() {
+            let replication_ownership = if context.delivery_type != DeliveryType::Batch {
                 Some(
                     self.ensure_replication_resource_ownership(
                         &context.durable,
@@ -978,14 +976,10 @@ impl SourceConnector for PostgresSourceConnector {
         _cancellation: tokio_util::sync::CancellationToken,
     ) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
-            if phase != SourcePhase::Snapshot || self.config.replication.is_none() {
+            if phase != SourcePhase::Snapshot || self.delivery_type.get() != Some(&DeliveryType::BatchAndStream) {
                 return Ok(());
             }
-            let replication = self.config.replication.as_ref().ok_or_else(|| {
-                replication_safety_violation(anyhow::anyhow!(
-                    "PostgreSQL replication configuration is missing"
-                ))
-            })?;
+            let replication = &self.config.replication;
             let execution = self
                 .snapshot_stream
                 .get()
@@ -1035,8 +1029,9 @@ impl SourceConnector for PostgresSourceConnector {
         context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
+            self.bind_delivery_type(context.delivery_type)?;
             let partition_id = context.partition_id;
-            let replay_identity = if self.config.replication.is_some() {
+            let replay_identity = if context.delivery_type != DeliveryType::Batch {
                 Some(
                     require_replication_replay_identity(context.replay_identity.clone())
                         .map_err(classify_replication_connector_error)?,
@@ -1044,7 +1039,7 @@ impl SourceConnector for PostgresSourceConnector {
             } else {
                 None
             };
-            let replication_ownership = if self.config.replication.is_some() {
+            let replication_ownership = if context.delivery_type != DeliveryType::Batch {
                 Some(
                     self.ensure_replication_resource_ownership(
                         &context.durable,
@@ -1087,12 +1082,13 @@ impl SourceConnector for PostgresSourceConnector {
             }
             let tables = match snapshot_stream {
                 Some(execution) => Arc::clone(&execution.tables),
-                None => self.discovered_tables().await?,
+                None => self.discovered_tables(context.delivery_type).await?,
             };
             let counters = self.counters(partition_id);
             self.metrics
                 .register_source(partition_id, Arc::clone(&counters));
-            if let Some(replication) = &self.config.replication {
+            if context.delivery_type != DeliveryType::Batch {
+                let replication = &self.config.replication;
                 let replay_identity = replay_identity.ok_or_else(|| {
                     classify_replication_connector_error(replication_safety_violation(
                         anyhow::anyhow!(
@@ -1205,7 +1201,7 @@ impl SourceConnector for PostgresSourceConnector {
         &self,
         context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
-        if self.config.replication.is_some() {
+        if context.delivery_type != DeliveryType::Batch {
             return Box::pin(async {
                 anyhow::bail!(
                     "PostgreSQL replication speedtest requires an isolated replication slot"

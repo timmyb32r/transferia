@@ -1,6 +1,13 @@
 # PostgreSQL replication settings
 
-`replication.plugin` appears as **Plugin** in Advanced settings:
+Delivery type alone selects the source mode: `batch` takes a finite snapshot,
+`stream` reads logical replication, and `batch_and_stream` takes the exact slot
+snapshot before switching to replication. No Replication checkbox or nested
+replication Advanced settings are shown in the editor. Batch never acquires a
+replication slot or requires replica identity/publication privileges.
+
+Replication tuning is optional in YAML and does not enable or disable replication.
+When omitted, all replication settings use their defaults. `replication.plugin` supports:
 
 - `auto` (default): check both output-plugin libraries using temporary logical
   slots; prefer `pgoutput`, otherwise use `wal2json`. Permission failures,
@@ -34,10 +41,11 @@ execution-ownership checks remain mandatory. No slots are reset or recreated
 to switch plugins. Existing custom slots are not renamed or deleted by this
 configuration change; old `slot` and `decoder` configuration keys are rejected.
 
-Minimal automatic replication configuration:
+Minimal source configuration needs no `replication` block. For example:
 
 ```yaml
-replication: {}
+delivery_type: stream
+# Source connection and selected tables are configured normally.
 ```
 
 Explicit plugin selection:

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup } from "@testing-library/preact";
+import { cleanup, fireEvent } from "@testing-library/preact";
 import { afterEach, describe, expect, it } from "vitest";
 
 import catalogFixture from "../../crates/transferia-server-contracts/contracts/connector-catalog.fixture.json";
@@ -23,7 +23,7 @@ import {
   type CompiledNode,
 } from "../src/schema/compiler";
 import { SchemaForm } from "../src/schema/SchemaForm";
-import { configuredEndpointCapabilities, DELIVERY_TYPES } from "../src/recordSemantics";
+import { configuredEndpointCapabilities, sourceRecordSemantics, DELIVERY_TYPES } from "../src/recordSemantics";
 import { compatibilityRoutes } from "../src/ui/CompatibilityMatrixDialog";
 import type { JsonObject, JsonValue, UiCatalog } from "../src/types";
 import {
@@ -192,44 +192,27 @@ describe("connector catalog readiness", () => {
     ).toBeUndefined();
   });
 
-  it("derives PostgreSQL delivery modes from the selected source configuration", () => {
+  it("uses delivery type for PostgreSQL without a replication toggle or nested advanced options", () => {
     const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
-    const postgres = catalog.connectors.find(
-      (connector) => connector.key === "postgres",
-    )!.source!;
-
-    expect(postgres.delivery_modes).toEqual([
-      "batch",
-      "stream",
-      "batch_and_stream",
-    ]);
-    expect(
-      selectedEndpoints(
-        catalog,
-        {
-          delivery_type: "stream",
-          source: { postgres: postgres.initial },
-        },
-        productionWidgetRegistry,
-      ).error,
-    ).toBe("Configure PostgreSQL for stream delivery; the current source settings do not enable this mode.");
-    expect(
-      selectedEndpoints(
-        catalog,
-        {
-          delivery_type: "stream",
-          source: {
-            postgres: {
-              ...postgres.initial,
-              replication: {
-                plugin: { type: "wal2json" },
-              },
-            },
-          },
-        },
-        productionWidgetRegistry,
-      ).error,
-    ).toBeUndefined();
+    const postgres = catalog.connectors.find((connector) => connector.key === "postgres")!.source!;
+    const schema = compileSchema(postgres.schema, productionWidgetRegistry);
+    expect(postgres.delivery_modes).toEqual(["batch", "stream", "batch_and_stream"]);
+    for (const deliveryType of DELIVERY_TYPES) {
+      const selection = selectedEndpoints(catalog, {
+        delivery_type: deliveryType,
+        source: { postgres: postgres.initial },
+      }, productionWidgetRegistry);
+      expect(selection.error).toBeUndefined();
+      expect(sourceRecordSemantics(postgres, schema, postgres.initial, deliveryType))
+        .toEqual(deliveryType === "batch" ? ["append_only"]
+          : deliveryType === "stream" ? ["changelog"] : ["append_only", "changelog"]);
+    }
+    const view = render(<SchemaForm node={schema} value={postgres.initial} onChange={() => undefined} />);
+    for (const toggle of view.queryAllByText("Advanced settings")) fireEvent.click(toggle);
+    expect(view.queryByText("Replication")).toBeNull();
+    expect(view.queryByText("Plugin")).toBeNull();
+    expect(view.queryByText("Replication bootstrap timeout")).toBeNull();
+    expect(view.queryByText("COPY TO format")).not.toBeNull();
   });
 
   it("derives MySQL delivery modes and semantics from replication configuration", () => {

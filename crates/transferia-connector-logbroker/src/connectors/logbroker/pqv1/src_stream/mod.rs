@@ -414,7 +414,7 @@ async fn resolve_proxies_cached(
 }
 
 impl SourceConnector for PqV1SourceConnector {
-    fn compatibility(&self) -> EndpointDescriptor {
+    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
         EndpointDescriptor::Logbroker(SourceDescriptor {
             behavior: self.behavior,
             delivery_modes: SourceDeliveryModes::STREAM,

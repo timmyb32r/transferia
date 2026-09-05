@@ -250,6 +250,11 @@ async fn source(host: &str, port: u16, decoder: &str) -> anyhow::Result<Box<dyn 
         "auto" => "{ type: auto }",
         other => anyhow::bail!("unsupported test decoder {other}"),
     };
+    let replication = if decoder.contains("auto") {
+        String::new()
+    } else {
+        format!("replication:\n  plugin: {decoder}\n  poll_interval_ms: 10\n")
+    };
     let connector = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
             r"host: '{host}'
@@ -260,9 +265,7 @@ password: test
 trusted_plaintext: true
 tables:
   - {{ schema: public, name: accounts }}
-replication:
-  plugin: {decoder}
-  poll_interval_ms: 10
+{replication}
 "
         ))?,
         Arc::new(MetricsRegistry::new()),

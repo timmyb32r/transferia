@@ -310,7 +310,7 @@ pub fn build_source_connector_with_parsers(
                 parser_plugins,
             )?;
             let behavior = inner
-                .compatibility()
+                .compatibility(transferia_delivery_contracts::DeliveryType::Stream)
                 .source_behavior()
                 .ok_or_else(|| anyhow::anyhow!("PQv1 driver did not expose source behavior"))?;
             Ok(Box::new(PqV1DriverSourceConnector { inner, behavior }))
@@ -479,7 +479,7 @@ pub async fn check_topic_connection(
 }
 
 impl SourceConnector for PqV1DriverSourceConnector {
-    fn compatibility(&self) -> EndpointDescriptor {
+    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
         EndpointDescriptor::Logbroker(SourceDescriptor {
             behavior: self.behavior,
             delivery_modes: SourceDeliveryModes::STREAM,
@@ -589,7 +589,7 @@ async fn connect_client(
 }
 
 impl SourceConnector for YdbDriverSourceConnector {
-    fn compatibility(&self) -> EndpointDescriptor {
+    fn compatibility(&self, _delivery_type: transferia_delivery_contracts::DeliveryType) -> EndpointDescriptor {
         EndpointDescriptor::Logbroker(SourceDescriptor {
             behavior: self.behavior,
             delivery_modes: SourceDeliveryModes::STREAM,
