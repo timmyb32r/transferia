@@ -1060,7 +1060,7 @@ impl YTsaurusTableWriterConfig {
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum YTsaurusTableMode {
-    #[schemars(title = "Static tables", extend("x-ui" = { "capabilities": { "component": "destination", "key": "ytsaurus", "record_semantics": ["append_only"] } }))]
+    #[schemars(title = "Static tables", extend("x-ui" = { "capabilities": { "component": "destination", "key": "ytsaurus", "delivery_modes": ["batch"], "record_semantics": ["append_only"] } }))]
     StaticTables {
         #[schemars(
             title = "Path",

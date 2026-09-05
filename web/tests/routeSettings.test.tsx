@@ -23,6 +23,18 @@ vi.mock("../src/features/variantDetails/VariantDetailsForms", () => ({
 afterEach(cleanup);
 
 const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
+it("shows destination-mode errors immediately even without a selected source", () => {
+  const config = { delivery_type: "stream", sink: { ytsaurus: { tables: { type: "static_tables" } } } };
+  const view = render(<DeliveryConfiguration catalog={catalog}
+    editor={{ sessionId: "destination-mode", editing: true, localRevision: 0, name: "Test", description: "", config,
+      validation: { state: "draft" }, runtime: { state: "stopped" } }}
+    selection={selectedEndpoints(catalog, config, productionWidgetRegistry)} readOnly={false} requiredErrorScope="none"
+    onName={() => {}} onDescription={() => {}} onConfig={() => {}} onChooseEndpoint={() => {}} />);
+  expect(view.getByRole("status").textContent)
+    .toContain("YTsaurus static tables can be used only in 'batch' delivery mode.");
+  expect(view.getByText("Incompatible configuration")).toBeTruthy();
+});
+
 it.each(compatibilityRoutes(catalog).flatMap((route) => DELIVERY_TYPES.map((mode) => ({
   name: `${route.source.key} → ${route.sink.key} / ${mode}`, route, mode,
 }))))("keeps settings visibility consistent with the matrix: $name", ({ route, mode }) => {

@@ -118,11 +118,10 @@ export function configuredEndpointCapabilities(
 ): EndpointCapabilities {
   const selected = selectedEndpointCapability(schema, value, component);
   if (selected === undefined) return endpoint;
-  const deliveryModes =
-    component === "source" ? selected.delivery_modes! : endpoint.delivery_modes;
+  const deliveryModes = selected.delivery_modes ?? endpoint.delivery_modes;
   const recordSemantics = selected.record_semantics!;
   if (
-    deliveryModes.some((mode) => !endpoint.delivery_modes.includes(mode)) ||
+    (component === "source" && deliveryModes.some((mode) => !endpoint.delivery_modes.includes(mode))) ||
     recordSemantics.some(
       (semantics) => !endpoint.record_semantics.includes(semantics),
     )
@@ -141,17 +140,26 @@ export function selectedComponentRecordSemantics(
   value: JsonValue,
   component: "parser" | "serializer" | "transformer",
 ): RecordSemantics[] | undefined {
+  const selected = selectedComponentNode(node, value, component);
+  return selected === undefined ? undefined : [...selected.xUi.capabilities!.record_semantics!];
+}
+
+export function selectedComponentNode(
+  node: CompiledNode,
+  value: JsonValue,
+  component: "parser" | "serializer" | "transformer",
+): CompiledNode | undefined {
   const capabilities = node.xUi.capabilities;
   if (
     capabilities?.component === component &&
     capabilities.record_semantics !== undefined
   )
-    return [...capabilities.record_semantics];
+    return node;
 
   if (node.kind === "object") {
     const object = isObject(value) ? value : {};
     for (const [name, child] of Object.entries(node.properties)) {
-      const semantics = selectedComponentRecordSemantics(
+      const semantics = selectedComponentNode(
         child,
         object[name] ?? null,
         component,
@@ -166,13 +174,13 @@ export function selectedComponentRecordSemantics(
     );
     return branch === undefined
       ? undefined
-      : selectedComponentRecordSemantics(branch.node, value, component);
+      : selectedComponentNode(branch.node, value, component);
   }
   if (node.kind === "nullable" && value !== null)
-    return selectedComponentRecordSemantics(node.inner, value, component);
+    return selectedComponentNode(node.inner, value, component);
   if (node.kind === "array" && Array.isArray(value)) {
     for (const item of value) {
-      const semantics = selectedComponentRecordSemantics(
+      const semantics = selectedComponentNode(
         node.item,
         item,
         component,
@@ -197,13 +205,26 @@ function streamEndpointSemantics(
 interface LocatedEndpointCapability {
   capabilities: UiCapabilityHints;
   depth: number;
+  title?: string;
+}
+
+export function configuredEndpointName(
+  title: string,
+  schema: CompiledNode,
+  value: JsonValue,
+  component: "source" | "destination",
+): string {
+  const selected = selectedEndpointCapability(schema, value, component);
+  return !selected?.title || selected.title === title
+    ? title
+    : `${title} ${selected.title.charAt(0).toLowerCase()}${selected.title.slice(1)}`;
 }
 
 function selectedEndpointCapability(
   node: CompiledNode,
   value: JsonValue,
   component: "source" | "destination",
-): UiCapabilityHints | undefined {
+): (UiCapabilityHints & { title?: string }) | undefined {
   const candidates = activeEndpointCapabilities(node, value, component, 0);
   if (candidates.length === 0) return undefined;
   const deepest = Math.max(...candidates.map((candidate) => candidate.depth));
@@ -218,7 +239,7 @@ function selectedEndpointCapability(
     throw new SchemaContractError(
       `configuration activates conflicting ${component} capabilities`,
     );
-  return selected[0]!.capabilities;
+  return { ...selected[0]!.capabilities, ...(deepest === 0 || selected[0]!.title === undefined ? {} : { title: selected[0]!.title }) };
 }
 
 function endpointCapabilitySignature(capabilities: UiCapabilityHints): string {
@@ -236,7 +257,7 @@ function activeEndpointCapabilities(
 ): LocatedEndpointCapability[] {
   const own =
     node.xUi.capabilities?.component === component
-      ? [{ capabilities: node.xUi.capabilities, depth }]
+      ? [{ capabilities: node.xUi.capabilities, depth, ...(node.title === undefined ? {} : { title: node.title }) }]
       : [];
   if (node.kind === "nullable")
     return value === null

@@ -267,6 +267,7 @@ async fn build_pipeline_plan(
     sink_connector.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)?;
 
     let source_descriptor = source_connector.compatibility(config.delivery_type);
+    sink_connector.validate_delivery_type(config.delivery_type)?;
     anyhow::ensure!(
         source_descriptor.supports_delivery_type(config.delivery_type),
         "source '{source_kind}' does not support delivery_type '{}'",

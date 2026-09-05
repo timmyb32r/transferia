@@ -816,7 +816,7 @@ describe("schema compiler", () => {
           },
         },
       }),
-    ).toThrow(/only source capabilities/);
+    ).not.toThrow();
     expect(() =>
       compileSchema({
         type: "object",

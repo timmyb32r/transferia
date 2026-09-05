@@ -322,10 +322,14 @@ fn validate_one_endpoint_capability(
                 "{path}: source delivery_modes must be a subset of the registered aggregate"
             );
         }
-        UiCapabilityComponent::Destination => anyhow::ensure!(
-            capabilities.delivery_modes.is_none(),
-            "{path}: destination capabilities cannot declare delivery_modes"
-        ),
+        UiCapabilityComponent::Destination => {
+            if let Some(modes) = &capabilities.delivery_modes {
+                anyhow::ensure!(
+                    !modes.is_empty() && all_unique(modes),
+                    "{path}: destination delivery_modes must be non-empty and unique"
+                );
+            }
+        }
         UiCapabilityComponent::Parser
         | UiCapabilityComponent::Serializer
         | UiCapabilityComponent::Transformer => {

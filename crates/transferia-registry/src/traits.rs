@@ -277,6 +277,21 @@ pub struct SourceBuildContext {
 pub trait SinkConnector: Send + Sync {
     fn compatibility(&self) -> EndpointDescriptor;
 
+    /// Delivery modes accepted by this configured destination, independently of record semantics.
+    fn delivery_modes(&self) -> &'static [DeliveryType] {
+        &[DeliveryType::Batch, DeliveryType::Stream, DeliveryType::BatchAndStream]
+    }
+
+    fn validate_delivery_type(&self, delivery_type: DeliveryType) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.delivery_modes().contains(&delivery_type),
+            "configured destination does not support '{}' delivery; allowed modes: {}",
+            delivery_type.label(),
+            self.delivery_modes().iter().map(|mode| format!("'{}'", mode.label())).collect::<Vec<_>>().join(", ")
+        );
+        Ok(())
+    }
+
     fn limits(&self) -> &dyn SinkLimits;
 
     fn destination_type(&self, column: &SchemaColumn) -> anyhow::Result<String>;
@@ -601,6 +616,10 @@ struct CheckedSpeedtestSinkConnector {
 impl SinkConnector for CheckedSpeedtestSinkConnector {
     fn compatibility(&self) -> EndpointDescriptor {
         self.connector.compatibility()
+    }
+
+    fn delivery_modes(&self) -> &'static [DeliveryType] {
+        self.connector.delivery_modes()
     }
 
     fn limits(&self) -> &dyn SinkLimits {

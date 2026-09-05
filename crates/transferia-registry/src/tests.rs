@@ -421,6 +421,7 @@ fn registry_accepts_endpoint_capabilities_within_registered_aggregates() -> anyh
             "capabilities": {
                 "component": "destination",
                 "key": "upsert",
+                "delivery_modes": ["batch"],
                 "record_semantics": ["changelog"]
             }
         }

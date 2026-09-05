@@ -341,7 +341,10 @@ function decodeCapabilities(
     )
       fail(`${path}: source capabilities delivery_modes must be non-empty and unique`);
   } else if (deliveryModes !== undefined) {
-    fail(`${path}: only source capabilities can declare delivery_modes`);
+    if (component !== "destination")
+      fail(`${path}: only endpoint capabilities can declare delivery_modes`);
+    if (deliveryModes.length === 0 || new Set(deliveryModes).size !== deliveryModes.length)
+      fail(`${path}: destination delivery_modes must be non-empty and unique`);
   }
   if (component === "source" || component === "destination") {
     if (

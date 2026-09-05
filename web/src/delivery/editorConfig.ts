@@ -13,9 +13,11 @@ import {
 import type { WidgetContracts } from "../schema/widgetDefinitions";
 import {
   acceptsConfiguredRecordSemantics,
+  configuredEndpointName,
   configuredEndpointCapabilities,
   configuredSourceSupportsDeliveryType,
   routeSupportsDeliveryType,
+  selectedComponentNode,
   sourceRecordSemantics,
 } from "../recordSemantics";
 import type {
@@ -380,15 +382,26 @@ export function selectedEndpoints(
   let routeError: string | undefined;
   if (deliveryType !== "" && source !== undefined) {
     if (!source.delivery_modes.includes(mode)) {
-      routeError = `${sourceTitle} does not support ${deliveryType.replaceAll("_", " ")} delivery.`;
+      routeError = `${sourceTitle} does not support '${deliveryType}' delivery.`;
     } else if (sink !== undefined && !routeSupportsDeliveryType(source, sink, mode)) {
-      routeError = `${sinkTitle} cannot accept the records produced by ${sourceTitle} for ${deliveryType.replaceAll("_", " ")} delivery.`;
+      routeError = `${sinkTitle} cannot accept the records produced by ${sourceTitle} for '${deliveryType}' delivery.`;
     }
   }
   let error: string | undefined;
   let incompatibleConfiguration = false;
   try {
-    if (deliveryType !== "" && source !== undefined) {
+    if (deliveryType !== "" && sink !== undefined) {
+      const schema = compiledSchema(sink.schema, widgets);
+      const value = endpointValue(config, "sink", sinkKey);
+      const capabilities = configuredEndpointCapabilities(sink, schema, value, "destination");
+      if (capabilities.delivery_modes.length > 0 && !capabilities.delivery_modes.includes(mode)) {
+        const name = configuredEndpointName(sinkTitle, schema, value, "destination");
+        const modes = capabilities.delivery_modes.map((allowed) => `'${allowed}'`).join(", ");
+        error = `${name} can be used only in ${modes} delivery ${capabilities.delivery_modes.length === 1 ? "mode" : "modes"}.`;
+        incompatibleConfiguration = true;
+      }
+    }
+    if (error === undefined && deliveryType !== "" && source !== undefined) {
       const sourceValue = endpointValue(config, "source", sourceKey);
       const sourceSchema = compiledSchema(source.schema, widgets);
       const mode = deliveryType as (typeof source.delivery_modes)[number];
@@ -404,8 +417,8 @@ export function selectedEndpoints(
           catalog.connectors.find((connector) => connector.key === sourceKey)
             ?.title ?? sourceKey;
         error = source.delivery_modes.includes(mode)
-          ? `Configure ${title} for ${deliveryType.replaceAll("_", " ")} delivery; the current source settings do not enable this mode.`
-          : `${title} does not support ${deliveryType.replaceAll("_", " ")} delivery.`;
+          ? `Configure ${title} for '${deliveryType}' delivery; the current source settings do not enable this mode.`
+          : `${title} does not support '${deliveryType}' delivery.`;
       } else if (sink !== undefined) {
         const sinkSchema = compiledSchema(sink.schema, widgets);
         const sinkValue = endpointValue(config, "sink", sinkKey);
@@ -415,24 +428,25 @@ export function selectedEndpoints(
           sinkValue,
           "destination",
         );
+        const produced = sourceRecordSemantics(source, sourceSchema, sourceValue, mode);
         if (
           !acceptsConfiguredRecordSemantics(
-            sourceRecordSemantics(source, sourceSchema, sourceValue, mode),
+            produced,
             sinkCapabilities,
             sinkSchema,
             sinkValue,
           )
         ) {
-          const sourceTitle =
-            catalog.connectors.find(
-              (connector) => connector.key === sourceKey,
-            )?.title ?? sourceKey;
-          const sinkTitle =
-            catalog.connectors.find(
-              (connector) => connector.key === sinkKey,
-            )?.title ?? sinkKey;
+          const serializer = selectedComponentNode(sinkSchema, sinkValue, "serializer");
+          const serializerRejects = serializer !== undefined && produced.some((semantics) =>
+            !serializer.xUi.capabilities!.record_semantics!.includes(semantics));
+          const recipient = serializerRejects
+            ? `${serializer.title || serializer.xUi.capabilities!.key} serializer`
+            : configuredEndpointName(sinkTitle, sinkSchema, sinkValue, "destination");
+          const parser = selectedComponentNode(sourceSchema, sourceValue, "parser");
+          const producer = parser === undefined ? sourceTitle : `${sourceTitle} and its selected parser`;
           incompatibleConfiguration = true;
-          error = `${sinkTitle} or its selected serializer cannot preserve the records produced by ${sourceTitle} and its selected parser for ${deliveryType.replaceAll("_", " ")} delivery. Append-only components cannot preserve updates/deletes; choose components with changelog support.`;
+          error = `${recipient} cannot preserve the records produced by ${producer} for '${deliveryType}' delivery. Append-only components cannot preserve updates/deletes; choose components with changelog support.`;
         }
       }
     }

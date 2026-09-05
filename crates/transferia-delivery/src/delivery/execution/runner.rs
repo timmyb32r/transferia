@@ -623,6 +623,7 @@ async fn start_pipeline(
         finite_source,
         ..
     } = plan;
+    sink_connector.validate_delivery_type(config.delivery_type)?;
     let parses_rows = source_connector.parses_rows();
     let parser = source_connector.parser();
     let preview_phases = source_connector.execution_phases(config.delivery_type, &discovery)?;

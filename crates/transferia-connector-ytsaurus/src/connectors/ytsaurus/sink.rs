@@ -314,6 +314,15 @@ impl SinkLimits for YTsaurusSinkConfig {
 }
 
 impl SinkConnector for YTsaurusSinkConnector {
+    fn delivery_modes(&self) -> &'static [transferia_delivery_contracts::DeliveryType] {
+        use transferia_delivery_contracts::DeliveryType;
+        if self.config.static_tables() {
+            &[DeliveryType::Batch]
+        } else {
+            &[DeliveryType::Batch, DeliveryType::Stream, DeliveryType::BatchAndStream]
+        }
+    }
+
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::YTsaurusSink(if self.config.static_tables() {
             YTsaurusSinkMode::Static

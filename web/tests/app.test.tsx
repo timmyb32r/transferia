@@ -166,7 +166,7 @@ describe("App request orchestration", () => {
       .closest<HTMLElement>(".compatibility-error")!;
     expect(
       within(compatibilityError).getByText(
-        "Stream source does not support batch delivery.",
+        "Stream source does not support 'batch' delivery.",
       ),
     ).toBeTruthy();
   });

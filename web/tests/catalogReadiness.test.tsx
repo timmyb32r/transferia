@@ -51,6 +51,27 @@ describe("connector catalog readiness", () => {
     expect(view.queryByRole("button", { name: "JSON" })).toBeNull();
   });
   const matrixCatalog = decodeApi("catalog_response", catalogFixture, "catalog");
+  it("checks destination modes before any source is selected, using only declared properties", () => {
+    const catalog: UiCatalog = { ...matrixCatalog, connectors: [{
+      key: "arbitrary-store", title: "Archive", sink: {
+        ...matrixCatalog.connectors.find((connector) => connector.key === "ytsaurus")!.sink!,
+        schema: { type: "object", properties: { storage: {
+          type: "object", title: "Snapshot storage", properties: {},
+          "x-ui": { capabilities: { component: "destination", key: "arbitrary-mode",
+            delivery_modes: ["batch"], record_semantics: ["append_only"],
+          } },
+        } } },
+      },
+    }] };
+    for (const mode of DELIVERY_TYPES) {
+      const selection = selectedEndpoints(catalog, {
+        delivery_type: mode, sink: { "arbitrary-store": { storage: {} } },
+      }, productionWidgetRegistry);
+      expect(selection.routeError).toBeUndefined();
+      expect(selection.error).toBe(mode === "batch" ? undefined
+        : "Archive snapshot storage can be used only in 'batch' delivery mode.");
+    }
+  });
   it.each(compatibilityRoutes(matrixCatalog).flatMap((route) => DELIVERY_TYPES.map((mode) => ({
     name: `${route.source.key} → ${route.sink.key} / ${mode}`, route, mode,
   }))))("agrees with the matrix for $name even before configuration is complete", ({ route, mode }) => {
@@ -107,7 +128,7 @@ describe("connector catalog readiness", () => {
         productionWidgetRegistry,
       ).error,
     ).toBe(
-      "Legacy separate modes does not support batch and stream delivery.",
+      "Legacy separate modes does not support 'batch_and_stream' delivery.",
     );
     expect(
       selectedEndpoints(
@@ -180,7 +201,7 @@ describe("connector catalog readiness", () => {
         },
         productionWidgetRegistry,
       ).error,
-    ).toBe("Configure Database for stream delivery; the current source settings do not enable this mode.");
+    ).toBe("Configure Database for 'stream' delivery; the current source settings do not enable this mode.");
     expect(
       selectedEndpoints(
         catalog,
@@ -192,7 +213,7 @@ describe("connector catalog readiness", () => {
         productionWidgetRegistry,
       ).error,
     ).toBe(
-      "Destination or its selected serializer cannot preserve the records produced by Database and its selected parser for stream delivery. Append-only components cannot preserve updates/deletes; choose components with changelog support.",
+      "Destination cannot preserve the records produced by Database for 'stream' delivery. Append-only components cannot preserve updates/deletes; choose components with changelog support.",
     );
     expect(
       selectedEndpoints(
@@ -251,7 +272,11 @@ describe("connector catalog readiness", () => {
           expect(selection.routeError).toBeUndefined();
           expect(selection.incompatibleConfiguration === true)
             .toBe(deliveryType !== "batch" && serializer !== "debezium");
-          if (selection.incompatibleConfiguration) expect(selection.error).toContain("updates/deletes");
+          if (selection.incompatibleConfiguration) {
+            expect(selection.error?.startsWith(`${serializer === "json" ? "JSON" : "Schema Registry"} serializer cannot preserve`)).toBe(true);
+            expect(selection.error).toContain(`for '${deliveryType}' delivery`);
+            expect(selection.error).toContain("updates/deletes");
+          }
           else expect(selection.error).toBeUndefined();
         }
       }
@@ -270,7 +295,9 @@ describe("connector catalog readiness", () => {
           }, productionWidgetRegistry);
           expect(selection.routeError).toBeUndefined();
           expect(selection.incompatibleConfiguration === true)
-            .toBe(parser === "debezium" && tableType === "static_tables");
+            .toBe(tableType === "static_tables");
+          if (tableType === "static_tables")
+            expect(selection.error).toBe("YTsaurus static tables can be used only in 'batch' delivery mode.");
         }
       }
     }
@@ -319,7 +346,7 @@ describe("connector catalog readiness", () => {
         },
         productionWidgetRegistry,
       ).error,
-    ).toBe("Configure MySQL for stream delivery; the current source settings do not enable this mode.");
+    ).toBe("Configure MySQL for 'stream' delivery; the current source settings do not enable this mode.");
     expect(
       selectedEndpoints(
         catalog,
@@ -339,7 +366,7 @@ describe("connector catalog readiness", () => {
         },
         productionWidgetRegistry,
       ).error,
-    ).toBe("Configure MySQL for batch delivery; the current source settings do not enable this mode.");
+    ).toBe("Configure MySQL for 'batch' delivery; the current source settings do not enable this mode.");
   });
 
   it("allows parser-defined schema preview before source connectivity is configured", () => {
