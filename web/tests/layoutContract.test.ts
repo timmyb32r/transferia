@@ -126,6 +126,7 @@ describe("delivery layout contract", () => {
     expect(styles).toMatch(/\.property-members.expanded-members \.property-entity-names\s*\{[^}]*overflow: visible;[^}]*scrollbar-gutter: auto;/s);
   });
   it("highlights the whole entity tile without changing its dimensions", () => {
+    expect(styles).toMatch(/\.property-entity-names li:not\(\.entity-empty\):hover,\s*\.entity-catalog-list li:not\(\.entity-empty\):hover/);
     const rule = styles.match(/\.entity-catalog-list li:not\(\.entity-empty\):hover\s*\{([^}]*)\}/)?.[1];
     expect(rule).toContain("background: var(--surface-selected)");
     expect(rule).toContain("box-shadow: inset");
