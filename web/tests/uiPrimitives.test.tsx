@@ -26,20 +26,41 @@ describe("UI primitives", () => {
     expect(details.open).toBe(true);
   });
 
-  it("closes an open disclosure when the user clicks outside", () => {
+  it("keeps source and destination disclosures independent during pointer interaction", () => {
     const view = render(
-      <Disclosure label="Advanced settings">
-        <p>Advanced value</p>
-      </Disclosure>,
+      <>
+        <Disclosure label="Advanced settings">
+          <button>Source setting</button>
+        </Disclosure>
+        <Disclosure label="Advanced settings">
+          <button>Destination setting</button>
+        </Disclosure>
+      </>,
     );
-    const details = view.container.querySelector("details")!;
-    const summary = view.getByText("Advanced settings");
-    fireEvent.click(summary, { detail: 1 });
-    expect(details.open).toBe(true);
-
+    const [source, destination] = view.container.querySelectorAll("details");
+    const [sourceSummary, destinationSummary] = view.getAllByText("Advanced settings");
+    if (!source || !destination || !sourceSummary || !destinationSummary) {
+      throw new Error("Expected source and destination disclosures");
+    }
+    for (const summary of [sourceSummary, destinationSummary]) {
+      fireEvent.pointerDown(summary);
+      fireEvent.click(summary, { detail: 1 });
+    }
+    expect(source.open).toBe(true);
+    expect(destination.open).toBe(true);
+    const sourceSetting = view.getByRole("button", { name: "Source setting" });
+    fireEvent.pointerDown(view.getByRole("button", { name: "Destination setting" }));
+    fireEvent.pointerDown(sourceSetting);
     fireEvent.pointerDown(document.body);
-
-    expect(details.open).toBe(false);
+    expect(source.open).toBe(true);
+    expect(destination.open).toBe(true);
+    expect(view.getByRole("button", { name: "Source setting" })).toBe(sourceSetting);
+    fireEvent.pointerDown(sourceSummary);
+    expect(source.open).toBe(true);
+    expect(destination.open).toBe(true);
+    fireEvent.click(sourceSummary, { detail: 1 });
+    expect(source.open).toBe(false);
+    expect(destination.open).toBe(true);
   });
 
   it("gives pending actions immediate feedback without changing their label", () => {
