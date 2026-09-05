@@ -76,6 +76,7 @@ fn only_operation_aware_state_sinks_accept_changelog_rows() {
         EndpointDescriptor::Discard,
     ];
     for sink in operation_aware {
+        assert!(validate_record_semantics(&changelog_source(), &sink).is_ok());
         assert!(sink.accepts_record_semantics(RecordSemantics::AppendOnly));
         assert!(sink.accepts_record_semantics(RecordSemantics::Changelog));
         assert!(
@@ -94,6 +95,8 @@ fn only_operation_aware_state_sinks_accept_changelog_rows() {
     ];
 
     for sink in append_only {
+        assert!(validate_record_semantics(&source(), &sink).is_ok());
+        assert!(validate_record_semantics(&changelog_source(), &sink).is_err());
         assert!(sink.accepts_record_semantics(RecordSemantics::AppendOnly));
         assert!(!sink.accepts_record_semantics(RecordSemantics::Changelog));
         let report = validate_pipeline(&changelog_source(), &sink, &discovery(), false);

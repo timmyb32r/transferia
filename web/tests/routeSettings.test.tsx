@@ -47,7 +47,8 @@ it.each(compatibilityRoutes(catalog).flatMap((route) => DELIVERY_TYPES.map((mode
   }
   expect(view.queryByText("Incompatible route") !== null).toBe(!expected);
   if (expected && selection.error) {
-    expect(view.getByText("Configuration required")).toBeTruthy();
+    const heading = selection.incompatibleConfiguration ? "Incompatible configuration" : "Configuration required";
+    expect(view.getByText(heading)).toBeTruthy();
     const readiness = configurationReadiness(catalog, config, productionWidgetRegistry);
     expect(readiness.selection.error).toBeTruthy();
     expect(readiness.complete).toBe(false);
@@ -59,6 +60,6 @@ it.each(compatibilityRoutes(catalog).flatMap((route) => DELIVERY_TYPES.map((mode
     expect(view.getByRole("region", { name: "source" })).toBe(sourceSettings);
     view.rerender(configuration(selection));
     expect(view.getByRole("status")).toBe(feedback);
-    expect(feedback.textContent).toContain("Configuration required");
+    expect(feedback.textContent).toContain(heading);
   }
 });

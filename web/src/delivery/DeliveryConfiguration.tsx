@@ -144,7 +144,7 @@ export function DeliveryConfiguration({
           )}
           {routeSettingsAvailable && selection?.error && (
             <div class="compatibility-error">
-              <strong>Configuration required</strong>
+              <strong>{selection.incompatibleConfiguration ? "Incompatible configuration" : "Configuration required"}</strong>
               <span>{selection.error}</span>
             </div>
           )}

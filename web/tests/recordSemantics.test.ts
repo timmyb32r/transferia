@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { compileSchema } from "../src/schema/compiler";
 import { productionWidgetRegistry } from "../src/features/formWidgetRegistry";
 import {
+  acceptsConfiguredRecordSemantics,
   configuredEndpointCapabilities,
   configuredSourceSupportsDeliveryType,
   routeSupportsDeliveryType,
@@ -34,6 +35,23 @@ const queueSource: EndpointDefinition = {
 };
 
 describe("record semantic selection", () => {
+  it("requires every produced semantic to survive both destination and serializer", () => {
+    const sink = { delivery_modes: [], record_semantics: ["append_only", "changelog"] } as const;
+    const schema = compileSchema({ type: "object", properties: {
+      encoder: { type: "object", properties: {}, "x-ui": { capabilities: {
+        component: "serializer", key: "arbitrary-encoder", record_semantics: ["append_only"],
+      } } },
+    } }, productionWidgetRegistry);
+    expect(acceptsConfiguredRecordSemantics(["append_only"], sink, schema, { encoder: {} })).toBe(true);
+    expect(acceptsConfiguredRecordSemantics(["changelog"], sink, schema, { encoder: {} })).toBe(false);
+    expect(acceptsConfiguredRecordSemantics(["append_only", "changelog"], sink, schema, { encoder: {} })).toBe(false);
+  });
+
+  it("does not turn parsed change events into append-only records merely because input is finite", () => {
+    const schema = compileSchema(queueSource.schema, productionWidgetRegistry);
+    expect(sourceRecordSemantics(queueSource, schema, { parser: { type: "debezium" } }, "batch"))
+      .toEqual(["changelog"]);
+  });
   it("uses the selected parser semantics instead of the endpoint union", () => {
     const schema = compileSchema(queueSource.schema, productionWidgetRegistry);
     expect(

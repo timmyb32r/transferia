@@ -177,7 +177,7 @@ describe("connector catalog readiness", () => {
         productionWidgetRegistry,
       ).error,
     ).toBe(
-      "Destination cannot accept the records produced by Database for stream delivery.",
+      "Destination or its selected serializer cannot preserve the records produced by Database and its selected parser for stream delivery. Append-only components cannot preserve updates/deletes; choose components with changelog support.",
     );
     expect(
       selectedEndpoints(
@@ -220,6 +220,44 @@ describe("connector catalog readiness", () => {
       expect(view.queryByText("Replication")).toBeNull();
       expect(view.queryByText("Replication bootstrap timeout")).toBeNull();
       expect(view.queryByText("Plugin") !== null).toBe(deliveryType !== "batch");
+    }
+  });
+
+  it("rejects lossy queue serializers immediately for database change streams", () => {
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
+    for (const sinkKey of ["kafka", "logbroker"]) {
+      for (const deliveryType of DELIVERY_TYPES) {
+        for (const serializer of ["json", "schema_registry", "debezium"]) {
+          const selection = selectedEndpoints(catalog, {
+            delivery_type: deliveryType,
+            source: { postgres: {} },
+            sink: { [sinkKey]: { serializer: { type: serializer } } },
+          }, productionWidgetRegistry);
+          expect(selection.routeError).toBeUndefined();
+          expect(selection.incompatibleConfiguration === true)
+            .toBe(deliveryType !== "batch" && serializer !== "debezium");
+          if (selection.incompatibleConfiguration) expect(selection.error).toContain("updates/deletes");
+          else expect(selection.error).toBeUndefined();
+        }
+      }
+    }
+  });
+
+  it("rejects parsed changes for static tables and recovers when either selection becomes compatible", () => {
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
+    for (const sourceKey of ["kafka", "logbroker"]) {
+      for (const parser of ["debezium", "json_parser"]) {
+        for (const tableType of ["static_tables", "dynamic_tables"]) {
+          const selection = selectedEndpoints(catalog, {
+            delivery_type: "stream",
+            source: { [sourceKey]: { parser: { common: {}, [parser]: {} } } },
+            sink: { ytsaurus: { tables: { type: tableType } } },
+          }, productionWidgetRegistry);
+          expect(selection.routeError).toBeUndefined();
+          expect(selection.incompatibleConfiguration === true)
+            .toBe(parser === "debezium" && tableType === "static_tables");
+        }
+      }
     }
   });
 

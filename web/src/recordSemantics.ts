@@ -37,17 +37,30 @@ export function sourceRecordSemantics(
     value,
     "source",
   );
-  if (deliveryType === "batch") return ["append_only"];
-
   const componentSemantics = selectedComponentRecordSemantics(
     schema,
     value,
     "parser",
   );
+  if (deliveryType === "batch") return componentSemantics ?? ["append_only"];
   const streamSemantics =
     componentSemantics ?? streamEndpointSemantics(endpointCapabilities);
   if (deliveryType === "stream") return streamSemantics;
   return uniqueSemantics(["append_only", ...streamSemantics]);
+}
+
+/** Every possible input operation must survive both the sink and its serializer. */
+export function acceptsConfiguredRecordSemantics(
+  produced: readonly RecordSemantics[],
+  sink: EndpointCapabilities,
+  schema: CompiledNode,
+  value: JsonValue,
+): boolean {
+  const serializer = selectedComponentRecordSemantics(schema, value, "serializer");
+  return produced.length > 0 && produced.every((semantics) =>
+    sink.record_semantics.includes(semantics) &&
+    (serializer === undefined || serializer.includes(semantics)),
+  );
 }
 
 export function sourceSupportsDeliveryType(

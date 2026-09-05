@@ -9791,7 +9791,16 @@
                     "type",
                     "path",
                     "replace_tables"
-                  ]
+                  ],
+                  "x-ui": {
+                    "capabilities": {
+                      "component": "destination",
+                      "key": "ytsaurus",
+                      "record_semantics": [
+                        "append_only"
+                      ]
+                    }
+                  }
                 },
                 {
                   "title": "Dynamic tables",
@@ -9931,7 +9940,17 @@
                     "type",
                     "path",
                     "replace_tables"
-                  ]
+                  ],
+                  "x-ui": {
+                    "capabilities": {
+                      "component": "destination",
+                      "key": "ytsaurus",
+                      "record_semantics": [
+                        "append_only",
+                        "changelog"
+                      ]
+                    }
+                  }
                 }
               ]
             },

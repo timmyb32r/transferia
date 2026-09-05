@@ -12,6 +12,7 @@ import {
 } from "../schema/compiler";
 import type { WidgetContracts } from "../schema/widgetDefinitions";
 import {
+  acceptsConfiguredRecordSemantics,
   configuredEndpointCapabilities,
   configuredSourceSupportsDeliveryType,
   routeSupportsDeliveryType,
@@ -361,6 +362,7 @@ export function selectedEndpoints(
   source: EndpointDefinition | undefined;
   sink: EndpointDefinition | undefined;
   routeError?: string;
+  incompatibleConfiguration?: boolean;
   error?: string;
 } {
   const sourceKey = singleKey(config.source);
@@ -384,6 +386,7 @@ export function selectedEndpoints(
     }
   }
   let error: string | undefined;
+  let incompatibleConfiguration = false;
   try {
     if (deliveryType !== "" && source !== undefined) {
       const sourceValue = endpointValue(config, "source", sourceKey);
@@ -404,30 +407,20 @@ export function selectedEndpoints(
           ? `Configure ${title} for ${deliveryType.replaceAll("_", " ")} delivery; the current source settings do not enable this mode.`
           : `${title} does not support ${deliveryType.replaceAll("_", " ")} delivery.`;
       } else if (sink !== undefined) {
-        const sourceCapabilities = configuredEndpointCapabilities(
-          source,
-          sourceSchema,
-          sourceValue,
-          "source",
-        );
+        const sinkSchema = compiledSchema(sink.schema, widgets);
+        const sinkValue = endpointValue(config, "sink", sinkKey);
         const sinkCapabilities = configuredEndpointCapabilities(
           sink,
-          compiledSchema(sink.schema, widgets),
-          endpointValue(config, "sink", sinkKey),
+          sinkSchema,
+          sinkValue,
           "destination",
         );
         if (
-          !routeSupportsDeliveryType(
-            sourceCapabilities,
+          !acceptsConfiguredRecordSemantics(
+            sourceRecordSemantics(source, sourceSchema, sourceValue, mode),
             sinkCapabilities,
-            mode,
-            (phase) =>
-              sourceRecordSemantics(
-                source,
-                sourceSchema,
-                sourceValue,
-                phase,
-              ),
+            sinkSchema,
+            sinkValue,
           )
         ) {
           const sourceTitle =
@@ -438,7 +431,8 @@ export function selectedEndpoints(
             catalog.connectors.find(
               (connector) => connector.key === sinkKey,
             )?.title ?? sinkKey;
-          error = `${sinkTitle} cannot accept the records produced by ${sourceTitle} for ${deliveryType.replaceAll("_", " ")} delivery.`;
+          incompatibleConfiguration = true;
+          error = `${sinkTitle} or its selected serializer cannot preserve the records produced by ${sourceTitle} and its selected parser for ${deliveryType.replaceAll("_", " ")} delivery. Append-only components cannot preserve updates/deletes; choose components with changelog support.`;
         }
       }
     }
@@ -455,6 +449,7 @@ export function selectedEndpoints(
     source,
     sink,
     ...(routeError === undefined ? {} : { routeError }),
+    ...(incompatibleConfiguration ? { incompatibleConfiguration: true } : {}),
     ...(error === undefined ? {} : { error }),
   };
 }

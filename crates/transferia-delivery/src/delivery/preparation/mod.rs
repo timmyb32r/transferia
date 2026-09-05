@@ -9,7 +9,7 @@ use transferia_core::delivery::{DatasetRole, DeliveryDiscovery, DeliveryDiscover
 use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_delivery_contracts::middleware::Middleware;
 use transferia_delivery_contracts::semantics::{
-    validate_pipeline, DeliverySemanticsReport, SourceBehavior,
+    validate_pipeline, validate_record_semantics, DeliverySemanticsReport, SourceBehavior,
 };
 use transferia_registry::durable::DurableContext;
 use transferia_registry::{
@@ -274,6 +274,7 @@ async fn build_pipeline_plan(
     );
     let finite_source =
         source_descriptor.source_behavior() == Some(SourceBehavior::FiniteAppendOnlyRows);
+    validate_record_semantics(&source_descriptor, &sink_connector.compatibility())?;
     let discovery = source_connector
         .delivery_discovery(SourceDiscoveryContext {
             request: DeliveryDiscoveryRequest {

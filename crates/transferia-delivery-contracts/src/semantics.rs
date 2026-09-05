@@ -308,6 +308,20 @@ impl DeliverySemanticsReport {
     }
 }
 
+/// Configuration-only check; descriptors already include parser/serializer semantics.
+pub fn validate_record_semantics(
+    source: &EndpointDescriptor,
+    sink: &EndpointDescriptor,
+) -> anyhow::Result<()> {
+    if let Some(semantics) = source.record_semantics() {
+        anyhow::ensure!(
+            sink.accepts_record_semantics(semantics),
+            "incompatible configuration: the configured sink or serializer cannot preserve {semantics:?} source/parser records; append-only components cannot preserve updates/deletes"
+        );
+    }
+    Ok(())
+}
+
 #[must_use]
 pub fn validate_pipeline(
     source: &EndpointDescriptor,
@@ -349,22 +363,18 @@ pub fn validate_pipeline(
             )],
         };
     }
-    if let Some(record_semantics) = source.record_semantics() {
-        if !sink.accepts_record_semantics(record_semantics) {
-            return DeliverySemanticsReport {
-                guarantee: DeliveryGuarantee::NoDurability,
-                diagnostics: vec![error(
-                    DiagnosticCode::UnsupportedRecordSemantics,
-                    &["source", "sink"],
-                    &format!(
-                        "the configured sink cannot preserve {record_semantics:?} source records"
-                    ),
-                    Some(
-                        "choose a sink with explicit changelog application support, or use an append-only source",
-                    ),
-                )],
-            };
-        }
+    if let Err(incompatibility) = validate_record_semantics(source, sink) {
+        return DeliverySemanticsReport {
+            guarantee: DeliveryGuarantee::NoDurability,
+            diagnostics: vec![error(
+                DiagnosticCode::UnsupportedRecordSemantics,
+                &["source", "sink"],
+                &incompatibility.to_string(),
+                Some(
+                    "choose a sink with explicit changelog application support, or use an append-only source",
+                ),
+            )],
+        };
     }
     if matches!(sink, EndpointDescriptor::ClickHouse) {
         return DeliverySemanticsReport {
