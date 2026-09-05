@@ -13,7 +13,6 @@ import type {
 } from "../generated/apiContract";
 import { AutofillResistantInput } from "./AutofillResistantField";
 import { Button } from "./Button";
-import { InstantTooltip } from "./InstantTooltip";
 import { orderedEndpointConnectors } from "../connectorCatalog";
 import {
   declaredSourceRecordSemantics,
@@ -34,11 +33,9 @@ const DELIVERY_MODE_BADGE: Record<DeliveryMode, string> = {
 
 function DeliveryModeBadge({ mode }: { mode: DeliveryMode }) {
   return (
-    <InstantTooltip content={DELIVERY_MODE_LABEL[mode]} class="compatibility-badge-tooltip">
-      <span class={`compatibility-badge ${mode}`} aria-hidden="true">
-        {DELIVERY_MODE_BADGE[mode]}
-      </span>
-    </InstantTooltip>
+    <span class={`compatibility-badge ${mode}`} title={DELIVERY_MODE_LABEL[mode]} aria-hidden="true">
+      {DELIVERY_MODE_BADGE[mode]}
+    </span>
   );
 }
 

@@ -4589,10 +4589,6 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   width: 36px;
 }
 
-.compatibility-badge-tooltip {
-  display: inline-flex;
-}
-
 .compatibility-badge.batch {
   color: #bbf7d0;
   background: #14532d;

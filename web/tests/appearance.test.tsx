@@ -63,6 +63,14 @@ const CATALOG: UiCatalog = {
 };
 
 describe("appearance preferences", () => {
+  it("uses only native delayed tooltips for matrix mode badges", () => {
+    const view = render(<CompatibilityMatrixDialog catalog={CATALOG} onClose={() => {}} />);
+    const badge = view.getByTitle("Batch + stream");
+    fireEvent.mouseEnter(badge);
+    expect(badge.textContent).toBe("B+S");
+    expect(view.queryByRole("tooltip")).toBeNull();
+    expect(badge.closest(".instant-tooltip-host")).toBeNull();
+  });
   it("puts the source-only generator and sink-only discard last, regardless of catalog order", () => {
     const catalog: UiCatalog = { ...CATALOG, connectors: [
       { key: "discard", title: "Discard (for benchmarks)", sink: endpoint(["append_only"]) },
