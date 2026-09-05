@@ -3,9 +3,16 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { ControlPlanePort } from "../application/ports/controlPlane";
 import type {
   ConnectionCheckStatus,
+  TableIdentity,
   MessagePreviewResult,
 } from "../generated/apiContract";
 import type { JsonObject } from "../types";
+
+export function tableConnectionIdentity(connector: string, config: JsonObject): string | undefined {
+  const { tables, ...connection } = config;
+  if (tables === null || typeof tables !== "object" || Array.isArray(tables) || !Array.isArray(tables.rules)) return undefined;
+  return `${connector}:${JSON.stringify(connection)}`;
+}
 
 export type ConnectionCheckState =
   | { state: "idle" | "checking"; options: Record<string, string[]> }
@@ -13,6 +20,7 @@ export type ConnectionCheckState =
       state: "success";
       message?: string;
       status: ConnectionCheckStatus;
+      tables?: TableIdentity[];
       options: Record<string, string[]>;
     }
   | { state: "error"; message: string; options: Record<string, string[]> };
@@ -46,7 +54,12 @@ export function useEndpointActions({
   const checkController = useRef<AbortController>();
   const previewController = useRef<AbortController>();
   const endpointIdentity = `${role}:${connector}`;
-  const configFingerprint = JSON.stringify(config);
+  // Rules depend on the checked catalog, but do not change the connection.
+  const { tables: _tables, ...connectionConfig } = config;
+  const configFingerprint = JSON.stringify(
+    _tables !== null && typeof _tables === "object" && !Array.isArray(_tables) && Array.isArray(_tables.rules)
+      ? connectionConfig : config,
+  );
   const previousEndpointIdentity = useRef(endpointIdentity);
   const previousConfigFingerprint = useRef(configFingerprint);
 
@@ -94,6 +107,7 @@ export function useEndpointActions({
         ...(result.message == null ? {} : { message: result.message }),
         status: result.status,
         options: result.options,
+        ...(result.tables === undefined ? {} : { tables: result.tables }),
       });
     } catch (error) {
       if (request.signal.aborted || checkController.current !== request) return;
@@ -137,7 +151,8 @@ export function useEndpointActions({
   };
 
   return {
-    check,
+    check: previousConfigFingerprint.current === configFingerprint && previousEndpointIdentity.current === endpointIdentity
+      ? check : { state: "idle" as const, options: {} },
     preview,
     checkConnection,
     previewMessage,

@@ -1,4 +1,5 @@
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
+import { useEffect } from "preact/hooks";
 import { SchemaForm } from "../schema/SchemaForm";
 import { revealDetails } from "../schema/revealDetails";
 import { useWidgetRegistry } from "../schema/widgetRegistry";
@@ -12,7 +13,7 @@ import type {
 } from "../types";
 import { compiledSchema, endpointValue, isObject } from "./editorConfig";
 import { MessagePreviewDialog } from "./MessagePreviewDialog";
-import { useEndpointActions } from "./useEndpointActions";
+import { tableConnectionIdentity, useEndpointActions } from "./useEndpointActions";
 
 export function EndpointCard(props: {
   title: string;
@@ -26,6 +27,7 @@ export function EndpointCard(props: {
   showRequiredErrors: boolean;
   onChoose: (role: "source" | "sink", key: string) => void;
   onConfig: (config: JsonObject) => void;
+  onTableConnection?: ((identity: string | undefined) => void) | undefined;
 }) {
   const showSettings = props.showSettings ?? true;
   const api = useControlPlane();
@@ -46,6 +48,12 @@ export function EndpointCard(props: {
     role: props.role,
     config: isObject(value) ? value : {},
   });
+  const tableIdentity = isObject(value) ? tableConnectionIdentity(props.selectedKey, value) : undefined;
+  const checkedTableIdentity = check.state === "success" && check.status === "verified" && check.tables !== undefined
+    ? tableIdentity : undefined;
+  useEffect(() => {
+    props.onTableConnection?.(checkedTableIdentity);
+  }, [checkedTableIdentity, props.onTableConnection]);
   const previewResult =
     props.selectedKey === "s3" && preview.result
       ? {
@@ -135,6 +143,8 @@ export function EndpointCard(props: {
               },
             }}
             optionOverrides={check.options}
+            tableCatalog={check.state === "success" && check.status === "verified" && check.tables !== undefined
+              ? { tables: check.tables, preview: api.previewTables } : undefined}
             connectionAction={
               props.endpoint.connection_check ? (
                 <div class="connection-check">

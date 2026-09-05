@@ -62,6 +62,13 @@ impl core::fmt::Debug for CommitMarker {
 // ---------------------------------------------------------------------------
 
 pub trait Source: Send {
+    /// Exact membership restored from the source's durable checkpoint. Evolving
+    /// sources expose it before reading so destination actors can be rebuilt
+    /// without resolving current wildcard matches or re-preparing old tables.
+    fn restored_datasets(&self) -> DataPlaneResult<Option<Vec<crate::DiscoveredDataset>>> {
+        Ok(None)
+    }
+
     fn read_batch(&mut self) -> BoxFuture<'_, DataPlaneResult<SourceBatch>>;
 
     /// Commit one durability group. Implementations must submit every marker
@@ -82,6 +89,10 @@ pub trait Source: Send {
 
 /// Delegating impl: `Box<dyn Source>` is itself a `Source`.
 impl Source for Box<dyn Source> {
+    fn restored_datasets(&self) -> DataPlaneResult<Option<Vec<crate::DiscoveredDataset>>> {
+        (**self).restored_datasets()
+    }
+
     fn read_batch(&mut self) -> BoxFuture<'_, DataPlaneResult<SourceBatch>> {
         (**self).read_batch()
     }

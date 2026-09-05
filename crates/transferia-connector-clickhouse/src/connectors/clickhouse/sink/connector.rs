@@ -915,6 +915,7 @@ async fn verify_all_clickhouse_tables(
     );
     for dataset in &discovery.datasets {
         let prepared = transferia_registry::DatasetPrepare {
+            namespace: None,
             role: dataset.role,
             table: Arc::clone(&dataset.name),
             schema: dataset.stored_schema.clone(),

@@ -178,6 +178,7 @@ impl MySqlExecutionLock {
         &mut self,
         preflight: &MySqlReplicationPreflight,
         tables: &[TableConfig],
+        selection: &transferia_registry::table_selection::TableSelection,
         expected_authoritative_tables: &[AuthoritativeTableIdentity],
         request_timeout: Duration,
         cancellation: &CancellationToken,
@@ -223,6 +224,7 @@ impl MySqlExecutionLock {
                 ))
             })?;
             async {
+                validate_locked_membership(connection, tables, selection, request_timeout, cancellation).await?;
                 let locked_preflight =
                     read_preflight(connection, request_timeout, cancellation).await?;
                 if locked_preflight != *preflight {
@@ -587,7 +589,7 @@ pub async fn acquire_execution_lock(
 
 async fn read_authoritative_table_identities(
     connection: &mut Conn,
-    database: &str,
+    _database: &str,
     tables: &[TableConfig],
     request_timeout: Duration,
     cancellation: &CancellationToken,
@@ -597,7 +599,7 @@ async fn read_authoritative_table_identities(
         identities.push(
             read_authoritative_table_identity(
                 connection,
-                database,
+                &table.database,
                 table,
                 request_timeout,
                 cancellation,
@@ -698,6 +700,7 @@ async fn read_authoritative_table_identity(
 pub async fn begin_locked_snapshot(
     config: &MySqlConnectionConfig,
     tables: &[TableConfig],
+    selection: &transferia_registry::table_selection::TableSelection,
     server_id: u32,
     preflight: &MySqlReplicationPreflight,
     max_row_bytes: usize,
@@ -755,6 +758,9 @@ pub async fn begin_locked_snapshot(
             .await?;
         }
         resources.tables_locked = true;
+        validate_locked_membership(resources.owner.as_mut().ok_or_else(||
+            anyhow::anyhow!("MySQL snapshot lock connection is missing"))?,
+            tables, selection, request_timeout, cancellation).await?;
 
         let mut authoritative_tables = Vec::with_capacity(tables.len());
         for table in tables {
@@ -823,7 +829,7 @@ pub async fn begin_locked_snapshot(
                 required::<u64, _>(&session_identity, 0, "CONNECTION_ID()")?;
             let qualified = format!(
                 "{}.{}",
-                quote_identifier(&config.database),
+                quote_identifier(&table.database),
                 quote_identifier(&table.name)
             );
             run_request(
@@ -836,7 +842,7 @@ pub async fn begin_locked_snapshot(
             authoritative_tables.push(
                 read_authoritative_table_identity(
                     &mut connection,
-                    &config.database,
+                    &table.database,
                     table,
                     request_timeout,
                     cancellation,
@@ -871,6 +877,31 @@ pub async fn begin_locked_snapshot(
         }),
         Err(error) => Err(cleanup_after_failure(&mut resources, cleanup_timeout, error).await),
     }
+}
+
+async fn validate_locked_membership(
+    connection: &mut Conn,
+    tables: &[TableConfig],
+    selection: &transferia_registry::table_selection::TableSelection,
+    timeout: Duration,
+    cancellation: &CancellationToken,
+) -> anyhow::Result<()> {
+    let catalog = tokio::select! {
+        biased;
+        () = cancellation.cancelled() => anyhow::bail!("MySQL locked catalog check cancelled"),
+        result = tokio::time::timeout(timeout,
+            crate::connectors::mysql::common::list_tables_on_connection(connection)) =>
+            result.map_err(|_| anyhow::anyhow!("MySQL locked catalog check timed out"))??,
+    };
+    let matched = selection.compile()?.resolve(&catalog)?.selected_tables()?;
+    let expected = tables.iter().map(|table| transferia_registry::TableIdentity {
+        namespace: table.database.clone(), name: table.name.clone(),
+    }).collect::<std::collections::BTreeSet<_>>();
+    if matched.into_iter().collect::<std::collections::BTreeSet<_>>() != expected {
+        return Err(replication_safety_violation(anyhow::anyhow!(
+            "MySQL table-rule membership changed between discovery and the locked binlog boundary; repeat discovery before starting the delivery")));
+    }
+    Ok(())
 }
 
 pub fn replication_lock_name(server_uuid: &str, server_id: u32) -> anyhow::Result<String> {
@@ -1075,11 +1106,7 @@ async fn read_preflight(
     let transaction_compression = required::<String, _>(&row, 8, "binlog_transaction_compression")?;
     let binlog_checksum = required::<String, _>(&row, 9, "binlog_checksum")?;
     let server_uuid = required::<String, _>(&row, 10, "server_uuid")?;
-    let database = required::<Option<String>, _>(&row, 11, "DATABASE()")?.ok_or_else(|| {
-        replication_safety_violation(anyhow::anyhow!(
-            "MySQL replication connection has no current database"
-        ))
-    })?;
+    let database = required::<Option<String>, _>(&row, 11, "DATABASE()")?.unwrap_or_default();
     let binary_log_status_query = validate_replication_preflight(
         &server_version,
         &gtid_mode,
@@ -1140,7 +1167,7 @@ async fn read_boundary(
     let gtid_executed = required::<String, _>(&identity, 2, "boundary gtid_executed")?;
     let source_timestamp_micros = required::<i64, _>(&identity, 3, "boundary source timestamp")?;
     if boundary_server_uuid != preflight.source.server_uuid
-        || boundary_database.as_deref() != Some(preflight.source.database.as_str())
+        || boundary_database.as_deref().unwrap_or("") != preflight.source.database
     {
         return Err(replication_safety_violation(anyhow::anyhow!(
             "MySQL source identity changed while capturing the exact snapshot boundary"
@@ -1199,7 +1226,7 @@ fn validate_bootstrap_inputs(
     for table in tables {
         validate_identifier("table", &table.name)?;
         anyhow::ensure!(
-            unique.insert(table.name.as_str()),
+            unique.insert((table.database.as_str(), table.name.as_str())),
             "MySQL exact snapshot repeats table '{}'",
             table.name
         );
@@ -1209,11 +1236,10 @@ fn validate_bootstrap_inputs(
 }
 
 fn validate_authoritative_table_selection(
-    database: &str,
+    _database: &str,
     tables: &[TableConfig],
     expected: &[AuthoritativeTableIdentity],
 ) -> anyhow::Result<()> {
-    validate_identifier("database", database)?;
     anyhow::ensure!(
         !tables.is_empty(),
         "MySQL stream boundary requires at least one authoritative table"
@@ -1228,14 +1254,14 @@ fn validate_authoritative_table_selection(
     for (table, identity) in tables.iter().zip(expected) {
         validate_identifier("table", &table.name)?;
         anyhow::ensure!(
-            names.insert(table.name.as_str()),
+            names.insert((table.database.as_str(), table.name.as_str())),
             "MySQL stream boundary repeats configured table '{}'",
             table.name
         );
         anyhow::ensure!(
-            identity.database == database && identity.table == table.name,
+            identity.database == table.database && identity.table == table.name,
             "MySQL authoritative identity does not exactly match configured table '{}.{}'",
-            database,
+            table.database,
             table.name
         );
     }

@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use transferia_registry::table_selection::TableSelection;
 
-use crate::connectors::clickhouse::sink::identifier::validate_identifier;
 use crate::connectors::clickhouse::sink::ClickHouseCompression;
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -36,7 +36,8 @@ pub struct ClickHouseSourceConfig {
     #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub password: String,
 
-    pub tables: Vec<TableConfig>,
+    #[schemars(extend("x-ui" = { "widget": "table_selection", "table_membership": "fixed" }))]
+    pub tables: TableSelection,
 
     #[serde(default = "default_batch_rows")]
     #[schemars(
@@ -155,7 +156,7 @@ impl ClickHouseSourceConfig {
             "clickhouse.username must not be empty"
         );
         anyhow::ensure!(
-            !self.tables.is_empty(),
+            !self.tables.rules.is_empty(),
             "clickhouse.tables must not be empty"
         );
         anyhow::ensure!(
@@ -167,19 +168,7 @@ impl ClickHouseSourceConfig {
             "clickhouse.batch_rows must fit a signed 64-bit ClickHouse setting"
         );
         self.snapshot_reader.validate()?;
-        let mut identities = HashSet::with_capacity(self.tables.len());
-        for table in &self.tables {
-            validate_identifier(&table.database)
-                .map_err(|error| error.context("invalid clickhouse.tables.database"))?;
-            validate_identifier(&table.name)
-                .map_err(|error| error.context("invalid clickhouse.tables.name"))?;
-            anyhow::ensure!(
-                identities.insert((table.database.as_str(), table.name.as_str())),
-                "clickhouse.tables repeats source table '{}.{}'",
-                table.database,
-                table.name
-            );
-        }
+        self.tables.compile()?;
         Ok(())
     }
 

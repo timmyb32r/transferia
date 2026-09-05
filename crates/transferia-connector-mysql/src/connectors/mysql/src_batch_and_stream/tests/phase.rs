@@ -90,9 +90,11 @@ fn source() -> MySqlSourceIdentity {
 fn tables() -> Vec<TableConfig> {
     vec![
         TableConfig {
+        database: "inventory".to_owned(),
             name: "accounts".to_owned(),
         },
         TableConfig {
+        database: "inventory".to_owned(),
             name: "events".to_owned(),
         },
     ]
@@ -334,6 +336,7 @@ async fn persisted_state_rejects_replay_server_source_and_table_drift() {
         database: "inventory".to_owned(),
     };
     let changed_tables = vec![TableConfig {
+        database: "inventory".to_owned(),
         name: "accounts".to_owned(),
     }];
     for result in [

@@ -7,7 +7,7 @@ pub mod src_stream;
 mod temporal;
 
 pub use common::{
-    check_connection, check_network_connection, PostgresConnectionCheckConfig,
+    check_connection, check_network_connection, list_tables, PostgresConnectionCheckConfig,
     PostgresConnectionConfig, PostgresCopyFormat,
 };
 pub use sink::PostgresSinkConnector;

@@ -142,7 +142,7 @@ async fn automatic_plugin_works_without_wal2json_and_refuses_foreign_publication
         )
         .await?;
     let config = format!(
-        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: exact_a }}\n  - {{ schema: public, name: exact_b }}\nreplication: {{}}\n"
+        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.exact_a\n    - include: public.exact_b\nreplication: {{}}\n"
     );
     let connector = postgres_connector(&config)?;
     let cancellation = CancellationToken::new();
@@ -312,7 +312,7 @@ async fn pgoutput_runtime_publication_drift_is_fatal_without_offset_progress() -
     let slot = "runtime_publication_drift";
     let connector = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: drift_events }}\nreplication:\n  plugin: {{ type: pgoutput, publication: publication_runtime_drift }}\n  poll_interval_ms: 10\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.drift_events\nreplication:\n  plugin: {{ type: pgoutput, publication: publication_runtime_drift }}\n  poll_interval_ms: 10\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -453,7 +453,7 @@ async fn interrupted_snapshot_stays_failed_closed_after_the_user_drops_the_exact
 
     let slot = "manual_reset_slot";
     let config = format!(
-        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: manual_reset_events }}\nreplication:\n  plugin: {{ type: pgoutput, publication: manual_reset_publication }}\n  poll_interval_ms: 10\n"
+        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.manual_reset_events\nreplication:\n  plugin: {{ type: pgoutput, publication: manual_reset_publication }}\n  poll_interval_ms: 10\n"
     );
     let cancellation = CancellationToken::new();
     let durable = transferia_test_support::durable_contexts(&[slot]).remove(0);
@@ -577,7 +577,7 @@ async fn global_slot_owner_fences_a_different_delivery_concurrently_and_sequenti
 
     let slot = "connector_lease_slot";
     let config = format!(
-        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: lease_events }}\nreplication:\n  plugin: {{ type: pgoutput, publication: lease_publication }}\n  poll_interval_ms: 10\n"
+        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.lease_events\nreplication:\n  plugin: {{ type: pgoutput, publication: lease_publication }}\n  poll_interval_ms: 10\n"
     );
     let cancellation = CancellationToken::new();
     let mut durables = transferia_test_support::durable_contexts(&[slot, slot]).into_iter();
@@ -765,7 +765,7 @@ async fn read_single_snapshot_partition(
                 }
             }
             SourceBatch::Finished => break,
-            SourceBatch::Raw { .. } => {
+            SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => {
                 anyhow::bail!("PostgreSQL exact snapshot emitted a raw batch")
             }
         }
@@ -786,7 +786,7 @@ async fn assert_publication_rejected_before_execution(
     let slot = format!("rejected_{case}");
     let connector = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: publication_a }}\n  - {{ schema: public, name: publication_b }}\nreplication:\n  plugin: {{ type: pgoutput, publication: {publication} }}\n  poll_interval_ms: 10\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.publication_a\n    - include: public.publication_b\nreplication:\n  plugin: {{ type: pgoutput, publication: {publication} }}\n  poll_interval_ms: 10\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -863,7 +863,7 @@ async fn verify_exact_boundary(
     client: &tokio_postgres::Client,
 ) -> anyhow::Result<()> {
     let config = format!(
-        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: exact_a }}\n  - {{ schema: public, name: exact_b }}\nbatch_rows: 1\ncopy_to_format: {copy_format}\nreplication:\n  plugin: {decoder}\n  poll_interval_ms: 10\n"
+        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.exact_a\n    - include: public.exact_b\nbatch_rows: 1\ncopy_to_format: {copy_format}\nreplication:\n  plugin: {decoder}\n  poll_interval_ms: 10\n"
     );
     let config = if decoder.contains("auto") {
         config.replace(
@@ -1099,7 +1099,7 @@ async fn read_snapshot_phase(
                     }
                 }
                 SourceBatch::Finished => break,
-                SourceBatch::Raw { .. } => {
+                SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => {
                     anyhow::bail!("PostgreSQL exact snapshot emitted a raw batch")
                 }
             }
@@ -1149,7 +1149,7 @@ async fn read_stream_phase(
                 SourceBatch::Finished => {
                     anyhow::bail!("PostgreSQL replication ended before all changes arrived")
                 }
-                SourceBatch::Raw { .. } => {
+                SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => {
                     anyhow::bail!("PostgreSQL replication emitted a raw batch")
                 }
             }

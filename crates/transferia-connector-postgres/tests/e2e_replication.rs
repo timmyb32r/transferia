@@ -179,7 +179,7 @@ async fn assert_existing_slot_is_not_adopted(
     let before = slot_lsn(client, SLOT).await?;
     let connector = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: accounts }}\nreplication:\n  plugin: {{ type: pgoutput, publication: transferia_publication }}\n  poll_interval_ms: 10\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.accounts\nreplication:\n  plugin: {{ type: pgoutput, publication: transferia_publication }}\n  poll_interval_ms: 10\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -270,7 +270,8 @@ username: postgres
 password: test
 trusted_plaintext: true
 tables:
-  - {{ schema: public, name: accounts }}
+  rules:
+    - include: public.accounts
 {replication}
 "
         ))?,
@@ -331,7 +332,7 @@ async fn read_changes(source: &mut Box<dyn Source>) -> anyhow::Result<ChangeBatc
                     });
                 }
                 SourceBatch::Typed { .. } => {}
-                SourceBatch::Raw { .. } | SourceBatch::Finished => {
+                SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } | SourceBatch::Finished => {
                     anyhow::bail!("PostgreSQL CDC returned a non-typed or finite batch")
                 }
             }
@@ -349,7 +350,7 @@ async fn read_filtered_transaction(source: &mut Box<dyn Source>) -> anyhow::Resu
             commit_marker: Some(marker),
             ..
         } if tables.is_empty() => Ok(marker),
-        SourceBatch::Typed { .. } | SourceBatch::Raw { .. } | SourceBatch::Finished => {
+        SourceBatch::Typed { .. } | SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } | SourceBatch::Finished => {
             anyhow::bail!("filtered PostgreSQL transaction did not retain its commit marker")
         }
     }

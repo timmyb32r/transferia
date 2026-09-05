@@ -38,6 +38,7 @@ export function DeliveryConfiguration({
   onDescription,
   onConfig,
   onChooseEndpoint,
+  onTableConnection,
 }: {
   catalog: UiCatalog;
   editor: EditorState;
@@ -48,6 +49,7 @@ export function DeliveryConfiguration({
   onDescription: (description: string) => void;
   onConfig: (config: JsonObject) => void;
   onChooseEndpoint: (role: "source" | "sink", key: string) => void;
+  onTableConnection?: ((identity: string | undefined) => void) | undefined;
 }) {
   const api = useControlPlane();
   const widgets = useWidgetRegistry();
@@ -152,6 +154,7 @@ export function DeliveryConfiguration({
         <section class="route-composition">
           <EndpointCard
             title="Source"
+            onTableConnection={onTableConnection}
             role="source"
             selectedKey={selection?.sourceKey ?? ""}
             connectors={allSourceConnectors}

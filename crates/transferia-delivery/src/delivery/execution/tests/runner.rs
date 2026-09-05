@@ -299,6 +299,56 @@ impl SinkConnector for PhaseSinkConnector {
 
 struct PhaseSink;
 
+#[derive(Default)]
+struct AdmissionSink {
+    prepared: Mutex<Vec<Vec<Arc<str>>>>,
+    built: Mutex<Vec<Vec<Arc<str>>>>,
+}
+
+impl SinkConnector for AdmissionSink {
+    fn compatibility(&self) -> EndpointDescriptor { EndpointDescriptor::Discard }
+    fn limits(&self) -> &dyn SinkLimits { &NO_LIMITS }
+    fn destination_type(&self, _: &SchemaColumn) -> anyhow::Result<String> { Ok("discard".into()) }
+    fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
+        self.prepared.lock().unwrap().push(request.datasets.into_iter().map(|dataset| dataset.table).collect());
+        Box::pin(async { Ok(()) })
+    }
+    fn build_sink(&self, context: SinkBuildContext) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
+        self.built.lock().unwrap().push(context.discovery.datasets.iter().map(|dataset| dataset.name.clone()).collect());
+        Box::pin(async { Ok(Box::new(PhaseSink) as Box<dyn Sink>) })
+    }
+}
+
+#[tokio::test]
+async fn dataset_admission_prepares_only_new_tables_and_rejects_collisions_before_side_effects() {
+    use transferia_pipeline::DatasetAdmission;
+    let sink = Arc::new(AdmissionSink::default());
+    let discovery = phase_discovery(SourceTopology::StaticPartitions(vec![0]));
+    let mut added = discovery.datasets[0].clone();
+    added.name = Arc::from("new_events");
+    let mut coordinator = super::super::admission::AdmissionCoordinator {
+        sink: sink.clone(),
+        source: EndpointDescriptor::DataGenerator(SourceDescriptor {
+            behavior: SourceBehavior::ChangelogRows,
+            delivery_modes: SourceDeliveryModes::BATCH_AND_STREAM,
+        }),
+        middlewares: Arc::new(Vec::new()),
+        context: SinkBuildContext {
+            partition_id: 0, delivery_name: Arc::from("admission"),
+            replay_identity: Some(Arc::from("admission-revision")), finite_source: false,
+            counters: Arc::new(SinkCounters::new()), keep_system_columns: true,
+            discovery: Arc::new(discovery), durable: transferia_test_support::durable_context(),
+        },
+    };
+    let _actor = coordinator.prepare(added.clone()).await.unwrap();
+    assert_eq!(*sink.prepared.lock().unwrap(), vec![vec![Arc::<str>::from("new_events")]]);
+    assert_eq!(*sink.built.lock().unwrap(), vec![vec![Arc::<str>::from("events"), Arc::from("new_events")]]);
+    added.namespace = Some(Arc::from("different_database"));
+    assert!(coordinator.prepare(added).await.is_err());
+    assert_eq!(sink.prepared.lock().unwrap().len(), 1);
+    assert_eq!(sink.built.lock().unwrap().len(), 1);
+}
+
 impl Sink for PhaseSink {
     fn run(self: Box<Self>, mut io: SinkIo) -> BoxFuture<'static, DataPlaneResult<()>> {
         Box::pin(async move {
@@ -390,6 +440,7 @@ fn reconciliation_discovery() -> DeliveryDiscovery {
         keep_system_columns: false,
         datasets: vec![
             DiscoveredDataset {
+                namespace: None,
                 update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::Main,
                 name: Arc::from("events"),
@@ -398,6 +449,7 @@ fn reconciliation_discovery() -> DeliveryDiscovery {
                 system_columns: Vec::new(),
             },
             DiscoveredDataset {
+                namespace: None,
                 update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::DeadLetterQueue,
                 name: Arc::from("events_dlq"),
@@ -442,6 +494,7 @@ fn phase_discovery(topology: SourceTopology) -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: true,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),

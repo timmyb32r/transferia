@@ -338,6 +338,17 @@ pub fn validate_discovered_pipeline(
         discovery.keep_system_columns == keep_system_columns,
         "delivery discovery system-column policy differs from pipeline configuration"
     );
+    // Runtime batches route by table name, not by an encoded namespace/name.
+    // Reject ambiguous identities before any destination can be prepared.
+    let mut names = std::collections::HashMap::new();
+    for dataset in discovery.datasets.iter().filter(|dataset| dataset.role == DatasetRole::Main) {
+        if let Some(previous) = names.insert(dataset.name.as_ref(), dataset.namespace.as_deref()) {
+            anyhow::bail!(
+                "Selected tables have the same name {:?} in namespaces {:?} and {:?}; select tables with distinct names. Table names are never renamed automatically",
+                dataset.name, previous, dataset.namespace
+            );
+        }
+    }
     let semantics = validate_pipeline(source, sink, discovery, keep_system_columns);
     semantics.ensure_valid()?;
     limits
@@ -353,17 +364,21 @@ pub(crate) async fn validate_middlewares(
     if middlewares.is_empty() {
         return Ok(discovery);
     }
-    let main = discovery
+    let mut found_main = false;
+    for main in discovery
         .datasets
         .iter_mut()
-        .find(|dataset| dataset.role == DatasetRole::Main)
-        .context("middlewares require a discovered main dataset")?;
-    for (index, middleware) in middlewares.iter().enumerate() {
-        main.stored_schema = middleware
-            .output_schema(&main.stored_schema)
-            .await
-            .with_context(|| format!("middleware {index} is incompatible with delivery schema"))?;
+        .filter(|dataset| dataset.role == DatasetRole::Main)
+    {
+        found_main = true;
+        for (index, middleware) in middlewares.iter().enumerate() {
+            main.stored_schema = middleware
+                .output_schema(&main.stored_schema)
+                .await
+                .with_context(|| format!("middleware {index} is incompatible with dataset {:?}", main.name))?;
+        }
     }
+    anyhow::ensure!(found_main, "middlewares require a discovered main dataset");
     Ok(discovery)
 }
 

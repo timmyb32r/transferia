@@ -364,6 +364,7 @@ pub struct DiscoveredTable {
 pub struct MySqlSourceConnector {
     delivery_type: std::sync::OnceLock<DeliveryType>,
     config: MySqlSourceConfig,
+    resolved_tables: tokio::sync::OnceCell<Vec<TableConfig>>,
     parser_plan: ParserPlan,
     metrics: Arc<MetricsRegistry>,
     discovered: tokio::sync::OnceCell<Arc<Vec<DiscoveredTable>>>,
@@ -402,6 +403,7 @@ impl MySqlSourceConnector {
         Ok(Self {
             delivery_type: std::sync::OnceLock::new(),
             config,
+            resolved_tables: tokio::sync::OnceCell::new(),
             parser_plan: ParserPlan::native_source(),
             metrics,
             discovered: tokio::sync::OnceCell::new(),
@@ -433,19 +435,34 @@ impl MySqlSourceConnector {
             .map(Arc::clone)
     }
 
+    async fn resolved_tables(&self) -> anyhow::Result<&[TableConfig]> {
+        self.resolved_tables.get_or_try_init(|| async {
+            let catalog = crate::connectors::mysql::common::list_tables(&self.config.connection).await?;
+            let preview = self.config.tables.compile()?.resolve(&catalog)?;
+            Ok(preview.selected_tables()?.into_iter().map(|table| TableConfig {
+                database: table.namespace,
+                name: table.name,
+            }).collect())
+        }).await.map(Vec::as_slice)
+    }
+
     async fn load_discovered_tables(&self) -> anyhow::Result<Vec<DiscoveredTable>> {
+        self.load_selected_tables(self.resolved_tables().await?).await
+    }
+
+    async fn load_selected_tables(&self, selected: &[TableConfig]) -> anyhow::Result<Vec<DiscoveredTable>> {
         let mut connection = observe_external_request(
             "mysql",
             "connect_source_discovery",
             connect(&self.config.connection),
         )
         .await?;
-        let mut tables = Vec::with_capacity(self.config.tables.len());
-        for table in &self.config.tables {
+        let mut tables = Vec::with_capacity(selected.len());
+        for table in selected {
             tables.push(
                 discover_table(
                     &mut connection,
-                    &self.config.connection.database,
+                    &table.database,
                     table.clone(),
                     self.replication_enabled(),
                     self.config.read_protocol,
@@ -480,9 +497,12 @@ impl MySqlSourceConnector {
                 "MySQL source identity changed before replication stream handoff"
             )));
         }
-        let current_tables = self.load_discovered_tables().await?;
+        let selected = expected_authoritative_tables.iter().map(|table| TableConfig {
+            database: table.database.clone(), name: table.table.clone(),
+        }).collect::<Vec<_>>();
+        let current_tables = self.load_selected_tables(&selected).await?;
         let current_authoritative_tables =
-            authoritative_table_identities(&self.config.connection.database, &current_tables);
+            authoritative_table_identities(&current_tables);
         if current_authoritative_tables != expected_authoritative_tables {
             return Err(replication_safety_violation(anyhow::anyhow!(
                 "MySQL authoritative table identity changed before replication stream handoff"
@@ -547,29 +567,36 @@ impl MySqlSourceConnector {
             .get_or_try_init(|| async move {
                 let replication = &self.config.replication.for_delivery(&durable.delivery_id)?;
                 let timeout = Duration::from_millis(replication.bootstrap_timeout_ms);
-                let preview_tables = Arc::new(self.load_discovered_tables().await?);
                 let preflight = inspect_mysql8_gtid_source(
                     &self.config.connection,
                     timeout,
                     &cancellation,
                 )
                 .await?;
+                let recorded = SnapshotStreamTracker::recorded_tables(
+                    replication.server_id, &preflight.source, &durable, &replay_identity,
+                ).await?;
+                let selected = match recorded {
+                    Some(tables) => tables,
+                    None => self.resolved_tables().await?.to_vec(),
+                };
+                let preview_tables = Arc::new(self.load_selected_tables(&selected).await?);
                 let preparation = SnapshotStreamTracker::claim_or_resume(
                     replication.server_id,
-                    &self.config.tables,
+                    &selected,
                     &preflight.source,
                     durable.clone(),
                     &replay_identity,
                 )
                 .await?;
                 let authoritative = authoritative_table_identities(
-                    &self.config.connection.database,
                     &preview_tables,
                 );
                 let (tracker, boundary, sessions, execution_lock, streaming) = match preparation {
                     SnapshotStreamPreparation::Create(mut tracker) => {
                         let bootstrap = begin_locked_snapshot(
                             &self.config.connection,
+                            &selected,
                             &self.config.tables,
                             replication.server_id,
                             &preflight,
@@ -621,10 +648,13 @@ impl MySqlSourceConnector {
                         let gtid_state = execution_lock
                             .read_gtid_state(timeout, &cancellation)
                             .await?;
+                        let membership = crate::connectors::mysql::src_stream::inspect_replication_membership(
+                            replication, &preflight.source, &durable, &replay_identity,
+                        ).await?.unwrap_or_else(|| authoritative.clone());
                         let _resume_position = inspect_existing_replication_offset(
                             replication,
                             &preflight.source,
-                            &authoritative,
+                            &membership,
                             &durable,
                             Some(&start_boundary),
                             &gtid_state.executed,
@@ -668,12 +698,30 @@ impl MySqlSourceConnector {
             .get_or_try_init(|| async move {
                 let replication = &self.config.replication.for_delivery(&durable.delivery_id)?;
                 let timeout = Duration::from_millis(replication.bootstrap_timeout_ms);
-                let tables = Arc::new(self.load_discovered_tables().await?);
-                let authoritative_tables =
-                    authoritative_table_identities(&self.config.connection.database, &tables);
                 let preflight =
                     inspect_mysql8_gtid_source(&self.config.connection, timeout, &cancellation)
                         .await?;
+                let recorded = crate::connectors::mysql::src_stream::inspect_replication_membership(
+                    replication, &preflight.source, &durable, &replay_identity,
+                ).await?;
+                let tables = Arc::new(if let Some(recorded) = recorded {
+                    let selection = self.config.tables.compile()?;
+                    for table in &recorded {
+                        let identity = transferia_registry::TableIdentity {
+                            namespace: table.database.clone(), name: table.table.clone(),
+                        };
+                        let matches = selection.classify(&identity);
+                        anyhow::ensure!(matches.selected_by.len() == 1 && matches.issues.is_empty(),
+                            "MySQL table rules no longer unambiguously select durably recorded table {:?}; start a new delivery revision instead of changing running membership", identity.qualified_name());
+                    }
+                    let selected = recorded.iter().map(|table| TableConfig {
+                        database: table.database.clone(), name: table.table.clone(),
+                    }).collect::<Vec<_>>();
+                    self.load_selected_tables(&selected).await?
+                } else {
+                    self.load_discovered_tables().await?
+                });
+                let authoritative_tables = authoritative_table_identities(&tables);
                 let mut execution_lock = acquire_execution_lock(
                     &self.config.connection,
                     replication.server_id,
@@ -703,6 +751,7 @@ impl MySqlSourceConnector {
                         let boundary = execution_lock
                             .capture_boundary(
                                 &preflight,
+                                self.resolved_tables().await?,
                                 &self.config.tables,
                                 &authoritative_tables,
                                 timeout,
@@ -727,6 +776,11 @@ impl MySqlSourceConnector {
 }
 
 impl SourceConnector for MySqlSourceConnector {
+    fn can_add_datasets(&self, delivery_type: DeliveryType) -> bool {
+        delivery_type != DeliveryType::Batch
+            && self.config.new_tables == super::NewTables::IncludeAutomatically
+    }
+
     fn compatibility(
         &self,
         delivery_type: transferia_delivery_contracts::DeliveryType,
@@ -1021,6 +1075,27 @@ impl SourceConnector for MySqlSourceConnector {
                     .config
                     .replication
                     .for_delivery(&context.durable.delivery_id)?;
+                // The prepared execution predates any admitted CREATEs. On
+                // every retry, restore membership from the same checkpoint as
+                // the binlog position, never from today's wildcard catalog.
+                let recorded = crate::connectors::mysql::src_stream::inspect_replication_membership(
+                    replication, source_identity, &context.durable, &replay_identity,
+                ).await.map_err(classify_replication_error)?;
+                let restored_tables;
+                let restored_authoritative;
+                let (tables, authoritative_tables) = if let Some(recorded) = recorded {
+                    let selected = recorded.iter().map(|table| TableConfig {
+                        database: table.database.clone(), name: table.table.clone(),
+                    }).collect::<Vec<_>>();
+                    restored_tables = self.load_selected_tables(&selected).await
+                        .map_err(classify_replication_error)?;
+                    restored_authoritative = authoritative_table_identities(&restored_tables);
+                    if restored_authoritative != recorded {
+                        return Err(classify_replication_error(replication_safety_violation(anyhow::anyhow!(
+                            "MySQL durable table schemas changed before replication restart"))));
+                    }
+                    (restored_tables.as_slice(), &restored_authoritative)
+                } else { (tables.as_slice(), authoritative_tables) };
                 let (connection, gtid_state) = self
                     .acquire_stream_handoff(
                         source_identity,
@@ -1039,8 +1114,9 @@ impl SourceConnector for MySqlSourceConnector {
                 let source = MySqlReplicationSource::new(
                     connection,
                     replication.clone(),
+                    self.config.clone(),
                     source_identity.clone(),
-                    tables.as_ref().clone(),
+                    tables.to_vec(),
                     authoritative_tables.clone(),
                     counters,
                     context.cancellation,
@@ -1113,7 +1189,7 @@ impl SourceConnector for MySqlSourceConnector {
                     let (session_table, _session_connection_id, session_max_row_bytes, connection) =
                         session.into_parts();
                     anyhow::ensure!(
-                        session_table.name == table.config.name,
+                        session_table.name == table.config.name && session_table.database == table.config.database,
                         "MySQL prepared snapshot session belongs to a different table"
                     );
                     anyhow::ensure!(
@@ -1124,7 +1200,7 @@ impl SourceConnector for MySqlSourceConnector {
                         connection,
                         Some(MySqlSnapshotMetadata {
                             partition_id,
-                            database: self.config.connection.database.clone(),
+                            database: table.config.database.clone(),
                             table: table.config.name.clone(),
                             boundary: execution.boundary.clone(),
                         }),
@@ -1147,7 +1223,7 @@ impl SourceConnector for MySqlSourceConnector {
                 Some(snapshot_metadata) => {
                     MySqlSource::from_started_snapshot(
                         connection,
-                        self.config.connection.database.clone(),
+                        table.config.database.clone(),
                         table.config,
                         table.schema,
                         table.columns,
@@ -1164,7 +1240,7 @@ impl SourceConnector for MySqlSourceConnector {
                 None => {
                     MySqlSource::new(
                         connection,
-                        self.config.connection.database.clone(),
+                        table.config.database.clone(),
                         table.config,
                         table.schema,
                         table.columns,
@@ -1205,7 +1281,7 @@ impl SourceConnector for MySqlSourceConnector {
     }
 }
 
-pub(super) fn build_delivery_discovery(
+pub(crate) fn build_delivery_discovery(
     replication: bool,
     delivery_type: DeliveryType,
     request: transferia_core::delivery::DeliveryDiscoveryRequest,
@@ -1273,6 +1349,7 @@ pub(super) fn build_delivery_discovery(
                 );
             }
             DiscoveredDataset {
+                namespace: Some(Arc::from(table.config.database.as_str())),
                 update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::Main,
                 name: Arc::from(table.config.name.as_str()),
@@ -1308,14 +1385,13 @@ pub(super) fn build_delivery_discovery(
     })
 }
 
-fn authoritative_table_identities(
-    database: &str,
+pub(crate) fn authoritative_table_identities(
     tables: &[DiscoveredTable],
 ) -> Vec<AuthoritativeTableIdentity> {
     tables
         .iter()
         .map(|table| AuthoritativeTableIdentity {
-            database: database.to_owned(),
+            database: table.config.database.clone(),
             table: table.config.name.clone(),
             engine: table.engine.clone(),
             columns: table
@@ -1382,7 +1458,7 @@ fn classify_replication_error(error: anyhow::Error) -> anyhow::Error {
     }
 }
 
-async fn discover_table(
+pub(crate) async fn discover_table(
     connection: &mut Conn,
     database: &str,
     table: TableConfig,

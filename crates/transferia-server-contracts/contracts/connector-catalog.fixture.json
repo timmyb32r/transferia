@@ -4290,7 +4290,8 @@
               ]
             },
             "database": {
-              "type": "string"
+              "type": "string",
+              "default": ""
             },
             "username": {
               "type": "string"
@@ -4302,9 +4303,21 @@
               }
             },
             "tables": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/TableConfig"
+              "$ref": "#/$defs/TableSelection",
+              "x-ui": {
+                "widget": "table_selection"
+              }
+            },
+            "new_tables": {
+              "title": "New tables",
+              "description": "Include automatically follows CREATE TABLE events from the binlog and applies the same Include/Exclude rules. The destination is prepared before the first row is read. Existing tables renamed into a rule are rejected: their earlier rows require a new snapshot. Watermark-based DBLog support is future work. Ignore new tables keeps the startup membership fixed. Restart restores the committed membership, not current wildcard matches.",
+              "$ref": "#/$defs/NewTables",
+              "default": "include_automatically",
+              "x-ui": {
+                "delivery_types": [
+                  "stream",
+                  "batch_and_stream"
+                ]
               }
             },
             "batch_rows": {
@@ -4364,7 +4377,6 @@
           },
           "additionalProperties": false,
           "required": [
-            "database",
             "username",
             "password",
             "tables",
@@ -4387,16 +4399,74 @@
             }
           },
           "$defs": {
-            "TableConfig": {
+            "TableSelection": {
               "type": "object",
               "properties": {
-                "name": {
-                  "type": "string"
+                "rules": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/TableRule"
+                  }
+                },
+                "empty_matches": {
+                  "$ref": "#/$defs/EmptyMatches",
+                  "default": "fail_validation"
                 }
               },
               "additionalProperties": false,
               "required": [
-                "name"
+                "rules"
+              ]
+            },
+            "TableRule": {
+              "type": "object",
+              "properties": {
+                "include": {
+                  "type": "string"
+                },
+                "exclude": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "mode": {
+                  "$ref": "#/$defs/PatternMode",
+                  "default": "glob"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "include"
+              ]
+            },
+            "PatternMode": {
+              "type": "string",
+              "enum": [
+                "glob",
+                "regex"
+              ]
+            },
+            "EmptyMatches": {
+              "type": "string",
+              "enum": [
+                "fail_validation",
+                "allow_empty_matches"
+              ]
+            },
+            "NewTables": {
+              "oneOf": [
+                {
+                  "title": "Include automatically",
+                  "type": "string",
+                  "const": "include_automatically"
+                },
+                {
+                  "title": "Ignore new tables",
+                  "type": "string",
+                  "const": "ignore"
+                }
               ]
             },
             "MySqlReadProtocol": {
@@ -4467,11 +4537,10 @@
           "username": "",
           "password": "",
           "max_row_bytes": 1073741824,
-          "tables": [
-            {
-              "name": ""
-            }
-          ],
+          "tables": {
+            "rules": [],
+            "empty_matches": "fail_validation"
+          },
           "batch_rows": 16384,
           "batch_target_bytes": 8388608,
           "installation": {
@@ -4552,7 +4621,8 @@
               ]
             },
             "database": {
-              "type": "string"
+              "type": "string",
+              "default": ""
             },
             "username": {
               "type": "string"
@@ -4578,7 +4648,6 @@
           },
           "additionalProperties": false,
           "required": [
-            "database",
             "username",
             "password",
             "create_tables",
@@ -4783,6 +4852,7 @@
             "OpenSearchAuth": {
               "oneOf": [
                 {
+                  "title": "Username and password",
                   "type": "object",
                   "properties": {
                     "username": {
@@ -4804,10 +4874,10 @@
                     "type",
                     "username",
                     "password"
-                  ],
-                  "title": "Username and password"
+                  ]
                 },
                 {
+                  "title": "No authentication",
                   "type": "object",
                   "properties": {
                     "type": {
@@ -4818,8 +4888,7 @@
                   "required": [
                     "type"
                   ],
-                  "additionalProperties": false,
-                  "title": "No authentication"
+                  "additionalProperties": false
                 }
               ]
             },
@@ -5048,6 +5117,7 @@
             "OpenSearchAuth": {
               "oneOf": [
                 {
+                  "title": "Username and password",
                   "type": "object",
                   "properties": {
                     "username": {
@@ -5069,10 +5139,10 @@
                     "type",
                     "username",
                     "password"
-                  ],
-                  "title": "Username and password"
+                  ]
                 },
                 {
+                  "title": "No authentication",
                   "type": "object",
                   "properties": {
                     "type": {
@@ -5083,8 +5153,7 @@
                   "required": [
                     "type"
                   ],
-                  "additionalProperties": false,
-                  "title": "No authentication"
+                  "additionalProperties": false
                 }
               ]
             },
@@ -5214,9 +5283,10 @@
               }
             },
             "tables": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/TableConfig"
+              "$ref": "#/$defs/TableSelection",
+              "x-ui": {
+                "widget": "table_selection",
+                "table_membership": "fixed"
               }
             },
             "batch_rows": {
@@ -5282,20 +5352,60 @@
             }
           },
           "$defs": {
-            "TableConfig": {
+            "TableSelection": {
               "type": "object",
               "properties": {
-                "schema": {
-                  "type": "string",
-                  "default": "public"
+                "rules": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/TableRule"
+                  }
                 },
-                "name": {
-                  "type": "string"
+                "empty_matches": {
+                  "$ref": "#/$defs/EmptyMatches",
+                  "default": "fail_validation"
                 }
               },
               "additionalProperties": false,
               "required": [
-                "name"
+                "rules"
+              ]
+            },
+            "TableRule": {
+              "type": "object",
+              "properties": {
+                "include": {
+                  "type": "string"
+                },
+                "exclude": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "mode": {
+                  "$ref": "#/$defs/PatternMode",
+                  "default": "glob"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "include"
+              ]
+            },
+            "PatternMode": {
+              "type": "string",
+              "enum": [
+                "glob",
+                "regex"
+              ]
+            },
+            "EmptyMatches": {
+              "type": "string",
+              "enum": [
+                "fail_validation",
+                "allow_empty_matches"
               ]
             },
             "PostgresCopyFormat": {
@@ -5405,12 +5515,10 @@
           "database": "",
           "username": "",
           "password": "",
-          "tables": [
-            {
-              "schema": "",
-              "name": ""
-            }
-          ],
+          "tables": {
+            "rules": [],
+            "empty_matches": "fail_validation"
+          },
           "installation": {
             "host": "",
             "port": 5432,
@@ -5631,9 +5739,10 @@
               }
             },
             "tables": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/TableConfig"
+              "$ref": "#/$defs/TableSelection",
+              "x-ui": {
+                "widget": "table_selection",
+                "table_membership": "fixed"
               }
             },
             "batch_rows": {
@@ -5679,20 +5788,60 @@
             "installation"
           ],
           "$defs": {
-            "TableConfig": {
+            "TableSelection": {
               "type": "object",
               "properties": {
-                "database": {
-                  "type": "string"
+                "rules": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/TableRule"
+                  }
                 },
-                "name": {
-                  "type": "string"
+                "empty_matches": {
+                  "$ref": "#/$defs/EmptyMatches",
+                  "default": "fail_validation"
                 }
               },
               "additionalProperties": false,
               "required": [
-                "database",
-                "name"
+                "rules"
+              ]
+            },
+            "TableRule": {
+              "type": "object",
+              "properties": {
+                "include": {
+                  "type": "string"
+                },
+                "exclude": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "mode": {
+                  "$ref": "#/$defs/PatternMode",
+                  "default": "glob"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "include"
+              ]
+            },
+            "PatternMode": {
+              "type": "string",
+              "enum": [
+                "glob",
+                "regex"
+              ]
+            },
+            "EmptyMatches": {
+              "type": "string",
+              "enum": [
+                "fail_validation",
+                "allow_empty_matches"
               ]
             },
             "ClickHouseSnapshotReader": {
@@ -5805,12 +5954,10 @@
           "batch_rows": 65409,
           "username": "",
           "password": "",
-          "tables": [
-            {
-              "database": "",
-              "name": ""
-            }
-          ],
+          "tables": {
+            "rules": [],
+            "empty_matches": "fail_validation"
+          },
           "installation": {
             "hosts": [
               ""

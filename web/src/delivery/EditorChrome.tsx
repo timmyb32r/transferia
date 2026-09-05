@@ -18,6 +18,7 @@ export function EditorActions({
   activatePending = false,
   runtimeActionIntent,
   requiredFieldsComplete,
+  connectionCheckRequired = false,
   onMissingRequired,
   onEdit,
   onClone,
@@ -34,6 +35,7 @@ export function EditorActions({
   activatePending?: boolean;
   runtimeActionIntent?: "activate" | "pause" | "stop" | undefined;
   requiredFieldsComplete: boolean;
+  connectionCheckRequired?: boolean;
   onMissingRequired: () => void;
   onEdit: () => void;
   onClone: () => void;
@@ -59,6 +61,7 @@ export function EditorActions({
       ? editor.runtime.run_id
       : undefined;
   const activationReady =
+    !connectionCheckRequired &&
     editor.id !== undefined &&
     !isDirty(editor) &&
     !runtimeIsTransitioning &&
@@ -73,6 +76,8 @@ export function EditorActions({
           ? "Deactivating the worker…"
           : "Starting the worker…"
       : "Another operation is in progress"
+    : connectionCheckRequired
+      ? "Check the source connection to refresh the table catalog first"
     : !requiredFieldsComplete
       ? "Complete the required delivery, source, and destination fields"
       : editor.id === undefined

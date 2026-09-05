@@ -103,6 +103,7 @@ fn speedtest_table_create_is_exclusive_and_marks_every_cluster_replica() -> anyh
         "hosts: [127.0.0.1]\nport: 9000\ntrusted_plaintext: true\ndata_host_count: 2\ndatabase: analytics\nusername: default\n",
     )?;
     let dataset = transferia_registry::DatasetPrepare {
+        namespace: None,
         role: transferia_core::delivery::DatasetRole::Main,
         table: Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0"),
         schema: schema(vec![SchemaColumn::new(

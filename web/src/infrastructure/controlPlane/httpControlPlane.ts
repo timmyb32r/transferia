@@ -8,6 +8,7 @@ import type {
   ApiContractName,
   ConfigRequest,
   ConnectionCheckRequest,
+  TableSelectionPreviewRequest,
   CreateDraftRequest,
   MessagePreviewRequest,
   OptionsRequest,
@@ -146,6 +147,8 @@ export const httpControlPlane: ControlPlanePort = {
         ...(signal === undefined ? {} : { signal }),
       },
     ),
+  previewTables: (body: TableSelectionPreviewRequest, signal?: AbortSignal) =>
+    routeRequest("table_selection_preview", {}, { body, ...(signal === undefined ? {} : { signal }) }),
   previewMessage: (body: MessagePreviewRequest, signal?: AbortSignal) =>
     routeRequest(
       "preview_message",

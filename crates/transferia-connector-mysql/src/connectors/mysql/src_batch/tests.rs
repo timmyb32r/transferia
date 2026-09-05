@@ -58,7 +58,8 @@ username: reader
 password: secret
 trusted_plaintext: true
 tables:
-  - name: events
+  rules:
+    - include: transferia.events
 ";
 
 #[test]
@@ -611,6 +612,7 @@ fn physical_extension_identity_survives_discovery_and_snapshot_old_values() -> a
     .with_arrow_extension_metadata(extension_name, extension_metadata.clone())]);
     let table = DiscoveredTable {
         config: super::config::TableConfig {
+            database: "transferia".to_owned(),
             name: "events".to_owned(),
         },
         schema: schema.clone(),

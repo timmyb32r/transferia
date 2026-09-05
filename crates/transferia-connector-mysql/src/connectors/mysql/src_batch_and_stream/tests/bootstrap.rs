@@ -41,6 +41,7 @@ fn preflight() -> MySqlReplicationPreflight {
 
 fn table() -> TableConfig {
     TableConfig {
+        database: "inventory".to_owned(),
         name: "accounts".to_owned(),
     }
 }

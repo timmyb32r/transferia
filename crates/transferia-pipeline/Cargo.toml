@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 arrow.workspace = true
+futures-util.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
@@ -15,7 +16,6 @@ transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
 
 [dev-dependencies]
 bytes.workspace = true
-futures-util.workspace = true
 
 [lints]
 workspace = true

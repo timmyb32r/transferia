@@ -112,7 +112,7 @@ async fn terminated_snapshot_owner_is_a_non_retryable_source_build_failure() -> 
     assert_expired_snapshot_sqlstate(&connection_string(&host, port)).await?;
     let connector = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: snapshot_a }}\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.snapshot_a\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -185,7 +185,7 @@ async fn run_snapshot(
 ) -> anyhow::Result<(SnapshotResult, SnapshotResult)> {
     let connector = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: snapshot_a }}\n  - {{ schema: public, name: snapshot_b }}\nbatch_rows: 1\ncopy_to_format: {format}\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.snapshot_a\n    - include: public.snapshot_b\nbatch_rows: 1\ncopy_to_format: {format}\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -279,7 +279,7 @@ async fn drain_partition(
                 }
             }
             SourceBatch::Finished => break,
-            SourceBatch::Raw { .. } => panic!("PostgreSQL snapshot must emit typed batches"),
+            SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => panic!("PostgreSQL snapshot must emit typed batches"),
         }
     }
     rows.sort_by_key(|row| row.0);

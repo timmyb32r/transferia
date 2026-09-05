@@ -906,23 +906,46 @@ async fn run_partition_attempt(
         })
         .await
         .map_err(source_build_failure)?;
-    let sink = dependencies
-        .sink_connector
-        .build_sink(SinkBuildContext {
+    let discovery = if let Some(mut datasets) = source.restored_datasets()? {
+        for dataset in &mut datasets {
+            super::admission::retain_system_columns(dataset, dependencies.keep_system_columns);
+        }
+        let mut restored = dependencies.discovery.as_ref().clone();
+        restored.datasets = datasets;
+        let restored = crate::delivery::preparation::validate_middlewares(
+            &dependencies.middlewares, restored).await.map_err(DataPlaneFailure::fatal)?;
+        crate::delivery::preparation::validate_discovered_pipeline(
+            &dependencies.source_connector.compatibility(dependencies.delivery_type),
+            &dependencies.sink_connector.compatibility(), dependencies.sink_connector.limits(),
+            &restored, dependencies.keep_system_columns).map_err(DataPlaneFailure::fatal)?;
+        Arc::new(restored)
+    } else { Arc::clone(&dependencies.discovery) };
+    let sink_context = SinkBuildContext {
             partition_id,
             delivery_name: Arc::clone(&dependencies.delivery_name),
             replay_identity: dependencies.replay_identity.clone(),
             finite_source: dependencies.delivery_finite,
             counters: sink_counters,
             keep_system_columns: dependencies.keep_system_columns,
-            discovery: Arc::clone(&dependencies.discovery),
+            discovery,
             durable: dependencies.durable.clone(),
-        })
+        };
+    let sink = dependencies
+        .sink_connector
+        .build_sink(sink_context.clone())
         .await
         .map_err(|error| DataPlaneFailure::retryable(error.context("sink creation failed")))?;
     if let Some(startup) = startup.take() {
         let _ignored = startup.send(());
     }
+    let admission = (dependencies.phase == SourcePhase::Stream
+        && dependencies.source_connector.can_add_datasets(dependencies.delivery_type))
+        .then(|| Box::new(super::admission::AdmissionCoordinator {
+            sink: dependencies.sink_connector.clone(),
+            source: dependencies.source_connector.compatibility(dependencies.delivery_type),
+            middlewares: dependencies.middlewares.clone(),
+            context: sink_context,
+        }) as Box<dyn transferia_pipeline::DatasetAdmission>);
     transferia_pipeline::run_partition_pipeline_with_progress_and_row_counts(
         source,
         Arc::clone(&dependencies.parser),
@@ -934,6 +957,7 @@ async fn run_partition_attempt(
         parse_counters,
         progress,
         output_row_counts,
+        admission,
     )
     .await
 }

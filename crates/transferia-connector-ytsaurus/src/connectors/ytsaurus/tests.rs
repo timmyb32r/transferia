@@ -89,6 +89,7 @@ fn speedtest_sink_discovery() -> DeliveryDiscovery {
         keep_system_columns: false,
         datasets: vec![
             DiscoveredDataset {
+                namespace: None,
                 update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::Main,
                 name: Arc::from("events"),
@@ -97,6 +98,7 @@ fn speedtest_sink_discovery() -> DeliveryDiscovery {
                 system_columns: Vec::new(),
             },
             DiscoveredDataset {
+                namespace: None,
                 update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::DeadLetterQueue,
                 name: Arc::from("events_dlq"),
@@ -726,6 +728,7 @@ async fn dynamic_partial_update_preserves_toast_by_using_modify_with_only_change
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),
@@ -1454,6 +1457,7 @@ fn unique_sorted_snapshots_reject_multiple_source_partitions() -> anyhow::Result
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),
@@ -1783,6 +1787,7 @@ fn dynamic_snapshot_staging_requires_explicit_replacement_and_one_partition() ->
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),

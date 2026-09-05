@@ -433,6 +433,7 @@ impl SourceConnector for YTsaurusSourceConnector {
                 let datasets = tables
                     .iter()
                     .map(|table| DiscoveredDataset {
+                        namespace: None,
                         update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                         role: DatasetRole::Main,
                         name: Arc::clone(&table.dataset_name),
@@ -491,6 +492,7 @@ impl SourceConnector for YTsaurusSourceConnector {
                         stored
                     };
                     Ok(DiscoveredDataset {
+                        namespace: None,
                         update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                         role: DatasetRole::Main,
                         name: Arc::clone(&table.dataset_name),

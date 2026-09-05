@@ -68,18 +68,18 @@ fn snapshot_and_replication_share_nullable_incoming_user_fields_without_weakenin
 #[test]
 fn source_config_requires_explicit_plaintext_trust_and_tables() {
     let config: PostgresSourceConfig =
-        serde_yaml::from_str("host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: false\ntables: []\n").unwrap();
+        serde_yaml::from_str("host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: false\ntables: {rules: []}\n").unwrap();
     assert!(config.validate().is_err());
 }
 
 #[test]
 fn snapshot_copy_to_format_defaults_to_binary_and_accepts_explicit_text() {
     let binary: PostgresSourceConfig = serde_yaml::from_str(
-        "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - name: events\n",
+        "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.events\n",
     )
     .unwrap();
     let text: PostgresSourceConfig = serde_yaml::from_str(
-        "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ncopy_to_format: text\ntables:\n  - name: events\n",
+        "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ncopy_to_format: text\ntables:\n  rules:\n    - include: public.events\n",
     )
     .unwrap();
 
@@ -90,7 +90,7 @@ fn snapshot_copy_to_format_defaults_to_binary_and_accepts_explicit_text() {
 #[test]
 fn source_rejects_the_old_connection_string() {
     assert!(serde_yaml::from_str::<PostgresSourceConfig>(
-        "connection: host=localhost port=5432\ntrusted_plaintext: true\ntables: []\n"
+        "connection: host=localhost port=5432\ntrusted_plaintext: true\ntables: {rules: []}\n"
     )
     .is_err());
 }
@@ -102,7 +102,7 @@ fn delivery_type_alone_selects_postgres_record_semantics() {
         "\nreplication:\n  plugin:\n    type: pgoutput\n    publication: transferia_publication\n",
     ] {
         let config: PostgresSourceConfig = serde_yaml::from_str(&format!(
-            "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - name: events\n{settings}",
+            "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.events\n{settings}",
         )).unwrap();
         let connector =
             PostgresSourceConnector::from_config(config, Arc::new(MetricsRegistry::default()))
@@ -165,7 +165,7 @@ fn source_schema_inlines_replication_plugin_only_for_replication_modes() {
 #[tokio::test]
 async fn batch_preparation_needs_no_replication_context_and_cannot_reuse_stream_caches() {
     let config: PostgresSourceConfig = serde_yaml::from_str(
-        "host: 127.0.0.1\nport: 1\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - name: events\n",
+        "host: 127.0.0.1\nport: 1\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.events\n",
     ).unwrap();
     let context = |delivery_type| transferia_registry::SourceExecutionContext {
         request: transferia_core::delivery::DeliveryDiscoveryRequest {

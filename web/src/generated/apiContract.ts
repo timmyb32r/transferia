@@ -35,6 +35,11 @@ export type ArrowTypeFamily =
   | "duration"
   | "fixed_size_binary";
 
+export type CardMatches = {
+  excluded: Array<TableIdentity>;
+  selected: Array<TableIdentity>;
+};
+
 export type ColumnView = {
   arrow_type: string;
   low_cardinality: boolean;
@@ -52,6 +57,8 @@ export type ConfigResponse = {
   config: JsonObject;
 };
 
+export type ConflictKind = "multiple_includes" | "include_exclude";
+
 export type ConnectionCheckRequest = {
   config: JsonObject;
   connector: string;
@@ -64,6 +71,7 @@ export type ConnectionCheckResult = {
     [key: string]: Array<string>;
   };
   status: ConnectionCheckStatus;
+  tables?: Array<TableIdentity>;
 };
 
 export type ConnectionCheckStatus = "verified" | "network_reachable";
@@ -143,6 +151,8 @@ export type DynamicOptions = {
   options: Array<DynamicOption>;
   warning?: string;
 };
+
+export type EmptyMatches = "fail_validation" | "allow_empty_matches";
 
 export type EndpointDefinition = {
   connection_check: boolean;
@@ -244,6 +254,8 @@ export type ParserPreviewTab = {
   truncated: boolean;
 };
 
+export type PatternMode = "glob" | "regex";
+
 export type PerformanceAdvice = {
   code: string;
   config_paths: Array<string>;
@@ -287,6 +299,30 @@ export type RuntimeState =
       run_id: string;
       state: "failed";
     };
+
+export type SelectionIssue =
+  | {
+      kind: "no_rules";
+    }
+  | {
+      kind: "no_tables";
+    }
+  | {
+      card: number;
+      kind: "empty_match";
+    }
+  | {
+      conflict: ConflictKind;
+      first_card: number;
+      kind: "conflict";
+      second_card: number;
+      table: TableIdentity;
+    };
+
+export type SelectionPreview = {
+  cards: Array<CardMatches>;
+  issues: Array<SelectionIssue>;
+};
 
 export type SinkLimitsDescription = {
   column_name?: TextLimit;
@@ -404,6 +440,27 @@ export type StopRequest = {
   expected_run_id: string;
 };
 
+export type TableIdentity = {
+  name: string;
+  namespace: string;
+};
+
+export type TableRule = {
+  exclude?: string | null;
+  include: string;
+  mode?: PatternMode;
+};
+
+export type TableSelection = {
+  empty_matches?: EmptyMatches;
+  rules: Array<TableRule>;
+};
+
+export type TableSelectionPreviewRequest = {
+  catalog: Array<TableIdentity>;
+  selection: TableSelection;
+};
+
 export type TextLimit = {
   max_utf8_bytes?: number;
   syntax: NameSyntax;
@@ -497,6 +554,8 @@ export interface ApiContract {
   sql_playground_request: SqlPlaygroundRequest;
   sql_playground_response: SqlPlaygroundResult;
   stop_request: StopRequest;
+  table_selection_preview_request: TableSelectionPreviewRequest;
+  table_selection_preview_response: SelectionPreview;
   update_draft_request: UpdateDraftRequest;
   validation_response: ValidationCommandResult;
   worker_log_read_query: WorkerLogReadQuery;
@@ -509,6 +568,13 @@ export interface ApiContract {
 export type ApiContractName = keyof ApiContract;
 
 export const API_ROUTES = {
+  table_selection_preview: {
+    method: "POST",
+    path: "/api/v1/table-selection/preview",
+    body: "table_selection_preview_request",
+    query: null,
+    response: "table_selection_preview_response",
+  },
   health: {
     method: "GET",
     path: "/api/v1/health",
@@ -667,6 +733,7 @@ export const API_ROUTES = {
   }
 >;
 export interface ApiRouteContract {
+  table_selection_preview: ApiContract["table_selection_preview_response"];
   health: ApiContract["health_response"];
   catalog: ApiContract["catalog_response"];
   options: ApiContract["dynamic_options_response"];
@@ -690,6 +757,7 @@ export interface ApiRouteContract {
   worker_log: ApiContract["worker_log_response"];
 }
 export interface ApiRouteBody {
+  table_selection_preview: ApiContract["table_selection_preview_request"];
   health: undefined;
   catalog: undefined;
   options: ApiContract["dynamic_options_request"];
@@ -713,6 +781,7 @@ export interface ApiRouteBody {
   worker_log: undefined;
 }
 export interface ApiRouteQuery {
+  table_selection_preview: undefined;
   health: undefined;
   catalog: undefined;
   options: undefined;
@@ -736,6 +805,7 @@ export interface ApiRouteQuery {
   worker_log: ApiContract["worker_log_read_query"];
 }
 export interface ApiRouteParameters {
+  table_selection_preview: Record<string, never>;
   health: Record<string, never>;
   catalog: Record<string, never>;
   options: { key: string };

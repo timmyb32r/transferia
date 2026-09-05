@@ -138,6 +138,7 @@ pub struct PostgresSourceConnector {
     parser_plan: ParserPlan,
     metrics: Arc<MetricsRegistry>,
     discovered: tokio::sync::OnceCell<Arc<Vec<DiscoveredTable>>>,
+    resolved_tables: tokio::sync::OnceCell<Vec<TableConfig>>,
     exported_snapshot: tokio::sync::OnceCell<Arc<ExportedSnapshot>>,
     snapshot_stream: tokio::sync::OnceCell<Arc<SnapshotStreamExecution>>,
     stream_start_lsn: tokio::sync::OnceCell<Option<u64>>,
@@ -202,6 +203,7 @@ impl PostgresSourceConnector {
             parser_plan: ParserPlan::native_source(),
             metrics,
             discovered: tokio::sync::OnceCell::new(),
+            resolved_tables: tokio::sync::OnceCell::new(),
             exported_snapshot: tokio::sync::OnceCell::new(),
             snapshot_stream: tokio::sync::OnceCell::new(),
             stream_start_lsn: tokio::sync::OnceCell::new(),
@@ -209,6 +211,17 @@ impl PostgresSourceConnector {
             delivery_type: OnceLock::new(),
             counters: Mutex::new(HashMap::new()),
         })
+    }
+
+    async fn resolved_tables(&self) -> anyhow::Result<&[TableConfig]> {
+        let tables = self.resolved_tables.get_or_try_init(|| async {
+            let catalog = super::super::common::list_tables(&self.config.connection).await?;
+            let preview = self.config.tables.compile()?.resolve(&catalog)?;
+            Ok::<_, anyhow::Error>(preview.selected_tables()?.into_iter().map(|table| TableConfig {
+                schema: table.namespace, name: table.name,
+            }).collect())
+        }).await?;
+        Ok(tables.as_slice())
     }
 
     async fn ensure_replication_resource_ownership(
@@ -223,7 +236,7 @@ impl PostgresSourceConnector {
             .get_or_try_init(|| async {
                 let mut identity_client = connect(&self.config.connection).await?;
                 let preflight_tables =
-                    discover_replication_tables(&identity_client, &self.config.tables).await?;
+                    discover_replication_tables(&identity_client, self.resolved_tables().await?).await?;
                 if let super::super::src_stream::ReplicationPlugin::Pgoutput { publication } = &replication.plugin {
                     validate_pgoutput_publication(&identity_client, publication, &preflight_tables, false).await?;
                 }
@@ -294,12 +307,12 @@ impl PostgresSourceConnector {
                 if delivery_type == DeliveryType::Batch {
                     let snapshot = self.exported_snapshot().await?;
                     let snapshot_client = snapshot.client().await?;
-                    discover_tables(&snapshot_client, &self.config.tables)
+                    discover_tables(&snapshot_client, self.resolved_tables().await?)
                         .await
                         .map(Arc::new)
                 } else {
                     let client = connect(&self.config.connection).await?;
-                    let tables = discover_replication_tables(&client, &self.config.tables).await?;
+                    let tables = discover_replication_tables(&client, self.resolved_tables().await?).await?;
                     if let super::super::src_stream::ReplicationPlugin::Pgoutput { publication } =
                         &self.config.replication.plugin
                     {
@@ -348,7 +361,7 @@ impl PostgresSourceConnector {
             .get_or_try_init(|| async move {
                 let identity_client = connect(&self.config.connection).await?;
                 let preflight_tables =
-                    discover_replication_tables(&identity_client, &self.config.tables).await?;
+                    discover_replication_tables(&identity_client, self.resolved_tables().await?).await?;
                 if let LogicalDecoder::Pgoutput { publication } = decoder {
                     validate_pgoutput_publication(
                         &identity_client,
@@ -361,7 +374,7 @@ impl PostgresSourceConnector {
                 let slot_exists = replication_slot_exists(&identity_client, slot).await?;
                 let preparation = SnapshotStreamTracker::claim_or_resume(
                     decoder,
-                    &self.config.tables,
+                    self.resolved_tables().await?,
                     &source_identity,
                     durable,
                     slot_exists,
@@ -400,7 +413,7 @@ impl PostgresSourceConnector {
                         .await?;
                         let snapshot_client = snapshot.client().await?;
                         let tables = Arc::new(
-                            discover_replication_tables(&snapshot_client, &self.config.tables)
+                            discover_replication_tables(&snapshot_client, self.resolved_tables().await?)
                                 .await?,
                         );
                         if let LogicalDecoder::Pgoutput { publication } = decoder {
@@ -799,6 +812,7 @@ fn build_delivery_discovery(
                     );
                 }
                 DiscoveredDataset {
+                    namespace: Some(Arc::from(table.config.schema.as_str())),
                     update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                     role: DatasetRole::Main,
                     name: Arc::from(table.config.name.as_str()),

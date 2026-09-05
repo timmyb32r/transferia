@@ -55,6 +55,14 @@ impl Message {
 /// typed sources bypass parsing and preserve native Arrow columns.
 #[derive(Debug)]
 pub enum SourceBatch {
+    /// Ordered schema-admission barrier. The reader must not request further
+    /// records until the sink has prepared this dataset and the marker is
+    /// durably committed. This is not an ordinary empty data batch.
+    Dataset {
+        dataset: Box<crate::DiscoveredDataset>,
+        commit_marker: CommitMarker,
+        memory: Vec<crate::memory::MemoryReservation>,
+    },
     Raw {
         messages: Vec<Message>,
         commit_marker: Option<CommitMarker>,

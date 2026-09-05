@@ -197,6 +197,7 @@ impl SinkLimits for MySqlSinkConfig {
         );
         let mut names = std::collections::HashSet::new();
         for dataset in &discovery.datasets {
+            self.target_database(dataset.namespace.as_deref())?;
             anyhow::ensure!(
                 names.insert(dataset.name.as_ref()),
                 "MySQL datasets repeat table '{}'",
@@ -263,6 +264,13 @@ impl SinkConnector for MySqlSinkConnector {
 
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
+            let mut targets = BTreeSet::new();
+            for dataset in &request.datasets {
+                let database = self.config.target_database(dataset.namespace.as_deref())?;
+                validate_identifier("table", &dataset.table)?;
+                anyhow::ensure!(targets.insert((database, dataset.table.as_ref())),
+                    "MySQL destination repeats target '{}.{}'", database, dataset.table);
+            }
             let mut connection = self.sink_connection().await?;
             if let Some(scope) = &self.speedtest_scope {
                 return self
@@ -270,16 +278,18 @@ impl SinkConnector for MySqlSinkConnector {
                     .await;
             }
             for dataset in request.datasets {
+                let database = self.config.target_database(dataset.namespace.as_deref())?;
                 if self.config.create_tables {
                     connection
                         .query_drop(format!(
-                            "CREATE TABLE IF NOT EXISTS {} ({}) ENGINE=InnoDB",
+                            "CREATE TABLE IF NOT EXISTS {}.{} ({}) ENGINE=InnoDB",
+                            quote_identifier(database),
                             quote_identifier(&dataset.table),
                             mysql_table_definitions(&dataset)?
                         ))
                         .await?;
                 }
-                validate_changelog_primary_key(&mut connection, &dataset).await?;
+                validate_changelog_primary_key(&mut connection, database, &dataset).await?;
             }
             connection.disconnect().await?;
             Ok(())
@@ -302,6 +312,7 @@ impl SinkConnector for MySqlSinkConnector {
                 context.discovery,
                 limits,
                 self.config.insert_rows,
+                Arc::clone(&self.config),
             )) as Box<dyn Sink>)
         })
     }
@@ -806,6 +817,7 @@ async fn drop_owned_mysql_table(
 
 async fn validate_changelog_primary_key(
     connection: &mut mysql_async::Conn,
+    database: &str,
     dataset: &transferia_registry::DatasetPrepare,
 ) -> anyhow::Result<()> {
     if !dataset.changelog {
@@ -814,9 +826,9 @@ async fn validate_changelog_primary_key(
     let actual = connection
         .exec_map(
             "SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE \
-             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY' \
+             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY' \
              ORDER BY ORDINAL_POSITION",
-            (dataset.table.as_ref(),),
+            (database, dataset.table.as_ref()),
             |name: String| name,
         )
         .await?;

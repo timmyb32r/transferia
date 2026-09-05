@@ -658,6 +658,7 @@ async fn sampled_delivery_sequence_preserves_batch_sizes_dataset_mix_and_dlq_fre
     let sampled = collector.snapshot()?;
     let mut discovered = discovery("a");
     discovered.datasets.push(DiscoveredDataset {
+        namespace: None,
         update_policy: transferia_core::delivery::UpdatePolicy::Strict,
         role: DatasetRole::Main,
         name: Arc::from("b"),
@@ -666,6 +667,7 @@ async fn sampled_delivery_sequence_preserves_batch_sizes_dataset_mix_and_dlq_fre
         system_columns: Vec::new(),
     });
     discovered.datasets.push(DiscoveredDataset {
+        namespace: None,
         update_policy: transferia_core::delivery::UpdatePolicy::Strict,
         role: DatasetRole::DeadLetterQueue,
         name: Arc::from("dlq"),
@@ -912,6 +914,7 @@ fn discovery(name: &str) -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from(name),
@@ -975,6 +978,7 @@ fn scratch_isolation_allows_identity_logical_mapping_for_explicit_paths() -> any
 fn scratch_isolation_requires_one_physical_target_per_dataset() {
     let mut original = discovery("first");
     original.datasets.push(DiscoveredDataset {
+        namespace: None,
         name: Arc::from("second"),
         ..original.datasets[0].clone()
     });

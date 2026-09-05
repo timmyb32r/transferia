@@ -11,10 +11,8 @@ source:
       trusted_plaintext: true
     username: default
     tables:
-      - database: default
-        name: events
-        output_name: events
-        order_by: [id]
+      rules:
+        - include: default.events
 sink:
   s3:
     bucket: clickhouse-snapshots

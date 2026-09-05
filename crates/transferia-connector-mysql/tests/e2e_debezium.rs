@@ -1076,7 +1076,7 @@ async fn read_nonempty(source: &mut Box<dyn Source>) -> anyhow::Result<TypedSour
                     });
                 }
                 SourceBatch::Typed { .. } => {}
-                SourceBatch::Raw { .. } => anyhow::bail!("MySQL source emitted raw data"),
+                SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => anyhow::bail!("MySQL source emitted raw data"),
                 SourceBatch::Finished => {
                     anyhow::bail!("MySQL source finished before emitting data")
                 }
@@ -1096,12 +1096,13 @@ fn mysql_connector(config: &str) -> anyhow::Result<MySqlSourceConnector> {
 
 fn source_yaml(connection: &MySqlConnectionConfig) -> String {
     format!(
-        "host: '{}'\nport: {}\ndatabase: {}\nusername: {}\npassword: {}\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: binary\ntables:\n  - name: debezium_events\nreplication:\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n",
+        "host: '{}'\nport: {}\ndatabase: {}\nusername: {}\npassword: {}\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: binary\ntables:\n  rules:\n    - include: {database}.debezium_events\nreplication:\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n",
         connection.host,
         connection.port,
         connection.database,
         connection.username,
         connection.password,
+        database = connection.database,
     )
 }
 

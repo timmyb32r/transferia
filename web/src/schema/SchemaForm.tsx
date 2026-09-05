@@ -23,8 +23,10 @@ import type { NodeEditorProps, PropertyEditorProps } from "./editorTypes";
 import { ObjectNodeEditor } from "./ObjectNodeEditor";
 import { isObject, jsonPointer } from "./value";
 import { useWidgetRegistry } from "./widgetRegistry";
+import { TableCatalogContext, type TableCatalog } from "./tableCatalog";
 
 export interface SchemaFormProps extends NodeEditorProps {
+  tableCatalog?: TableCatalog | undefined;
   variantUi?: VariantUi;
   showRequiredErrors?: boolean;
   optionOverrides?: Record<string, string[]>;
@@ -49,6 +51,7 @@ const FieldLabelOverridesContext = createContext<
 >({});
 
 export function SchemaForm({
+  tableCatalog,
   node,
   value,
   disabled = false,
@@ -61,6 +64,7 @@ export function SchemaForm({
   onChange,
 }: SchemaFormProps) {
   return (
+    <TableCatalogContext.Provider value={tableCatalog}>
     <FieldLabelOverridesContext.Provider value={fieldLabelOverrides}>
       <DeliveryTypeContext.Provider value={deliveryType}>
         <RootValueContext.Provider value={value}>
@@ -81,6 +85,7 @@ export function SchemaForm({
         </RootValueContext.Provider>
       </DeliveryTypeContext.Provider>
     </FieldLabelOverridesContext.Provider>
+    </TableCatalogContext.Provider>
   );
 }
 

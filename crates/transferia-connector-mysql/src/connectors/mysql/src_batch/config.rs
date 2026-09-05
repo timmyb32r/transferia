@@ -1,8 +1,9 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
+use transferia_registry::table_selection::TableSelection;
 
 use crate::connectors::mysql::common::{
-    validate_identifier, MySqlConnectionConfig, MYSQL_CLIENT_PACKET_MAX_BYTES,
+    MySqlConnectionConfig, MYSQL_CLIENT_PACKET_MAX_BYTES,
     MYSQL_CLIENT_PACKET_MIN_BYTES,
 };
 use crate::connectors::mysql::src_stream::MySqlReplicationConfig;
@@ -20,6 +21,16 @@ pub enum MySqlReadProtocol {
     Binary,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, serde::Serialize, Eq, JsonSchema, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum NewTables {
+    #[default]
+    #[schemars(title = "Include automatically")]
+    IncludeAutomatically,
+    #[schemars(title = "Ignore new tables")]
+    Ignore,
+}
+
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "mysql", "delivery_modes": ["batch", "stream", "batch_and_stream"], "record_semantics": ["append_only", "changelog"], "batch_stream_handoff": "exact_switchover" } }))]
@@ -27,7 +38,13 @@ pub struct MySqlSourceConfig {
     #[serde(flatten)]
     pub connection: MySqlConnectionConfig,
 
-    pub tables: Vec<TableConfig>,
+    #[schemars(extend("x-ui" = { "widget": "table_selection" }))]
+    pub tables: TableSelection,
+
+    #[serde(default)]
+    #[schemars(title = "New tables", description = "Include automatically follows CREATE TABLE events from the binlog and applies the same Include/Exclude rules. The destination is prepared before the first row is read. Existing tables renamed into a rule are rejected: their earlier rows require a new snapshot. Watermark-based DBLog support is future work. Ignore new tables keeps the startup membership fixed. Restart restores the committed membership, not current wildcard matches.",
+        extend("x-ui" = { "delivery_types": ["stream", "batch_and_stream"] }))]
+    pub new_tables: NewTables,
 
     #[serde(default = "default_batch_rows")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
@@ -68,13 +85,15 @@ pub struct MySqlSourceConfig {
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TableConfig {
+    pub database: String,
     pub name: String,
 }
 
 impl MySqlSourceConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
-        anyhow::ensure!(!self.tables.is_empty(), "mysql.tables must not be empty");
+        anyhow::ensure!(!self.tables.rules.is_empty(), "mysql.tables must contain at least one rule");
+        self.tables.compile()?;
         anyhow::ensure!(self.batch_rows > 0, "mysql.batch_rows must be positive");
         anyhow::ensure!(
             (1..=MYSQL_SNAPSHOT_BATCH_TARGET_MAX_BYTES).contains(&self.batch_target_bytes),
@@ -91,15 +110,6 @@ impl MySqlSourceConfig {
                 "mysql.batch_target_bytes + mysql.max_row_bytes exceeds this platform's addressable memory"
             ))?;
         self.replication.validate()?;
-        let mut names = std::collections::HashSet::new();
-        for table in &self.tables {
-            validate_identifier("table", &table.name)?;
-            anyhow::ensure!(
-                names.insert(table.name.as_str()),
-                "mysql.tables repeats table name '{}'",
-                table.name
-            );
-        }
         Ok(())
     }
 }

@@ -75,6 +75,7 @@ async fn main() -> anyhow::Result<()> {
     .context("timed out waiting for a YDB Topic message")??;
     cancellation.cancel();
     let messages = match batch {
+        SourceBatch::Dataset { .. } => anyhow::bail!("YDB Topic unexpectedly requested dataset admission"),
         SourceBatch::Raw { messages, .. } => messages,
         SourceBatch::Typed { .. } => anyhow::bail!("YDB Topic returned a typed batch"),
         SourceBatch::Finished => anyhow::bail!("YDB Topic finished before returning a message"),

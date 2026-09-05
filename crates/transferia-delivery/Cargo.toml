@@ -25,6 +25,7 @@ transferia-pipeline = { path = "../transferia-pipeline" }
 transferia-registry = { path = "../transferia-registry" }
 
 [dev-dependencies]
+async-trait.workspace = true
 transferia-test-support = { path = "../transferia-test-support" }
 
 [lints]

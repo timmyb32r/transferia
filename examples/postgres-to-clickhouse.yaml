@@ -13,8 +13,8 @@ source:
     username: postgres
     password: postgres
     tables:
-      - schema: public
-        name: events
+      rules:
+        - include: public.events
 
 middlewares: []
 pipeline_memory_limit_bytes: 268435456

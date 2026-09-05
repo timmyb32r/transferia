@@ -90,6 +90,7 @@ fn discovery() -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: true,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: crate::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),
@@ -231,6 +232,7 @@ async fn append_only_projection_rejects_null_before_the_sink_side_effect() {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: crate::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),

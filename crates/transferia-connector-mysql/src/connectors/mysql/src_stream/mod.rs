@@ -1,6 +1,7 @@
 mod checksum;
 mod config;
 mod decoder;
+mod ddl;
 mod identity;
 mod offset;
 mod position;
@@ -19,6 +20,7 @@ pub(crate) use identity::encode_snapshot_boundary_identity;
 #[cfg(test)]
 pub(crate) use identity::encode_transaction_identity;
 pub(crate) use offset::inspect_existing_replication_offset;
+pub(crate) use offset::inspect_replication_membership;
 pub use offset::REPLICATION_OFFSET_STATE_KEY;
 pub use position::{
     GtidInterval, GtidSet, GtidSid, MySqlBinlogPosition, MySqlResumePosition, PositionError,

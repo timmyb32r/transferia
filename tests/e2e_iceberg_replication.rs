@@ -701,14 +701,14 @@ fn postgres_connector(config: &str) -> anyhow::Result<PostgresSourceConnector> {
 
 fn mysql_source_yaml(connection: &MySqlConnectionConfig) -> String {
     format!(
-        "host: '{}'\nport: {}\ndatabase: transferia\nusername: {}\npassword: {}\ntrusted_plaintext: true\ntables:\n  - name: mysql_replica\nreplication:\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n",
+        "host: '{}'\nport: {}\ndatabase: transferia\nusername: {}\npassword: {}\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.mysql_replica\nreplication:\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n",
         connection.host, connection.port, connection.username, connection.password,
     )
 }
 
 fn postgres_source_yaml(host: &str, port: u16) -> String {
     format!(
-        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - {{ schema: public, name: postgres_replica }}\nreplication:\n  plugin: {{ type: pgoutput, publication: iceberg_publication }}\n  poll_interval_ms: 10\n"
+        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.postgres_replica\nreplication:\n  plugin: {{ type: pgoutput, publication: iceberg_publication }}\n  poll_interval_ms: 10\n"
     )
 }
 

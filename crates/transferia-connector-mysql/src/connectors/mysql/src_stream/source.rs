@@ -54,10 +54,9 @@ pub struct MySqlReplicationSource {
     stream: Option<BinlogStream>,
     decoder: MySqlBinlogDecoder,
     config: MySqlReplicationConfig,
-    database: Arc<str>,
     tables: Vec<DiscoveredTable>,
     schemas: Vec<Arc<Schema>>,
-    table_indexes: BTreeMap<Vec<u8>, usize>,
+    table_indexes: BTreeMap<Vec<u8>, BTreeMap<Vec<u8>, usize>>,
     active: Option<BufferedTransaction>,
     committed_position: MySqlBinlogPosition,
     emitted_position: MySqlBinlogPosition,
@@ -70,6 +69,18 @@ pub struct MySqlReplicationSource {
     counters: Arc<SourceCounters>,
     cancellation: CancellationToken,
     finished: bool,
+    admission_config: crate::connectors::mysql::src_batch::MySqlSourceConfig,
+    pending_table: Option<PendingTable>,
+    admitted_schema_memory: Vec<MemoryReservation>,
+}
+
+struct PendingTable {
+    table: DiscoveredTable,
+    authoritative: AuthoritativeTableIdentity,
+    schema: Arc<Schema>,
+    memory: MemoryReservation,
+    position: MySqlBinlogPosition,
+    event_decode_admission_bytes: usize,
 }
 
 struct BufferedTransaction {
@@ -109,6 +120,7 @@ impl MySqlReplicationSource {
     pub async fn new(
         mut connection: Conn,
         config: MySqlReplicationConfig,
+        admission_config: crate::connectors::mysql::src_batch::MySqlSourceConfig,
         source_identity: MySqlSourceIdentity,
         tables: Vec<DiscoveredTable>,
         authoritative_tables: Vec<AuthoritativeTableIdentity>,
@@ -121,7 +133,7 @@ impl MySqlReplicationSource {
         current_purged_gtids: GtidSet,
         replay_identity: Arc<str>,
     ) -> anyhow::Result<Self> {
-        validate_replication_tables(&source_identity, &tables, &authoritative_tables)
+        validate_replication_tables(&tables, &authoritative_tables)
             .map_err(replication_safety_violation)?;
         let schema_admission = tables
             .iter()
@@ -147,7 +159,7 @@ impl MySqlReplicationSource {
             retained_schemas_bytes(&schemas).map_err(replication_safety_violation)?;
         let _ = schema_memory.shrink_to(retained_schema_bytes);
         let event_decode_admission_bytes =
-            event_decode_admission_bytes(&config, &source_identity.database, &tables)
+            event_decode_admission_bytes(&config, &tables)
                 .map_err(replication_safety_violation)?;
         let (offset_tracker, committed_position, committed_gtids) =
             MySqlReplicationOffsetTracker::prepare(
@@ -164,11 +176,11 @@ impl MySqlReplicationSource {
         let mut decoder = MySqlBinlogDecoder::new(config.clone(), committed_position.clone())
             .map_err(|error| replication_safety_violation(error.into()))?;
         decoder.enable_gtid_auto_position();
+        decoder.set_table_selection(admission_config.tables.compile()?);
         decoder.retain_rows_for_tables(
-            source_identity.database.as_bytes(),
             tables
                 .iter()
-                .map(|table| table.config.name.as_bytes().to_vec()),
+                .map(|table| (table.config.database.as_bytes().to_vec(), table.config.name.as_bytes().to_vec())),
         );
         let resume = MySqlResumePosition::Gtid {
             executed: committed_gtids.clone(),
@@ -188,17 +200,15 @@ impl MySqlReplicationSource {
         )
         .await
         .map_err(classify_binlog_start_error)?;
-        let database = Arc::<str>::from(source_identity.database);
-        let table_indexes = tables
-            .iter()
-            .enumerate()
-            .map(|(index, table)| (table.config.name.as_bytes().to_vec(), index))
-            .collect();
+        let mut table_indexes = BTreeMap::<Vec<u8>, BTreeMap<Vec<u8>, usize>>::new();
+        for (index, table) in tables.iter().enumerate() {
+            table_indexes.entry(table.config.database.as_bytes().to_vec()).or_default()
+                .insert(table.config.name.as_bytes().to_vec(), index);
+        }
         Ok(Self {
             stream: Some(stream),
             decoder,
             config,
-            database,
             tables,
             schemas,
             table_indexes,
@@ -214,6 +224,92 @@ impl MySqlReplicationSource {
             counters,
             cancellation,
             finished: false,
+            admission_config,
+            pending_table: None,
+            admitted_schema_memory: Vec::new(),
+        })
+    }
+
+    async fn admit_created_table(
+        &mut self,
+        identity: transferia_registry::TableIdentity,
+        committed: CommittedTransaction,
+    ) -> anyhow::Result<SourceBatch> {
+        use crate::connectors::mysql::src_batch::{
+            authoritative_table_identities, build_delivery_discovery, discover_table, TableConfig,
+        };
+        let classification = self.admission_config.tables.compile()?.classify(&identity);
+        anyhow::ensure!(classification.issues.is_empty(),
+            "MySQL newly created table {:?} conflicts with configured table rules: {:?}",
+            identity.qualified_name(), classification.issues);
+        if classification.selected_by.is_empty()
+            || self.admission_config.new_tables == crate::connectors::mysql::src_batch::NewTables::Ignore {
+            return self.finish_transaction(committed);
+        }
+        anyhow::ensure!(self.pending_table.is_none(), "MySQL dataset admission is already pending");
+        anyhow::ensure!(self.tables.iter().all(|table| table.config.name != identity.name),
+            "MySQL newly created table {:?} has a name already used by another selected table",
+            identity.qualified_name());
+        anyhow::ensure!(self.active.as_ref().is_some_and(|active| active.changes.is_empty()),
+            "MySQL CREATE transaction unexpectedly contains rows; a snapshot is required");
+        let timeout = Duration::from_millis(self.config.bootstrap_timeout_ms);
+        let discovery = observe_external_request("mysql", "discover_created_table", async {
+                let mut connection = crate::connectors::mysql::common::connect(
+                    &self.admission_config.connection).await?;
+                let result = discover_table(&mut connection, &identity.namespace, TableConfig {
+                    database: identity.namespace.clone(), name: identity.name.clone(),
+                }, true, self.admission_config.read_protocol).await;
+                let closed = connection.disconnect().await;
+                let table = result?;
+                closed?;
+                Ok::<_, anyhow::Error>(table)
+            });
+        let table = tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => anyhow::bail!("MySQL table discovery cancelled"),
+            result = tokio::time::timeout(timeout, discovery) => result
+                .map_err(|_| anyhow::anyhow!("MySQL table discovery timed out"))??,
+        };
+        let authoritative = authoritative_table_identities(std::slice::from_ref(&table));
+        validate_replication_tables(std::slice::from_ref(&table), &authoritative)?;
+        let schema_bytes = schema_materialization_admission_bytes(&table)?;
+        let retained = retained_schemas_bytes(&self.schemas)?;
+        if let Some(active) = self.active.as_ref() {
+            // The Query event has been decoded and dropped. Its worst-case
+            // row decoding reservation must not pin capacity during metadata I/O.
+            let _ = active.memory.shrink_to(retained_transaction_bytes(active)?);
+        }
+        let active_bytes = self.active.as_ref().map(|active| active.memory.bytes()).unwrap_or(0);
+        anyhow::ensure!(retained.checked_add(schema_bytes).and_then(|bytes| bytes.checked_add(active_bytes))
+            .is_some_and(|bytes| bytes <= self.memory.limit()),
+            "MySQL admitted table schemas exceed the configured pipeline memory limit");
+        let reservation = tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => anyhow::bail!("MySQL table admission cancelled"),
+            reservation = self.memory.reserve(schema_bytes) => reservation,
+        };
+        let schema = build_table_schema(&table)?;
+        let _ = reservation.shrink_to(retained_schemas_bytes(std::slice::from_ref(&schema))?);
+        let mut all_tables = self.tables.clone();
+        all_tables.push(table.clone());
+        let event_decode_admission_bytes = event_decode_admission_bytes(&self.config, &all_tables)?;
+        let mut discovery = build_delivery_discovery(true,
+            transferia_delivery_contracts::DeliveryType::Stream,
+            transferia_core::delivery::DeliveryDiscoveryRequest { keep_system_columns: false },
+            std::slice::from_ref(&table))?;
+        let position = committed.next_position.clone();
+        let SourceBatch::Typed { tables, commit_marker: Some(commit_marker), mut memory, .. } =
+            self.finish_transaction(committed)? else {
+                anyhow::bail!("MySQL CREATE did not produce a durable marker")
+            };
+        anyhow::ensure!(tables.is_empty(), "MySQL CREATE produced unexpected row data");
+        memory.push(reservation.clone());
+        self.pending_table = Some(PendingTable {
+            table, authoritative: authoritative.into_iter().next().expect("one table"),
+            schema, memory: reservation, position, event_decode_admission_bytes,
+        });
+        Ok(SourceBatch::Dataset {
+            dataset: Box::new(discovery.datasets.remove(0)), commit_marker, memory,
         })
     }
 
@@ -224,6 +320,9 @@ impl MySqlReplicationSource {
         event_bytes: usize,
     ) -> anyhow::Result<Option<SourceBatch>> {
         match event {
+            DecodedBinlogEvent::TableCreated { table, .. } => {
+                anyhow::bail!("MySQL created table {:?} requires dataset admission before its CREATE position can be committed", table.qualified_name())
+            }
             DecodedBinlogEvent::TransactionStarted(marker) => {
                 anyhow::ensure!(
                     self.active.is_none(),
@@ -316,10 +415,8 @@ impl MySqlReplicationSource {
             Arc::ptr_eq(&active.marker, &rows.transaction) || active.marker == rows.transaction,
             "MySQL binlog row identity does not match the buffered transaction"
         );
-        if rows.table.database != self.database.as_bytes() {
-            return Ok(());
-        }
-        let Some(table_index) = self.table_indexes.get(rows.table.table.as_slice()).copied() else {
+        let Some(table_index) = self.table_indexes.get(rows.table.database.as_slice())
+            .and_then(|tables| tables.get(rows.table.table.as_slice())).copied() else {
             return Ok(());
         };
         let table = self.tables.get(table_index).ok_or_else(|| {
@@ -329,7 +426,7 @@ impl MySqlReplicationSource {
         anyhow::ensure!(
             usize::try_from(rows.table.columns)? == table.columns.len(),
             "MySQL binlog table '{}.{}' has {} columns, discovery declared {}",
-            self.database,
+            table.config.database,
             table.config.name,
             rows.table.columns,
             table.columns.len()
@@ -384,7 +481,6 @@ impl MySqlReplicationSource {
         let retained_transaction_bytes = retained_transaction_bytes(&active)?;
         let materialization_bytes = arrow_materialization_admission_bytes(
             &active,
-            &self.database,
             &self.tables,
             &committed.next_position,
             &self.emitted_position,
@@ -428,7 +524,7 @@ impl MySqlReplicationSource {
             tables.push(changes_to_table_data(
                 table,
                 Arc::clone(schema),
-                &self.database,
+                &table.config.database,
                 &transaction_identity,
                 source_binlog_file,
                 &source_gtid,
@@ -471,10 +567,8 @@ impl MySqlReplicationSource {
         &self,
         table_map: &super::decoder::MySqlTableIdentity,
     ) -> anyhow::Result<()> {
-        if table_map.database != self.database.as_bytes() {
-            return Ok(());
-        }
-        let Some(table_index) = self.table_indexes.get(table_map.table.as_slice()).copied() else {
+        let Some(table_index) = self.table_indexes.get(table_map.database.as_slice())
+            .and_then(|tables| tables.get(table_map.table.as_slice())).copied() else {
             return Ok(());
         };
         let table = self.tables.get(table_index).ok_or_else(|| {
@@ -531,12 +625,23 @@ pub(super) fn verify_binlog_heartbeat(
 }
 
 impl Source for MySqlReplicationSource {
+    fn restored_datasets(&self) -> transferia_core::failure::DataPlaneResult<Option<Vec<transferia_core::DiscoveredDataset>>> {
+        crate::connectors::mysql::src_batch::build_delivery_discovery(true,
+            transferia_delivery_contracts::DeliveryType::Stream,
+            transferia_core::delivery::DeliveryDiscoveryRequest { keep_system_columns: false },
+            &self.tables).map(|discovery| Some(discovery.datasets)).map_err(DataPlaneFailure::fatal)
+    }
+
     fn read_batch(
         &mut self,
     ) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
             if self.finished {
                 return Ok(SourceBatch::Finished);
+            }
+            if self.pending_table.is_some() {
+                return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
+                    "MySQL cannot read beyond CREATE before dataset admission is committed")));
             }
             loop {
                 let previous_transaction_bytes = self
@@ -671,6 +776,7 @@ impl Source for MySqlReplicationSource {
                 let table_map_boundary = matches!(
                     &decoded,
                     DecodedBinlogEvent::TransactionCommitted(_)
+                        | DecodedBinlogEvent::TableCreated { .. }
                         | DecodedBinlogEvent::TransactionRolledBack(_)
                         | DecodedBinlogEvent::BinlogRotated(_)
                 );
@@ -695,6 +801,10 @@ impl Source for MySqlReplicationSource {
                         )))
                     })?;
                     transaction.encoded_bytes = next_bytes;
+                }
+                if let DecodedBinlogEvent::TableCreated { table, committed } = decoded {
+                    return self.admit_created_table(table, committed).await
+                        .map_err(|error| DataPlaneFailure::fatal(replication_safety_violation(error)));
                 }
                 if let Some(batch) = self
                     .accept_event(decoded, event_reservation, event_bytes)
@@ -745,9 +855,15 @@ impl Source for MySqlReplicationSource {
                     anyhow::anyhow!("MySQL replication commit has no offset markers"),
                 )));
             }
-            self.offset_tracker
-                .store(&expected, &expected_gtids)
-                .await
+            let admitted = self.pending_table.as_ref()
+                .filter(|pending| pending.position == expected)
+                .map(|pending| std::slice::from_ref(&pending.authoritative)).unwrap_or(&[]);
+            let stored = if admitted.is_empty() {
+                self.offset_tracker.store(&expected, &expected_gtids).await
+            } else {
+                self.offset_tracker.store_admission(&expected, &expected_gtids, admitted).await
+            };
+            stored
                 .map_err(|error| {
                     if is_replication_safety_violation(&error) {
                         DataPlaneFailure::fatal(error)
@@ -755,6 +871,17 @@ impl Source for MySqlReplicationSource {
                         DataPlaneFailure::retryable(error)
                     }
                 })?;
+            if self.pending_table.as_ref().is_some_and(|pending| pending.position == expected) {
+                let pending = self.pending_table.take().expect("checked pending table");
+                self.table_indexes.entry(pending.table.config.database.as_bytes().to_vec())
+                    .or_default().insert(pending.table.config.name.as_bytes().to_vec(), self.tables.len());
+                self.tables.push(pending.table);
+                self.schemas.push(pending.schema);
+                self.admitted_schema_memory.push(pending.memory);
+                self.event_decode_admission_bytes = pending.event_decode_admission_bytes;
+                self.decoder.retain_rows_for_tables(self.tables.iter().map(|table| (
+                    table.config.database.as_bytes().to_vec(), table.config.name.as_bytes().to_vec())));
+            }
             self.committed_position = expected;
             self.committed_gtids = expected_gtids;
             Ok(())
@@ -787,7 +914,6 @@ impl Source for MySqlReplicationSource {
 /// byte; the factor also covers exact owned JSONB copies and Vec capacity slack.
 fn event_decode_admission_bytes(
     config: &MySqlReplicationConfig,
-    database: &str,
     tables: &[DiscoveredTable],
 ) -> anyhow::Result<usize> {
     let max_columns = tables
@@ -830,7 +956,7 @@ fn event_decode_admission_bytes(
             table.columns.iter().try_fold(0_usize, |bytes, column| {
                 bytes
                     .checked_add(size_of::<mysql_async::Column>())
-                    .and_then(|value| value.checked_add(database.len()))
+                    .and_then(|value| value.checked_add(table.config.database.len()))
                     .and_then(|value| value.checked_add(table.config.name.len().checked_mul(2)?))
                     .and_then(|value| value.checked_add(column.name.len()))
                     .ok_or_else(|| {
@@ -954,7 +1080,6 @@ fn transaction_marker_heap_bytes(marker: &MySqlTransactionMarker) -> anyhow::Res
 
 fn arrow_materialization_admission_bytes(
     transaction: &BufferedTransaction,
-    database: &str,
     tables: &[DiscoveredTable],
     next_position: &MySqlBinlogPosition,
     previous_position: &MySqlBinlogPosition,
@@ -1008,7 +1133,7 @@ fn arrow_materialization_admission_bytes(
                 .ok_or_else(|| anyhow::anyhow!("MySQL CDC Arrow memory accounting overflow"))?;
         }
         let changed_columns_bytes = table.columns.len().div_ceil(8);
-        let metadata_payload = database
+        let metadata_payload = table.config.database
             .len()
             .checked_mul(2)
             .and_then(|value| value.checked_add(table.config.name.len()))
@@ -1721,7 +1846,6 @@ fn mysql_values_equal(left: &Value, right: &Value) -> bool {
 }
 
 fn validate_replication_tables(
-    source: &MySqlSourceIdentity,
     tables: &[DiscoveredTable],
     authoritative_tables: &[AuthoritativeTableIdentity],
 ) -> anyhow::Result<()> {
@@ -1732,7 +1856,7 @@ fn validate_replication_tables(
     let mut names = BTreeSet::new();
     for (table, authoritative) in tables.iter().zip(authoritative_tables) {
         anyhow::ensure!(
-            authoritative.database == source.database
+            authoritative.database == table.config.database
                 && authoritative.table == table.config.name
                 && authoritative.engine == table.engine
                 && authoritative.columns.len() == table.columns.len()
@@ -1740,7 +1864,7 @@ fn validate_replication_tables(
             "MySQL replication runtime table identity differs from the authoritative discovery"
         );
         anyhow::ensure!(
-            names.insert(table.config.name.as_str()),
+            names.insert((table.config.database.as_str(), table.config.name.as_str())),
             "MySQL replication repeats table '{}'",
             table.config.name
         );
@@ -1787,7 +1911,7 @@ fn validate_replication_tables(
                     && discovered.primary_key == column.primary_key
                     && discovered.max_length == column.max_length,
                 "MySQL replication runtime column identity differs from the authoritative discovery for '{}.{}'",
-                source.database,
+                table.config.database,
                 table.config.name
             );
             validate_replication_column_plan(column)?;

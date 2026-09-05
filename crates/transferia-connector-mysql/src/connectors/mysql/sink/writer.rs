@@ -22,7 +22,12 @@ use transferia_core::{project_sink_batch, ProjectedSinkBatch};
 
 const MAX_PREPARED_PARAMETERS: usize = 65_535;
 
+pub(super) fn quote_table((database, table): (&str, &str)) -> String {
+    format!("{}.{}", quote_identifier(database), quote_identifier(table))
+}
+
 pub struct MySqlSink {
+    config: Arc<super::config::MySqlSinkConfig>,
     connection: Conn,
     counters: Arc<SinkCounters>,
     discovery: Arc<DeliveryDiscovery>,
@@ -37,8 +42,10 @@ impl MySqlSink {
         discovery: Arc<DeliveryDiscovery>,
         limits: Arc<dyn SinkLimits>,
         insert_rows: usize,
+        config: Arc<super::config::MySqlSinkConfig>,
     ) -> Self {
         Self {
+            config,
             connection,
             counters,
             discovery,
@@ -50,6 +57,9 @@ impl MySqlSink {
     async fn write_delivery(&mut self, delivery: &Delivery) -> anyhow::Result<()> {
         for batch in &delivery.outputs {
             self.limits.validate_batch(&self.discovery, batch)?;
+            let dataset = self.discovery.datasets.iter().find(|dataset| dataset.name == batch.table)
+                .ok_or_else(|| anyhow::anyhow!("MySQL batch refers to an undiscovered table '{}'", batch.table))?;
+            self.config.target_database(dataset.namespace.as_deref())?;
         }
         let projected = delivery
             .outputs
@@ -68,11 +78,14 @@ impl MySqlSink {
                 if batch.rows() == 0 {
                     continue;
                 }
+                let dataset = self.discovery.datasets.iter().find(|dataset| dataset.name == batch.table)
+                    .ok_or_else(|| anyhow::anyhow!("MySQL batch refers to an undiscovered table '{}'", batch.table))?;
+                let database = self.config.target_database(dataset.namespace.as_deref())?;
                 match projected {
                     ProjectedSinkBatch::AppendOnly(stored) => {
                         flushes += write_insert_batches(
                             &mut self.connection,
-                            &batch.table,
+                            (database, &batch.table),
                             &stored,
                             self.insert_rows,
                             None,
@@ -87,7 +100,7 @@ impl MySqlSink {
                                 | transferia_core::ChangeOperation::SnapshotRead => {
                                     write_insert_batches(
                                         &mut self.connection,
-                                        &batch.table,
+                                        (database, &batch.table),
                                         &run.batch,
                                         self.insert_rows,
                                         Some(&changelog.primary_keys),
@@ -97,7 +110,7 @@ impl MySqlSink {
                                 transferia_core::ChangeOperation::Update => {
                                     write_update_batch(
                                         &mut self.connection,
-                                        &batch.table,
+                                        (database, &batch.table),
                                         &run.batch,
                                         &changelog.primary_keys,
                                         self.insert_rows,
@@ -113,7 +126,7 @@ impl MySqlSink {
                                 transferia_core::ChangeOperation::Delete => {
                                     write_delete_batches(
                                         &mut self.connection,
-                                        &batch.table,
+                                        (database, &batch.table),
                                         &run.batch,
                                         self.insert_rows,
                                     )
@@ -156,7 +169,7 @@ impl MySqlSink {
 
 async fn write_update_batch(
     connection: &mut Conn,
-    table: &str,
+    table: (&str, &str),
     batch: &RecordBatch,
     primary_keys: &[String],
     insert_rows: usize,
@@ -178,14 +191,14 @@ async fn write_update_batch(
     connection
         .query_drop(format!(
             "CREATE TEMPORARY TABLE {} AS SELECT {} FROM {} WHERE FALSE",
-            quote_identifier(staging),
+            quote_table((table.0, staging)),
             columns.join(", "),
-            quote_identifier(table)
+            quote_table(table)
         ))
         .await?;
     let result = async {
         let mut flushes =
-            write_insert_batches(connection, staging, batch, insert_rows, None).await?;
+            write_insert_batches(connection, (table.0, staging), batch, insert_rows, None).await?;
         let predicate = primary_keys
             .iter()
             .map(|key| {
@@ -197,8 +210,8 @@ async fn write_update_batch(
         let matched = connection
             .query_first::<u64, _>(format!(
                 "SELECT COUNT(*) FROM {} AS target JOIN {} AS staged ON {predicate}",
-                quote_identifier(table),
-                quote_identifier(staging)
+                quote_table(table),
+                quote_table((table.0, staging))
             ))
             .await?
             .unwrap_or_default();
@@ -219,8 +232,8 @@ async fn write_update_batch(
             connection
                 .query_drop(format!(
                     "UPDATE {} AS target JOIN {} AS staged ON {predicate} SET {updates}",
-                    quote_identifier(table),
-                    quote_identifier(staging)
+                    quote_table(table),
+                    quote_table((table.0, staging))
                 ))
                 .await?;
             flushes += 1;
@@ -231,7 +244,7 @@ async fn write_update_batch(
     let drop_result = connection
         .query_drop(format!(
             "DROP TEMPORARY TABLE {}",
-            quote_identifier(staging)
+            quote_table((table.0, staging))
         ))
         .await;
     match (result, drop_result) {
@@ -243,19 +256,19 @@ async fn write_update_batch(
 
 async fn write_insert_batches(
     connection: &mut Conn,
-    table: &str,
+    table: (&str, &str),
     batch: &RecordBatch,
     insert_rows: usize,
     upsert_primary_keys: Option<&[String]>,
 ) -> anyhow::Result<u64> {
     anyhow::ensure!(
         batch.num_columns() > 0,
-        "MySQL table '{table}' cannot receive a batch with no stored columns"
+        "MySQL table '{table:?}' cannot receive a batch with no stored columns"
     );
     let max_rows = insert_rows.min(MAX_PREPARED_PARAMETERS / batch.num_columns());
     anyhow::ensure!(
         max_rows > 0,
-        "MySQL table '{table}' has too many columns for one prepared row"
+        "MySQL table '{table:?}' has too many columns for one prepared row"
     );
     let mut flushes = 0;
     for offset in (0..batch.num_rows()).step_by(max_rows) {
@@ -268,7 +281,7 @@ async fn write_insert_batches(
 
 async fn insert_chunk(
     connection: &mut Conn,
-    table: &str,
+    table: (&str, &str),
     batch: &RecordBatch,
     offset: usize,
     len: usize,
@@ -292,7 +305,7 @@ async fn insert_chunk(
         .join(", ");
     let mut query = format!(
         "INSERT INTO {} ({columns}) VALUES {values_clause}",
-        quote_identifier(table)
+        quote_table(table)
     );
     if let Some(primary_keys) = upsert_primary_keys {
         let updates = batch
@@ -328,13 +341,13 @@ async fn insert_chunk(
 
 async fn write_delete_batches(
     connection: &mut Conn,
-    table: &str,
+    table: (&str, &str),
     primary_keys: &RecordBatch,
     delete_rows: usize,
 ) -> anyhow::Result<u64> {
     anyhow::ensure!(
         primary_keys.num_columns() > 0,
-        "MySQL changelog delete for table '{table}' requires a primary key"
+        "MySQL changelog delete for table '{table:?}' requires a primary key"
     );
     let max_rows = delete_rows.min(MAX_PREPARED_PARAMETERS / primary_keys.num_columns());
     anyhow::ensure!(max_rows > 0, "MySQL primary key has too many columns");
@@ -359,7 +372,7 @@ async fn write_delete_batches(
             .join(", ");
         let query = format!(
             "DELETE FROM {} WHERE ({columns}) IN ({placeholders})",
-            quote_identifier(table)
+            quote_table(table)
         );
         let mut values = Vec::with_capacity(len.saturating_mul(primary_keys.num_columns()));
         for row in offset..offset + len {

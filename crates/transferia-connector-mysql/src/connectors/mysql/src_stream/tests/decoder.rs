@@ -27,6 +27,27 @@ fn decoder() -> MySqlBinlogDecoder {
 }
 
 #[test]
+fn rename_into_selection_fails_without_advancing_binlog_position() {
+    let mut decoder = decoder();
+    let selection: transferia_registry::table_selection::TableSelection = serde_yaml::from_str(
+        "rules:\n  - include: db.reports_*\n",
+    ).unwrap();
+    decoder.set_table_selection(selection.compile().unwrap());
+    let before = decoder.current_position().clone();
+    let mut data = Vec::new();
+    data.extend_from_slice(&1_u32.to_le_bytes());
+    data.extend_from_slice(&0_u32.to_le_bytes());
+    data.push(2);
+    data.extend_from_slice(&0_u16.to_le_bytes());
+    data.extend_from_slice(&0_u16.to_le_bytes());
+    data.extend_from_slice(b"db\0RENAME TABLE staging.old TO db.reports_new");
+    let event = raw_event(EventType::QUERY_EVENT, &data, before.position);
+    let error = decoder.decode(&event).unwrap_err();
+    assert!(matches!(error, BinlogDecodeError::UnsafeRename(_)), "{error}");
+    assert_eq!(decoder.current_position(), &before);
+}
+
+#[test]
 fn gtid_row_transaction_preserves_identity_images_and_commit_position() {
     let mut decoder = decoder();
     let gtid_data = gtid_data([0x22; 16], 17);
@@ -140,7 +161,7 @@ fn compressed_transactions_are_rejected_at_the_runtime_boundary() {
 #[test]
 fn table_map_without_primary_key_remains_decodable_for_unselected_tables() {
     let mut decoder = decoder();
-    decoder.retain_rows_for_tables(b"db", vec![b"selected".to_vec()]);
+    decoder.retain_rows_for_tables(vec![(b"db".to_vec(), b"selected".to_vec())]);
     decoder
         .decode(&raw_event(EventType::GTID_EVENT, &gtid_data([6; 16], 1), 4))
         .unwrap();

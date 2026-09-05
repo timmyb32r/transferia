@@ -33,6 +33,7 @@ fn discovered_dataset(
         ),
     ]);
     DiscoveredDataset {
+        namespace: None,
         update_policy: transferia_core::delivery::UpdatePolicy::Strict,
         role,
         name: Arc::from(name),

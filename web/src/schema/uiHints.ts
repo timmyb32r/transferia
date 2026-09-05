@@ -22,6 +22,7 @@ export interface UiCapabilityHints {
 }
 
 export interface UiHints {
+  table_membership?: "fixed";
   widget?: string;
   section?: UiSection;
   initial_items?: number;
@@ -45,6 +46,7 @@ export interface UiHints {
 }
 
 const SUPPORTED_HINTS = new Set<keyof UiHints>([
+  "table_membership",
   "widget",
   "section",
   "initial_items",
@@ -228,8 +230,11 @@ export function decodeUiHints(
   )
     fail(`${path}: x-ui delivery_types must contain supported delivery types`);
   const capabilities = decodeCapabilities(value.capabilities, path, fail);
+  if (value.table_membership !== undefined && value.table_membership !== "fixed")
+    fail(`${path}: unsupported table membership`);
 
   return {
+    ...(value.table_membership === "fixed" ? { table_membership: "fixed" as const } : {}),
     ...(typeof widget === "string" ? { widget } : {}),
     ...(section === undefined ? {} : { section }),
     ...(initialItems === undefined ? {} : { initial_items: initialItems }),

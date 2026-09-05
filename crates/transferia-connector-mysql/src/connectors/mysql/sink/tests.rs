@@ -31,6 +31,7 @@ fn discovery(table: &str) -> DeliveryDiscovery {
         keep_system_columns: false,
         datasets: vec![
             DiscoveredDataset {
+                namespace: None,
                 update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::Main,
                 name: Arc::from(table),
@@ -39,6 +40,7 @@ fn discovery(table: &str) -> DeliveryDiscovery {
                 system_columns: Vec::new(),
             },
             DiscoveredDataset {
+                namespace: None,
                 update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::DeadLetterQueue,
                 name: Arc::from(format!("{table}_dlq")),
@@ -56,6 +58,30 @@ fn config() -> MySqlSinkConfig {
         "host: 127.0.0.1\nport: 1\ndatabase: analytics\nusername: test\npassword: ''\ntrusted_plaintext: true\ncreate_tables: true\ninsert_rows: 1000\n",
     )
     .unwrap()
+}
+
+#[test]
+fn database_override_is_explicit_and_absent_override_preserves_namespace() {
+    use transferia_core::delivery::SinkLimits;
+    let mut config = config();
+    assert_eq!(config.target_database(Some("original")).unwrap(), "analytics");
+    config.connection.database.clear();
+    config.validate().unwrap();
+    assert_eq!(config.target_database(Some("original")).unwrap(), "original");
+    assert!(config.target_database(None).is_err());
+    assert!(config.target_database(Some("")).is_err());
+    let mut discovery = discovery("events");
+    assert!(config.validate_discovery(&discovery).is_err());
+    for dataset in &mut discovery.datasets { dataset.namespace = Some(Arc::from("original")); }
+    config.validate_discovery(&discovery).unwrap();
+    let prepared = transferia_registry::SinkPrepare::from_discovery(&discovery, true, "dtt-test", None).unwrap().unwrap();
+    assert!(prepared.datasets.iter().all(|dataset| dataset.namespace.as_deref() == Some("original")));
+}
+
+#[test]
+fn qualified_writes_quote_database_and_table_separately() {
+    assert_eq!(super::writer::quote_table(("a.b", "c`d")), "`a.b`.`c``d`");
+    assert_ne!(super::writer::quote_table(("a.b", "c")), super::writer::quote_table(("a", "b.c")));
 }
 
 #[test]
@@ -283,6 +309,7 @@ fn mysql_owner_marker_rejects_collisions_and_replacements() {
 fn mysql_scratch_create_is_exclusive_and_has_atomic_owner_comment() -> anyhow::Result<()> {
     let table: Arc<str> = Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
     let dataset = DatasetPrepare {
+        namespace: None,
         role: DatasetRole::Main,
         table,
         schema: DatasetSchema::new(vec![column(DataType::Int64)]),

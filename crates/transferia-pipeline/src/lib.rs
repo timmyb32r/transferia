@@ -22,6 +22,9 @@ use transferia_delivery_contracts::middleware::Middleware;
 use transferia_delivery_contracts::parser::{ParserFactory, ParserSession};
 
 mod row_count;
+mod admission;
+pub use admission::DatasetAdmission;
+use admission::DeliveryOutput;
 
 pub use row_count::{OutputDatasetRowCount, OutputRowCounts};
 
@@ -78,6 +81,7 @@ struct ReadEnvelope {
 }
 
 enum ReadPayload {
+    Dataset(Box<transferia_core::DiscoveredDataset>),
     Raw(Vec<Message>),
     Typed(Vec<TableData>),
 }
@@ -136,7 +140,7 @@ fn make_sink_batch(
 )]
 async fn parser_loop(
     mut input: mpsc::Receiver<ReadEnvelope>,
-    output: mpsc::Sender<Delivery>,
+    output: DeliveryOutput,
     parser_factory: Arc<dyn ParserFactory>,
     middlewares: Arc<Vec<Box<dyn Middleware>>>,
     memory: PipelineMemory,
@@ -166,6 +170,13 @@ async fn parser_loop(
             return Ok(());
         };
 
+        if let ReadPayload::Dataset(dataset) = envelope.payload {
+            if let Some(row_counts) = &output_row_counts {
+                row_counts.observe_delivery(envelope.id, &[])?;
+            }
+            output.admit(envelope.id, *dataset).await?;
+            continue;
+        }
         if let ReadPayload::Typed(tables) = envelope.payload {
             let mut outputs = Vec::with_capacity(tables.len());
             let mut output_bytes = 0_usize;
@@ -580,6 +591,9 @@ async fn reader_loop_inner(
         }
         let (payload, mut batch_memory, mut marker, source_payload_bytes, source_messages) =
             match batch {
+                SourceBatch::Dataset { dataset, commit_marker, memory } => (
+                    ReadPayload::Dataset(dataset), memory, Some(commit_marker), 0, 0,
+                ),
                 SourceBatch::Raw {
                     messages,
                     commit_marker,
@@ -619,6 +633,7 @@ async fn reader_loop_inner(
                 SourceBatch::Finished => unreachable!(),
             };
         let payload_is_empty = match &payload {
+            ReadPayload::Dataset(_) => false,
             ReadPayload::Raw(messages) => messages.is_empty(),
             ReadPayload::Typed(tables) => tables.iter().all(|table| table.batch.num_rows() == 0),
         };
@@ -665,6 +680,7 @@ async fn reader_loop_inner(
             id: next_id,
             marker: marker.take(),
         });
+        let admission_barrier = matches!(&payload, ReadPayload::Dataset(_));
         let envelope = ReadEnvelope {
             id: next_id,
             payload,
@@ -693,6 +709,16 @@ async fn reader_loop_inner(
                     let permit = permit.map_err(|_| anyhow::anyhow!("parser input closed"))?;
                     permit.send(pending.take().ok_or_else(|| anyhow::anyhow!("missing pending read"))?);
                 }
+            }
+        }
+        if admission_barrier {
+            while !ledger.is_empty() {
+                let event = tokio::select! {
+                    () = cancellation.cancelled() => return Ok(ReaderCompletion::Cancelled),
+                    event = events.recv() => event.ok_or_else(|| anyhow::anyhow!("sink closed during dataset admission"))?,
+                };
+                let SinkEvent::CommittedThrough(id) = event;
+                commit_through(source, &mut ledger, id, progress.as_ref(), output_row_counts.as_deref()).await?;
             }
         }
     }
@@ -835,6 +861,7 @@ pub async fn run_partition_pipeline_with_progress(
         parse_counters,
         progress,
         None,
+        None,
     )
     .await
 }
@@ -854,17 +881,28 @@ pub async fn run_partition_pipeline_with_progress_and_row_counts(
     parse_counters: Arc<ParseCounters>,
     progress: Arc<PipelineProgress>,
     output_row_counts: Option<Arc<OutputRowCounts>>,
+    admission: Option<Box<dyn DatasetAdmission>>,
 ) -> DataPlaneResult<()> {
     let local = cancel_token.child_token();
     let (read_tx, read_rx) = mpsc::channel(CHANNEL_CAPACITY);
-    let (delivery_tx, delivery_rx) = mpsc::channel(CHANNEL_CAPACITY);
     let (event_tx, event_rx) = mpsc::channel(CHANNEL_CAPACITY);
+    let (delivery_output, mut sink_task) = if let Some(admission) = admission {
+        let (sender, receiver) = mpsc::channel(CHANNEL_CAPACITY);
+        (DeliveryOutput::Evolving(sender), tokio::spawn(admission::run(
+            sink, admission, receiver, event_tx, memory.clone(), local.clone(),
+        )))
+    } else {
+        let (sender, receiver) = mpsc::channel(CHANNEL_CAPACITY);
+        (DeliveryOutput::Fixed(sender), tokio::spawn(sink.run(SinkIo {
+            deliveries: receiver, events: event_tx, memory: memory.clone(), cancellation: local.clone(),
+        })))
+    };
 
     let parser_token = local.clone();
     let parser_memory = memory.clone();
     let mut parser_task = tokio::spawn(parser_loop(
         read_rx,
-        delivery_tx,
+        delivery_output,
         parser,
         middlewares,
         parser_memory,
@@ -887,15 +925,6 @@ pub async fn run_partition_pipeline_with_progress_and_row_counts(
         )
         .await
     });
-    let sink_token = local.clone();
-    let sink_io = SinkIo {
-        deliveries: delivery_rx,
-        events: event_tx,
-        memory,
-        cancellation: sink_token,
-    };
-    let mut sink_task = tokio::spawn(sink.run(sink_io));
-
     let mut reader_outcome = None;
     let mut sink_outcome = None;
     let mut parser_outcome = None;

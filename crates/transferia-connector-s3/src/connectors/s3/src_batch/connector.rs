@@ -180,6 +180,7 @@ impl SourceConnector for S3SourceConnector {
                     schema_origin: SchemaOrigin::SourceNative,
                     keep_system_columns: request.keep_system_columns,
                     datasets: vec![DiscoveredDataset {
+                        namespace: None,
                         update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                         role: DatasetRole::Main,
                         name: Arc::from(self.config.table_name.as_str()),

@@ -252,6 +252,7 @@ fn debezium_discovery_fails_closed_without_every_cdc_control() {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: "accounts".into(),
@@ -331,6 +332,7 @@ fn debezium_discovery_accepts_snapshot_metadata_without_cdc_old_values() {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: true,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: "accounts".into(),
@@ -616,6 +618,7 @@ fn ydb_debezium_discovery() -> transferia_core::delivery::DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: "accounts".into(),
@@ -707,6 +710,7 @@ fn mysql_debezium_discovery() -> transferia_core::delivery::DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: "accounts".into(),

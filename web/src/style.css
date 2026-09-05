@@ -4964,3 +4964,53 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
     min-width: 930px;
   }
 }
+
+.table-selection-editor {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.table-rule-card {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--panel);
+}
+.table-rule-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.table-rule-patterns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 16px;
+}
+.table-rule-patterns .form-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.table-selection-status {
+  height: 72px;
+  overflow: auto;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.table-rule-matches {
+  height: 140px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+}
+.table-rule-matches > div {
+  padding: 4px 8px;
+  overflow-wrap: anywhere;
+}

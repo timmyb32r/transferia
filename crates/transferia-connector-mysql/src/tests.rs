@@ -102,7 +102,7 @@ async fn incomplete_credentials_produce_a_network_only_result() {
 #[test]
 fn checker_config_ignores_source_specific_fields() {
     let source: mysql::MySqlConnectionCheckConfig = serde_yaml::from_str(
-        "host: db.example\nport: 3306\ntables: [{name: events}]\nbatch_rows: 10\n",
+        "host: db.example\nport: 3306\ntables: {rules: [{include: db.events}]}\nbatch_rows: 10\n",
     )
     .unwrap();
 
@@ -127,4 +127,18 @@ fn sink_hides_internal_insert_batch_tuning() {
         "hidden"
     );
     assert_eq!(schema["properties"]["insert_rows"]["default"], 250);
+}
+
+#[test]
+fn new_table_policy_is_visible_only_for_replication_and_defaults_to_auto() {
+    let schema = serde_json::to_value(schemars::schema_for!(
+        mysql::src_batch::MySqlSourceConfig)).unwrap();
+    let policy = &schema["properties"]["new_tables"];
+    assert_eq!(policy["default"], "include_automatically");
+    assert_eq!(policy["x-ui"]["delivery_types"], serde_json::json!(["stream", "batch_and_stream"]));
+    let variants = &schema["$defs"]["NewTables"]["oneOf"];
+    assert_eq!(variants[0]["const"], "include_automatically");
+    assert_eq!(variants[0]["title"], "Include automatically");
+    assert_eq!(variants[1]["title"], "Ignore new tables");
+    assert!(policy["description"].as_str().unwrap().contains("renamed"));
 }

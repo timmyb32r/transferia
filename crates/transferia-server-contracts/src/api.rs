@@ -41,6 +41,13 @@ pub struct ConnectionCheckRequest {
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct TableSelectionPreviewRequest {
+    pub selection: transferia_registry::table_selection::TableSelection,
+    pub catalog: Vec<transferia_registry::TableIdentity>,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MessagePreviewRequest {
     pub connector: String,
 
@@ -597,6 +604,8 @@ struct ServerApiContract {
     dynamic_options_request: OptionsRequest,
     connection_check_request: ConnectionCheckRequest,
     connection_check_response: ConnectionCheckResult,
+    table_selection_preview_request: TableSelectionPreviewRequest,
+    table_selection_preview_response: transferia_registry::table_selection::SelectionPreview,
     message_preview_request: MessagePreviewRequest,
     message_preview_response: MessagePreviewResult,
     sql_playground_request: SqlPlaygroundRequest,

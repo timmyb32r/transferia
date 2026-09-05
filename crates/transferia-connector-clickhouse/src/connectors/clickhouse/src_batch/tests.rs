@@ -61,7 +61,7 @@ fn source_preserves_date_and_second_timestamp_types() -> anyhow::Result<()> {
 fn discovered_primary_key_is_validated() {
     let base = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\n";
     let duplicate =
-        format!("{base}tables: [{{database: default, name: events, primary_key: [id, id]}}]\n");
+        format!("{base}tables: {{rules: [{{include: default.events, primary_key: [id, id]}}]}}\n");
     assert!(serde_yaml::from_str::<ClickHouseSourceConfig>(&duplicate).is_err());
 
     let mut schema = DatasetSchema::new(vec![
@@ -122,14 +122,14 @@ fn source_contract_has_no_shard_group() {
         .expect("ClickHouse source schema must serialize");
     assert!(schema.pointer("/properties/shard_group").is_none());
 
-    let legacy = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\nshard_group: legacy\ntables: [{database: default, name: events}]\n";
+    let legacy = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\nshard_group: legacy\ntables: {rules: [{include: default.events}]}\n";
     assert!(serde_yaml::from_str::<ClickHouseSourceConfig>(legacy).is_err());
 }
 
 #[test]
 fn source_defaults_use_bounded_high_throughput_parquet_settings() {
     let config: ClickHouseSourceConfig = serde_yaml::from_str(
-        "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: [{database: default, name: events}]\n",
+        "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: {rules: [{include: default.events}]}\n",
     )
     .unwrap();
 
@@ -149,7 +149,7 @@ fn source_defaults_use_bounded_high_throughput_parquet_settings() {
 
 #[test]
 fn source_accepts_zstd_parquet_and_native_reader_profiles() {
-    let base = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: [{database: default, name: events}]\n";
+    let base = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: {rules: [{include: default.events}]}\n";
     let parquet: ClickHouseSourceConfig = serde_yaml::from_str(&format!(
         "{base}snapshot_reader: {{ type: parquet, compression: zstd, max_threads: 32, row_group_rows: 250000, decode_threads: 16, max_response_bytes: 1073741824 }}\n"
     ))
@@ -178,14 +178,14 @@ fn source_accepts_zstd_parquet_and_native_reader_profiles() {
 
 #[test]
 fn derives_output_name_from_the_source_table() {
-    let yaml = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: [{database: default, name: events}]\n";
+    let yaml = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: {rules: [{include: default.events}]}\n";
     assert!(ClickHouseSourceConnector::from_config(
         serde_yaml::from_str(yaml).unwrap(),
         Arc::new(MetricsRegistry::new())
     )
     .is_ok());
 
-    let invalid = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: [{database: default, name: bad-name}]\n";
+    let invalid = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: {rules: [{include: ''}]}\n";
     assert!(ClickHouseSourceConnector::from_config(
         serde_yaml::from_str(invalid).unwrap(),
         Arc::new(MetricsRegistry::new())
@@ -199,7 +199,7 @@ fn supports_verified_tls() {
         "{}/src/connectors/clickhouse/sink/tests/fixtures/localhost-ca.pem",
         env!("CARGO_MANIFEST_DIR")
     );
-    let value = serde_yaml::from_str(&format!("hosts: [localhost]\nport: 9440\ntrusted_plaintext: false\ntls_ca_file: {ca}\nusername: default\ntables: [{{database: default, name: events}}]\n")).unwrap();
+    let value = serde_yaml::from_str(&format!("hosts: [localhost]\nport: 9440\ntrusted_plaintext: false\ntls_ca_file: {ca}\nusername: default\ntables: {{rules: [{{include: default.events}}]}}\n")).unwrap();
     assert!(
         ClickHouseSourceConnector::from_config(value, Arc::new(MetricsRegistry::new())).is_ok()
     );

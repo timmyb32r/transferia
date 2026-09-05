@@ -125,6 +125,7 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),

@@ -23,6 +23,8 @@ export const speedtest_tune_response: ValidateFunction;
 export const sql_playground_request: ValidateFunction;
 export const sql_playground_response: ValidateFunction;
 export const stop_request: ValidateFunction;
+export const table_selection_preview_request: ValidateFunction;
+export const table_selection_preview_response: ValidateFunction;
 export const update_draft_request: ValidateFunction;
 export const validation_response: ValidateFunction;
 export const worker_log_read_query: ValidateFunction;

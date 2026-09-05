@@ -174,6 +174,9 @@ impl OverlapSnapshot {
                 SourceBatch::Raw { .. } => {
                     anyhow::bail!("YDB snapshot returned an unexpected untyped batch")
                 }
+                SourceBatch::Dataset { .. } => {
+                    anyhow::bail!("YDB snapshot returned an unexpected dataset admission barrier")
+                }
             }
         }
     }

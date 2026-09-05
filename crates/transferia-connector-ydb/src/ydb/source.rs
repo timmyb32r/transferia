@@ -269,6 +269,7 @@ impl SourceConnector for YdbSourceConnector {
                             )
                         }));
                     DiscoveredDataset {
+                        namespace: None,
                         update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                         role: DatasetRole::Main,
                         name: Arc::from(table.config.name()),

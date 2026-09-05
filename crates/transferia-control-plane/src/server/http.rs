@@ -152,6 +152,7 @@ declare_api_handlers! {
     CATALOG => get(get_catalog),
     OPTIONS => post(dynamic_options),
     CHECK_CONNECTION => post(check_connection),
+    TABLE_SELECTION_PREVIEW => post(table_selection_preview),
     PREVIEW_MESSAGE => post(preview_message),
     SQL_PLAYGROUND => post(sql_playground),
     SPEEDTEST_ESTIMATE => post(speedtest_estimate),
@@ -342,6 +343,18 @@ async fn check_connection(
             cancellation,
         )
         .await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
+}
+
+async fn table_selection_preview(
+    ApiJson(request): ApiJson<transferia_server_contracts::api::TableSelectionPreviewRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    // This is only a preview over the last authenticated catalog. Startup
+    // independently re-queries the source; this request cannot authorize tables.
+    let result = request.selection.compile()
+        .map_err(anyhow::Error::from)
+        .and_then(|selection| selection.resolve(&request.catalog))
+        .map_err(|error| ApiError(ServiceError::Validation(error.to_string())))?;
     Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
 }
 

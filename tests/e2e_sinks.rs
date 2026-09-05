@@ -63,6 +63,7 @@ fn discovery(
         keep_system_columns,
         datasets: vec![
             DiscoveredDataset {
+                namespace: None,
                 update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::Main,
                 name: Arc::from("events"),
@@ -71,6 +72,7 @@ fn discovery(
                 system_columns: system_columns.iter().copied().map(Into::into).collect(),
             },
             DiscoveredDataset {
+                namespace: None,
                 update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::DeadLetterQueue,
                 name: Arc::from("events_dlq"),
@@ -93,6 +95,7 @@ fn clickhouse_changelog_discovery() -> Arc<DeliveryDiscovery> {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("cdc_events"),

@@ -166,7 +166,10 @@ impl ClickHouseSourceConnector {
             .ensure_connected()
             .await
             .map_err(|error| super::super::sink::connection_check_error(&error))?;
-        Ok(ConnectionCheckResult::default())
+        Ok(ConnectionCheckResult {
+            tables: Some(list_tables(&client).await?),
+            ..Default::default()
+        })
     }
 
     async fn discovered_tables(&self) -> anyhow::Result<Arc<Vec<DiscoveredTable>>> {
@@ -176,9 +179,13 @@ impl ClickHouseSourceConnector {
                     .ensure_connected()
                     .await
                     .map_err(|error| anyhow::anyhow!("ClickHouse connection failed: {error}"))?;
-                let mut tables = Vec::with_capacity(self.config.tables.len());
-                for table in &self.config.tables {
-                    tables.push(discover_table(&self.client, table.clone()).await?);
+                let catalog = list_tables(&self.client).await?;
+                let selected = self.config.tables.compile()?.resolve(&catalog)?.selected_tables()?;
+                let mut tables = Vec::with_capacity(selected.len());
+                for table in selected {
+                    tables.push(discover_table(&self.client, TableConfig {
+                        database: table.namespace, name: table.name,
+                    }).await?);
                 }
                 Ok(Arc::new(tables))
             })
@@ -247,6 +254,7 @@ impl SourceConnector for ClickHouseSourceConnector {
                         without_system_columns(&table.schema, &table.physical_system_columns)
                     };
                     DiscoveredDataset {
+                        namespace: Some(Arc::from(table.config.database.as_str())),
                         update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                         role: DatasetRole::Main,
                         name: Arc::from(table.config.name.as_str()),
@@ -338,6 +346,49 @@ fn snapshot_query(table: &TableConfig) -> String {
         quote_identifier(&table.database),
         quote_identifier(&table.name)
     )
+}
+
+async fn list_tables(client: &ReconnectingClient) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
+    let batches = transferia_connector_support::external_request::observe_external_request(
+        "clickhouse", "list_tables",
+        client.query_all("SELECT database, name FROM system.tables \
+            WHERE is_temporary = 0 \
+            ORDER BY database, name"),
+    ).await?;
+    let mut tables = Vec::new();
+    for batch in batches {
+        anyhow::ensure!(batch.num_columns() == 2, "ClickHouse table catalog must have two columns");
+        let namespaces = cast(batch.column(0), &DataType::Utf8)?;
+        let names = cast(batch.column(1), &DataType::Utf8)?;
+        let namespaces = namespaces.as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| anyhow::anyhow!("ClickHouse catalog database is not a string"))?;
+        let names = names.as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| anyhow::anyhow!("ClickHouse catalog table is not a string"))?;
+        for row in 0..batch.num_rows() {
+            anyhow::ensure!(!namespaces.is_null(row) && !names.is_null(row), "ClickHouse table catalog contains NULL names");
+            tables.push(transferia_registry::TableIdentity {
+                namespace: namespaces.value(row).to_owned(), name: names.value(row).to_owned(),
+            });
+        }
+    }
+    let mut readable = Vec::with_capacity(tables.len());
+    for table in tables {
+        let query = format!("CHECK GRANT SELECT ON {}.{}", quote_identifier(&table.namespace), quote_identifier(&table.name));
+        let grants = transferia_connector_support::external_request::observe_external_request(
+            "clickhouse", "check_table_read_access", client.query_all(&query),
+        ).await?;
+        anyhow::ensure!(grants.iter().map(arrow::record_batch::RecordBatch::num_rows).sum::<usize>() == 1,
+            "ClickHouse CHECK GRANT must return exactly one result");
+        let grant = grants.iter().find(|batch| batch.num_rows() == 1)
+            .ok_or_else(|| anyhow::anyhow!("ClickHouse CHECK GRANT returned no result"))?;
+        anyhow::ensure!(grant.num_columns() == 1, "ClickHouse CHECK GRANT must return one column");
+        let values = cast(grant.column(0), &DataType::UInt8)?;
+        let values = values.as_any().downcast_ref::<arrow::array::UInt8Array>()
+            .ok_or_else(|| anyhow::anyhow!("ClickHouse CHECK GRANT returned an invalid type"))?;
+        anyhow::ensure!(!values.is_null(0) && values.value(0) <= 1, "ClickHouse CHECK GRANT returned an invalid decision");
+        if values.value(0) == 1 { readable.push(table); }
+    }
+    Ok(readable)
 }
 
 async fn discover_table(

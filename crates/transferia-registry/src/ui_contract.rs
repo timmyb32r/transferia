@@ -11,6 +11,7 @@ const EXTERNAL_LINK_VALUE_PLACEHOLDER: &str = "{value}";
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UiHints {
+    table_membership: Option<TableMembership>,
     widget: Option<String>,
     section: Option<UiSection>,
     initial_items: Option<usize>,
@@ -32,6 +33,10 @@ struct UiHints {
     delivery_types: Option<Vec<UiDeliveryType>>,
     capabilities: Option<UiCapabilities>,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TableMembership { Fixed }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -206,6 +211,7 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
                     hints.defer_variant_details,
                     hints.indent_variant_details,
                     hints.delivery_types,
+                    hints.table_membership,
                 ));
             }
             for (key, value) in object {

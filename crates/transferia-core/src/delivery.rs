@@ -58,6 +58,9 @@ pub enum UpdatePolicy {
 /// One dataset as seen at the sink boundary.
 #[derive(Debug, Clone)]
 pub struct DiscoveredDataset {
+    /// Exact source database or schema, when the source has one. Never inferred
+    /// by splitting the dataset name: dots can be literal identifier characters.
+    pub namespace: Option<Arc<str>>,
     pub update_policy: UpdatePolicy,
     pub role: DatasetRole,
     pub name: Arc<str>,

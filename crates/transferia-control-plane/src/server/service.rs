@@ -810,6 +810,15 @@ impl ControlPlane {
                             .map_err(connection_check_service_error)?
                     }
                 };
+                if let Some(tables) = checked.tables {
+                    let combined_tables = combined.tables.get_or_insert_with(Vec::new);
+                    for table in tables {
+                        if !combined_tables.contains(&table) {
+                            combined_tables.push(table);
+                        }
+                    }
+                    combined_tables.sort();
+                }
                 for (key, values) in checked.options {
                     let combined_values = combined.options.entry(key).or_default();
                     for value in values {

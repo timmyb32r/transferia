@@ -152,6 +152,25 @@ pub async fn connect(config: &PostgresConnectionConfig) -> anyhow::Result<tokio_
     Ok(client)
 }
 
+/// Enumerate only persistent user tables the authenticated role can read.
+pub async fn list_tables(config: &PostgresConnectionConfig) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
+    let client = connect(config).await?;
+    let rows = transferia_connector_support::external_request::observe_external_request(
+        "postgres", "list_tables",
+        client.query(
+            "SELECT n.nspname, c.relname FROM pg_catalog.pg_class c \
+             JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
+             WHERE c.relkind IN ('r', 'p') AND c.relpersistence = 'p' \
+             AND pg_catalog.has_schema_privilege(n.oid, 'USAGE') \
+             AND pg_catalog.has_table_privilege(c.oid, 'SELECT') \
+             ORDER BY n.nspname, c.relname", &[],
+        ),
+    ).await?;
+    rows.into_iter().map(|row| Ok(transferia_registry::TableIdentity {
+        namespace: row.try_get(0)?, name: row.try_get(1)?,
+    })).collect()
+}
+
 pub async fn check_connection(config: &PostgresConnectionConfig) -> anyhow::Result<()> {
     config.validate()?;
     let client = connect(config).await.map_err(|error| {

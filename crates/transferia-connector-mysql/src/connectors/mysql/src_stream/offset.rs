@@ -33,6 +33,25 @@ pub struct MySqlReplicationOffsetTracker {
     identity: ReplicationOffsetState,
 }
 
+/// Recover membership from the same durable record as the committed binlog
+/// position. A current catalog must never implicitly admit post-boundary tables.
+pub(crate) async fn inspect_replication_membership(
+    config: &MySqlReplicationConfig,
+    source: &MySqlSourceIdentity,
+    durable: &DurableContext,
+    replay_identity: &str,
+) -> anyhow::Result<Option<Vec<AuthoritativeTableIdentity>>> {
+    let Some(current) = durable.storage.read(REPLICATION_OFFSET_STATE_KEY).await? else {
+        return Ok(None);
+    };
+    let state: ReplicationOffsetState = serde_json::from_slice(&current.payload)
+        .map_err(|error| replication_safety_violation(error.into()))?;
+    validate_identity(config, source, &state.authoritative_tables, None, replay_identity)
+        .map_err(replication_safety_violation)?;
+    let state = decode_and_validate(&current.payload, config, source, &state.authoritative_tables, None, replay_identity)?;
+    Ok(Some(state.authoritative_tables))
+}
+
 /// Reads and validates an already-owned exact resume position without creating
 /// or updating durable state.
 ///
@@ -180,6 +199,17 @@ impl MySqlReplicationOffsetTracker {
         committed_position: &MySqlBinlogPosition,
         committed_gtids: &GtidSet,
     ) -> anyhow::Result<()> {
+        self.store_admission(committed_position, committed_gtids, &[]).await
+    }
+
+    /// Persist membership and the CREATE transaction position in one CAS. This
+    /// is called only after the pipeline's destination admission barrier.
+    pub(crate) async fn store_admission(
+        &mut self,
+        committed_position: &MySqlBinlogPosition,
+        committed_gtids: &GtidSet,
+        added: &[AuthoritativeTableIdentity],
+    ) -> anyhow::Result<()> {
         committed_position
             .validate()
             .map_err(|error| replication_safety_violation(error.into()))?;
@@ -193,14 +223,21 @@ impl MySqlReplicationOffsetTracker {
         }
         if committed_position == &self.identity.committed_position
             && committed_gtids == &self.identity.committed_gtids
+            && added.is_empty()
         {
             return Ok(());
         }
-        let next = ReplicationOffsetState {
-            committed_position: committed_position.clone(),
-            committed_gtids: committed_gtids.clone(),
-            ..self.identity.clone()
-        };
+        let mut next = self.identity.clone();
+        next.committed_position = committed_position.clone();
+        next.committed_gtids = committed_gtids.clone();
+        for table in added {
+            anyhow::ensure!(!next.authoritative_tables.iter().any(|old| old.database == table.database && old.table == table.table),
+                "MySQL dataset admission repeats an already committed table");
+            next.authoritative_tables.push(table.clone());
+        }
+        if !added.is_empty() {
+            validate_table_identities(&next.authoritative_tables).map_err(replication_safety_violation)?;
+        }
         let payload = serde_json::to_vec(&next)?;
         match self
             .storage
@@ -273,9 +310,17 @@ fn validate_identity(
         "MySQL replication replay identity must not be empty"
     );
     anyhow::ensure!(
-        !source.server_uuid.is_empty() && !source.database.is_empty(),
+        !source.server_uuid.is_empty(),
         "MySQL replication source identity is incomplete"
     );
+    validate_table_identities(authoritative_tables)?;
+    if let Some(boundary) = exact_start_boundary {
+        boundary_position(boundary)?;
+    }
+    Ok(())
+}
+
+fn validate_table_identities(authoritative_tables: &[AuthoritativeTableIdentity]) -> anyhow::Result<()> {
     anyhow::ensure!(
         !authoritative_tables.is_empty(),
         "MySQL replication requires at least one authoritative table"
@@ -283,14 +328,14 @@ fn validate_identity(
     let mut table_names = BTreeSet::new();
     for table in authoritative_tables {
         anyhow::ensure!(
-            table.database == source.database
+            !table.database.is_empty()
                 && !table.table.is_empty()
                 && table.engine.eq_ignore_ascii_case("InnoDB")
                 && !table.columns.is_empty(),
-            "MySQL authoritative table identity is incomplete or belongs to another database"
+            "MySQL authoritative table identity is incomplete"
         );
         anyhow::ensure!(
-            table_names.insert(table.table.as_str()),
+            table_names.insert((table.database.as_str(), table.table.as_str())),
             "MySQL authoritative table identity repeats table '{}'",
             table.table
         );
@@ -317,9 +362,6 @@ fn validate_identity(
             "MySQL authoritative identity for table '{}' has no primary key",
             table.table
         );
-    }
-    if let Some(boundary) = exact_start_boundary {
-        boundary_position(boundary)?;
     }
     Ok(())
 }

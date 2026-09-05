@@ -33,7 +33,7 @@ pub fn register(
                     serde_json::json!({
                         "host": "", "port": 5432, "database": "", "username": "",
                         "password": "", "trusted_plaintext": true,
-                        "tables": [{ "schema": "", "name": "" }], "batch_rows": 16384,
+                        "tables": { "rules": [], "empty_matches": "fail_validation" }, "batch_rows": 16384,
                         "copy_to_format": "binary"
                     })
                 },
@@ -53,7 +53,11 @@ pub fn register(
                 RecordSemantics::Changelog,
             ])?
             .source_checker::<postgres::PostgresConnectionCheckConfig, _, _>(|config| async move {
-                check_postgres_connection(config).await
+                let mut result = check_postgres_connection(config.clone()).await?;
+                if config.credentials_complete() {
+                    result.tables = Some(postgres::list_tables(&config.connection()).await?);
+                }
+                Ok(result)
             })
             .sink::<postgres::sink::PostgresSinkConfig, _, _>(
                 || {

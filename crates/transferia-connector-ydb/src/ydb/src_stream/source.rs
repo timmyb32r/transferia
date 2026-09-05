@@ -163,6 +163,7 @@ pub(in crate::ydb) fn replication_discovery(
                 );
             }
             DiscoveredDataset {
+                namespace: None,
                 update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::Main,
                 name: Arc::from(table.config.name()),

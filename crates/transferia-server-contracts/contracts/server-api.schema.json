@@ -57,6 +57,27 @@
       ],
       "type": "string"
     },
+    "CardMatches": {
+      "properties": {
+        "excluded": {
+          "items": {
+            "$ref": "#/$defs/TableIdentity"
+          },
+          "type": "array"
+        },
+        "selected": {
+          "items": {
+            "$ref": "#/$defs/TableIdentity"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "selected",
+        "excluded"
+      ],
+      "type": "object"
+    },
     "ColumnView": {
       "additionalProperties": false,
       "properties": {
@@ -122,6 +143,13 @@
       ],
       "type": "object"
     },
+    "ConflictKind": {
+      "enum": [
+        "multiple_includes",
+        "include_exclude"
+      ],
+      "type": "string"
+    },
     "ConnectionCheckRequest": {
       "additionalProperties": false,
       "properties": {
@@ -164,6 +192,17 @@
         },
         "status": {
           "$ref": "#/$defs/ConnectionCheckStatus"
+        },
+        "tables": {
+          "description": "Present only when authenticated table enumeration completed successfully.\nAn empty catalog is different from a connector without table enumeration.",
+          "items": {
+            "$ref": "#/$defs/TableIdentity"
+          },
+          "type": [
+            "array",
+            "null"
+          ],
+          "x-omit-none": true
         }
       },
       "required": [
@@ -499,6 +538,13 @@
         "options"
       ],
       "type": "object"
+    },
+    "EmptyMatches": {
+      "enum": [
+        "fail_validation",
+        "allow_empty_matches"
+      ],
+      "type": "string"
     },
     "EndpointDefinition": {
       "additionalProperties": false,
@@ -890,6 +936,13 @@
       ],
       "type": "object"
     },
+    "PatternMode": {
+      "enum": [
+        "glob",
+        "regex"
+      ],
+      "type": "string"
+    },
     "PerformanceAdvice": {
       "additionalProperties": false,
       "description": "Actionable connector guidance derived during source discovery.\n\nStable codes and structured fields let control planes render advice without\nparsing connector log text.",
@@ -1060,6 +1113,105 @@
           "type": "object"
         }
       ]
+    },
+    "SelectionIssue": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "no_rules",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "no_tables",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "card": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "empty_match",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "card"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "conflict": {
+              "$ref": "#/$defs/ConflictKind"
+            },
+            "first_card": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "conflict",
+              "type": "string"
+            },
+            "second_card": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "table": {
+              "$ref": "#/$defs/TableIdentity"
+            }
+          },
+          "required": [
+            "kind",
+            "table",
+            "first_card",
+            "second_card",
+            "conflict"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SelectionPreview": {
+      "properties": {
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/CardMatches"
+          },
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/SelectionIssue"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "cards",
+        "issues"
+      ],
+      "type": "object"
     },
     "SinkLimitsDescription": {
       "additionalProperties": false,
@@ -1565,6 +1717,83 @@
       ],
       "type": "object"
     },
+    "TableIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "namespace",
+        "name"
+      ],
+      "type": "object"
+    },
+    "TableRule": {
+      "additionalProperties": false,
+      "properties": {
+        "exclude": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "include": {
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/PatternMode",
+          "default": "glob"
+        }
+      },
+      "required": [
+        "include"
+      ],
+      "type": "object"
+    },
+    "TableSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "empty_matches": {
+          "$ref": "#/$defs/EmptyMatches",
+          "default": "fail_validation"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/TableRule"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "rules"
+      ],
+      "type": "object"
+    },
+    "TableSelectionPreviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog": {
+          "items": {
+            "$ref": "#/$defs/TableIdentity"
+          },
+          "type": "array"
+        },
+        "selection": {
+          "$ref": "#/$defs/TableSelection"
+        }
+      },
+      "required": [
+        "selection",
+        "catalog"
+      ],
+      "type": "object"
+    },
     "TextLimit": {
       "additionalProperties": false,
       "properties": {
@@ -1919,6 +2148,12 @@
     "stop_request": {
       "$ref": "#/$defs/StopRequest"
     },
+    "table_selection_preview_request": {
+      "$ref": "#/$defs/TableSelectionPreviewRequest"
+    },
+    "table_selection_preview_response": {
+      "$ref": "#/$defs/SelectionPreview"
+    },
     "update_draft_request": {
       "$ref": "#/$defs/UpdateDraftRequest"
     },
@@ -1951,6 +2186,8 @@
     "dynamic_options_request",
     "connection_check_request",
     "connection_check_response",
+    "table_selection_preview_request",
+    "table_selection_preview_response",
     "message_preview_request",
     "message_preview_response",
     "sql_playground_request",

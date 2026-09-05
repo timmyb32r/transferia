@@ -243,7 +243,8 @@ function assertSupportedContract(root) {
       throw new Error(
         `${path}: API generator does not support keywords ${unknown.join(", ")}`,
       );
-    if (schema.$ref !== undefined && Object.keys(schema).length !== 1)
+    if (schema.$ref !== undefined && Object.keys(schema).some((key) =>
+      !["$ref", "default", "title", "description"].includes(key)))
       throw new Error(`${path}: sibling keywords next to $ref are unsupported`);
     for (const [name, child] of Object.entries(schema.properties ?? {}))
       visit(child, `${path}/properties/${name}`);

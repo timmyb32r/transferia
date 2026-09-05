@@ -564,7 +564,7 @@ async fn conservative_parser_estimate_is_not_a_correctness_rejection() {
 
     parser_loop(
         input_rx,
-        output_tx,
+        DeliveryOutput::Fixed(output_tx),
         Arc::new(OverestimatedFactory),
         Arc::new(Vec::new()),
         memory,
@@ -590,7 +590,7 @@ async fn idle_parser_task_does_not_construct_a_session_or_hold_a_worker() {
     let (output_tx, _output_rx) = mpsc::channel(1);
     let task = tokio::spawn(parser_loop(
         input_rx,
-        output_tx,
+        DeliveryOutput::Fixed(output_tx),
         factory,
         Arc::new(Vec::new()),
         PipelineMemory::new(1024),
@@ -632,7 +632,7 @@ async fn parser_session_state_is_preserved_across_blocking_workers() {
 
     parser_loop(
         input_rx,
-        output_tx,
+        DeliveryOutput::Fixed(output_tx),
         factory,
         Arc::new(Vec::new()),
         PipelineMemory::new(1 << 20),

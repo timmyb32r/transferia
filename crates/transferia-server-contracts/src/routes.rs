@@ -19,6 +19,15 @@ macro_rules! routes {
 
 routes![
     (
+        TABLE_SELECTION_PREVIEW,
+        "table_selection_preview",
+        "POST",
+        "/api/v1/table-selection/preview",
+        Some("table_selection_preview_request"),
+        None,
+        "table_selection_preview_response"
+    ),
+    (
         HEALTH,
         "health",
         "GET",

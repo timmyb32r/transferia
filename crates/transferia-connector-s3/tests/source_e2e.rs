@@ -125,6 +125,7 @@ async fn s3_source_snapshots_sorted_objects_and_parses_json() -> anyhow::Result<
     let mut ids = Vec::new();
     for expected_key in ["snapshot/01.json", "snapshot/02.json"] {
         match source.read_batch().await? {
+            SourceBatch::Dataset { .. } => anyhow::bail!("S3 fixture unexpectedly emitted a dataset admission barrier"),
             SourceBatch::Raw {
                 messages,
                 memory: batch_memory,

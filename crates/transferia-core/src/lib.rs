@@ -11,6 +11,7 @@ pub use data::change::ChangeOperation;
 pub use data::changelog::{
     project_sink_batch, ChangelogAction, ChangelogBatch, ChangelogRun, ProjectedSinkBatch,
 };
+// SourceBatch includes ordered dataset admission as well as raw/typed records.
 pub use data::message::{Message, MessageHeader, MessageMeta, SourceBatch};
 pub use data::record_batch::{compact_record_batch, compact_record_batch_chunks};
 pub use data::schema::{DatasetSchema, SchemaColumn};

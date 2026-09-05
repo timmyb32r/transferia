@@ -37,6 +37,28 @@ pub struct ConnectionCheckResult {
     pub message: Option<String>,
 
     pub options: BTreeMap<String, Vec<String>>,
+
+    /// Present only when authenticated table enumeration completed successfully.
+    /// An empty catalog is different from a connector without table enumeration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
+    pub tables: Option<Vec<TableIdentity>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
+pub struct TableIdentity {
+    pub namespace: String,
+
+    pub name: String,
+}
+
+impl TableIdentity {
+    #[must_use]
+    pub fn qualified_name(&self) -> String {
+        let escape = |part: &str| part.replace('\\', "\\\\").replace('.', "\\.");
+        format!("{}.{}", escape(&self.namespace), escape(&self.name))
+    }
 }
 
 impl Default for ConnectionCheckResult {
@@ -47,6 +69,7 @@ impl Default for ConnectionCheckResult {
                 "Connection verified, including access to the configured entities.".to_owned(),
             ),
             options: BTreeMap::new(),
+            tables: None,
         }
     }
 }
@@ -60,6 +83,7 @@ impl ConnectionCheckResult {
                 "Network connection is available, but authentication was not checked.".to_owned(),
             ),
             options: BTreeMap::new(),
+            tables: None,
         }
     }
 }
@@ -117,6 +141,8 @@ pub enum SpeedtestUnsupported {
 }
 
 pub trait SourceConnector: Send + Sync {
+    /// Whether this execution may emit ordered dataset-admission barriers.
+    fn can_add_datasets(&self, _delivery_type: DeliveryType) -> bool { false }
     /// Describe the record semantics of the requested mode, not a UI toggle.
     fn compatibility(&self, delivery_type: DeliveryType) -> EndpointDescriptor;
 
@@ -772,6 +798,7 @@ fn schemas_are_equivalent(original: &DatasetSchema, isolated: &DatasetSchema) ->
             })
 }
 
+#[derive(Clone)]
 pub struct SinkBuildContext {
     pub partition_id: i64,
 
@@ -805,6 +832,7 @@ pub struct SinkPrepare {
 }
 
 pub struct DatasetPrepare {
+    pub namespace: Option<Arc<str>>,
     pub role: DatasetRole,
 
     pub table: Arc<str>,
@@ -829,6 +857,7 @@ impl SinkPrepare {
                 .datasets
                 .iter()
                 .map(|dataset| DatasetPrepare {
+                    namespace: dataset.namespace.clone(),
                     role: dataset.role,
                     table: Arc::clone(&dataset.name),
                     schema: dataset.stored_schema.clone(),

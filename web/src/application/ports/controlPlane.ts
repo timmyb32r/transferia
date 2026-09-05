@@ -1,6 +1,8 @@
 import type {
   ConnectionCheckRequest,
   ConnectionCheckResult,
+  TableSelectionPreviewRequest,
+  SelectionPreview,
   DeliveryRecord,
   DeliverySummary,
   DynamicOptions,
@@ -29,6 +31,7 @@ export interface DynamicOptionsQuery {
 }
 
 export interface ControlPlanePort {
+  previewTables(request: TableSelectionPreviewRequest, signal?: AbortSignal): Promise<SelectionPreview>;
   catalog(signal?: AbortSignal): Promise<UiCatalog>;
   options(query: DynamicOptionsQuery): Promise<DynamicOptions>;
   checkConnection(

@@ -558,6 +558,7 @@ fn enum_column(kind: MySqlColumnKind) -> ColumnPlan {
 fn table(columns: Vec<ColumnPlan>) -> DiscoveredTable {
     DiscoveredTable {
         config: TableConfig {
+            database: "inventory".to_owned(),
             name: "items".to_owned(),
         },
         schema: DatasetSchema::default(),

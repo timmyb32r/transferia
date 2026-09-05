@@ -10,6 +10,7 @@ import {
 
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import { DeliveryConfiguration } from "./DeliveryConfiguration";
+import { tableConnectionIdentity } from "./useEndpointActions";
 import { DeliveryLogs } from "./DeliveryLogs";
 import { PerformanceAdviceWorkspace } from "./PerformanceAdviceWorkspace";
 import { SpeedtestWorkspace } from "./SpeedtestWorkspace";
@@ -37,6 +38,7 @@ import {
   clonedDeliveryName,
   configurationReadiness,
   endpointValue,
+  isObject,
   errorMessage,
   freshConfig,
   validateCatalogSchemas,
@@ -279,6 +281,11 @@ export function DeliveryApplication() {
     [catalog, editor.config, widgets],
   );
   const selection = readiness?.selection;
+  const [checkedTableConnection, setCheckedTableConnection] = useState<string>();
+  const selectedSourceConfig = selection?.sourceKey ? endpointValue(editor.config, "source", selection.sourceKey) : undefined;
+  const requiredTableConnection = selection?.sourceKey && isObject(selectedSourceConfig)
+    ? tableConnectionIdentity(selection.sourceKey, selectedSourceConfig) : undefined;
+  const tableConnectionRequired = requiredTableConnection !== undefined && checkedTableConnection !== requiredTableConnection;
   const sourceSchemaComplete = readiness?.sourceSchemaReady ?? false;
   const structurallyComplete = readiness?.complete ?? false;
   const requiredFieldsComplete =
@@ -611,6 +618,7 @@ export function DeliveryApplication() {
       activatePending={activatePending}
       runtimeActionIntent={runtimeActionIntent}
       requiredFieldsComplete={requiredFieldsComplete}
+      connectionCheckRequired={tableConnectionRequired}
       onMissingRequired={revealMissingRequiredFields}
       onEdit={() => {
         setRequiredErrorScope("none");
@@ -782,6 +790,7 @@ export function DeliveryApplication() {
 
         {activeView === "ui" ? (
           <DeliveryConfiguration
+            onTableConnection={setCheckedTableConnection}
             catalog={catalog}
             editor={editor}
             selection={selection}

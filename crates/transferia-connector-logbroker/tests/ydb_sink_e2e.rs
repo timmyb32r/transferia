@@ -78,6 +78,7 @@ async fn logbroker_ydb_sink_commits_only_after_real_grpc_ack() -> anyhow::Result
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("events"),

@@ -39,7 +39,7 @@ struct PersistedState {
 
     source: MySqlSourceIdentity,
 
-    configured_tables: Vec<String>,
+    configured_tables: Vec<(String, String)>,
 
     authoritative_tables: Option<Vec<AuthoritativeTableIdentity>>,
 
@@ -62,6 +62,29 @@ pub struct SnapshotStreamTracker {
 }
 
 impl SnapshotStreamTracker {
+    /// Read the original snapshot membership without resolving rules against a
+    /// newer catalog. The complete record is validated before exposing names.
+    pub async fn recorded_tables(
+        server_id: u32,
+        source: &MySqlSourceIdentity,
+        durable: &DurableContext,
+        replay_identity: &str,
+    ) -> anyhow::Result<Option<Vec<TableConfig>>> {
+        let Some(current) = durable.storage.read(SNAPSHOT_STREAM_STATE_KEY).await? else {
+            return Ok(None);
+        };
+        let state: PersistedState = serde_json::from_slice(&current.payload)
+            .map_err(|error| replication_safety_violation(error.into()))?;
+        let tables = state.configured_tables.iter().map(|(database, name)| TableConfig {
+            database: database.clone(), name: name.clone(),
+        }).collect::<Vec<_>>();
+        validate_claim(server_id, &tables, source, replay_identity)
+            .map_err(replication_safety_violation)?;
+        let expected = persisted_state(server_id, &tables, source, replay_identity);
+        decode_and_validate(&current.payload, &expected).map_err(replication_safety_violation)?;
+        Ok(Some(tables))
+    }
+
     /// Claim or resume one delivery-local snapshot/stream handoff.
     ///
     /// Calling this method is valid only during source preparation, before any
@@ -254,7 +277,7 @@ fn persisted_state(
         replay_identity: replay_identity.to_owned(),
         server_id,
         source: source.clone(),
-        configured_tables: tables.iter().map(|table| table.name.clone()).collect(),
+        configured_tables: tables.iter().map(|table| (table.database.clone(), table.name.clone())).collect(),
         authoritative_tables: None,
         state: PersistedPhase::Claimed,
     }
@@ -275,11 +298,10 @@ fn validate_claim(
         "MySQL batch_and_stream replay identity must not be empty"
     );
     anyhow::ensure!(
-        !source.server_uuid.is_empty() && !source.database.is_empty(),
+        !source.server_uuid.is_empty(),
         "MySQL source identity is incomplete"
     );
     validate_server_uuid(&source.server_uuid)?;
-    validate_identifier("database", &source.database)?;
     anyhow::ensure!(
         !tables.is_empty(),
         "MySQL batch_and_stream requires at least one table"
@@ -288,7 +310,7 @@ fn validate_claim(
     for table in tables {
         validate_identifier("table", &table.name)?;
         anyhow::ensure!(
-            names.insert(table.name.as_str()),
+            names.insert((table.database.as_str(), table.name.as_str())),
             "MySQL batch_and_stream repeats table '{}'",
             table.name
         );
@@ -328,10 +350,10 @@ fn validate_authoritative_identity(
     );
     for (actual, expected_table) in authoritative_tables.iter().zip(&state.configured_tables) {
         anyhow::ensure!(
-            actual.database == state.source.database && actual.table == *expected_table,
+            actual.database == expected_table.0 && actual.table == expected_table.1,
             "MySQL authoritative schema identity does not match configured table '{}.{}'",
-            state.source.database,
-            expected_table
+            expected_table.0,
+            expected_table.1
         );
         validate_authoritative_table(actual)?;
     }

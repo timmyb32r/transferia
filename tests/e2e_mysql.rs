@@ -69,7 +69,7 @@ async fn read_mysql_snapshot(
 ) -> anyhow::Result<(DeliveryDiscovery, Vec<RecordBatch>)> {
     let source = MySqlSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: root\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: {read_protocol}\ntables:\n  - name: {table}\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: root\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: {read_protocol}\ntables:\n  rules:\n    - include: transferia.{table}\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -380,6 +380,7 @@ fn sink_dataset(name: &str, json_payload: bool) -> DiscoveredDataset {
         payload,
     ]);
     DiscoveredDataset {
+        namespace: None,
         update_policy: transferia_core::delivery::UpdatePolicy::Strict,
         role: DatasetRole::Main,
         name: Arc::from(name),
@@ -436,6 +437,7 @@ fn mysql_changelog_discovery() -> DeliveryDiscovery {
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("cdc_rows"),

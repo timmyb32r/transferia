@@ -1150,7 +1150,7 @@ async fn read_changes(
                         observed.markers.push(marker);
                     }
                 }
-                SourceBatch::Raw { .. } | SourceBatch::Finished => {
+                SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } | SourceBatch::Finished => {
                     anyhow::bail!("YDB replication returned raw or finite data")
                 }
             }

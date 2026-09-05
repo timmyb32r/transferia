@@ -1,9 +1,8 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::connectors::postgres::common::{
-    validate_identifier, PostgresConnectionConfig, PostgresCopyFormat,
-};
+use crate::connectors::postgres::common::{PostgresConnectionConfig, PostgresCopyFormat};
+use transferia_registry::table_selection::TableSelection;
 use crate::connectors::postgres::src_stream::PostgresReplicationConfig;
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -13,7 +12,8 @@ pub struct PostgresSourceConfig {
     #[serde(flatten)]
     pub connection: PostgresConnectionConfig,
 
-    pub tables: Vec<TableConfig>,
+    #[schemars(extend("x-ui" = { "widget": "table_selection", "table_membership": "fixed" }))]
+    pub tables: TableSelection,
 
     #[serde(default = "default_batch_rows")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
@@ -45,19 +45,10 @@ pub struct TableConfig {
 impl PostgresSourceConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
-        anyhow::ensure!(!self.tables.is_empty(), "postgres.tables must not be empty");
+        anyhow::ensure!(!self.tables.rules.is_empty(), "postgres.tables must contain at least one rule");
+        self.tables.compile()?;
         anyhow::ensure!(self.batch_rows > 0, "postgres.batch_rows must be positive");
         self.replication.validate()?;
-        let mut names = std::collections::HashSet::new();
-        for table in &self.tables {
-            validate_identifier("schema", &table.schema)?;
-            validate_identifier("table", &table.name)?;
-            anyhow::ensure!(
-                names.insert(table.name.as_str()),
-                "postgres.tables repeats destination name '{}'",
-                table.name
-            );
-        }
         Ok(())
     }
 }

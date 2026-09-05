@@ -33,7 +33,7 @@ pub fn register(
                     serde_json::json!({
                         "host": "", "port": 3306, "database": "", "username": "",
                         "password": "", "trusted_plaintext": true,
-                        "tables": [{ "name": "" }], "batch_rows": 16384,
+                        "tables": { "rules": [], "empty_matches": "fail_validation" }, "batch_rows": 16384,
                         "batch_target_bytes": 8_388_608, "max_row_bytes": 1_073_741_824,
                         "read_protocol": "binary", "replication": {}
                     })
@@ -54,7 +54,13 @@ pub fn register(
                 RecordSemantics::Changelog,
             ])?
             .source_checker::<mysql::MySqlConnectionCheckConfig, _, _>(|config| async move {
-                check_mysql_connection(config).await
+                if config.username.is_empty() {
+                    return check_mysql_connection(config).await;
+                }
+                let tables = mysql::list_tables(&config.connection()).await?;
+                Ok(transferia_registry::ConnectionCheckResult {
+                    tables: Some(tables), ..Default::default()
+                })
             })
             .sink::<mysql::sink::MySqlSinkConfig, _, _>(
                 || {
@@ -123,7 +129,7 @@ async fn check_mysql_connection(
         mysql::check_network_connection(&config).await?;
         Ok(transferia_registry::ConnectionCheckResult {
             message: Some(
-                "MySQL is network-reachable. Authentication was not checked because database or username is incomplete."
+                "MySQL is network-reachable. Authentication was not checked because username is incomplete."
                     .to_owned(),
             ),
             ..transferia_registry::ConnectionCheckResult::network_reachable()

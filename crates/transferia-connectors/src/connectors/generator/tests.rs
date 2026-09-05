@@ -125,7 +125,7 @@ async fn generator_produces_the_exact_configured_logical_size() -> anyhow::Resul
                 rows += source_rows;
             }
             SourceBatch::Finished => break,
-            SourceBatch::Raw { .. } => panic!("generator returned raw data"),
+            SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => panic!("generator returned raw data"),
         }
     }
     assert_eq!(rows * 10 * 8, 1_600);

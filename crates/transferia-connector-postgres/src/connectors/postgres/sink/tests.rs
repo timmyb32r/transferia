@@ -41,6 +41,7 @@ fn discovery(table: &str) -> DeliveryDiscovery {
         keep_system_columns: false,
         datasets: vec![
             DiscoveredDataset {
+                namespace: None,
                 update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::Main,
                 name: Arc::from(table),
@@ -49,6 +50,7 @@ fn discovery(table: &str) -> DeliveryDiscovery {
                 system_columns: Vec::new(),
             },
             DiscoveredDataset {
+                namespace: None,
                 update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                 role: DatasetRole::DeadLetterQueue,
                 name: Arc::from(format!("{table}_dlq")),
@@ -103,6 +105,7 @@ fn clickbench_types_pass_postgres_startup_and_runtime_validation() -> anyhow::Re
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
+            namespace: None,
             update_policy: transferia_core::delivery::UpdatePolicy::Strict,
             role: DatasetRole::Main,
             name: Arc::from("hits"),
@@ -599,6 +602,7 @@ fn postgres_owner_marker_rejects_collisions_and_replacements() {
 fn postgres_scratch_create_is_exclusive_and_marks_owner_atomically() -> anyhow::Result<()> {
     let table: Arc<str> = Arc::from("_transferia_st_0123456789abcdef0123456789abcdef_0");
     let dataset = DatasetPrepare {
+        namespace: None,
         role: DatasetRole::Main,
         table,
         schema: DatasetSchema::new(vec![SchemaColumn::new(

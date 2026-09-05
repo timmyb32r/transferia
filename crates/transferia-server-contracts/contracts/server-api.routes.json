@@ -1,5 +1,13 @@
 [
   {
+    "body": "table_selection_preview_request",
+    "method": "POST",
+    "name": "table_selection_preview",
+    "path": "/api/v1/table-selection/preview",
+    "query": null,
+    "response": "table_selection_preview_response"
+  },
+  {
     "body": null,
     "method": "GET",
     "name": "health",
