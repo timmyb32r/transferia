@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import {
   AutofillResistantInput,
@@ -46,11 +46,22 @@ export function AppearanceSettings({
   onChange: (appearance: Appearance) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const dismissOutside = (event: MouseEvent) => {
+      if (event.target instanceof Node && !root.current?.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("click", dismissOutside, true);
+    return () => document.removeEventListener("click", dismissOutside, true);
+  }, [open]);
   const designGroupName = useOpaqueFieldName();
   const themeGroupName = useOpaqueFieldName();
 
   return (
-    <div class={open ? "appearance-settings open" : "appearance-settings"}>
+    <div ref={root} class={open ? "appearance-settings open" : "appearance-settings"}>
       {open && (
         <div
           id="appearance-settings-panel"

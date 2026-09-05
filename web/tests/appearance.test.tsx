@@ -63,6 +63,26 @@ const CATALOG: UiCatalog = {
 };
 
 describe("appearance preferences", () => {
+  it("dismisses settings only on outside clicks and can reopen them", () => {
+    const onChange = vi.fn();
+    const view = render(<AppearanceSettings value={{ design: "classic", theme: "light" }} onChange={onChange} />);
+    const toggle = view.getByRole("button", { name: /Settings/ });
+    fireEvent.click(toggle);
+    const panel = view.getByLabelText("Appearance settings");
+    fireEvent.click(panel);
+    expect(view.getByLabelText("Appearance settings")).toBe(panel);
+    fireEvent.click(view.getByRole("radio", { name: "Dark" }));
+    expect(onChange).toHaveBeenCalledWith({ design: "classic", theme: "dark" });
+    expect(view.getByLabelText("Appearance settings")).toBe(panel);
+    fireEvent.click(document.body);
+    expect(view.queryByLabelText("Appearance settings")).toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(view.getByRole("button", { name: /Settings/ })).toBe(toggle);
+    fireEvent.click(toggle);
+    expect(view.getByLabelText("Appearance settings")).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(view.queryByLabelText("Appearance settings")).toBeNull();
+  });
   it("uses only native delayed tooltips for matrix mode badges", () => {
     const view = render(<CompatibilityMatrixDialog catalog={CATALOG} onClose={() => {}} />);
     const badge = view.getByTitle("Batch + stream");
