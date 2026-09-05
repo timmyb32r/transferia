@@ -444,22 +444,19 @@ export function CompatibilityMatrixDialog({
     title.toLocaleLowerCase().includes(normalizedMatrixSearch);
 
   useLayoutEffect(() => {
+    const root = document.documentElement;
+    const previousRootOverflow = root.style.overflow;
+    const previousGutter = root.style.scrollbarGutter;
     const previousOverflow = document.body.style.overflow;
-    const previousPaddingRight = document.body.style.paddingRight;
-    const scrollbarWidth = Math.max(
-      0,
-      window.innerWidth - document.documentElement.clientWidth,
-    );
+    // The document scrolls on html, not body. Keep its gutter so locking the
+    // viewport does not move the editor or its fixed controls horizontally.
+    root.style.scrollbarGutter = "stable";
+    root.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
-    if (scrollbarWidth > 0) {
-      const existingPadding = Number.parseFloat(
-        window.getComputedStyle(document.body).paddingRight,
-      );
-      document.body.style.paddingRight = `${(Number.isFinite(existingPadding) ? existingPadding : 0) + scrollbarWidth}px`;
-    }
     return () => {
+      root.style.overflow = previousRootOverflow;
+      root.style.scrollbarGutter = previousGutter;
       document.body.style.overflow = previousOverflow;
-      document.body.style.paddingRight = previousPaddingRight;
     };
   }, []);
 

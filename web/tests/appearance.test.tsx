@@ -378,6 +378,8 @@ describe("appearance preferences", () => {
       name: "Matrix",
     });
     const previousBodyPadding = document.body.style.paddingRight;
+    const previousRootOverflow = document.documentElement.style.overflow;
+    const previousGutter = document.documentElement.style.scrollbarGutter;
     launcher.focus();
     fireEvent.mouseDown(launcher);
     fireEvent.click(launcher);
@@ -388,6 +390,9 @@ describe("appearance preferences", () => {
     expect(dialog).toBeTruthy();
     expect(dialog.parentElement?.parentElement).toBe(document.body);
     expect(document.body.style.overflow).toBe("hidden");
+    expect(document.documentElement.style.overflow).toBe("hidden");
+    expect(document.documentElement.style.scrollbarGutter).toBe("stable");
+    expect(document.body.style.paddingRight).toBe(previousBodyPadding);
     fireEvent.click(view.getByRole("tab", { name: "Entities" }));
     expect(
       [
@@ -540,6 +545,8 @@ describe("appearance preferences", () => {
     expect(view.queryByRole("dialog")).toBeNull();
     expect(document.body.style.overflow).toBe("");
     expect(document.body.style.paddingRight).toBe(previousBodyPadding);
+    expect(document.documentElement.style.overflow).toBe(previousRootOverflow);
+    expect(document.documentElement.style.scrollbarGutter).toBe(previousGutter);
     expect(document.activeElement).toBe(launcher);
   });
 });
