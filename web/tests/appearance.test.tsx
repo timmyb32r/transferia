@@ -473,6 +473,7 @@ describe("appearance preferences", () => {
       target: { value: "s3" },
     });
     expect(s3ColumnHeader.classList.contains("search-match-column")).toBe(true);
+    expect(s3ColumnHeader.classList.contains("selected-column")).toBe(true);
     expect(
       view
         .getByRole("rowheader", { name: /S3/ })
@@ -502,6 +503,13 @@ describe("appearance preferences", () => {
         .classList.contains("active-column"),
     ).toBe(true);
 
+    fireEvent.mouseEnter(postgresRowHeader);
+    expect(intersection.classList.contains("active-intersection")).toBe(false);
+    expect(intersection.closest("tr")?.classList.contains("active-row")).toBe(true);
+    expect(s3ColumnHeader.classList.contains("active-column")).toBe(false);
+    fireEvent.mouseEnter(s3ColumnHeader);
+    expect(intersection.closest("tr")?.classList.contains("active-row")).toBe(false);
+    expect(s3ColumnHeader.classList.contains("active-column")).toBe(true);
     fireEvent.mouseLeave(view.getByRole("table"));
     expect(intersection.classList.contains("active-intersection")).toBe(false);
     fireEvent.keyDown(document, { key: "Escape" });

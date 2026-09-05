@@ -339,8 +339,8 @@ export function CompatibilityMatrixDialog({
   const matrixViewport = useRef<HTMLDivElement>(null);
   const matrixContent = useRef<HTMLDivElement>(null);
   const [activeCell, setActiveCell] = useState<{
-    source: string;
-    sink: string;
+    source: string | null;
+    sink: string | null;
   } | null>(null);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [selectedSink, setSelectedSink] = useState<string | null>(null);
@@ -547,16 +547,18 @@ export function CompatibilityMatrixDialog({
               <caption>Sources by destinations</caption>
               <thead>
                 <tr>
-                  <th scope="col">Source ↓ / Destination →</th>
+                  <th scope="col" onMouseEnter={() => setActiveCell(null)}>Source ↓ / Destination →</th>
                   {sinks.map((sink) => (
                     <th
                       scope="col"
                       key={sink.key}
                       title={sink.title}
+                      onMouseEnter={() => setActiveCell({ source: null, sink: sink.key })}
                       class={[
-                        activeCell?.sink === sink.key || selectedSink === sink.key
+                        activeCell?.sink === sink.key
                           ? "active-column"
                           : "",
+                        selectedSink === sink.key ? "selected-column" : "",
                         matchesMatrixSearch(sink.title)
                           ? "search-match-column"
                           : "",
@@ -584,16 +586,16 @@ export function CompatibilityMatrixDialog({
                   <tr
                     key={source.key}
                     class={[
-                      activeCell?.source === source.key ||
-                      selectedSource === source.key
+                      activeCell?.source === source.key
                         ? "active-row"
                         : "",
+                      selectedSource === source.key ? "selected-row" : "",
                       matchesMatrixSearch(source.title) ? "search-match-row" : "",
                     ]
                       .filter(Boolean)
                       .join(" ")}
                   >
-                    <th scope="row">
+                    <th scope="row" onMouseEnter={() => setActiveCell({ source: source.key, sink: null })}>
                       <button
                         type="button"
                         aria-pressed={selectedSource === source.key}
@@ -792,7 +794,8 @@ function CompatibilityCell({
         route.unsupported.length > 0 || route.partial.length > 0
           ? "partial"
           : "",
-        activeColumn || selectedColumn ? "active-column" : "",
+        activeColumn ? "active-column" : "",
+        selectedColumn ? "selected-column" : "",
         searchMatchColumn ? "search-match-column" : "",
         activeIntersection ? "active-intersection" : "",
       ]

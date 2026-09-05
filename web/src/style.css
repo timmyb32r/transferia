@@ -4528,13 +4528,20 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .compatibility-table td.active-column,
 .compatibility-table tr.active-row > th,
 .compatibility-table tr.active-row > td {
-  background: color-mix(in srgb, #3b82f6 32%, var(--panel));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #3b82f6 65%, transparent);
+  background: color-mix(in srgb, #3b82f6 10%, var(--panel));
 }
 
 .compatibility-table td.active-intersection {
-  background: color-mix(in srgb, #3b82f6 52%, var(--panel));
-  box-shadow: inset 0 0 0 2px #3b82f6;
+  background: color-mix(in srgb, #3b82f6 18%, var(--panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #3b82f6 35%, transparent);
+}
+
+.compatibility-table th.selected-column,
+.compatibility-table td.selected-column,
+.compatibility-table tr.selected-row > th,
+.compatibility-table tr.selected-row > td {
+  background: color-mix(in srgb, #3b82f6 32%, var(--panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #3b82f6 65%, transparent);
 }
 
 .compatibility-table th.search-match-column,
@@ -4543,6 +4550,15 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .compatibility-table tr.search-match-row > td {
   background: color-mix(in srgb, var(--success-surface), var(--panel) 34%);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success-text), transparent 55%);
+}
+
+.compatibility-table .selected-column.search-match-column,
+.compatibility-table tr.selected-row.search-match-row > th,
+.compatibility-table tr.selected-row.search-match-row > td,
+.compatibility-table tr.selected-row > td.search-match-column,
+.compatibility-table tr.search-match-row > td.selected-column {
+  background: color-mix(in srgb, #a855f7 24%, var(--panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #a855f7 65%, transparent);
 }
 
 .compatibility-mode-gaps {
@@ -4582,10 +4598,28 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   display: inline-flex;
 }
 
+.compatibility-badge.batch {
+  color: #bbf7d0;
+  background: #14532d;
+  border-color: #4d9967;
+}
+
 .compatibility-badge.stream {
-  color: var(--blue);
-  background: var(--surface-selected);
-  border-color: color-mix(in srgb, var(--blue), transparent 65%);
+  color: #67e8f9;
+  background: #164e63;
+  border-color: #368ba0;
+}
+
+:root[data-theme="light"] .compatibility-badge.batch {
+  color: #166534;
+  background: #dcfce7;
+  border-color: #86cf9d;
+}
+
+:root[data-theme="light"] .compatibility-badge.stream {
+  color: #0e7490;
+  background: #cffafe;
+  border-color: #67cbdc;
 }
 
 .compatibility-unavailable {

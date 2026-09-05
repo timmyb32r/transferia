@@ -16,14 +16,22 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("distinguishes green batch badges from cyan stream badges in both themes", () => {
+    expect(styles).toMatch(/\.compatibility-badge.batch\s*\{[^}]*color: #bbf7d0;[^}]*background: #14532d;/s);
+    expect(styles).toMatch(/\.compatibility-badge.stream\s*\{[^}]*color: #67e8f9;[^}]*background: #164e63;/s);
+    expect(styles).toMatch(/:root\[data-theme="light"\] \.compatibility-badge.batch\s*\{[^}]*color: #166534;[^}]*background: #dcfce7;/s);
+    expect(styles).toMatch(/:root\[data-theme="light"\] \.compatibility-badge.stream\s*\{[^}]*color: #0e7490;[^}]*background: #cffafe;/s);
+  });
   it("keeps matrix header transforms out of pressed-state rules", () => {
     const pressedRule = styles.match(/\.compatibility-table th > button:active:not\(:disabled\)\s*\{([^}]*)\}/);
     expect(pressedRule).not.toBeNull();
     expect(pressedRule?.[1]).not.toMatch(/\b(transform|scale)\s*:/);
   });
   it("distinguishes strong blue matrix selection from green search matches", () => {
-    expect(styles).toMatch(/\.compatibility-table tr.active-row > td\s*\{[^}]*#3b82f6 32%/s);
-    expect(styles).toMatch(/\.compatibility-table td.active-intersection\s*\{[^}]*#3b82f6 52%/s);
+    expect(styles).toMatch(/\.compatibility-table tr.selected-row > td\s*\{[^}]*#3b82f6 32%/s);
+    expect(styles).toMatch(/\.compatibility-table tr.active-row > td\s*\{[^}]*#3b82f6 10%/s);
+    expect(styles).toMatch(/\.compatibility-table td.active-intersection\s*\{[^}]*#3b82f6 18%/s);
+    expect(styles).toMatch(/\.compatibility-table tr.search-match-row > td.selected-column\s*\{[^}]*#a855f7 24%/s);
     expect(styles).toMatch(/\.compatibility-table tr.search-match-row > td\s*\{[^}]*var\(--success-surface\)/s);
   });
   it("fits the matrix without scrollbars and makes the entire header cell pressable", () => {
