@@ -16,6 +16,17 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("gives output columns a framed zebra surface without overriding cell states", () => {
+    const shell = styles.split(':root[data-theme="light"] .table-shell:has(> .column-table) {')[1]?.split("}")[0];
+    expect(shell).toContain("background: #ffffff;");
+    expect(shell).toContain("border: 1px solid #cfd8de;");
+    expect(shell).toContain("border-radius: var(--radius-panel);");
+    expect(styles).toContain('.column-table tbody tr:nth-child(even) {\n  background: #f1f5f8;');
+    // Backgrounds belong to rows, leaving selected/error/dragged cell colors on top.
+    expect(styles).not.toMatch(/\.column-table tbody tr:nth-child\(even\) td/);
+    const hover = styles.split('.column-table tbody tr:hover {')[1]?.split("}")[0];
+    expect(hover?.trim()).toBe("background: #e5f2f0;");
+  });
   it("shares the destination gaps and panel radius with the parser join", () => {
     expect(styles).toContain("grid-template-columns: minmax(450px, 1fr) var(--route-gap) minmax(450px, 1fr);");
     const bridge = styles.split(".source-parser-bridge {")[1]?.split("}")[0];

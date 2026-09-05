@@ -3439,6 +3439,27 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   table-layout: fixed;
   border-collapse: collapse;
 }
+/* Variant B: a white, zebra-striped table within the gray parser island. */
+:root[data-theme="light"] .table-shell:has(> .column-table) {
+  background: #ffffff;
+  border: 1px solid #cfd8de;
+  border-radius: var(--radius-panel);
+}
+:root[data-theme="light"] .column-table thead {
+  background: #e9eef2;
+}
+:root[data-theme="light"] .column-table th {
+  color: #52606b;
+}
+:root[data-theme="light"] .column-table tbody tr:nth-child(even) {
+  background: #f1f5f8;
+}
+:root[data-theme="light"] .column-table tbody tr:hover {
+  background: #e5f2f0;
+}
+:root[data-theme="light"] .column-table td {
+  border-top-color: #dce3e8;
+}
 .config-table th {
   height: 34px;
   padding: 0 6px;
