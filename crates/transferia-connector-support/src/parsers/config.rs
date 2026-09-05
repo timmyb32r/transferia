@@ -19,7 +19,7 @@ pub enum ParserSchema {
     Json(JsonParserSchema),
     #[schemars(title = "TSKV parser", extend("x-ui" = { "capabilities": { "component": "parser", "key": "tskv", "record_semantics": ["append_only"] } }))]
     Tskv(TskvParserSchema),
-    #[schemars(title = "Confluent Schema Registry parser", extend("x-ui" = { "capabilities": { "component": "parser", "key": "schema_registry", "record_semantics": ["append_only"] } }))]
+    #[schemars(title = "Schema Registry parser", extend("x-ui" = { "capabilities": { "component": "parser", "key": "schema_registry", "record_semantics": ["append_only"] } }))]
     SchemaRegistry(SchemaRegistryParserSchema),
     #[schemars(title = "Debezium parser", extend("x-ui" = { "capabilities": { "component": "parser", "key": "debezium", "record_semantics": ["changelog"] } }))]
     Debezium(DebeziumParserSchema),
@@ -77,7 +77,7 @@ pub struct SchemaRegistryParserSchema {
     )]
     pub common: MessageAwareCommonParserConfig,
 
-    #[schemars(title = "Confluent Schema Registry parser")]
+    #[schemars(title = "Schema Registry parser")]
     pub schema_registry: SchemaRegistryParserConfig,
 }
 

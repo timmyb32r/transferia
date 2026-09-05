@@ -12,7 +12,8 @@ fn schema_registry_public_config_is_complete_and_editable() {
             .expect("public parser schema serializes");
     let public = public_schema.to_string();
     assert!(public.contains("schema_registry"));
-    assert!(public.contains("Confluent Schema Registry parser"));
+    assert!(public.contains("Schema Registry parser"));
+    assert!(!public.contains("Confluent Schema Registry parser"));
 
     let runtime_schema =
         serde_json::to_value(schemars::schema_for!(super::SchemaRegistryParserConfig))

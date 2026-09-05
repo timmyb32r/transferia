@@ -409,7 +409,7 @@
                   }
                 },
                 {
-                  "title": "Confluent Schema Registry parser",
+                  "title": "Schema Registry parser",
                   "$ref": "#/$defs/SchemaRegistryParserSchema",
                   "x-ui": {
                     "capabilities": {
@@ -1099,7 +1099,7 @@
                   }
                 },
                 "schema_registry": {
-                  "title": "Confluent Schema Registry parser",
+                  "title": "Schema Registry parser",
                   "$ref": "#/$defs/SchemaRegistryParserConfig"
                 }
               },
@@ -2379,7 +2379,7 @@
                   }
                 },
                 {
-                  "title": "Confluent Schema Registry parser",
+                  "title": "Schema Registry parser",
                   "$ref": "#/$defs/SchemaRegistryParserSchema",
                   "x-ui": {
                     "capabilities": {
@@ -3069,7 +3069,7 @@
                   }
                 },
                 "schema_registry": {
-                  "title": "Confluent Schema Registry parser",
+                  "title": "Schema Registry parser",
                   "$ref": "#/$defs/SchemaRegistryParserConfig"
                 }
               },
