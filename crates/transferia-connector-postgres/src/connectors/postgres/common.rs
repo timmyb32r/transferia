@@ -154,10 +154,39 @@ pub async fn connect(config: &PostgresConnectionConfig) -> anyhow::Result<tokio_
 
 pub async fn check_connection(config: &PostgresConnectionConfig) -> anyhow::Result<()> {
     config.validate()?;
-    let client = connect(config).await?;
+    let client = connect(config).await.map_err(|error| {
+        let code = error
+            .downcast_ref::<tokio_postgres::Error>()
+            .and_then(tokio_postgres::Error::code)
+            .map(tokio_postgres::error::SqlState::code);
+        if let Some(message) = authentication_check_message(code, config.password.is_empty()) {
+            anyhow::anyhow!(message)
+        } else {
+            error
+        }
+    })?;
     client.simple_query("SELECT 1").await?;
     Ok(())
 }
+
+fn authentication_check_message(code: Option<&str>, empty_password: bool) -> Option<&'static str> {
+    match code {
+        Some("28P01") if empty_password => Some(
+            "PostgreSQL is reachable, but authentication failed. The password field is empty. Enter the password for this user and try again.",
+        ),
+        Some("28P01") => Some(
+            "PostgreSQL is reachable, but authentication failed. Check the username and password and try again.",
+        ),
+        Some("28000") => Some(
+            "PostgreSQL is reachable, but access was rejected. Check the user and the server authentication rules (pg_hba.conf).",
+        ),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/common.rs"]
+mod tests;
 
 pub async fn check_network_connection(
     config: &PostgresConnectionCheckConfig,

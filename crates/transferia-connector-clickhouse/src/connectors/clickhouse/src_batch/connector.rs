@@ -165,7 +165,7 @@ impl ClickHouseSourceConnector {
         client
             .ensure_connected()
             .await
-            .map_err(|error| anyhow::anyhow!("ClickHouse connection failed: {error}"))?;
+            .map_err(|error| super::super::sink::connection_check_error(&error))?;
         Ok(ConnectionCheckResult::default())
     }
 

@@ -164,11 +164,11 @@ async fn query_shard_groups(client: &ReconnectingClient) -> anyhow::Result<Vec<S
     Ok(groups)
 }
 
-fn connection_check_error(error: &clickhouse_arrow::Error) -> anyhow::Error {
+pub(crate) fn connection_check_error(error: &clickhouse_arrow::Error) -> anyhow::Error {
     let rendered = error.to_string();
     if rendered.contains("AUTHENTICATION_FAILED") || rendered.contains("Authentication failed") {
         anyhow::anyhow!(
-            "Network connection succeeded, but authentication failed: password is incorrect, or there is no user with such name."
+            "ClickHouse is reachable, but authentication failed. Check the username and password. If the password field is empty, enter the password for this user and try again."
         )
     } else {
         anyhow::anyhow!("ClickHouse connection check failed: {rendered}")

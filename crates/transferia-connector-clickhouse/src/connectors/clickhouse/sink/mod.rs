@@ -13,5 +13,6 @@ mod tests;
 pub use actor::ClickHouseSink;
 pub use config::{ClickHouseCompression, ClickHouseInsertFormat, ClickHouseSinkConfig};
 pub use connector::ClickHouseConnectionCheck;
+pub(crate) use connector::connection_check_error;
 pub use connector::ClickHouseSinkConnector;
 pub use transport::{InsertError, InsertTransport};

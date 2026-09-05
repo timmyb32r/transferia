@@ -70,7 +70,7 @@ fn authentication_failure_does_not_expose_server_details() {
 
     assert_eq!(
         connection_check_error(&error).to_string(),
-        "Network connection succeeded, but authentication failed: password is incorrect, or there is no user with such name."
+        "ClickHouse is reachable, but authentication failed. Check the username and password. If the password field is empty, enter the password for this user and try again."
     );
 }
 
