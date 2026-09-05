@@ -16,6 +16,16 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("gives nested serializer fields full width instead of repeated label columns", () => {
+    const row = styles.match(/\.serializer-details-card \.schema-object \.form-row:not\(\.form-row-wide\)\s*\{([^}]*)\}/)?.[1];
+    expect(row).toContain("grid-template-columns: minmax(0, 1fr);");
+    expect(row).toContain("align-items: start;");
+    const control = styles.match(/\.serializer-details-card \.form-row > \.field-control\s*\{([^}]*)\}/)?.[1];
+    expect(control).toContain("width: 100%;");
+    expect(control).toContain("min-width: 0;");
+    // The layout must not depend on hover/focus: typing cannot move controls.
+    expect(styles).not.toMatch(/\.serializer-details-card[^{}]*:(?:hover|focus|focus-within)[^{}]*\{[^}]*(?:grid-template-columns|width|padding)\s*:/s);
+  });
   it("collapses empty route feedback and lets errors use their natural height", () => {
     expect(styles).toMatch(/\.route-feedback:empty\s*\{[^}]*display: none;/s);
     const feedback = styles.match(/\.route-feedback\s*\{([^}]*)\}/)?.[1];

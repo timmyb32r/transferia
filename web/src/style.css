@@ -3324,6 +3324,15 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   position: relative;
   z-index: 1;
 }
+.serializer-details-card .schema-object .form-row:not(.form-row-wide) {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
+}
+.serializer-details-card .form-row > .field-control {
+  width: 100%;
+  min-width: 0;
+}
 .parser-details-card .json-parser-editor {
   gap: 0;
 }
