@@ -72,7 +72,7 @@ describe("record semantic selection", () => {
     ).toEqual(["changelog"]);
     expect(
       sourceRecordSemantics(queueSource, schema, { parser: {} }, "stream"),
-    ).toEqual(["append_only", "changelog"]);
+    ).toBeUndefined();
   });
 
   it("models batch, stream, and combined database deliveries", () => {

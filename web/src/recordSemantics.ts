@@ -30,7 +30,8 @@ export function sourceRecordSemantics(
   schema: CompiledNode,
   value: JsonValue,
   deliveryType: DeliveryType,
-): RecordSemantics[] {
+): RecordSemantics[] | undefined {
+  if (componentSelectionPending(schema, value, "parser")) return undefined;
   const endpointCapabilities = configuredEndpointCapabilities(
     endpoint,
     schema,
@@ -142,6 +143,34 @@ export function selectedComponentRecordSemantics(
 ): RecordSemantics[] | undefined {
   const selected = selectedComponentNode(node, value, component);
   return selected === undefined ? undefined : [...selected.xUi.capabilities!.record_semantics!];
+}
+
+/** An unresolved component is unknown, not the union of all its alternatives. */
+function componentSelectionPending(
+  node: CompiledNode,
+  value: JsonValue,
+  component: "parser" | "serializer",
+): boolean {
+  const contains = (candidate: CompiledNode): boolean => {
+    if (candidate.xUi.capabilities?.component === component) return true;
+    if (candidate.kind === "union") return candidate.branches.some((branch) => contains(branch.node));
+    if (candidate.kind === "object") return Object.values(candidate.properties).some(contains);
+    if (candidate.kind === "nullable") return contains(candidate.inner);
+    if (candidate.kind === "array") return contains(candidate.item);
+    return false;
+  };
+  if (node.kind === "union") {
+    const selected = node.branches.find((branch) => branchMatches(branch, value));
+    return selected ? componentSelectionPending(selected.node, value, component) : contains(node);
+  }
+  if (node.kind === "object") {
+    const object = isObject(value) ? value : {};
+    return Object.entries(node.properties).some(([name, child]) =>
+      componentSelectionPending(child, object[name] ?? null, component));
+  }
+  if (node.kind === "nullable") return value !== null && componentSelectionPending(node.inner, value, component);
+  if (node.kind === "array" && Array.isArray(value)) return value.some((item) => componentSelectionPending(node.item, item, component));
+  return false;
 }
 
 export function selectedComponentNode(

@@ -23,7 +23,7 @@ import {
   type CompiledNode,
 } from "../src/schema/compiler";
 import { SchemaForm } from "../src/schema/SchemaForm";
-import { configuredEndpointCapabilities, sourceRecordSemantics, DELIVERY_TYPES } from "../src/recordSemantics";
+import { configuredEndpointCapabilities, sourceRecordSemantics, selectedComponentRecordSemantics, DELIVERY_TYPES } from "../src/recordSemantics";
 import { compatibilityRoutes, catalogBatchStreamHandoffs, catalogParserSupport, CompatibilityMatrixDialog } from "../src/ui/CompatibilityMatrixDialog";
 import type { JsonObject, JsonValue, UiCatalog } from "../src/types";
 import {
@@ -133,6 +133,43 @@ describe("connector catalog readiness", () => {
     expect(view.queryByRole("button", { name: "JSON" })).toBeNull();
   });
   const matrixCatalog = decodeApi("catalog_response", catalogFixture, "catalog");
+  it("checks every source/parser and destination pair only after record semantics are known", () => {
+    let unknown = 0;
+    let known = 0;
+    for (const source of matrixCatalog.connectors.filter((entry) => entry.source)) {
+      const endpoint = source.source!;
+      const schema = compileSchema(endpoint.schema, productionWidgetRegistry);
+      const values = [endpoint.initial, {}, ...unionScenarios(schema).map((scenario) => visibleWitness(schema, endpoint.initial, true, scenario.forces))];
+      for (const sink of matrixCatalog.connectors.filter((entry) => entry.sink)) {
+        const sinkSchema = compileSchema(sink.sink!.schema, productionWidgetRegistry);
+        const sinkValue = sink.sink!.initial;
+        const accepted = configuredEndpointCapabilities(sink.sink!, sinkSchema, sinkValue, "destination");
+        const serializer = selectedComponentRecordSemantics(sinkSchema, sinkValue, "serializer");
+        for (const mode of endpoint.delivery_modes) {
+          if (accepted.delivery_modes.length && !accepted.delivery_modes.includes(mode)) continue;
+          for (const value of values) {
+            const selection = selectedEndpoints(matrixCatalog, { delivery_type: mode, source: { [source.key]: value }, sink: { [sink.key]: sinkValue } }, productionWidgetRegistry);
+            const produced = sourceRecordSemantics(endpoint, schema, value, mode);
+            const message = `${source.key} -> ${sink.key} / ${mode}`;
+            if (produced === undefined) {
+              expect(selection.error ?? "", message).not.toContain("cannot preserve");
+              unknown += 1;
+            } else if (configuredEndpointCapabilities(endpoint, schema, value, "source").delivery_modes.includes(mode)) {
+              const compatible = produced.every((kind) => accepted.record_semantics.includes(kind) && (serializer === undefined || serializer.includes(kind)));
+              if (selection.routeError) {
+                expect(selection.error, message).toBe(selection.routeError);
+              } else {
+                expect((selection.error ?? "").includes("cannot preserve"), message).toBe(!compatible);
+              }
+              known += 1;
+            }
+          }
+        }
+      }
+    }
+    expect(unknown).toBeGreaterThan(0);
+    expect(known).toBeGreaterThan(0);
+  });
   it("checks destination modes before any source is selected, using only declared properties", () => {
     const catalog: UiCatalog = { ...matrixCatalog, connectors: [{
       key: "arbitrary-store", title: "Archive", sink: {

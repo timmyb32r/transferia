@@ -430,6 +430,7 @@ export function selectedEndpoints(
         );
         const produced = sourceRecordSemantics(source, sourceSchema, sourceValue, mode);
         if (
+          produced !== undefined &&
           !acceptsConfiguredRecordSemantics(
             produced,
             sinkCapabilities,
