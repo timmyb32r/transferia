@@ -183,7 +183,10 @@ pub(in crate::ydb) fn replication_discovery(
 }
 
 fn metadata_nullable(role: &str) -> bool {
-    role == SYSTEM_ROLE_SOURCE_TRANSACTION_ID
+    matches!(
+        role,
+        SYSTEM_ROLE_SOURCE_TRANSACTION_ID | SYSTEM_ROLE_SOURCE_TIMESTAMP_MS
+    )
 }
 
 fn old_schema_column(index: usize, column: &SchemaColumn) -> SchemaColumn {
@@ -464,9 +467,9 @@ impl ReplicationDecodeState {
                         record.topic_path
                     )
                 })?;
-            let mut event = self.tables[table_index].decoder.decode(&record.payload)?;
+            let event = self.tables[table_index].decoder.decode(&record.payload)?;
             if self.overlap {
-                reconcile_overlap(&mut event)?;
+                reconcile_overlap(&event)?;
             }
             grouped[table_index].push(DecodedRecord {
                 source_version: cdc_row_version(record.offset, self.overlap)?,
@@ -1240,7 +1243,7 @@ fn cdc_row_version(offset: i64, overlap: bool) -> anyhow::Result<u64> {
     Ok(u64::try_from(offset)? + u64::from(overlap))
 }
 
-fn reconcile_overlap(event: &mut DecodedYdbCdcEvent) -> anyhow::Result<()> {
+fn reconcile_overlap(event: &DecodedYdbCdcEvent) -> anyhow::Result<()> {
     if event.operation == ChangeOperation::Update {
         anyhow::ensure!(
             event
@@ -1254,9 +1257,8 @@ fn reconcile_overlap(event: &mut DecodedYdbCdcEvent) -> anyhow::Result<()> {
                         .is_some_and(|mask| mask & (1 << (index % 8)) != 0)),
             "YDB overlap upsert requires a complete current row and changed-column mask"
         );
-        // Explicit batch_and_stream reconciliation: full-image writes must also
-        // create rows absent from the later snapshot. Keep before-images intact.
-        event.operation = ChangeOperation::Create;
+        // Preserve the original UPDATE and before-image. Discovery selects
+        // full-image upsert application for state sinks in overlap mode only.
     }
     Ok(())
 }

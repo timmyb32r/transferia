@@ -233,6 +233,10 @@ impl SourceConnector for YdbSourceConnector {
                 let mut discovery = replication_discovery(request, &resources)?;
                 if delivery_type == DeliveryType::BatchAndStream {
                     discovery.source_topology = SourceTopology::CoLocatedStaticPartitions(vec![0]);
+                    for dataset in &mut discovery.datasets {
+                        dataset.update_policy =
+                            transferia_core::delivery::UpdatePolicy::FullImageUpsert;
+                    }
                 }
                 return Ok(discovery);
             }
@@ -265,11 +269,11 @@ impl SourceConnector for YdbSourceConnector {
                             )
                         }));
                     DiscoveredDataset {
+                        update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                         role: DatasetRole::Main,
                         name: Arc::from(table.config.name()),
                         stored_schema: if request.keep_system_columns {
                             incoming_schema.clone()
-                        update_policy: transferia_core::delivery::UpdatePolicy::Strict,
                         } else {
                             table.schema.clone()
                         },
@@ -340,6 +344,10 @@ impl SourceConnector for YdbSourceConnector {
             let mut remaining_phases = self.execution_phases(context.delivery_type, &discovery)?;
             if context.delivery_type == DeliveryType::BatchAndStream {
                 discovery.source_topology = SourceTopology::CoLocatedStaticPartitions(vec![0]);
+                for dataset in &mut discovery.datasets {
+                    dataset.update_policy =
+                        transferia_core::delivery::UpdatePolicy::FullImageUpsert;
+                }
                 let overlap = self
                     .prepared_overlap(Arc::clone(&prepared), durable.clone(), &cancellation)
                     .await?;

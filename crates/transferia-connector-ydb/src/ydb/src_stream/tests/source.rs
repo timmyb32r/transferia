@@ -11,8 +11,8 @@ use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::failure::FailureDisposition;
 
 #[test]
-fn source_timestamp_is_required_in_discovery_and_runtime_metadata() {
-    assert!(!super::metadata_nullable(
+fn source_timestamp_can_be_unknown_for_snapshot_rows() {
+    assert!(super::metadata_nullable(
         transferia_core::data::schema::SYSTEM_ROLE_SOURCE_TIMESTAMP_MS
     ));
 }
@@ -55,17 +55,17 @@ fn overlap_reconciles_complete_updates_without_changing_deletes_or_before_images
         .unwrap();
     assert_eq!(update.operation, transferia_core::ChangeOperation::Update);
     let old = update.old.clone();
-    super::reconcile_overlap(&mut update).unwrap();
-    assert_eq!(update.operation, transferia_core::ChangeOperation::Create);
+    super::reconcile_overlap(&update).unwrap();
+    assert_eq!(update.operation, transferia_core::ChangeOperation::Update);
     assert_eq!(update.old, old);
-    let mut delete = decoder
+    let delete = decoder
         .decode(br#"{"key":[7],"erase":{},"oldImage":{},"ts":[2,3]}"#)
         .unwrap();
-    super::reconcile_overlap(&mut delete).unwrap();
+    super::reconcile_overlap(&delete).unwrap();
     assert_eq!(delete.operation, transferia_core::ChangeOperation::Delete);
     update.operation = transferia_core::ChangeOperation::Update;
     update.changed_columns.fill(0);
-    assert!(super::reconcile_overlap(&mut update).is_err());
+    assert!(super::reconcile_overlap(&update).is_err());
 }
 
 #[tokio::test]

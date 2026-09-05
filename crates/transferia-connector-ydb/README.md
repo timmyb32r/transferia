@@ -17,7 +17,9 @@ This is an overlapping handoff, not an exactly-once snapshot boundary. The
 snapshot can already contain a change that CDC subsequently replays. Older
 values can temporarily be reapplied before newer changes restore the current
 state. In this explicitly selected mode, complete UPDATE images are applied as
-upserts (the internal `c` operation), retaining before-images and preserving
+upserts for state sinks through the explicit `FullImageUpsert` discovery policy.
+The source retains the original `u` operation and before-image for queue
+serializers; only state-sink projection maps a complete same-key UPDATE to `c`, preserving
 DELETE operations. An incomplete update is rejected before emission. Ordinary
 stream delivery preserves its original UPDATE operations. This reconciliation
 is necessary when a row was updated and deleted before the snapshot read it:

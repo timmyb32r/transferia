@@ -222,6 +222,15 @@ async fn ydb_overlap_snapshots_then_reconciles_update_delete_without_early_strea
         .execute_data(format!("UPDATE `{table}` SET value = 22u WHERE id = 2u;"))
         .await?;
     let mut snapshot = connector.build_source(build(SourcePhase::Snapshot)).await?;
+    let serializer_config: SerializerConfig = serde_json::from_value(serde_json::json!({
+        "type": "debezium", "format": { "type": "json" }
+    }))?;
+    serializer_config.validate_discovery(&prepared.discovery)?;
+    let mut serializer = DeliverySerializer::new(
+        &serializer_config,
+        QueueMessageMode::KeyedWithTombstones,
+        "Overlap delivery",
+    )?;
     let mut state = BTreeMap::new();
     while let SourceBatch::Typed {
         tables,
@@ -229,6 +238,20 @@ async fn ydb_overlap_snapshots_then_reconciles_update_delete_without_early_strea
         ..
     } = snapshot.read_batch().await?
     {
+        let serialized = serialize_tables(&mut serializer, &prepared.discovery, &tables, 0).await?;
+        for message in serialized
+            .batches
+            .into_iter()
+            .flat_map(|batch| batch.messages)
+        {
+            let envelope = debezium_value(&(message.key, message.value))?;
+            assert_eq!(envelope["op"], "r");
+            assert_eq!(envelope["source"]["snapshot"], "true");
+            assert!(envelope["source"]["ts_ms"].is_null());
+            assert!(envelope["source"]["step"].is_null());
+            assert!(envelope["source"]["txId"].is_null());
+            assert!(envelope["ts_ms"].is_null());
+        }
         apply_overlap_tables(&prepared.discovery, tables, &mut state).await?;
         if let Some(marker) = commit_marker {
             snapshot.commit_offsets(&[marker]).await?;
@@ -247,6 +270,7 @@ async fn ydb_overlap_snapshots_then_reconciles_update_delete_without_early_strea
     let mut stream = connector.build_source(build(SourcePhase::Stream)).await?;
     let mut saw_delete = false;
     let mut saw_second_update = false;
+    let mut serialized_updates = 0;
     tokio::time::timeout(TEST_TIMEOUT, async {
         while !saw_delete || !saw_second_update {
             let SourceBatch::Typed {
@@ -264,9 +288,25 @@ async fn ydb_overlap_snapshots_then_reconciles_update_delete_without_early_strea
                 for row in 0..table.batch.num_rows() {
                     saw_delete |= ids.value(row) == 1 && operations.value(row) == "d";
                     saw_second_update |= ids.value(row) == 2
-                        && operations.value(row) == "c"
+                        && operations.value(row) == "u"
                         && values.value(row) == 22;
-                    assert_ne!(operations.value(row), "u");
+                }
+            }
+            let serialized =
+                serialize_tables(&mut serializer, &prepared.discovery, &tables, 0).await?;
+            for message in serialized
+                .batches
+                .into_iter()
+                .flat_map(|batch| batch.messages)
+            {
+                if message.value.is_none() {
+                    continue; // Delete tombstones have no envelope.
+                }
+                let envelope = debezium_value(&(message.key, message.value))?;
+                if envelope["op"] == "u" {
+                    assert!(!envelope["before"].is_null());
+                    assert!(!envelope["after"].is_null());
+                    serialized_updates += 1;
                 }
             }
             apply_overlap_tables(&prepared.discovery, tables, &mut state).await?;
@@ -277,6 +317,7 @@ async fn ydb_overlap_snapshots_then_reconciles_update_delete_without_early_strea
         Ok::<_, anyhow::Error>(())
     })
     .await??;
+    assert!(serialized_updates > 0);
     assert_eq!(state, BTreeMap::from([(2, 22)]));
     stream.shutdown().await?;
     drop(stream);
