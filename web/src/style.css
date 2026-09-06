@@ -4985,14 +4985,14 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .table-rule-row ~ .table-rule-row .field-label { display: none; }
 .table-pattern-input { position: relative; min-width: 0; }
 .table-pattern-input input[type="text"] { width: 100%; padding-right: 52px; }
-.table-pattern-input .regex-toggle { position: absolute; right: 5px; top: 5px; bottom: 5px; width: 36px; min-height: 0; padding: 0; font-family: monospace; }
+.table-pattern-input .regex-toggle { position: absolute; right: 5px; top: 5px; bottom: 5px; width: 36px; height: calc(100% - 10px); min-height: 0; padding: 0; display: grid; place-items: center; line-height: 1; font-family: monospace; }
 .regex-toggle[aria-pressed="true"] { background: var(--surface-selected); color: var(--blue); border-color: var(--blue); }
 .table-rule-result { height: 34px; }
 .table-rule-result .matched-toggle { height: 32px; min-height: 32px; padding: 2px 8px; border-color: transparent; background: transparent; color: var(--blue); }
 .table-selection-editor > .icon-button { justify-self: start; }
 .table-pattern-input input[aria-invalid="true"] { border-color: var(--red); }
 .segmented-control { display: inline-flex; justify-self: start; max-width: 100%; border: 1px solid var(--line-strong); border-radius: var(--radius-control); padding: 3px; gap: 3px; background: var(--surface-soft); }
-.segmented-control > button { flex: 1; min-width: 0; border-color: transparent; background: transparent; box-shadow: none; white-space: nowrap; }
+.segmented-control > button { flex: 1 0 auto; min-width: max-content; border-color: transparent; background: transparent; box-shadow: none; white-space: nowrap; }
 .segmented-control > button[aria-checked="true"] { background: var(--surface-selected); color: var(--blue); border-color: var(--blue); }
 .segmented-control > button:active:not(:disabled) { background: var(--surface-selected); }
 @media (max-width: 640px) {
@@ -5006,7 +5006,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   gap: 8px;
 }
 .table-selection-status {
-  height: 72px;
+  height: 24px;
   overflow: auto;
   white-space: pre-line;
   overflow-wrap: anywhere;

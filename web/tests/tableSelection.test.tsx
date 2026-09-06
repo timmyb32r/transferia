@@ -64,7 +64,31 @@ it("expands matches only on request into a bounded inline viewport", async () =>
   }).process;
   const css = runtime?.getBuiltinModule?.("fs").readFileSync("src/style.css", "utf8") ?? "";
   expect(css).toMatch(/\.table-rule-matches\s*\{[^}]*height: 140px;[^}]*overflow: auto;/);
-  expect(css).toMatch(/\.table-selection-status\s*\{[^}]*height: 72px;/);
+  expect(css).toMatch(/\.table-selection-status\s*\{[^}]*height: 24px;/);
+  expect(css).toContain("flex: 1 0 auto; min-width: max-content;");
+  expect(css).toContain("height: calc(100% - 10px); min-height: 0;");
+});
+
+it("offers an initial empty row and never previews unfinished includes", async () => {
+  const preview = vi.fn();
+  const tables = [{ namespace: "db", name: "users" }];
+  function Editor() {
+    const [value, setValue] = useState<JsonValue>({ type: "selected", rules: [] });
+    return <TableCatalogContext.Provider value={{ tables, preview }}>
+      <TableSelectionEditor value={value} onChange={setValue} />
+    </TableCatalogContext.Provider>;
+  }
+  vi.useFakeTimers();
+  try {
+    const view = render(<Editor />);
+    expect((view.getByLabelText("Include rule 1") as HTMLInputElement).value).toBe("");
+    fireEvent.click(view.getByRole("button", { name: "Add table rule" }));
+    expect(view.getByLabelText("Include rule 2")).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(preview).not.toHaveBeenCalled();
+    expect(view.getByRole("status").textContent).toBe("Enter a table name or pattern.");
+    expect(view.getByRole("status").getAttribute("aria-busy")).toBe("false");
+  } finally { vi.useRealTimers(); }
 });
 
 it("does not apply an obsolete preview to edited rules", async () => {
@@ -79,7 +103,8 @@ it("does not apply an obsolete preview to edited rules", async () => {
   const first = finish;
   view.rerender(component("db.new"));
   await act(async () => first({ cards: [{ selected: tables, excluded: [] }], issues: [] }));
-  expect(view.queryByText("db.old")).toBeNull();
+  expect(view.container.querySelector(".table-rule-matches")).toBeNull();
+  expect(view.getByRole("status").textContent).toBe("Updating matched tables…");
 });
 
 it("removes stale matches immediately when the authenticated catalog is invalidated", async () => {

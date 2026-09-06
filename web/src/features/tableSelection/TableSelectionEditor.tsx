@@ -7,6 +7,7 @@ import { AutofillResistantInput } from "../../ui/AutofillResistantField";
 import { Button } from "../../ui/Button";
 import { FormField } from "../../ui/FormField";
 import { SegmentedControl } from "../../ui/SegmentedControl";
+import { TrashIcon } from "../../ui/icons";
 import { exactPattern, qualifiedName, selectionIssue } from "./model";
 
 const GLOB_HELP = "Glob / wildcard: * matches any number of characters; ? matches one character. Backslash escapes literal wildcards. Click to enable regex.";
@@ -26,13 +27,14 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
   });
   drafts.current[selection.type] = selection;
   const fingerprint = JSON.stringify(selection);
+  const incomplete = selection.type === "selected" && (selection.rules.length === 0 || selection.rules.some(rule => !rule.include.trim()));
   const [preview, setPreview] = useState<{ fingerprint: string; tables: NonNullable<typeof catalog>["tables"]; result?: SelectionPreview; error?: string }>();
   const [expanded, setExpanded] = useState<number[]>([]);
   const tables = catalog?.tables;
   const requestPreview = catalog?.preview;
   useEffect(() => {
     setPreview(undefined);
-    if (!tables || !requestPreview) return;
+    if (!tables || !requestPreview || incomplete) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       void requestPreview({ selection: JSON.parse(fingerprint) as TableSelection, catalog: tables }, controller.signal)
@@ -40,22 +42,23 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
         .catch(error => { if (!controller.signal.aborted) setPreview({ fingerprint, tables, error: String(error) }); });
     }, 150);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [fingerprint, tables, requestPreview]);
+  }, [fingerprint, tables, requestPreview, incomplete]);
   const current = catalog && preview?.fingerprint === fingerprint && preview.tables === tables ? preview : undefined;
   const change = (next: TableSelection) => onChange(next as unknown as JsonValue);
   const allTables = selection.type === "all";
-  const rules: TableRule[] = selection.type === "selected" ? selection.rules
+  const rules: TableRule[] = selection.type === "selected" ? (selection.rules.length ? selection.rules : [{ include: "" }])
     : [{ include: "*", exclude: selection.exclude ?? "", exclude_mode: selection.exclude_mode ?? "glob" }];
   const update = (index: number, patch: Partial<TableRule>) => {
     if (selection.type === "all") change({ ...selection, ...patch });
-    else change({ ...selection, rules: selection.rules.map((rule, i) => i === index ? { ...rule, ...patch } : rule) });
+    else change({ ...selection, rules: rules.map((rule, i) => i === index ? { ...rule, ...patch } : rule) });
   };
   return <section class="table-selection-editor">
     <SegmentedControl label="Tables to transfer" value={selection.type} disabled={disabled || !catalog}
       options={[{ value: "selected", label: "Selected tables" }, { value: "all", label: "All tables" }]}
       onChange={type => { setExpanded([]); change(drafts.current[type]); }} />
-    <div class="table-selection-status" role="status" aria-busy={!!catalog && !current}>
+    <div class="table-selection-status" role="status" aria-busy={!!catalog && !incomplete && !current}>
       {!catalog ? "Check connection successfully to load accessible tables and enable table rules."
+        : incomplete ? "Enter a table name or pattern."
         : current?.error ?? current?.result?.issues.map(selectionIssue).join("\n") ?? "Updating matched tables…"}
     </div>
     {fixed && <small class="muted">Table patterns are resolved at delivery startup. Tables created later are not added automatically.</small>}
@@ -90,7 +93,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
           {!allTables && field("include")}{field("exclude")}
           {!allTables && <Button shape="icon" aria-label={`Remove rule ${index + 1}`} title="Remove rule" disabled={disabled}
             onClick={() => { if (selection.type === "selected") { setExpanded([]); change({ ...selection, rules: selection.rules.filter((_, i) => i !== index) }); } }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7" /></svg>
+            <TrashIcon />
           </Button>}
         </div>
         <div class="table-rule-result">
@@ -105,7 +108,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
       </section>;
     })}
     {!allTables && <Button shape="icon" aria-label="Add table rule" title="Add table rule" disabled={disabled || !catalog}
-      onClick={() => { if (selection.type === "selected") change({ ...selection, rules: [...selection.rules, { include: "" }] }); }}>+</Button>}
+      onClick={() => { if (selection.type === "selected") change({ ...selection, rules: [...rules, { include: "" }] }); }}>+</Button>}
     <small class="muted">Preview uses the last successful connection check. Startup checks the current catalog again.</small>
   </section>;
 }
