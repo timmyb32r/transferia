@@ -1124,6 +1124,108 @@ h3 {
   align-items: center;
   flex: 0 0 auto;
 }
+.connection-check-required {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 16px;
+}
+.connection-check-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+.connection-required-badge {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  padding: 3px 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.3;
+}
+.connection-check-required .connection-check {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 0;
+}
+/* Reserve two lines from the first render. Long diagnostics scroll inside the
+   slot instead of moving the form, and remain keyboard-readable in full. */
+.connection-check-required .connection-check-result {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  height: 2.7em;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+.connection-check-result > span:last-child { min-width: 0; }
+.connection-check-state-icon {
+  display: grid;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+}
+.connection-check-button.interaction-pending::after { content: none; }
+.connection-dependent-settings {
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+}
+.connection-dependent-status {
+  box-sizing: content-box;
+  height: 2.7em;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+.connection-dependent-status > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 100%;
+}
+.connection-dependent-status svg { flex: 0 0 16px; }
+.connection-dependent-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 12px;
+}
+.connection-dependent-fields:disabled .field-label { color: var(--muted); }
+:root .connection-dependent-fields input:disabled {
+  opacity: 1;
+  color: var(--disabled-text);
+  border-color: var(--disabled-border);
+  background: var(--disabled-surface);
+}
+:root .connection-dependent-fields input[type="checkbox"]:disabled:checked {
+  background: var(--disabled-text);
+}
+:root .connection-dependent-fields:disabled .table-pattern-input .regex-toggle[aria-pressed="true"]:disabled {
+  color: var(--disabled-text);
+  border-color: var(--disabled-border);
+  background: var(--disabled-surface);
+  box-shadow: none;
+}
+@container form-space (max-width: 360px) {
+  .connection-check-required .connection-check { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .connection-check-required .connection-check-button { justify-self: start; }
+}
 .connection-check-spinner-slot {
   display: grid;
   flex: 0 0 12px;
@@ -5078,7 +5180,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   display: grid;
   place-items: center;
 }
-:root .segmented-control > button[aria-checked="true"] { background: var(--surface-selected); color: var(--blue); border-color: var(--blue); }
+:root .segmented-control > button[aria-checked="true"]:not(:disabled) { background: var(--surface-selected); color: var(--blue); border-color: var(--blue); }
 .segmented-control > button:active:not(:disabled) { background: var(--surface-selected); }
 @media (max-width: 640px) {
   .table-rule-patterns { gap: 8px; }

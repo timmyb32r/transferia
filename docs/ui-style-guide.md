@@ -52,6 +52,15 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
 
 ## Component rules
 
+- Database-source connection checks use **A — required form item**: a neutral
+  `Required` badge, a stable status beside the button, and a bordered group for
+  dependent table fields. Before verification show `Not checked` and a small
+  lock, not a validation error. Unlock only after authenticated verification
+  returns a table catalog (including an empty catalog). Keep status slots and
+  controls mounted with identical dimensions while checking, succeeding,
+  failing, or invalidating credentials. Connection/advanced options stay outside
+  the locked group so users can repair a failed connection. Ordinary diagnostic
+  checks in destinations and non-table sources do not gain a required badge.
 - Keep the page white and the three delivery islands slate gray, with white
   fields. Parser details continue the source island rather than introducing a
   fourth palette. Use consistent borders across these connected surfaces.

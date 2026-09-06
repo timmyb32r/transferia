@@ -1,5 +1,5 @@
 import { Fragment, type ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useId, useRef, useState } from "preact/hooks";
 
 import type { JsonObject } from "../json";
 import { AutofillResistantInput } from "../ui/AutofillResistantField";
@@ -19,12 +19,20 @@ import { hasEditableContent, type WidgetRegistry } from "./widgetRegistry";
 type ObjectNode = Extract<CompiledNode, { kind: "object" }>;
 type PropertyEntry = [string, CompiledNode];
 
+export interface ConnectionFieldGroup {
+  names: readonly string[];
+  label: string;
+  disabled: boolean;
+  status: ComponentChildren;
+}
+
 export function ObjectNodeEditor({
   node,
   value,
   disabled,
   path,
   connectionAction,
+  connectionFields,
   widgets,
   NodeEditor,
   PropertyEditor,
@@ -36,12 +44,14 @@ export function ObjectNodeEditor({
   disabled: boolean;
   path: string;
   connectionAction?: ComponentChildren;
+  connectionFields?: ConnectionFieldGroup | undefined;
   widgets: WidgetRegistry;
   NodeEditor: NodeEditorComponent;
   PropertyEditor: PropertyEditorComponent;
   isVisible: (node: CompiledNode) => boolean;
   onChange: (value: JsonObject) => void;
 }) {
+  const connectionStatusId = useId();
   const partitionRanges = partitionRangesProperty(node);
   const configuredPartitionRanges = hasConfiguredPartitionRanges(
     value,
@@ -130,9 +140,8 @@ export function ObjectNodeEditor({
       : [{ name, branchIndex, branch }];
   });
 
-  return (
-    <div class="schema-object">
-      {regular.map(([name, child]) => (
+  const grouped = regular.filter(([name]) => connectionFields?.names.includes(name));
+  const regularProperty = ([name, child]: PropertyEntry, fieldDisabled = disabled) => (
         <Fragment key={name}>
           {name === "unknown_fields" &&
           node.properties.conversion_error !== undefined
@@ -157,7 +166,7 @@ export function ObjectNodeEditor({
                       <NodeEditor
                         node={child}
                         value={value[name] ?? {}}
-                        disabled={disabled}
+                        disabled={fieldDisabled}
                         path={`${path}/${name}`}
                         onChange={(next) => onChange({ ...value, [name]: next })}
                       />
@@ -166,7 +175,7 @@ export function ObjectNodeEditor({
                       node={child}
                       required={node.required.has(name)}
                       value={value[name]}
-                      disabled={disabled}
+                      disabled={fieldDisabled}
                       showPartitionRanges={partitionRangesVisible}
                       parentValue={value}
                       onParentChange={onChange}
@@ -179,7 +188,20 @@ export function ObjectNodeEditor({
                   </>
                 )}
         </Fragment>
-      ))}
+  );
+
+  return (
+    <div class="schema-object">
+      {regular.map(entry => !connectionFields || !connectionFields.names.includes(entry[0])
+        ? regularProperty(entry)
+        : entry[0] !== grouped[0]?.[0] ? null
+        : <section class="connection-dependent-settings" key="connection-dependent-settings">
+            <div class="connection-dependent-status" id={connectionStatusId}>{connectionFields.status}</div>
+            <fieldset class="connection-dependent-fields" aria-label={connectionFields.label}
+              aria-describedby={connectionStatusId} disabled={disabled || connectionFields.disabled}>
+              {grouped.map(entry => regularProperty(entry, disabled || connectionFields.disabled))}
+            </fieldset>
+          </section>)}
       {deferredVariants.map(({ name, branchIndex, branch }) => (
         <div
           class={[

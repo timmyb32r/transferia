@@ -15,6 +15,7 @@ import type {
 import { compiledSchema, endpointValue, isObject } from "./editorConfig";
 import { MessagePreviewDialog } from "./MessagePreviewDialog";
 import { tableConnectionIdentity, useEndpointActions } from "./useEndpointActions";
+import { ConnectionCheck, TableConnectionStatus, tableSettingsReady } from "./ConnectionCheck";
 
 export function EndpointCard(props: {
   title: string;
@@ -37,6 +38,9 @@ export function EndpointCard(props: {
     props.endpoint === undefined
       ? {}
       : endpointValue(props.config, props.role, props.selectedKey);
+  const node = props.endpoint ? compiledSchema(props.endpoint.schema, widgets) : undefined;
+  const requiresTableCheck = props.role === "source" && props.endpoint?.connection_check === true
+    && node?.kind === "object" && node.properties.tables?.xUi.widget === "table_selection";
   const {
     check,
     preview,
@@ -55,8 +59,8 @@ export function EndpointCard(props: {
   const visibleTables = useMemo(() => checkedTables === undefined ? undefined
     : visibleTableCatalog(props.selectedKey, hideSystemTables, checkedTables),
   [props.selectedKey, hideSystemTables, checkedTables]);
-  const checkedTableIdentity = check.state === "success" && check.status === "verified" && check.tables !== undefined
-    ? tableIdentity : undefined;
+  const tablesReady = tableSettingsReady(check);
+  const checkedTableIdentity = tablesReady ? tableIdentity : undefined;
   useEffect(() => {
     props.onTableConnection?.(checkedTableIdentity);
   }, [checkedTableIdentity, props.onTableConnection]);
@@ -116,10 +120,10 @@ export function EndpointCard(props: {
           onChange={(key) => props.onChoose(props.role, key)}
         />
       </div>
-      {props.endpoint && showSettings && (
+      {props.endpoint && node && showSettings && (
         <div class="endpoint-fields">
           <SchemaForm
-            node={compiledSchema(props.endpoint.schema, widgets)}
+            node={node}
             value={value}
             disabled={props.readOnly}
             showRequiredErrors={props.showRequiredErrors}
@@ -149,49 +153,17 @@ export function EndpointCard(props: {
               },
             }}
             optionOverrides={check.options}
-            tableCatalog={check.state === "success" && check.status === "verified" && visibleTables !== undefined
+            tableCatalog={tablesReady && visibleTables !== undefined
               ? { tables: visibleTables, preview: api.previewTables } : undefined}
+            connectionFields={requiresTableCheck ? {
+              names: ["hide_system_tables", "tables", "new_tables"],
+              label: "Table settings",
+              disabled: !tablesReady,
+              status: <TableConnectionStatus ready={tablesReady} />,
+            } : undefined}
             connectionAction={
               props.endpoint.connection_check ? (
-                <div class="connection-check">
-                  <Button
-                    variant="primary"
-                    class="connection-check-button"
-                    aria-disabled={check.state === "checking"}
-                    onClick={() => void checkConnection()}
-                  >
-                    Check connection
-                  </Button>
-                  <span
-                    class="connection-check-spinner-slot"
-                    aria-label={
-                      check.state === "checking"
-                        ? "Checking connection…"
-                        : undefined
-                    }
-                    role={check.state === "checking" ? "status" : undefined}
-                  >
-                    {check.state === "checking" && (
-                      <span
-                        class="connection-check-spinner"
-                        aria-hidden="true"
-                      />
-                    )}
-                  </span>
-                  <span
-                    class={`connection-check-result connection-check-${
-                      check.state === "success" ? check.status : check.state
-                    }`}
-                    role={check.state === "error" ? "alert" : "status"}
-                  >
-                    {check.state === "success"
-                      ? (check.message ??
-                        "Connection verified, including access to the configured entities.")
-                      : check.state === "error"
-                        ? check.message
-                        : ""}
-                  </span>
-                </div>
+                <ConnectionCheck check={check} required={requiresTableCheck} onCheck={() => void checkConnection()} />
               ) : undefined
             }
             onChange={(next) =>

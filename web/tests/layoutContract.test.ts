@@ -16,6 +16,24 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("reserves required connection feedback slots across idle, pending, success and failure", () => {
+    for (const selector of [".connection-check-required .connection-check-result", ".connection-dependent-status"]) {
+      const rule = styles.split(`${selector} {`)[1]?.split("}")[0];
+      expect(rule).toContain("height: 2.7em;");
+      expect(rule).toContain("overflow: auto;");
+      expect(rule).toContain("overflow-wrap: anywhere;");
+    }
+    const fields = styles.split(".connection-dependent-fields {")[1]?.split("}")[0];
+    expect(fields).toContain("min-width: 0;");
+    expect(fields).toContain("grid-template-columns: minmax(0, 1fr);");
+    expect(styles).toContain(".connection-check-required .connection-check {");
+    expect(styles).toContain("grid-template-columns: max-content minmax(0, 1fr);");
+    expect(styles).toContain('.segmented-control > button[aria-checked="true"]:not(:disabled)');
+    const regex = styles.split('.connection-dependent-fields:disabled .table-pattern-input .regex-toggle[aria-pressed="true"]:disabled {')[1]?.split("}")[0];
+    expect(regex).toContain("background: var(--disabled-surface);");
+    // State colors must not change the footprint or hide the disabled form.
+    expect(styles).not.toMatch(/\.connection-dependent[^{}]*\[aria-disabled[^{}]*\{[^}]*(?:display|height|padding|margin)\s*:/s);
+  });
   it("stacks form labels in narrow containers without squeezing controls", () => {
     expect(styles).toContain("container: form-space / inline-size;");
     expect(styles).toMatch(/@container form-space \(max-width: 520px\)/);

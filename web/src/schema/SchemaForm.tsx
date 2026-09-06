@@ -20,7 +20,7 @@ import { draftValue } from "./draft";
 import { UnionNodeEditor } from "./UnionNodeEditor";
 import { VariantDetailsCard } from "./VariantDetailsCard";
 import type { NodeEditorProps, PropertyEditorProps } from "./editorTypes";
-import { ObjectNodeEditor } from "./ObjectNodeEditor";
+import { ObjectNodeEditor, type ConnectionFieldGroup } from "./ObjectNodeEditor";
 import { isObject, jsonPointer } from "./value";
 import { useWidgetRegistry } from "./widgetRegistry";
 import { TableCatalogContext, type TableCatalog } from "./tableCatalog";
@@ -31,6 +31,7 @@ export interface SchemaFormProps extends NodeEditorProps {
   showRequiredErrors?: boolean;
   optionOverrides?: Record<string, string[]>;
   connectionAction?: ComponentChildren;
+  connectionFields?: ConnectionFieldGroup | undefined;
   deliveryType?: string;
   fieldLabelOverrides?: Readonly<Record<string, string>>;
 }
@@ -59,6 +60,7 @@ export function SchemaForm({
   showRequiredErrors = false,
   optionOverrides = {},
   connectionAction,
+  connectionFields,
   deliveryType,
   fieldLabelOverrides = {},
   onChange,
@@ -76,6 +78,7 @@ export function SchemaForm({
                   value={value}
                   disabled={disabled}
                   connectionAction={connectionAction}
+                  connectionFields={connectionFields}
                   onChange={onChange}
                   path="#"
                 />
@@ -134,6 +137,7 @@ function NodeEditor({
   path = "#",
   controlId,
   connectionAction,
+  connectionFields,
 }: SchemaFormProps) {
   const widgets = useWidgetRegistry();
   const isDisabled = disabled ?? false;
@@ -156,6 +160,7 @@ function NodeEditor({
           disabled={isDisabled}
           path={path}
           connectionAction={connectionAction}
+          connectionFields={connectionFields}
           widgets={widgets}
           NodeEditor={NodeEditor}
           PropertyEditor={PropertyEditor}

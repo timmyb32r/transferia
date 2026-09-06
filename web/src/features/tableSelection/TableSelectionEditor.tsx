@@ -67,7 +67,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
   const matches = [...new Map((current?.result?.cards ?? []).flatMap(card => card.selected)
     .map(table => [JSON.stringify([table.namespace, table.name]), table])).values()];
   const issue = current?.error || current?.result?.issues.map(selectionIssue).join(" ");
-  const status = !catalog ? "Check connection to choose tables."
+  const status = !catalog ? ""
     : issue || (incomplete ? "Enter a table name or pattern." : "");
   const includeHelp = `Include is required. Preview uses the last successful connection check; startup checks the catalog again.${fixed ? " Table patterns are resolved at delivery startup. Tables created later are not added automatically." : ""}`;
   return <section class="table-selection-editor">
@@ -99,7 +99,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
       return <section class="table-rule-row" key={`${selection.type}-${index}`} aria-label={`Table rule ${index + 1}`}>
         <div class="table-rule-patterns">
           {field("include")}{field("exclude")}
-          <Button shape="icon" aria-label={`Remove rule ${index + 1}`} title="Remove rule" disabled={disabled}
+          <Button shape="icon" aria-label={`Remove rule ${index + 1}`} title="Remove rule" disabled={disabled || !catalog}
             onClick={() => { if (selection.type === "selected") { setExpanded(false); setExpandedRules([]); change({ ...selection, rules: selection.rules.filter((_, i) => i !== index) }); } }}>
             <TrashIcon />
           </Button>
