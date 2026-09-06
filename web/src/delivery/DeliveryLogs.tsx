@@ -4,6 +4,7 @@ import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import type { WorkerLogView } from "../types";
 import { AutofillResistantInput } from "../ui/AutofillResistantField";
 import { Button } from "../ui/Button";
+import { CopyButton, type CopyState } from "../ui/CopyButton";
 import { SelectControl } from "../ui/SelectControl";
 
 const MAX_VIEWER_CHARACTERS = 1024 * 1024;
@@ -17,23 +18,9 @@ export function DeliveryLogs({ deliveryId }: { deliveryId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [follow, setFollow] = useState(true);
-  const [copyState, setCopyState] = useState<
-    "idle" | "copying" | "copied" | "error"
-  >("idle");
+  const [copyState, setCopyState] = useState<CopyState>("idle");
   const [downloadStarted, setDownloadStarted] = useState(false);
   const viewport = useRef<HTMLPreElement>(null);
-
-  const copyToClipboard = async () => {
-    if (copyState === "copying" || text === "") return;
-    const snapshot = text;
-    setCopyState("copying");
-    try {
-      await navigator.clipboard.writeText(snapshot);
-      setCopyState("copied");
-    } catch {
-      setCopyState("error");
-    }
-  };
 
   const download = () => {
     if (text === "") return;
@@ -147,13 +134,7 @@ export function DeliveryLogs({ deliveryId }: { deliveryId: string }) {
         >
           Clear view
         </Button>
-        <Button
-          disabled={text === "" || copyState === "copying"}
-          pending={copyState === "copying"}
-          onClick={() => void copyToClipboard()}
-        >
-          Copy to clipboard
-        </Button>
+        <CopyButton text={() => text} resetKey={`${deliveryId}:${workerId}`} disabled={text === ""} label="Copy to clipboard" onStateChange={setCopyState} />
         <Button disabled={text === ""} onClick={download}>
           Download
         </Button>

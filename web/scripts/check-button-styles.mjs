@@ -73,8 +73,8 @@ try {
     assert.deepEqual(await paint(control), idle);
   }
   // Copy is a neutral utility, not an opaque teal secondary form action.
-  const copyId = page.locator('[data-copy="id"]');
-  const copyTable = page.locator('[data-copy="table"]');
+  const copyId = page.locator('.fixture-copy-id');
+  const copyTable = page.locator('.fixture-copy-table');
   const neighbour = page.locator('[data-action="add"]');
   const neighbourBox = await neighbour.boundingBox();
   await page.mouse.move(0, 0);
@@ -87,13 +87,19 @@ try {
     assert.deepEqual(idle.text, [32, 41, 56, 255]);
     assert.equal(idle.surface[3], 0);
     await copy.hover();
-    await page.waitForTimeout(180);
+    await page.waitForTimeout(400);
+    assert.equal(await page.getByRole("tooltip").textContent(), "Copy");
     assert.deepEqual((await paint(copy)).surface, [232, 237, 241, 255]);
     sameBox(box, await copy.boundingBox());
     await page.mouse.down();
     assert.notEqual((await paint(copy)).shadow, "none");
     sameBox(box, await copy.boundingBox());
     await page.mouse.up();
+    assert.equal(await copy.getAttribute("aria-busy"), "true");
+    assert.equal(await page.getByRole("tooltip").textContent(), "Copying…");
+    await page.waitForTimeout(550);
+    assert.equal(await page.getByRole("tooltip").textContent(), "Copied");
+    assert.equal(await copy.locator(".copy-icon-check").count(), 1);
     await copy.focus();
     assert((await paint(copy)).outline >= 2);
     sameBox(box, await copy.boundingBox());

@@ -69,11 +69,13 @@ describe("editor chrome", () => {
       expect(writeText).toHaveBeenCalledTimes(1);
       expect(writeText).toHaveBeenCalledWith(message);
       resolve();
-      await waitFor(() => expect(copy.textContent).toBe("Copied"));
+      await waitFor(() => expect(view.getByRole("tooltip").textContent).toBe("Copied"));
+      expect(copy.querySelector(".copy-icon-check")).toBeTruthy();
       expect(view.getByRole("button", { name: "Copy message" })).toBe(copy);
       writeText.mockRejectedValueOnce(new Error("denied"));
       fireEvent.click(copy);
-      await waitFor(() => expect(copy.textContent).toBe("Failed"));
+      await waitFor(() => expect(view.getByRole("tooltip").textContent).toBe("Copy failed"));
+      expect(copy.querySelector(".copy-icon-check")).toBeNull();
       expect(dismiss).not.toHaveBeenCalled();
     } finally {
       if (original) Object.defineProperty(navigator, "clipboard", original);

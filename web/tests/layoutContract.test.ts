@@ -16,15 +16,55 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("gives configuration and transform-preview tabs the same continuous slate backing", () => {
+    const backing = styles.match(/:root\[data-design="airy-v0"\] \.editor-tabs,\s*:root\[data-design="airy-v0"\] \.transform-preview-tabs\s*\{([^}]+)\}/)?.[1];
+    expect(backing).toContain("background: var(--panel2);");
+    expect(backing).toContain("border-radius: 8px;");
+    expect(backing).toContain("padding: 3px;");
+    // The preview shares paint and the fixed inset, not the editor section's
+    // outer margin. Switching tabs must not add/remove the backing.
+    expect(backing).not.toContain("margin:");
+    expect(styles).toContain('.transform-preview-tabs { display: flex; gap: 4px; align-items: center; }');
+    const tabs = styles.split(":root .transform-preview-tabs button {")[1]?.split("}")[0];
+    expect(tabs).toContain("flex: 0 0 120px;");
+    expect(tabs).toContain("width: 120px;");
+  });
+
+  it("makes the transform disclosure fill the heading height without dead padding above or below it", () => {
+    const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
+    const heading = rule(".middleware-strip-heading");
+    expect(heading).toContain("padding: 0 8px;");
+    expect(heading).toContain("min-height: 58px;");
+    expect(heading).toContain("align-items: center;");
+    const toggle = rule(":root .middleware-strip-toggle");
+    expect(toggle).toContain("align-self: stretch;");
+    expect(toggle).toContain("min-height: 58px;");
+    expect(toggle).toContain("height: auto;");
+    expect(toggle).toContain("padding: 10px 8px;");
+    // Moving padding inside the disclosure preserves the heading footprint and
+    // leaves drag/clone/delete as independent, centered controls.
+    expect(rule(":root .middleware-strip-heading .icon-button")).toContain("height: 32px;");
+    expect(rule(":root .middleware-strip-heading .middleware-clone")).toContain("height: 32px;");
+    for (const state of ["hover", "active"]) {
+      expect(rule(`:root .middleware-strip-heading button:${state}:not(:disabled, .copy-action)`))
+        .not.toMatch(/(?:width|height|padding|margin|transform|border-width)\s*:/);
+    }
+  });
+
+  it("keeps Copy and Use aligned in a fixed-size action group beside available table names", () => {
+    expect(styles).toMatch(/\.available-table-actions\s*\{[^}]*display: flex;[^}]*flex: 0 0 auto;[^}]*align-items: center;/s);
+    expect(styles).toMatch(/:root \.available-table-use\s*\{[^}]*width: 44px;[^}]*min-width: 44px;[^}]*height: 28px;/s);
+    expect(styles).toMatch(/\.available-tables-dialog\s*\{[^}]*height: min\(560px, calc\(100dvh - 48px\)\);/s);
+  });
   it("shares neutral copy affordances without changing geometry between interaction states", () => {
     const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
-    const idle = rule(".copy-action.icon-button");
+    const idle = rule("button.copy-action");
     expect(idle).toContain("color: var(--text-secondary);");
     expect(idle).toContain("background: transparent;");
     expect(idle).toContain("border-color: transparent;");
     expect(rule(".copy-action.copy-action-framed")).toContain("border-color: var(--line-strong);");
     for (const state of ["hover", "active"]) {
-      const paint = rule(`.copy-action.icon-button:${state}:not(:disabled, [aria-disabled=\"true\"])`);
+      const paint = rule(`button.copy-action:${state}:not(:disabled, [aria-disabled=\"true\"])`);
       expect(paint).toContain("background:");
       expect(paint).not.toMatch(/(?:width|height|padding|margin|transform|border-width|font-size)\s*:/);
       expect(paint).not.toContain("var(--blue");
@@ -33,7 +73,13 @@ describe("delivery layout contract", () => {
     expect(rule(".transfer-id-copy.icon-button")).toContain("height: 24px;");
     expect(rule(":root .available-table-row .icon-button")).toContain("width: 28px; height: 28px;");
     // The rear page is occluded by the front page, not drawn through it.
-    expect(rule(".copy-action .copy-icon::before")).toContain("clip-path: polygon(");
+    expect(rule(".copy-icon::before")).toContain("clip-path: polygon(");
+    expect(rule(".copy-icon-check")).toContain("position: absolute;");
+    const tooltip = rule(".copy-tooltip");
+    expect(tooltip).toContain("position: fixed;");
+    expect(tooltip).toContain("pointer-events: none;");
+    expect(tooltip).toContain("width: 100px;");
+    expect(tooltip).toContain("height: 32px;");
   });
   it("reserves metadata action and status dimensions across async updates", () => {
     expect(styles).toMatch(/\.metadata-button-label\s*\{[^}]*display: grid;/s);
@@ -94,7 +140,9 @@ describe("delivery layout contract", () => {
     expect(list).toContain("overflow: auto;");
     expect(list).toContain("overscroll-behavior: auto;");
     expect(list).not.toMatch(/overscroll-behavior(?:-[xy])?:\s*(?:contain|none)/);
-    expect(list).toContain("height: 140px;");
+    expect(list).toContain("height: auto;");
+    expect(list).toContain("max-height: 140px;");
+    expect(list).toContain("min-height: 0;");
     expect(list).toContain("resize: none;");
   });
   it("reserves required connection feedback slots across idle, pending, success and failure", () => {
@@ -299,7 +347,7 @@ describe("delivery layout contract", () => {
   });
 
   it("keeps notice copy controls fixed-width across clipboard states", () => {
-    expect(styles).toMatch(/\.notice button\.notice-copy\s*\{[^}]*flex:\s*0 0 80px;[^}]*width:\s*80px;/s);
+    expect(styles).toMatch(/\.notice button\.notice-copy\s*\{[^}]*flex:\s*0 0 28px;[^}]*width:\s*28px;/s);
   });
 
   it("keeps dynamic selects compact and option errors outside document flow", () => {

@@ -13,7 +13,9 @@ import "../../src/style.css";
 
 // Visual fixture only. Matcher correctness is covered by the Rust evaluator
 // suite; this fixture supplies a deliberately large authenticated catalog.
-const tables = [...Array.from({ length: 40 }, (_, index) => ({ namespace: "analytics", name: `reports_${index}` })),
+const options = new URLSearchParams(location.search);
+const tables = options.has("short") ? [{ namespace: "analytics", name: "reports_daily" }]
+  : [...Array.from({ length: 40 }, (_, index) => ({ namespace: "analytics", name: `reports_${index}` })),
   { namespace: "schema", name: "reports" }, { namespace: "schema", name: "events" },
   { namespace: "information_schema", name: "TABLES" }, { namespace: "system", name: "tables" }];
 // The standalone Vite fixture does not bundle the generated AJV validators
@@ -26,7 +28,8 @@ const preview = new URLSearchParams(location.search).has("live") ? async (body: 
   return response.json();
 }
   : async () => ({ cards: [{ selected: tables, excluded: [] }], issues: [] });
-const source = catalogFixture.connectors.find(connector => connector.key === "clickhouse")!.source!;
+const connectorKey = options.get("connector") ?? "clickhouse";
+const source = catalogFixture.connectors.find(connector => connector.key === connectorKey)!.source!;
 const compiled = compileSchema(source.schema, productionWidgetRegistry);
 if (compiled.kind !== "object") throw new Error("Expected ClickHouse source object");
 // Render the relevant real catalog fields through SchemaForm, including its
@@ -37,7 +40,7 @@ function Fixture() {
   const [verified, setVerified] = useState(false);
   const [value, setValue] = useState<JsonObject>({ password: "", hide_system_tables: true,
     tables: { type: "selected", rules: [{ include: "schema*", include_mode: "glob" }] } });
-  const visible = useMemo(() => visibleTableCatalog("clickhouse", value.hide_system_tables !== false, tables), [value.hide_system_tables]);
+  const visible = useMemo(() => visibleTableCatalog(connectorKey, value.hide_system_tables !== false, tables), [value.hide_system_tables]);
   const catalog = { tables: visible, preview };
   return <main style={{ padding: "24px", maxWidth: "760px", margin: "auto" }}>
     <h1>Table selection · visual smoke fixture</h1>

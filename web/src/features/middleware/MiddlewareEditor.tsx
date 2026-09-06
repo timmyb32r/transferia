@@ -3,10 +3,12 @@ import { useId, useRef, useState } from "preact/hooks";
 import { isObject } from "../../schema/value";
 import type { JsonObject, JsonValue } from "../../types";
 import { Button } from "../../ui/Button";
+import { CopyIcon } from "../../ui/CopyButton";
 import { AutofillResistantInput, AutofillResistantTextarea } from "../../ui/AutofillResistantField";
 import { SelectControl } from "../../ui/SelectControl";
 import { DragHandleIcon, TrashIcon } from "../../ui/icons";
 import { TablePatternInput } from "../tableSelection/TablePatternInput";
+import { exactPattern } from "../tableSelection/model";
 import { TransformPreview } from "./TransformPreview";
 import { TransformTableScope, useTransformMatches } from "./TransformTableScope";
 import { TransformSchemaLoader } from "./TransformSchemaLoader";
@@ -98,7 +100,7 @@ export function MiddlewareEditor({ value, disabled, onChange, source }: {
       if (needsCatalog) return;
       const id = ++sequence.current;
       setNewStep(id);
-      commit([...entries, { tables: { ...DEFAULT_TABLES }, datafusion: { sql: "SELECT * FROM input" } }], [...ids, id]);
+      commit([...entries, { tables: { ...DEFAULT_TABLES } }], [...ids, id]);
     }}><span aria-hidden="true">+</span> Add transform</Button>
     </InstantTooltip>
   </section>;
@@ -116,6 +118,7 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
   const object = isObject(entry) ? entry : {};
   const kind = action(object);
   const known = ACTIONS.some(option => option.value === kind);
+  const unselected = isObject(entry) && Object.keys(object).every(key => key === "tables");
   const raw = kind !== undefined && isObject(object[kind]) ? object[kind] : {};
   const tables = isObject(object.tables) ? object.tables : DEFAULT_TABLES;
   const include = typeof tables.include === "string" ? tables.include : "";
@@ -126,8 +129,10 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
   const catalog = useTableCatalog();
   const updateTables = (next: JsonObject) => onChange({ ...object, tables: { ...tables, ...next } });
   const updateRaw = (next: JsonObject) => { if (kind) onChange({ ...object, [kind]: { ...raw, ...next } }); };
-  const title = ACTIONS.find(option => option.value === kind)?.label ?? kind ?? "Invalid transform";
-  return <article class={`middleware-strip ${expanded ? "expanded" : ""}`}
+  const title = unselected ? "Not selected" : ACTIONS.find(option => option.value === kind)?.label ?? kind ?? "Invalid transform";
+  const description = unselected ? "Choose a transformation" : summary(kind, raw);
+  return <article class={`middleware-strip ${expanded ? "expanded" : ""}${unselected && !disabled ? " required-incomplete" : ""}`}
+    data-required-guidance="structural"
     onDragOver={event => { if (!disabled) event.preventDefault(); }}
     onDrop={event => { event.preventDefault(); if (!disabled) onDrop(); }}>
     <div class="middleware-strip-heading">
@@ -139,12 +144,13 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
           onDragStart();
         }} onDragEnd={onDragEnd}><DragHandleIcon /></Button>
       <Button variant="plain" class="middleware-strip-toggle" aria-expanded={expanded} aria-controls={`${id}-settings`}
+        data-required-control={unselected && !expanded && !disabled ? true : undefined}
         aria-label={`${expanded ? "Collapse" : "Expand"} transform ${index + 1}`}
         onClick={() => setExpanded(!expanded)}>
         <span class="middleware-step-number">{index + 1}</span>
         <span class="middleware-strip-description">
           <span class="middleware-strip-title">{title}</span>
-          <span class="middleware-strip-summary" title={summary(kind, raw)}>{summary(kind, raw)}</span>
+          <span class="middleware-strip-summary" title={description}>{description}</span>
         </span>
         <span class="middleware-scope-summary" title={`Include: ${include || "(empty)"}${exclude ? `; exclude: ${exclude}` : ""}`}>
           <span>{include === "*" && !exclude ? "All tables" : `${exclude ? "Include: " : ""}${include || "Include required"}`}</span>
@@ -152,15 +158,16 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
         </span>
       </Button>
       <div class="middleware-strip-actions">
-        <Button class="middleware-clone" disabled={disabled || (source !== undefined && !catalog)} aria-label={`Clone transform ${index + 1}`} title="Clone transform with its Include / Exclude" onClick={onClone}>
-          <span class="ui-icon copy-icon" aria-hidden="true" /><span>Clone</span>
+        <Button variant="plain" class="middleware-clone copy-action copy-action-framed" disabled={disabled || (source !== undefined && !catalog)} aria-label={`Clone transform ${index + 1}`} title="Clone transform with its Include / Exclude" onClick={onClone}>
+          <CopyIcon /><span>Clone</span>
         </Button>
         <Button variant="plain" shape="icon" disabled={disabled} aria-label={`Delete transform ${index + 1}`} title="Delete transform" onClick={onDelete}><TrashIcon /></Button>
       </div>
     </div>
     {expanded && <div class="middleware-strip-body" id={`${id}-settings`}>
-      {!known ? <p role="alert">This transform cannot be edited here. Open YAML to correct its configuration.</p> : <>
-        <TransformTableScope id={id} index={index} matches={matches}>
+      {!known && !unselected ? <p role="alert">This transform cannot be edited here. Open YAML to correct its configuration.</p> : <>
+        <TransformTableScope id={id} index={index} matches={matches}
+          onUseTable={disabled ? undefined : table => updateTables({ include: exactPattern(table, tables.include_mode === "regex" ? "regex" : "glob") })}>
         <div class="middleware-scope-fields">
           {(["include", "exclude"] as const).map(field => {
             const label = field === "include" ? "Include" : "Exclude";
@@ -177,12 +184,12 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
           })}
         </div>
         </TransformTableScope>
-        <div class="middleware-action-field">
+        <div class={`middleware-action-field${unselected && !disabled ? " required-incomplete" : ""}`}>
           <label for={`${id}-action`}>Transformation</label>
-          <SelectControl id={`${id}-action`} value={kind ?? ""} placeholder="Select transformation" clearable={false}
+          <SelectControl id={`${id}-action`} value={kind ?? ""} placeholder="Select transformation"
             options={ACTIONS} disabled={disabled} onChange={next => {
               const { [kind ?? ""]: _previous, ...rest } = object;
-              onChange({ ...rest, [next]: next === "datafusion" ? { sql: "SELECT * FROM input" } : { field: "", value: "" } });
+              onChange(next ? { ...rest, [next]: next === "datafusion" ? { sql: "SELECT * FROM input" } : { field: "", value: "" } } : rest);
             }} />
         </div>
         {kind === "filter" ? <div class="middleware-filter-fields">
@@ -190,19 +197,20 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
             disabled={disabled} onInput={event => updateRaw({ field: event.currentTarget.value })} /></label>
           <label><span>Equals</span><AutofillResistantInput type="text" value={typeof raw.value === "string" ? raw.value : ""}
             disabled={disabled} onInput={event => updateRaw({ value: event.currentTarget.value })} /></label>
-        </div> : <label class="middleware-sql-field"><span>SQL over table <code>input</code></span>
+        </div> : kind === "datafusion" ? <label class="middleware-sql-field"><span>SQL over table <code>input</code></span>
           <AutofillResistantTextarea value={typeof raw.sql === "string" ? raw.sql : ""} disabled={disabled}
             onInput={event => updateRaw({ sql: event.currentTarget.value })} />
-        </label>}
+        </label> : null}
       </>}
       <div class="middleware-preview">
         {source && <TransformSchemaLoader tables={matches?.tables} source={source} disabled={disabled} />}
         <Button variant="plain" class="middleware-preview-toggle" aria-label={`Preview transform ${index + 1}`}
-          aria-expanded={preview} aria-controls={`${id}-preview`} onClick={() => setPreview(!preview)}>
+          disabled={unselected} title={unselected ? "Select a transformation first" : undefined}
+          aria-expanded={preview && !unselected} aria-controls={`${id}-preview`} onClick={() => setPreview(!preview)}>
           <span class={`middleware-chevron ${preview ? "open" : ""}`} aria-hidden="true" />Preview
           <span class="middleware-preview-hint">Before / after this step</span>
         </Button>
-        {preview && <div id={`${id}-preview`}><TransformPreview entries={entries} index={index} source={source} /></div>}
+        {preview && !unselected && <div id={`${id}-preview`}><TransformPreview entries={entries} index={index} source={source} /></div>}
       </div>
     </div>}
   </article>;

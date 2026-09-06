@@ -2,7 +2,7 @@
 
 import { cleanup } from "@testing-library/preact";
 import { h } from "preact";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import catalogFixture from "../../crates/transferia-server-contracts/contracts/connector-catalog.fixture.json";
 import { decodeApi } from "../src/api/contractDecoder";
@@ -32,6 +32,36 @@ function* descendants(node: CompiledNode): Generator<CompiledNode> {
 }
 
 describe("Rust catalog contract", () => {
+  it.each(["clickhouse", "postgres"])("shows to_string by default for %s without changing the stored policy", (key) => {
+    const source = catalogFixture.connectors.find(connector => connector.key === key)!.source!;
+    const compiled = compileSchema(source.schema, productionWidgetRegistry);
+    if (compiled.kind !== "object") throw new Error(`${key}: expected source object`);
+    const policy = compiled.properties.unsupported_types!;
+    expect(policy.kind).toBe("union");
+    expect(policy.defaultValue).toBe("to_string");
+    if (policy.kind !== "union") throw new Error("Expected policy union");
+    expect(policy.branches[0]!.label).toBe("to_string");
+    const node = { ...compiled, properties: { unsupported_types: policy } };
+    const onChange = vi.fn();
+    const view = render(h(SchemaForm, { node, value: {}, deliveryType: "batch", onChange }));
+    const details = view.container.querySelector("details")!;
+    details.open = true;
+    expect(view.getByRole("button", { name: "to_string", exact: true })).toBeTruthy();
+    expect(view.queryByRole("checkbox")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+    view.rerender(h(SchemaForm, { node, value: { unsupported_types: "fail" }, deliveryType: "batch", onChange }));
+    expect(view.getByRole("button", { name: "Fail delivery", exact: true })).toBeTruthy();
+    expect(onChange).not.toHaveBeenCalled();
+    if (key === "postgres") {
+      for (const deliveryType of ["stream", "batch_and_stream"]) {
+        view.rerender(h(SchemaForm, { node, value: {}, deliveryType, onChange }));
+        expect(view.queryByRole("button", { name: "to_string", exact: true })).toBeNull();
+        expect(view.container.querySelector('[data-field-name="unsupported_types"]')).toBeNull();
+        expect(onChange).not.toHaveBeenCalled();
+      }
+    }
+  });
+
   it("uses the same stable Hide system tables control above Tables in every database source", () => {
     let expectedClasses: string[] | undefined;
     for (const key of ["postgres", "mysql", "clickhouse"]) {

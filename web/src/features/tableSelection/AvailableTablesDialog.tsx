@@ -1,18 +1,24 @@
 import { createPortal } from "preact/compat";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { PatternMode, TableIdentity } from "../../generated/apiContract";
-import { TableCatalogContext, type TableCatalog } from "../../schema/tableCatalog";
+import { TableCatalogContext, useTableCatalog, type TableCatalog } from "../../schema/tableCatalog";
 import { Button } from "../../ui/Button";
-import { TablePatternInput } from "../tableSelection/TablePatternInput";
-import { completionPattern, qualifiedName } from "../tableSelection/model";
+import { CopyButton, type CopyState } from "../../ui/CopyButton";
+import { TablePatternInput } from "./TablePatternInput";
+import { completionPattern, qualifiedName } from "./model";
 
-export function AvailableTablesDialog({ catalog, onClose }: { catalog: TableCatalog; onClose: () => void }) {
+export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse !== undefined }: {
+  catalog: TableCatalog;
+  onClose: () => void;
+  onUse?: ((table: TableIdentity) => void) | undefined;
+  showUse?: boolean;
+}) {
   const id = useId();
   const dialog = useRef<HTMLElement>(null);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<PatternMode>("glob");
   const [result, setResult] = useState<{ key: string; catalog: TableIdentity[]; tables?: TableIdentity[]; error?: string }>();
-  const [copy, setCopy] = useState<{ name: string; state: "pending" | "copied" | "error" }>();
+  const [copy, setCopy] = useState<{ name: string; state: CopyState }>();
   const copying = useRef(false);
   const key = JSON.stringify([query, mode]);
   useLayoutEffect(() => {
@@ -43,17 +49,6 @@ export function AvailableTablesDialog({ catalog, onClose }: { catalog: TableCata
   }, [key, catalog.tables, catalog.preview]);
   const current = result?.key === key && result.catalog === catalog.tables ? result : undefined;
   const tables = query ? current?.tables : catalog.tables;
-  const copyName = async (name: string) => {
-    if (copying.current) return;
-    copying.current = true;
-    setCopy({ name, state: "pending" });
-    try {
-      await navigator.clipboard.writeText(name);
-      setCopy({ name, state: "copied" });
-    } catch {
-      setCopy({ name, state: "error" });
-    } finally { copying.current = false; }
-  };
   return createPortal(<div class="message-preview-backdrop" onMouseDown={event => {
     if (event.target === event.currentTarget) onClose();
   }}>
@@ -92,13 +87,35 @@ export function AvailableTablesDialog({ catalog, onClose }: { catalog: TableCata
           const name = qualifiedName(table);
           return <div class="available-table-row" key={JSON.stringify(table)}>
             <span title={name}>{name}</span>
-            <Button variant="plain" shape="icon" class="copy-action copy-action-framed" title="Copy table name" aria-label={`Copy ${name}`} pending={copy?.name === name && copy.state === "pending"}
-              disabled={copy?.state === "pending" && copy.name !== name}
-              onClick={() => { void copyName(name); }}><span class="ui-icon copy-icon" aria-hidden="true" /></Button>
+            <div class="available-table-actions">
+              <CopyButton text={name} label={`Copy ${name}`} framed lock={copying}
+                disabled={copy?.state === "copying" && copy.name !== name}
+                onStateChange={state => setCopy(current => state === "idle" ? current?.name === name ? undefined : current : { name, state })} />
+              {showUse && <Button class="available-table-use" aria-label={`Use ${name} in Include`} disabled={!onUse}
+                title={onUse ? "Use this table in Include and close" : "Enter edit mode to use this table"}
+                onClick={() => { onUse?.(table); onClose(); }}>Use</Button>}
+            </div>
           </div>;
         })}
         {tables?.length === 0 && <p>No matching tables.</p>}
       </div>
     </section>
   </div>, document.body);
+}
+
+export function AvailableTablesButton({ label, title, onUse, showUse = false }: {
+  label: string; title: string;
+  onUse?: ((table: TableIdentity) => void) | undefined;
+  showUse?: boolean;
+}) {
+  const catalog = useTableCatalog();
+  const [open, setOpen] = useState(false);
+  useLayoutEffect(() => { if (!catalog) setOpen(false); }, [catalog]);
+  return <div class="available-tables-action">
+    <Button class="table-matches-height-toggle" aria-label={label} aria-haspopup="dialog" disabled={!catalog}
+      title={catalog ? title : "Connect & load metadata in Source first"} onClick={() => setOpen(true)}>
+      Available tables <span class="table-match-count">({catalog?.tables.length ?? "—"})</span>
+    </Button>
+    {open && catalog && <AvailableTablesDialog catalog={catalog} onUse={onUse} showUse={showUse} onClose={() => setOpen(false)} />}
+  </div>;
 }

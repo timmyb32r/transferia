@@ -5,6 +5,7 @@ import type {
   ParserDetection,
 } from "../generated/apiContract";
 import { Button } from "../ui/Button";
+import { CopyButton, type CopyState } from "../ui/CopyButton";
 import { SelectControl } from "../ui/SelectControl";
 import { SyntaxHighlight } from "../ui/SyntaxHighlight";
 
@@ -27,9 +28,8 @@ export function MessagePreviewDialog({
   const [showFull, setShowFull] = useState(false);
   const [activeTab, setActiveTab] = useState("text");
   const [selectedParser, setSelectedParser] = useState("");
-  const [copyState, setCopyState] = useState<
-    "idle" | "copying" | "copied" | "error"
-  >("idle");
+  const [copyState, setCopyState] = useState<CopyState>("idle");
+  const copyIdentity = useMemo(() => ({ result, activeTab }), [result, activeTab]);
   useEffect(() => {
     dialog.current
       ?.querySelector<HTMLButtonElement>("[aria-label='Close message preview']")
@@ -78,23 +78,6 @@ export function MessagePreviewDialog({
   const selectParsed = (detection: ParserDetection) => {
     setSelectedParser(detection.key);
     setActiveTab("parsed");
-  };
-  const copyMessage = async (format: "text" | "binary") => {
-    if (!result || copyState === "copying") return;
-    setCopyState("copying");
-    try {
-      const bytes = decodeBase64(result.payload_base64);
-      if (format === "text") {
-        await navigator.clipboard.writeText(
-          new TextDecoder("utf-8", { fatal: false }).decode(bytes),
-        );
-      } else {
-        await navigator.clipboard.writeText(hexColumns(bytes).values.join("\n"));
-      }
-      setCopyState("copied");
-    } catch {
-      setCopyState("error");
-    }
   };
   return (
     <div class="message-preview-backdrop" onMouseDown={onClose}>
@@ -213,12 +196,11 @@ export function MessagePreviewDialog({
                       </Button>
                     </>
                   )}
-                  <Button
-                    pending={copyState === "copying"}
-                    onClick={() => void copyMessage(activeTab)}
-                  >
-                    Copy message
-                  </Button>
+                  <CopyButton label="Copy message" resetKey={copyIdentity} onStateChange={setCopyState}
+                    text={() => {
+                      const bytes = decodeBase64(result.payload_base64);
+                      return activeTab === "text" ? new TextDecoder("utf-8", { fatal: false }).decode(bytes) : hexColumns(bytes).values.join("\n");
+                    }} />
                   <Button onClick={() => downloadMessage(result)}>
                     {truncated ? "Download full message" : "Download message"}
                   </Button>
@@ -271,7 +253,7 @@ function CopyStatus({
   state,
   format,
 }: {
-  state: "idle" | "copying" | "copied" | "error";
+  state: CopyState;
   format: "text" | "binary";
 }) {
   return (

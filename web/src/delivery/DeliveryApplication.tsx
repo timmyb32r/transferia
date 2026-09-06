@@ -33,6 +33,7 @@ import {
   StatusPill,
 } from "./EditorViews";
 import { YamlEditorPanel } from "./YamlEditorPanel";
+import { CopyButton } from "../ui/CopyButton";
 import {
   compiledSchema,
   completionIssueLabel,
@@ -113,37 +114,13 @@ interface PendingRuntimeAction {
 }
 
 function TransferIdentity({ id }: { id: string | undefined }) {
-  const [copyState, setCopyState] = useState<
-    "idle" | "copying" | "copied" | "error"
-  >("idle");
-  const copy = async () => {
-    if (id === undefined || copyState === "copying") return;
-    setCopyState("copying");
-    try {
-      await navigator.clipboard.writeText(id);
-      setCopyState("copied");
-    } catch {
-      setCopyState("error");
-    }
-  };
-
   return (
     <div class="transfer-id-line">
       <small class="transfer-id-slot">
         {id === undefined ? "TRANSFER ID · assigned on save" : `TRANSFER ID · ${id}`}
       </small>
       {id !== undefined && (
-        <Button
-          variant="plain"
-          shape="icon"
-          class="transfer-id-copy copy-action"
-          pending={copyState === "copying"}
-          aria-label={copyState === "copied" ? "Transfer ID copied" : "Copy transfer ID"}
-          title={copyState === "error" ? "Copy failed" : "Copy transfer ID"}
-          onClick={() => void copy()}
-        >
-          <span class="ui-icon copy-icon" aria-hidden="true" />
-        </Button>
+        <CopyButton class="transfer-id-copy" text={id} label="Copy transfer ID" />
       )}
     </div>
   );

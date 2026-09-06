@@ -4,6 +4,7 @@ use serde::Deserialize;
 use crate::connectors::postgres::common::{PostgresConnectionConfig, PostgresCopyFormat};
 use crate::connectors::postgres::src_stream::PostgresReplicationConfig;
 use transferia_registry::table_selection::TableSelection;
+use transferia_delivery_contracts::DeliveryType;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -35,13 +36,14 @@ pub struct PostgresSourceConfig {
     )]
     pub copy_to_format: PostgresCopyFormat,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_unsupported_types")]
     #[schemars(
+        with = "UnsupportedTypePolicy",
         title = "Unsupported source types",
-        description = "Fail delivery (default) rejects types without a supported Arrow representation. to_string explicitly casts unsupported columns to PostgreSQL text, preserving names and NULL. This changes the type and may not be reversible. PostgreSQL output syntax and session settings determine the text. Conversion errors fail the delivery; values are never skipped. Available for batch deliveries only.",
-        extend("x-ui" = { "section": "advanced", "delivery_types": ["batch"] })
+        description = "to_string (default for batch deliveries) casts unsupported columns to PostgreSQL text, preserving names and NULL. This changes the type and may not be reversible. Select Fail delivery to reject types without a supported Arrow representation instead. PostgreSQL output syntax and session settings determine the text. Conversion errors fail the delivery; values are never skipped. Available for batch deliveries only; stream and batch_and_stream always use Fail delivery.",
+        extend("default" = "to_string", "x-ui" = { "section": "advanced", "delivery_types": ["batch"] })
     )]
-    pub unsupported_types: UnsupportedTypePolicy,
+    pub unsupported_types: Option<UnsupportedTypePolicy>,
 
     /// Configures logical replication for stream and `batch_and_stream` deliveries.
     #[serde(default)]
@@ -53,10 +55,10 @@ pub struct PostgresSourceConfig {
 #[serde(rename_all = "snake_case")]
 pub enum UnsupportedTypePolicy {
     #[default]
-    #[schemars(title = "Fail delivery")]
-    Fail,
     #[schemars(title = "to_string")]
     ToString,
+    #[schemars(title = "Fail delivery")]
+    Fail,
 }
 
 impl UnsupportedTypePolicy {
@@ -79,6 +81,16 @@ pub struct TableConfig {
 }
 
 impl PostgresSourceConfig {
+    pub(crate) fn unsupported_type_policy(&self, delivery_type: DeliveryType) -> anyhow::Result<UnsupportedTypePolicy> {
+        let policy = self.unsupported_types.unwrap_or(match delivery_type {
+            DeliveryType::Batch => UnsupportedTypePolicy::default(),
+            DeliveryType::Stream | DeliveryType::BatchAndStream => UnsupportedTypePolicy::Fail,
+        });
+        anyhow::ensure!(delivery_type == DeliveryType::Batch || policy == UnsupportedTypePolicy::Fail,
+            "PostgreSQL unsupported_types=to_string is supported only for batch deliveries");
+        Ok(policy)
+    }
+
     pub(crate) fn resolve_tables(
         &self,
         mut catalog: Vec<transferia_registry::TableIdentity>,
@@ -102,6 +114,10 @@ impl PostgresSourceConfig {
         self.replication.validate()?;
         Ok(())
     }
+}
+
+fn deserialize_unsupported_types<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<UnsupportedTypePolicy>, D::Error> {
+    UnsupportedTypePolicy::deserialize(deserializer).map(Some)
 }
 
 fn default_schema() -> String {

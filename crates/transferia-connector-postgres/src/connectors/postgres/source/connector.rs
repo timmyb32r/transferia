@@ -301,8 +301,7 @@ impl PostgresSourceConnector {
     }
 
     fn bind_delivery_type(&self, delivery_type: DeliveryType) -> anyhow::Result<()> {
-        anyhow::ensure!(delivery_type == DeliveryType::Batch || self.config.unsupported_types == UnsupportedTypePolicy::Fail,
-            "PostgreSQL unsupported_types=to_string is supported only for batch deliveries");
+        self.config.unsupported_type_policy(delivery_type)?;
         anyhow::ensure!(
             *self.delivery_type.get_or_init(|| delivery_type) == delivery_type,
             "PostgreSQL source connector cannot be reused for a different delivery type"
@@ -321,7 +320,7 @@ impl PostgresSourceConnector {
                     // Validation discovers metadata only. Readers create the shared
                     // snapshot at execution time and revalidate the schema in it.
                     let client = connect(&self.config.connection).await?;
-                    discover_validation_tables(&client, self.resolved_tables().await?, self.config.unsupported_types)
+                    discover_validation_tables(&client, self.resolved_tables().await?, self.config.unsupported_type_policy(delivery_type)?)
                         .await
                         .map(Arc::new)
                 } else {
@@ -910,7 +909,7 @@ impl transferia_registry::SourceMetadataReader for PostgresMetadataReader {
             let discovered = cached.tables.get(&table).cloned()
                 .ok_or_else(|| anyhow::anyhow!("Load this table's schema before preview"))?;
             drop(cached);
-            super::super::src_batch::sample_with_metadata(self.config.clone(), table, limits, cancellation, Some(discovered)).await
+            super::super::src_batch::sample_with_metadata(self.config.clone(), self.delivery_type, table, limits, cancellation, Some(discovered)).await
         })
     }
     fn includes_table(&self, table: &transferia_registry::TableIdentity, hide: bool) -> bool {
@@ -942,7 +941,7 @@ impl transferia_registry::SourceMetadataReader for PostgresMetadataReader {
             let result = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata loading cancelled"),
-                result = super::metadata::discover_tables(&client, &missing, self.config.unsupported_types) => result,
+                result = super::metadata::discover_tables(&client, &missing, self.config.unsupported_type_policy(self.delivery_type)?) => result,
             };
             let tables = result?;
             state.client = Some(client);
@@ -1374,7 +1373,7 @@ impl SourceConnector for PostgresSourceConnector {
                     self.config.connection.database.clone(),
                     self.config.batch_rows,
                     self.config.copy_to_format,
-                    self.config.unsupported_types,
+                    self.config.unsupported_type_policy(context.delivery_type)?,
                     counters,
                     changelog_snapshot,
                 )

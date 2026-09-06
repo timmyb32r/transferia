@@ -2,15 +2,21 @@
 
 The ClickHouse source has **Unsupported source types** in Advanced options:
 
-- **Fail delivery** (`unsupported_types: fail`, default) rejects a column that
-  cannot be represented by the source Arrow reader during discovery.
-- **to_string** (`unsupported_types: to_string`) deliberately applies ClickHouse
+- **to_string** (`unsupported_types: to_string`, default) applies ClickHouse
   `toString` to that entire column. For example, a tuple with an unsupported
   member becomes one string, not a tuple with silently converted members.
+- **Fail delivery** (`unsupported_types: fail`) rejects a column that
+  cannot be represented by the source Arrow reader during discovery.
 
 This setting is independent of the Native/Parquet snapshot reader. Supported
 columns retain their typed representation even when `to_string` is selected.
 There is no opaque-binary fallback.
+
+Omitting `unsupported_types` selects `to_string` in both YAML and the editor;
+an explicitly configured `fail` is never replaced. PostgreSQL has the same
+batch default, using its text cast instead of ClickHouse `toString`. PostgreSQL
+stream and batch-and-stream deliveries default to `fail`; explicitly requesting
+`to_string` for these modes is rejected because replication does not support it.
 
 ```yaml
 unsupported_types: to_string

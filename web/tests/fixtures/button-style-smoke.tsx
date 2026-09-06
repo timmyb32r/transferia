@@ -1,12 +1,17 @@
 import { render } from "preact";
 import { useState } from "preact/hooks";
 import { Button } from "../../src/ui/Button";
+import { CopyButton, CopyIcon } from "../../src/ui/CopyButton";
 import { SegmentedControl } from "../../src/ui/SegmentedControl";
 import { SelectControl } from "../../src/ui/SelectControl";
 import { MatchedTablesDisclosure } from "../../src/features/tableSelection/MatchedTablesDisclosure";
 import "../../src/style.css";
 
 document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
+// Exercise the real component without changing the user's system clipboard.
+Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+  writeText: () => new Promise<void>(resolve => setTimeout(resolve, 500)),
+} });
 
 function Fixture() {
   const [pending, setPending] = useState(false);
@@ -19,9 +24,7 @@ function Fixture() {
     <header class="page-header">
       <div class="transfer-id-line">
         <small class="transfer-id-slot">TRANSFER ID · dttabcdefghijklmnopq</small>
-        <Button variant="plain" shape="icon" class="transfer-id-copy copy-action" data-copy="id" aria-label="Copy transfer ID">
-          <span class="ui-icon copy-icon" aria-hidden="true" />
-        </Button>
+        <CopyButton class="transfer-id-copy fixture-copy-id" text="dttabcdefghijklmnopq" label="Copy transfer ID" />
       </div>
     </header>
     <section class="middleware-island">
@@ -39,9 +42,9 @@ function Fixture() {
         <Button shape="icon" data-action="rule" aria-label="Add table rule">+</Button>
         <Button class="parser-preview-button" data-action="preview">Preview</Button>
         <div class="middleware-strip-heading" style={{ gridTemplateColumns: "max-content", padding: 0 }}>
-          <Button class="middleware-clone" data-action="clone"><span class="ui-icon copy-icon" />Clone</Button>
+          <Button variant="plain" class="middleware-clone copy-action copy-action-framed" data-copy="clone"><CopyIcon />Clone</Button>
         </div>
-        <div class="available-table-row"><span>system.query_log</span><Button variant="plain" shape="icon" class="copy-action copy-action-framed" data-copy="table" aria-label="Copy table name"><span class="ui-icon copy-icon" aria-hidden="true" /></Button></div>
+        <div class="available-table-row"><span>system.query_log</span><CopyButton class="fixture-copy-table" text="system.query_log" label="Copy table name" framed /></div>
       </div>
       <div style={row}>
         <Button data-action="pending" pending={pending} onClick={() => {

@@ -38,8 +38,35 @@ it.each(["postgres", "mysql", "clickhouse"])("shows the required check and locks
   expect((within(group).getByRole("radio", { name: "Selected tables" }) as HTMLButtonElement).disabled).toBe(true);
   expect((within(group).getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement).disabled).toBe(true);
   expect((within(group).getByRole("button", { name: "Remove rule 1" }) as HTMLButtonElement).disabled).toBe(true);
+  const available = within(group).getByRole("button", { name: "Available tables in source" }) as HTMLButtonElement;
+  expect(available.disabled).toBe(true);
+  expect(available.textContent).toBe("Available tables (—)");
   expect((view.getByLabelText(/^Password/) as HTMLInputElement).disabled).toBe(false);
   expect(group.contains(view.getByText("Advanced settings"))).toBe(false);
+});
+
+it.each(["postgres", "mysql", "clickhouse"])("browses the verified %s catalog with system-table filtering", async connectorKey => {
+  const tables = [{ namespace: "reports", name: "daily" }, { namespace: "information_schema", name: "tables" }];
+  vi.spyOn(api, "checkConnection").mockResolvedValue({ status: "verified", options: {}, tables });
+  const view = render(<Form connectorKey={connectorKey} />);
+  fireEvent.click(view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ }));
+  const available = view.getByRole("button", { name: "Available tables in source" }) as HTMLButtonElement;
+  await waitFor(() => expect(available.disabled).toBe(false));
+  expect(available.textContent).toBe("Available tables (1)");
+  available.focus();
+  fireEvent.click(available);
+  let dialog = view.getByRole("dialog");
+  expect(within(dialog).getByText("reports.daily")).toBeTruthy();
+  expect(within(dialog).queryByText("information_schema.tables")).toBeNull();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close available tables" }));
+  expect(document.activeElement).toBe(available);
+  fireEvent.click(view.getByLabelText(/^Hide system tables/));
+  expect(available.textContent).toBe("Available tables (2)");
+  fireEvent.click(available);
+  dialog = view.getByRole("dialog");
+  expect(within(dialog).getByText("information_schema.tables")).toBeTruthy();
+  expect(within(dialog).queryByRole("button", { name: /Use .* in Include/ })).toBeNull();
+  expect(api.checkConnection).toHaveBeenCalledTimes(1);
 });
 
 it.each(["postgres", "mysql", "clickhouse"])("reports an empty %s catalog without an imaginary rule in All tables", async connectorKey => {

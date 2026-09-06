@@ -116,7 +116,7 @@ async fn anyarray_requires_explicit_text_policy_and_preserves_values_and_nulls()
                 delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
             }).await;
             if policy == "fail" {
-                assert!(discovery.err().expect("default policy must reject anyarray").to_string().contains("anyarray"));
+                assert!(discovery.err().expect("explicit fail policy must reject anyarray").to_string().contains("anyarray"));
                 continue;
             }
             discovery?;

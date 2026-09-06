@@ -5429,8 +5429,9 @@
             },
             "unsupported_types": {
               "title": "Unsupported source types",
-              "description": "Fail delivery (default) rejects types without a supported Arrow representation. to_string explicitly casts unsupported columns to PostgreSQL text, preserving names and NULL. This changes the type and may not be reversible. PostgreSQL output syntax and session settings determine the text. Conversion errors fail the delivery; values are never skipped. Available for batch deliveries only.",
+              "description": "to_string (default for batch deliveries) casts unsupported columns to PostgreSQL text, preserving names and NULL. This changes the type and may not be reversible. Select Fail delivery to reject types without a supported Arrow representation instead. PostgreSQL output syntax and session settings determine the text. Conversion errors fail the delivery; values are never skipped. Available for batch deliveries only; stream and batch_and_stream always use Fail delivery.",
               "$ref": "#/$defs/UnsupportedTypePolicy",
+              "default": "to_string",
               "x-ui": {
                 "section": "advanced",
                 "delivery_types": [
@@ -5565,14 +5566,14 @@
             "UnsupportedTypePolicy": {
               "oneOf": [
                 {
-                  "title": "Fail delivery",
-                  "type": "string",
-                  "const": "fail"
-                },
-                {
                   "title": "to_string",
                   "type": "string",
                   "const": "to_string"
+                },
+                {
+                  "title": "Fail delivery",
+                  "type": "string",
+                  "const": "fail"
                 }
               ]
             },
@@ -5938,9 +5939,9 @@
             },
             "unsupported_types": {
               "title": "Unsupported source types",
-              "description": "When a ClickHouse column cannot be represented by the source Arrow reader: Fail delivery (default) rejects it during discovery. to_string explicitly applies ClickHouse toString to the entire column, including nested values, and outputs UTF-8 text with the original type recorded in schema metadata. This changes the type and may not be reversible. NULL remains NULL. If ClickHouse cannot perform toString or returns invalid UTF-8, the delivery fails; values are never replaced or skipped.",
+              "description": "When a ClickHouse column cannot be represented by the source Arrow reader: to_string (default) applies ClickHouse toString to the entire column, including nested values, and outputs UTF-8 text with the original type recorded in schema metadata. This changes the type and may not be reversible. Select Fail delivery to reject unsupported types during discovery instead. NULL remains NULL. If ClickHouse cannot perform toString or returns invalid UTF-8, the delivery fails; values are never replaced or skipped.",
               "$ref": "#/$defs/UnsupportedTypePolicy",
-              "default": "fail",
+              "default": "to_string",
               "x-ui": {
                 "section": "advanced"
               }
@@ -6139,14 +6140,14 @@
             "UnsupportedTypePolicy": {
               "oneOf": [
                 {
-                  "title": "Fail delivery",
-                  "type": "string",
-                  "const": "fail"
-                },
-                {
                   "title": "to_string",
                   "type": "string",
                   "const": "to_string"
+                },
+                {
+                  "title": "Fail delivery",
+                  "type": "string",
+                  "const": "fail"
                 }
               ]
             }

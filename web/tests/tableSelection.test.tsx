@@ -15,6 +15,51 @@ import { visibleTableCatalog } from "../src/features/tableSelection/catalog";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+function mockOverflowingList() {
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(140);
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(138);
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(600);
+}
+
+it("browses the complete source catalog without changing selection and restores trigger focus", () => {
+  const tables = [{ namespace: "db", name: "chosen" }, { namespace: "db", name: "other" }];
+  const onChange = vi.fn(), preview = vi.fn().mockResolvedValue({ cards: [], issues: [] });
+  const view = render(<TableCatalogContext.Provider value={{ tables, preview }}>
+    <TableSelectionEditor value={{ type: "selected", rules: [{ include: "db.chosen" }] }} onChange={onChange} />
+  </TableCatalogContext.Provider>);
+  const trigger = view.getByRole("button", { name: "Available tables in source" });
+  expect(trigger.textContent).toBe("Available tables (2)");
+  trigger.focus();
+  fireEvent.click(trigger);
+  const dialog = view.getByRole("dialog", { name: "Available tables" });
+  expect(within(dialog).getByText("db.other")).toBeTruthy();
+  expect(within(dialog).queryByRole("button", { name: /Use .* in Include/ })).toBeNull();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close available tables" }));
+  expect(document.activeElement).toBe(trigger);
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+it("distinguishes an unknown catalog from an empty one and never reopens a stale popup after reconnect", () => {
+  const preview = vi.fn().mockResolvedValue({ cards: [], issues: [] });
+  const form = (known: boolean) => <TableCatalogContext.Provider value={known ? { tables: [], preview } : undefined}>
+    <TableSelectionEditor value={{ type: "all" }} onChange={vi.fn()} />
+  </TableCatalogContext.Provider>;
+  const view = render(form(false));
+  const trigger = view.getByRole("button", { name: "Available tables in source" }) as HTMLButtonElement;
+  expect(trigger.disabled).toBe(true);
+  expect(trigger.textContent).toBe("Available tables (—)");
+  view.rerender(form(true));
+  expect(trigger.disabled).toBe(false);
+  expect(trigger.textContent).toBe("Available tables (0)");
+  fireEvent.click(trigger);
+  expect(view.getByRole("dialog")).toBeTruthy();
+  view.rerender(form(false));
+  expect(view.queryByRole("dialog")).toBeNull();
+  view.rerender(form(true));
+  expect(view.queryByRole("dialog")).toBeNull();
+  expect(view.getByRole("button", { name: "Available tables in source" })).toBe(trigger);
+});
+
 it.each([false, true])("keeps pattern help on the fields, not the table-mode selector (fixed=%s)", fixed => {
   const form = (type: "selected" | "all") => <TableSelectionEditor
     value={type === "selected" ? { type, rules: [] } : { type }} fixed={fixed} onChange={() => undefined} />;
@@ -153,8 +198,8 @@ it("expands the complete matched list only on request into a bounded inline view
     } };
   }).process;
   const css = runtime?.getBuiltinModule?.("fs").readFileSync("src/style.css", "utf8") ?? "";
-  expect(css).toMatch(/\.table-rule-matches\s*\{[^}]*height: 140px;[^}]*overflow: auto;/);
-  expect(css).toMatch(/\.table-rule-matches\s*\{[^}]*min-height: 140px;[^}]*resize: none;/);
+  expect(css).toMatch(/\.table-rule-matches\s*\{[^}]*height: auto;[^}]*max-height: 140px;[^}]*overflow: auto;/);
+  expect(css).toMatch(/\.table-rule-matches\s*\{[^}]*min-height: 0;[^}]*resize: none;/);
   expect(css).toMatch(/\.table-selection-footer\s*\{[^}]*height: var\(--control-height\);/);
   // Right anchoring isolates the action from changing match counts. Both
   // complete icon/label pairs retain their grid footprint, so toggling height
@@ -252,6 +297,7 @@ it.each(["rule", "selected-total", "all-total"] as const)(
     </TableCatalogContext.Provider>);
     await waitFor(() => expect(view.getByRole("button", { name: "All matched tables 40" })).toBeTruthy());
     expect(view.queryByRole("button", { name: "Show all", exact: true })).toBeNull();
+    mockOverflowingList();
     const disclosure = view.getByRole("button", {
       name: kind === "rule" ? "Matched tables for rule 1" : "All matched tables 40",
     });
@@ -278,7 +324,7 @@ it.each(["rule", "selected-total", "all-total"] as const)(
       expect(icon?.parentElement).toBe(label);
     }
     expect([...labels].map(label => label.getAttribute("aria-hidden"))).toEqual(["false", "true"]);
-    expect(region.style.height).toBe("");
+    expect(region.style.height).toBe("140px");
     heightToggle.focus();
 
     fireEvent.click(heightToggle);
@@ -295,13 +341,14 @@ it.each(["rule", "selected-total", "all-total"] as const)(
     expect(header?.contains(heightToggle)).toBe(true);
     expect(heightToggle.getAttribute("title")).toMatch(/restore|previous/i);
     fireEvent.click(heightToggle);
-    expect(region.style.height).toBe("");
+    expect(region.style.height).toBe("140px");
     expect(view.getByRole("button", { name: "Show all", exact: true })).toBe(heightToggle);
   },
 );
 
 it.each(["rule", "selected-total", "all-total"] as const)(
   "preserves the explicitly expanded %s list height across catalog updates", async kind => {
+    mockOverflowingList();
     const oldTables = [{ namespace: "db", name: "old" }];
     const newTables = Array.from({ length: 40 }, (_, index) => ({ namespace: "db", name: `new${index}` }));
     let finish!: (result: SelectionPreview) => void;
@@ -356,6 +403,7 @@ it.each(["rule", "selected-total", "all-total"] as const)(
 
 it.each(["rule", "selected-total", "all-total"] as const)(
   "allows restoring the %s height but never fits pending matches", async kind => {
+    mockOverflowingList();
     const tables = [{ namespace: "db", name: "old" }];
     const newTables = [{ namespace: "db", name: "new" }];
     let finish!: (result: SelectionPreview) => void;
@@ -394,42 +442,21 @@ it.each(["rule", "selected-total", "all-total"] as const)(
     expect(view.getByRole("button", { name: "Show all", exact: true })).toBe(heightToggle);
     expect(heightToggle.disabled).toBe(true);
     fireEvent.click(heightToggle);
-    expect(region.style.height).toBe("");
+    expect(region.style.height).toBe("140px");
     expect(measure).not.toHaveBeenCalled();
     expect(region.textContent).toBe("Waiting for a valid table selection…");
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
     await act(async () => finish({ cards: [{ selected: newTables, excluded: [] }], issues: [] }));
     expect(heightToggle.disabled).toBe(false);
-    expect(region.style.height).toBe("");
-    expect(measure).not.toHaveBeenCalled();
+    expect(region.style.height).toBe("140px");
+    // Measuring overflow after valid results is allowed; resizing is not.
+    expect(measure).toHaveBeenCalled();
     expect(region.textContent).toBe("db.new");
   },
 );
 
-it("does not shrink an existing taller height when all matches already fit", async () => {
-  const tables = [{ namespace: "db", name: "table" }];
-  const preview = vi.fn().mockResolvedValue({ cards: [{ selected: tables, excluded: [] }], issues: [] });
-  const view = render(<TableCatalogContext.Provider value={{ tables, preview }}>
-    <TableSelectionEditor value={{ type: "all" }} onChange={() => undefined} />
-  </TableCatalogContext.Provider>);
-  await waitFor(() => expect(view.getByRole("button", { name: "All matched tables 1" })).toBeTruthy());
-  fireEvent.click(view.getByRole("button", { name: "All matched tables 1" }));
-  const region = view.getByLabelText("All matched tables");
-  region.style.height = "240px";
-  Object.defineProperties(region, {
-    scrollHeight: { configurable: true, value: 100 },
-    offsetHeight: { configurable: true, value: 240 },
-    clientHeight: { configurable: true, value: 238 },
-  });
-
-  fireEvent.click(view.getByRole("button", { name: "Show all", exact: true }));
-
-  expect(region.style.height).toBe("240px");
-  fireEvent.click(view.getByRole("button", { name: "Restore height", exact: true }));
-  expect(region.style.height).toBe("240px");
-});
-
 it("sizes rule and total match lists independently and resets a reopened list", async () => {
+  mockOverflowingList();
   const tables = [{ namespace: "db", name: "first" }, { namespace: "db", name: "second" }];
   const preview = vi.fn().mockResolvedValue({
     cards: tables.map(table => ({ selected: [table], excluded: [] })), issues: [],
@@ -452,16 +479,16 @@ it("sizes rule and total match lists independently and resets a reopened list", 
   }));
 
   fireEvent.click(buttons[0]!);
-  expect(regions.map(region => region.style.height)).toEqual(["300px", "", ""]);
+  expect(regions.map(region => region.style.height)).toEqual(["300px", "140px", "140px"]);
   fireEvent.click(buttons[1]!);
   fireEvent.click(buttons[2]!);
   expect(regions.map(region => region.style.height)).toEqual(["300px", "400px", "500px"]);
   fireEvent.click(buttons[1]!);
-  expect(regions.map(region => region.style.height)).toEqual(["300px", "", "500px"]);
+  expect(regions.map(region => region.style.height)).toEqual(["300px", "140px", "500px"]);
   fireEvent.click(disclosures[0]!);
   expect(view.queryByLabelText("Matches for rule 1")).toBeNull();
   fireEvent.click(disclosures[0]!);
-  expect(view.getByLabelText("Matches for rule 1").style.height).toBe("");
+  expect(view.getByLabelText("Matches for rule 1").style.height).toBe("140px");
   expect(regions[2]!.style.height).toBe("500px");
 });
 

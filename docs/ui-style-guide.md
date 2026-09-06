@@ -29,7 +29,10 @@ All tables; do not replace unrelated dropdowns automatically.
 Table matching lists are an explicit layout-stability exception: user-triggered
 expansion may push later rows down. Async preview updates must not change the
 height of an already open list or the result/status control regions.
-Each open matching list uses **A — a text action above the list**: `Show all`
+Short lists open at their content height, up to the 140px compact viewport.
+Pin that measured height before paint; later async results must not resize it.
+Hide `Show all` when the results fit, retaining its header slot without a focus
+or click target. A taller matching list uses **A — a text action above the list**: `Show all`
 fits the current results without internal scrolling; `Restore height` returns
 to the compact viewport. Center the visible CSS arrow icon and label as one
 pair, reserving the wider pair's width so the button stays in place. Use a
@@ -69,13 +72,31 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   share `--secondary-action-*` tokens. Small labels use a slightly darkened
   `--blue-hover` for readable contrast on both white and hover surfaces.
   Do not add feature-local action palettes.
-- Copy beside Transfer ID and table names is a **quiet neutral utility**:
-  use the plain Button variant with shared `copy-action` styling, secondary-text
-  icons and a soft neutral hover/press surface in both themes. Transfer ID has
-  no visible border; table rows use `copy-action-framed` for a thin neutral
-  outline. Use the same rounded, overlapping-page glyph with its rear outline
-  occluded, not intersecting. Keep focus rings and immediate clipboard feedback;
-  paint changes must not move or resize the controls.
+- **All clipboard actions** use `CopyButton`, a quiet neutral icon utility:
+  secondary-text icons and a soft neutral hover/press surface in both themes.
+  Transfer ID has no visible border; table rows use a thin neutral outline.
+  Clone keeps its label and clone semantics, with the same `CopyIcon` glyph and
+  plain `copy-action copy-action-framed` styling. Rounded overlapping pages have
+  an occluded rear outline, not intersecting borders.
+  Copy alone uses a shared fixed-overlay tooltip (350 ms hover/focus delay),
+  not a native title: `Copy` changes to `Copied` after the clipboard write succeeds,
+  with a check inside the front page. Click/pending/error feedback is immediate;
+  pending writes are deduplicated. The tooltip has fixed dimensions and never
+  enters document flow, captures clicks or creates another tab stop. Do not
+  layer native titles over it. Focus rings and control geometry stay unchanged.
+- Source table selectors and transforms share the compact `Available tables (N)`
+  action and the same searchable popup. Source browsing uses the catalog after
+  Hide system tables, not the selected rules, and offers Copy without mutating
+  the selection. Unknown catalogs disable the action; known empty catalogs open
+  normally. Invalidating metadata closes the popup without reopening on reconnect.
+- Transform available table rows place a compact `Use` action beside Copy. Use replaces
+  the current transform's Include with an exact-name pattern in its existing
+  glob/regex mode, preserves Exclude and the transform, and closes the dialog.
+  The popup search mode does not change Include's mode. Read-only browsing keeps
+  search and Copy available but disables Use. Keep both row actions fixed-size.
+- A new transform starts with `Transformation: Not selected`, never an implicit
+  SQL or filter action. Its table scope stays editable; action-specific fields
+  and Preview require an explicit selection. Clone retains the original action.
 - Use `variant="plain"` for tabs, selectors, navigation, drag handles and
   disclosures such as Matched tables. These are not secondary form actions and
   keep their existing neutral/selected treatments. Primary, danger and transport
@@ -122,6 +143,8 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
 - Selected tabs use a white surface, dark text, and a teal bottom indicator in
   both the editor and catalog. Available unselected tabs remain readable;
   disabled tabs use the common disabled treatment and lock indicator.
+  Configuration tabs and the transform's Before step / After step tabs share
+  a continuous slate backing, with the same rounded corners and inner inset.
 - Primary actions and focus use teal. Do not use teal indiscriminately for
   ordinary text or give disabled actions an enabled accent appearance.
 - Editable tables use a white base, subtle cool-gray alternating rows, a tinted

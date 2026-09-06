@@ -312,7 +312,7 @@ async fn both_source_readers_preserve_full_enum_and_nested_numeric_types() -> an
 }
 
 #[tokio::test]
-async fn unsupported_dynamic_type_requires_explicit_to_string_for_both_readers() -> anyhow::Result<()> {
+async fn unsupported_dynamic_type_defaults_to_string_and_allows_explicit_fail_for_both_readers() -> anyhow::Result<()> {
     let (_container, host, native_port, http_port) = type_fixture().await?;
     let http = reqwest::Client::new();
     let url = format!("http://{host}:{http_port}");
@@ -323,11 +323,11 @@ async fn unsupported_dynamic_type_requires_explicit_to_string_for_both_readers()
         "INSERT INTO unsupported_events SELECT 3, NULL",
     ] { execute_fixture_query(&http, &url, query).await?; }
     for reader in ["native", "parquet"] {
-        let strict = type_connector(&host, native_port, http_port, reader, "unsupported_events", "")?;
+        let strict = type_connector(&host, native_port, http_port, reader, "unsupported_events", "unsupported_types: fail\n")?;
         let error = discover_types(&strict).await.unwrap_err();
         let message = format!("{error:#}");
         assert!(message.contains("payload") && message.contains("Dynamic") && message.contains("to_string"), "{message}");
-        let converted = type_connector(&host, native_port, http_port, reader, "unsupported_events", "unsupported_types: to_string\n")?;
+        let converted = type_connector(&host, native_port, http_port, reader, "unsupported_events", "")?;
         let discovery = discover_types(&converted).await?;
         let payload = &discovery.datasets[0].stored_schema.columns[1];
         assert_eq!(payload.data_type, DataType::Utf8);

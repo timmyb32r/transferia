@@ -59,7 +59,7 @@ pub struct ClickHouseSourceConfig {
     #[serde(default)]
     #[schemars(
         title = "Unsupported source types",
-        description = "When a ClickHouse column cannot be represented by the source Arrow reader: Fail delivery (default) rejects it during discovery. to_string explicitly applies ClickHouse toString to the entire column, including nested values, and outputs UTF-8 text with the original type recorded in schema metadata. This changes the type and may not be reversible. NULL remains NULL. If ClickHouse cannot perform toString or returns invalid UTF-8, the delivery fails; values are never replaced or skipped.",
+        description = "When a ClickHouse column cannot be represented by the source Arrow reader: to_string (default) applies ClickHouse toString to the entire column, including nested values, and outputs UTF-8 text with the original type recorded in schema metadata. This changes the type and may not be reversible. Select Fail delivery to reject unsupported types during discovery instead. NULL remains NULL. If ClickHouse cannot perform toString or returns invalid UTF-8, the delivery fails; values are never replaced or skipped.",
         extend("x-ui" = { "section": "advanced" })
     )]
     pub unsupported_types: UnsupportedTypePolicy,
@@ -77,10 +77,10 @@ pub struct ClickHouseSourceConfig {
 #[serde(rename_all = "snake_case")]
 pub enum UnsupportedTypePolicy {
     #[default]
-    #[schemars(title = "Fail delivery")]
-    Fail,
     #[schemars(title = "to_string")]
     ToString,
+    #[schemars(title = "Fail delivery")]
+    Fail,
 }
 
 const fn default_hide_system_tables() -> bool {

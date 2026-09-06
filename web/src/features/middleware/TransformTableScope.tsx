@@ -3,8 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { TableIdentity, TableRule } from "../../generated/apiContract";
 import { useTableCatalog } from "../../schema/tableCatalog";
 import { MatchedTablesDisclosure } from "../tableSelection/MatchedTablesDisclosure";
-import { Button } from "../../ui/Button";
-import { AvailableTablesDialog } from "./AvailableTablesDialog";
+import { AvailableTablesButton } from "../tableSelection/AvailableTablesDialog";
 
 export function useTransformMatches(rule: TableRule, enabled = true) {
   const catalog = useTableCatalog();
@@ -29,21 +28,15 @@ export function useTransformMatches(rule: TableRule, enabled = true) {
   return result?.key === key && result.catalog === tables ? result : undefined;
 }
 
-export function TransformTableScope({ id, index, matches: current, children }: {
+export function TransformTableScope({ id, index, matches: current, children, onUseTable }: {
   id: string; index: number; matches: ReturnType<typeof useTransformMatches>; children: ComponentChildren;
+  onUseTable: ((table: TableIdentity) => void) | undefined;
 }) {
   const catalog = useTableCatalog();
-  const tables = catalog?.tables;
-  const [availableOpen, setAvailableOpen] = useState(false);
   const [matchedOpen, setMatchedOpen] = useState(false);
   return <div class="middleware-table-scope">
-    <div class="middleware-available-tables">
-      <Button class="table-matches-height-toggle" aria-label={`Available tables for transform ${index + 1}`} aria-haspopup="dialog" disabled={!catalog}
-        title="Browse tables selected in the source" onClick={() => setAvailableOpen(true)}>
-        Available tables <span class="table-match-count">({tables?.length ?? "—"})</span>
-      </Button>
-    </div>
-    {availableOpen && catalog && <AvailableTablesDialog catalog={catalog} onClose={() => setAvailableOpen(false)} />}
+    <AvailableTablesButton label={`Available tables for transform ${index + 1}`} title="Browse tables selected in the source"
+      onUse={onUseTable} showUse />
     {children}
     <MatchedTablesDisclosure id={`${id}-matched`} label="Matched tables" headerClass="table-rule-result"
       toggleLabel={`Matched tables for transform ${index + 1}`} regionLabel={`Matched tables for transform ${index + 1}`}

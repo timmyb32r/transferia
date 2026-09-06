@@ -74,7 +74,7 @@ fn reported_information_schema_enum_is_supported_without_conversion() {
 }
 
 #[test]
-fn unsupported_types_require_explicit_string_conversion() {
+fn unsupported_types_follow_the_selected_conversion_policy() {
     for declaration in ["Dynamic", "Variant(String, UInt64)", "JSON", "AggregateFunction(sum, UInt64)", "Time64(6)", "QBit(Float32, 16)"] {
         assert!(types::source_column("value", declaration, UnsupportedTypePolicy::Fail).is_err(), "{declaration}");
         let column = types::source_column("value", declaration, UnsupportedTypePolicy::ToString).unwrap();
@@ -106,11 +106,19 @@ fn wire_metadata_must_match_before_restoring_tuple_names() {
 }
 
 #[test]
-fn source_policy_is_fail_by_default_and_is_an_advanced_option() {
-    let config: super::super::config::ClickHouseSourceConfig = serde_json::from_value(serde_json::json!({"hosts":["localhost"], "port":9000,"trusted_plaintext":true,"username":"default","tables":{"type":"all"}})).unwrap();
-    assert_eq!(config.unsupported_types, UnsupportedTypePolicy::Fail);
+fn source_policy_defaults_to_string_and_preserves_explicit_fail() {
+    let mut value = serde_json::json!({"hosts":["localhost"], "port":9000,"trusted_plaintext":true,"username":"default","tables":{"type":"all"}});
+    let config: super::super::config::ClickHouseSourceConfig = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(config.unsupported_types, UnsupportedTypePolicy::ToString);
+    assert_eq!(types::source_column("payload", "Dynamic", config.unsupported_types).unwrap().data_type, DataType::Utf8);
+    value["unsupported_types"] = serde_json::json!("fail");
+    let strict: super::super::config::ClickHouseSourceConfig = serde_json::from_value(value).unwrap();
+    assert_eq!(strict.unsupported_types, UnsupportedTypePolicy::Fail);
+    assert!(types::source_column("payload", "Dynamic", strict.unsupported_types).is_err());
     let schema = serde_json::to_value(schemars::schema_for!(super::super::config::ClickHouseSourceConfig)).unwrap();
     assert_eq!(schema["properties"]["unsupported_types"]["x-ui"]["section"], "advanced");
+    assert_eq!(schema["properties"]["unsupported_types"]["default"], "to_string");
+    assert_eq!(schema["$defs"]["UnsupportedTypePolicy"]["oneOf"][0]["const"], "to_string");
 }
 
 #[test]

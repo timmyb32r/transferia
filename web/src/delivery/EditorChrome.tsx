@@ -1,9 +1,9 @@
 import type { EditorState } from "../state";
-import { useRef, useState } from "preact/hooks";
 import { isDirty } from "../state";
 import type { DeliverySummary, UiCatalog } from "../types";
 import { AppearanceSettings } from "../ui/AppearanceSettings";
 import { Button } from "../ui/Button";
+import { CopyButton, CopyIcon } from "../ui/CopyButton";
 import { CompatibilityMatrixLauncher } from "../ui/CompatibilityMatrixDialog";
 import { InstantTooltip } from "../ui/InstantTooltip";
 import type { Appearance } from "../ui/appearance";
@@ -126,9 +126,9 @@ export function EditorActions({
         title={savedActionReason} onClick={onDelete}>
         Delete
       </Button>
-      <Button disabled={savedActionReason !== undefined}
+      <Button variant="plain" class="copy-action copy-action-framed" disabled={savedActionReason !== undefined}
         title={savedActionReason} onClick={onClone}>
-        Clone
+        <CopyIcon /><span>Clone</span>
       </Button>
       <Button disabled={savedActionReason !== undefined || !runtimeAllowsEditing}
         title={savedActionReason} onClick={onEdit}>
@@ -523,33 +523,7 @@ export function EditorTabs({
 }
 
 function CopyNoticeButton({ text }: { text: string }) {
-  const busy = useRef(false);
-  const [status, setStatus] = useState("Copy");
-  return (
-    <Button
-      class="notice-copy"
-      pending={status === "Copying…"}
-      aria-label="Copy message"
-      title={status === "Failed" ? "Copy failed. Select and copy the message manually." : status}
-      onKeyDown={(event) => event.stopPropagation()}
-      onClick={async (event) => {
-        event.stopPropagation();
-        if (busy.current) return;
-        busy.current = true;
-        setStatus("Copying…");
-        try {
-          await navigator.clipboard.writeText(text);
-          setStatus("Copied");
-        } catch {
-          setStatus("Failed");
-        } finally {
-          busy.current = false;
-        }
-      }}
-    >
-      <span aria-live="polite">{status}</span>
-    </Button>
-  );
+  return <CopyButton class="notice-copy" text={text} label="Copy message" />;
 }
 
 export function OperationNotices({

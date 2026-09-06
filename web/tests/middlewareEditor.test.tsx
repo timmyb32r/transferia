@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MiddlewareEditor } from "../src/features/middleware/MiddlewareEditor";
 import { TableCatalogContext } from "../src/schema/tableCatalog";
+import { nextRequiredTarget, REQUIRED_CONTROL_SELECTOR } from "../src/ui/requiredGuidance";
 import type { JsonValue } from "../src/types";
 import { render } from "./support/render";
 
@@ -22,6 +23,63 @@ function Editor({ value = [step], disabled = false }: { value?: JsonValue; disab
 }
 
 describe("ordered transform strips", () => {
+  it.each([
+    ["glob", "reports_daily", "analytics.reports_daily"],
+    ["regex", "reports_daily", String.raw`analytics\.reports_daily`],
+    ["glob", "reports_*+(1)", String.raw`analytics.reports_\*+(1)`],
+    ["regex", "reports_*+(1)", String.raw`analytics\.reports_\*\+\(1\)`],
+  ])("uses an exact table in the current Include's %s mode: %s", (mode, name, expected) => {
+    const table = { namespace: "analytics", name: name! };
+    const preview = vi.fn().mockResolvedValue({ cards: [{ selected: [table], excluded: [] }], issues: [] });
+    const view = render(<TableCatalogContext.Provider value={{ tables: [table], preview }}>
+      <Editor value={[step, { ...step, tables: { ...step.tables, include_mode: mode! } }]} />
+    </TableCatalogContext.Provider>);
+    fireEvent.click(view.getByRole("button", { name: "Expand transform 2" }));
+    const include = view.getByRole("combobox", { name: "Include" }) as HTMLInputElement;
+    const available = view.getByRole("button", { name: "Available tables for transform 2" });
+    available.focus();
+    fireEvent.click(available);
+    // Search mode is deliberately the opposite of Include mode.
+    if (mode === "glob") fireEvent.click(view.getByRole("button", { name: "Search tables regex" }));
+    fireEvent.click(view.getByRole("button", { name: `Use analytics.${name} in Include` }));
+    expect(view.queryByRole("dialog", { name: "Available tables" })).toBeNull();
+    expect(include.value).toBe(expected);
+    expect(view.getByRole("combobox", { name: "Include" })).toBe(include);
+    expect(document.activeElement).toBe(available);
+    expect(view.getByRole("button", { name: "Include regex" }).getAttribute("aria-pressed")).toBe(String(mode === "regex"));
+    expect((view.getByRole("combobox", { name: "Exclude" }) as HTMLInputElement).value).toBe(step.tables.exclude);
+    expect(view.getByDisplayValue(step.datafusion.sql)).toBeTruthy();
+    expect(view.container.querySelector(".middleware-scope-summary")?.textContent).toContain(step.tables.include);
+  });
+
+  it("uses a table in a newly added transform", () => {
+    const table = { namespace: "system", name: "query_log" };
+    const preview = vi.fn().mockResolvedValue({ cards: [{ selected: [table], excluded: [] }], issues: [] });
+    const view = render(<TableCatalogContext.Provider value={{ tables: [table], preview }}><Editor value={[]} /></TableCatalogContext.Provider>);
+    fireEvent.click(view.getByRole("button", { name: "Add transform" }));
+    fireEvent.click(view.getByRole("button", { name: "Available tables for transform 1" }));
+    fireEvent.click(view.getByRole("button", { name: "Use system.query_log in Include" }));
+    expect((view.getByRole("combobox", { name: "Include" }) as HTMLInputElement).value).toBe("system.query_log");
+    expect(view.queryByRole("dialog")).toBeNull();
+  });
+
+  it("allows browsing and copying but not Use in a read-only transform", () => {
+    const table = { namespace: "system", name: "query_log" };
+    const preview = vi.fn().mockResolvedValue({ cards: [{ selected: [table], excluded: [] }], issues: [] });
+    const onChange = vi.fn();
+    const view = render(<TableCatalogContext.Provider value={{ tables: [table], preview }}>
+      <MiddlewareEditor value={[step]} disabled onChange={onChange} />
+    </TableCatalogContext.Provider>);
+    fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
+    fireEvent.click(view.getByRole("button", { name: "Available tables for transform 1" }));
+    const use = view.getByRole("button", { name: "Use system.query_log in Include" }) as HTMLButtonElement;
+    expect(use.disabled).toBe(true);
+    expect((view.getByRole("button", { name: "Copy system.query_log" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(use);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(view.getByRole("dialog", { name: "Available tables" })).toBeTruthy();
+  });
+
   it("shows both Include and Exclude in the collapsed strip", () => {
     const view = render(<Editor />);
     const scope = view.container.querySelector(".middleware-scope-summary")!;
@@ -55,7 +113,7 @@ describe("ordered transform strips", () => {
     expect(list.classList.contains("table-rule-matches")).toBe(true);
     expect(within(list).getByText("public.reports_daily")).toBeTruthy();
     expect(within(list).queryByText("public.reports_test")).toBeNull();
-    expect(view.getAllByRole("button", { name: "Show all" })).toHaveLength(1);
+    expect(view.queryByRole("button", { name: "Show all" })).toBeNull();
   });
 
   it.each(["Include", "Exclude"])("reuses source suggestions in %s for existing and newly added steps", async label => {
@@ -93,20 +151,83 @@ describe("ordered transform strips", () => {
     expect(view.queryByRole("button", { name: "Run preview" })).toBeNull();
   });
 
-  it("adds one SQL step scoped to all tables", () => {
+  it("adds one unselected step scoped to all tables without injecting SQL", () => {
     const onChange = vi.fn();
     const view = render(<MiddlewareEditor value={[]} disabled={false} onChange={onChange} />);
     fireEvent.click(view.getByRole("button", { name: "Add transform" }));
     expect(onChange).toHaveBeenCalledWith([{
       tables: { include: "*", include_mode: "glob", exclude_mode: "glob" },
-      datafusion: { sql: "SELECT * FROM input" },
     }]);
+  });
+
+  it("opens a new step with Not selected and editable scope, not an unsupported-YAML error", () => {
+    const view = render(<Editor value={[]} />);
+    fireEvent.click(view.getByRole("button", { name: "Add transform" }));
+    expect(view.getByRole("button", { name: "Transformation" }).textContent).toBe("Not selected");
+    expect(view.container.querySelector(".middleware-strip-title")?.textContent).toBe("Not selected");
+    expect(view.queryByRole("alert")).toBeNull();
+    expect(view.queryByLabelText("SQL over table input")).toBeNull();
+    expect(view.queryByLabelText("Column")).toBeNull();
+    expect(view.getByRole("textbox", { name: "Include" })).toBeTruthy();
+    expect((view.getByRole("button", { name: "Preview transform 1" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("guides required-field navigation to the draft picker or its collapsed strip", () => {
+    const view = render(<Editor value={[{ tables: step.tables }]} />);
+    const root = view.container as HTMLElement;
+    const toggle = view.getByRole("button", { name: "Expand transform 1" });
+    expect(nextRequiredTarget(root)?.querySelector(REQUIRED_CONTROL_SELECTOR)).toBe(toggle);
+    fireEvent.click(toggle);
+    const selector = view.getByRole("button", { name: "Transformation" });
+    expect(nextRequiredTarget(root)?.querySelector(REQUIRED_CONTROL_SELECTOR)).toBe(selector);
+    fireEvent.click(selector);
+    fireEvent.click(view.getByRole("option", { name: "SQL", exact: true }));
+    expect(nextRequiredTarget(root)).toBeUndefined();
+  });
+
+  it.each([
+    ["SQL", "datafusion", { sql: "SELECT * FROM input" }],
+    ["String filter", "filter", { field: "", value: "" }],
+  ] as const)("creates %s only after an explicit selection, preserving the scope", (label, kind, config) => {
+    const onChange = vi.fn();
+    const view = render(<MiddlewareEditor value={[{ tables: step.tables }]} disabled={false} onChange={onChange} />);
+    fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
+    fireEvent.click(view.getByRole("button", { name: "Transformation" }));
+    expect(view.getAllByRole("option")[0]?.textContent).toBe("Not selected");
+    fireEvent.click(view.getByRole("option", { name: label, exact: true }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith([{ tables: step.tables, [kind]: config }]);
+  });
+
+  it("can return to Not selected without losing scope or moving the selector's DOM node", () => {
+    const view = render(<Editor />);
+    fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
+    const selector = view.getByRole("button", { name: "Transformation" });
+    const include = view.getByRole("textbox", { name: "Include" });
+    fireEvent.click(selector);
+    fireEvent.click(view.getByRole("option", { name: "Not selected" }));
+    expect(view.getByRole("button", { name: "Transformation" })).toBe(selector);
+    expect(selector.textContent).toBe("Not selected");
+    expect(view.getByRole("textbox", { name: "Include" })).toBe(include);
+    expect((include as HTMLInputElement).value).toBe(step.tables.include);
+    expect((view.getByRole("textbox", { name: "Exclude" }) as HTMLInputElement).value).toBe(step.tables.exclude);
+    expect(view.queryByDisplayValue(step.datafusion.sql)).toBeNull();
+  });
+
+  it("does not reinterpret malformed or unsupported configurations as an empty selection", () => {
+    const view = render(<Editor value={[{ tables: step.tables, unknown: {} }]} />);
+    fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
+    expect(view.getByRole("alert").textContent).toContain("Open YAML");
+    expect(view.queryByRole("button", { name: "Transformation" })).toBeNull();
   });
 
   it("clones the complete step without opening either strip", () => {
     const onChange = vi.fn();
     const view = render(<MiddlewareEditor value={[step]} disabled={false} onChange={onChange} />);
-    fireEvent.click(view.getByRole("button", { name: "Clone transform 1" }));
+    const clone = view.getByRole("button", { name: "Clone transform 1" });
+    expect(clone.classList.contains("copy-action")).toBe(true);
+    expect(clone.classList.contains("secondary-button")).toBe(false);
+    expect(clone.querySelector(".copy-icon")).toBeTruthy();
+    fireEvent.click(clone);
     const next = onChange.mock.calls[0]?.[0] as JsonValue[];
     expect(next).toEqual([step, step]);
     expect(next[1]).not.toBe(step);
@@ -139,6 +260,23 @@ describe("ordered transform strips", () => {
     expect(view.queryByRole("button", { name: /Move transform/ })).toBeNull();
     expect(view.queryByRole("button", { name: /settings for transform/ })).toBeNull();
     expect(view.getByRole("button", { name: "Reorder transform 1" }).title).not.toContain("Alt");
+  });
+
+  it("keeps drag and cancelled deletion independent of the full-height disclosure", () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const view = render(<Editor />);
+    const toggle = view.getByRole("button", { name: "Expand transform 1" });
+    const drag = view.getByRole("button", { name: "Reorder transform 1" });
+    const remove = view.getByRole("button", { name: "Delete transform 1" });
+    for (const expanded of [false, true]) {
+      fireEvent.click(drag);
+      fireEvent.click(remove);
+      expect(toggle.getAttribute("aria-expanded")).toBe(String(expanded));
+      expect(view.getByRole("button", { name: "Reorder transform 1" })).toBe(drag);
+      expect(view.getByRole("button", { name: "Delete transform 1" })).toBe(remove);
+      fireEvent.click(toggle);
+      expect(toggle.getAttribute("aria-expanded")).toBe(String(!expanded));
+    }
   });
 
   it("requires confirmation before deleting a step", () => {

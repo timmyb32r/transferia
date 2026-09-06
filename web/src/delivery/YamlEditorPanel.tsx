@@ -1,7 +1,7 @@
 import { useRef, useState } from "preact/hooks";
 
 import { AutofillResistantTextarea } from "../ui/AutofillResistantField";
-import { Button } from "../ui/Button";
+import { CopyButton, type CopyState } from "../ui/CopyButton";
 import { SyntaxHighlight } from "../ui/SyntaxHighlight";
 
 export function YamlEditorPanel({
@@ -14,19 +14,7 @@ export function YamlEditorPanel({
   onChange: (value: string) => void;
 }) {
   const highlight = useRef<HTMLPreElement>(null);
-  const [copyState, setCopyState] = useState<
-    "idle" | "copying" | "copied" | "error"
-  >("idle");
-  const copy = async () => {
-    if (copyState === "copying") return;
-    setCopyState("copying");
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopyState("copied");
-    } catch {
-      setCopyState("error");
-    }
-  };
+  const [copyState, setCopyState] = useState<CopyState>("idle");
   return (
     <section class="yaml-editor card" role="tabpanel">
       <div class="card-heading">
@@ -48,9 +36,7 @@ export function YamlEditorPanel({
                   ? "Copying…"
                   : "Copy status"}
           </span>
-          <Button pending={copyState === "copying"} onClick={() => void copy()}>
-            Copy
-          </Button>
+          <CopyButton text={value} onStateChange={setCopyState} />
         </div>
       </div>
       <div class="yaml-code-editor">

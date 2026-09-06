@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 use transferia_connector_support::external_request::observe_external_request;
 use transferia_core::data::system_columns::SystemColumns;
 use transferia_core::TableData;
+use transferia_delivery_contracts::DeliveryType;
 use transferia_registry::{TableIdentity, TableSampleLimits};
 
 use super::copy_out::CopyOutReader;
@@ -18,12 +19,13 @@ use crate::metrics::SourceCounters;
 
 pub(crate) async fn sample_table(config: PostgresSourceConfig, table: TableIdentity, limits: TableSampleLimits,
     cancellation: CancellationToken) -> anyhow::Result<TableData> {
-    sample_with_metadata(config, table, limits, cancellation, None).await
+    sample_with_metadata(config, DeliveryType::Batch, table, limits, cancellation, None).await
 }
 
-pub(crate) async fn sample_with_metadata(config: PostgresSourceConfig, table: TableIdentity, limits: TableSampleLimits,
+pub(crate) async fn sample_with_metadata(config: PostgresSourceConfig, delivery_type: DeliveryType, table: TableIdentity, limits: TableSampleLimits,
     cancellation: CancellationToken, cached: Option<crate::connectors::postgres::source::DiscoveredTable>) -> anyhow::Result<TableData> {
     limits.validate()?;
+    let unsupported_types = config.unsupported_type_policy(delivery_type)?;
     let row_limit = limits.row_limit;
     config.connection.validate()?;
     anyhow::ensure!(i32::try_from(limits.timeout_ms).is_ok(), "timeout_ms exceeds PostgreSQL statement_timeout range");
@@ -40,7 +42,7 @@ pub(crate) async fn sample_with_metadata(config: PostgresSourceConfig, table: Ta
             observe_external_request("postgres", "begin_read_only_table_sample",
                 client.batch_execute(&format!("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL statement_timeout = {}", limits.timeout_ms))).await?;
             let discovered = observe_external_request("postgres", "discover_sample_table",
-                discover_table(&client, TableConfig { schema: table.namespace.clone(), name: table.name.clone() }, config.unsupported_types)).await?;
+                discover_table(&client, TableConfig { schema: table.namespace.clone(), name: table.name.clone() }, unsupported_types)).await?;
             if let Some(cached) = &cached { validate_cached_schema(cached, &discovered)?; }
             anyhow::ensure!(discovered.config.schema == table.namespace && discovered.config.name == table.name,
                 "Cached PostgreSQL table identity does not match the sample request");
@@ -48,7 +50,7 @@ pub(crate) async fn sample_with_metadata(config: PostgresSourceConfig, table: Ta
             anyhow::ensure!(metadata.columns().len() == discovered.schema.columns.len()
                 && metadata.columns().iter().zip(&discovered.schema.columns).all(|(actual, expected)| actual.name() == expected.name),
                 "PostgreSQL sample source schema changed since metadata was loaded; refresh metadata");
-            let projection = source_select_projection(metadata.columns(), config.unsupported_types)?;
+            let projection = source_select_projection(metadata.columns(), unsupported_types)?;
             let select = sample_query(&table, &projection, row_limit)?;
             let statement = observe_external_request("postgres", "prepare_table_sample", client.prepare(&select)).await?;
             anyhow::ensure!(statement.columns().len() == discovered.schema.columns.len(), "PostgreSQL sample schema changed during discovery");

@@ -253,8 +253,50 @@ fn snapshot_copy_to_format_defaults_to_binary_and_accepts_explicit_text() {
     .unwrap();
 
     assert_eq!(binary.copy_to_format, PostgresCopyFormat::Binary);
-    assert_eq!(binary.unsupported_types, super::UnsupportedTypePolicy::Fail);
     assert_eq!(text.copy_to_format, PostgresCopyFormat::Text);
+}
+
+#[test]
+fn unsupported_type_default_is_to_string_for_batch_and_fail_for_replication() {
+    use super::UnsupportedTypePolicy;
+    let base = serde_json::json!({
+        "host": "localhost", "port": 5432, "database": "postgres", "username": "postgres",
+        "password": "test", "trusted_plaintext": true, "tables": {"type": "all"}
+    });
+    for explicit in [None, Some("fail"), Some("to_string")] {
+        for mode in [DeliveryType::Batch, DeliveryType::Stream, DeliveryType::BatchAndStream] {
+            let mut value = base.clone();
+            if let Some(policy) = explicit { value["unsupported_types"] = serde_json::json!(policy); }
+            let config: PostgresSourceConfig = serde_json::from_value(value).unwrap();
+            let result = config.unsupported_type_policy(mode);
+            let unsupported = explicit == Some("to_string") && mode != DeliveryType::Batch;
+            if unsupported {
+                assert!(result.unwrap_err().to_string().contains("supported only for batch"));
+            } else {
+                let policy = result.unwrap();
+                let converts = mode == DeliveryType::Batch && explicit != Some("fail");
+                assert_eq!(policy, if converts { UnsupportedTypePolicy::ToString } else { UnsupportedTypePolicy::Fail });
+                let arrow_type = policy.arrow_type(&tokio_postgres::types::Type::ANYARRAY);
+                if converts { assert_eq!(arrow_type.unwrap(), DataType::Utf8); }
+                else { assert!(arrow_type.is_err()); }
+                assert_eq!(policy.arrow_type(&tokio_postgres::types::Type::INT8).unwrap(), DataType::Int64);
+            }
+            let connector = PostgresSourceConnector::from_config(config, Arc::new(MetricsRegistry::default())).unwrap();
+            assert_eq!(connector.metadata_reader(mode).is_err(), unsupported);
+        }
+    }
+    for invalid in [serde_json::Value::Null, serde_json::json!("invalid")] {
+        let mut value = base.clone();
+        value["unsupported_types"] = invalid;
+        assert!(serde_json::from_value::<PostgresSourceConfig>(value).is_err());
+    }
+    let schema = serde_json::to_value(schemars::schema_for!(PostgresSourceConfig)).unwrap();
+    let property = &schema["properties"]["unsupported_types"];
+    assert_eq!(property["default"], "to_string");
+    assert_eq!(property["$ref"], "#/$defs/UnsupportedTypePolicy");
+    assert_eq!(property["x-ui"]["section"], "advanced");
+    assert_eq!(property["x-ui"]["delivery_types"], serde_json::json!(["batch"]));
+    assert_eq!(schema["$defs"]["UnsupportedTypePolicy"]["oneOf"][0]["const"], "to_string");
 }
 
 #[test]

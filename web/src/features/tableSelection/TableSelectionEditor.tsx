@@ -10,6 +10,7 @@ import { TrashIcon } from "../../ui/icons";
 import { hasPattern, selectionIssue, tablePreviewError } from "./model";
 import { MatchedTablesDisclosure } from "./MatchedTablesDisclosure";
 import { TablePatternInput } from "./TablePatternInput";
+import { AvailableTablesButton } from "./AvailableTablesDialog";
 import { useTableNamespace } from "./naming";
 const HELP = "Default: glob / wildcard, where * matches any number of characters and ? one character. The .* button enables regex independently for each field.";
 const RULE_HELP = "Suggestions escape exact names. Every row must select at least one table after exclusion. Duplicate includes and cross-row include/exclude conflicts fail validation.";
@@ -75,6 +76,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
     : issue || (incomplete ? "Enter a table name or pattern." : "");
   const includeHelp = `Include is required. Preview uses the last successful connection check; startup checks the catalog again.${fixed ? " Table patterns are resolved at delivery startup. Tables created later are not added automatically." : ""}`;
   return <section class="table-selection-editor">
+    <AvailableTablesButton label="Available tables in source" title="Browse available source tables" />
     <div class="table-selection-toolbar">
     <SegmentedControl label="Tables to transfer" value={selection.type} disabled={disabled || !catalog}
       options={[{ value: "selected", label: "Selected tables" }, { value: "all", label: "All tables" }]}
