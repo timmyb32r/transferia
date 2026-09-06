@@ -13,19 +13,40 @@ import { render } from "./support/render";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-function Form({ connectorKey = "postgres", readOnly = false, role = "source", deliveryType = "batch" }: {
-  connectorKey?: string; readOnly?: boolean; role?: "source" | "sink"; deliveryType?: string;
+function Form({ connectorKey = "postgres", readOnly = false, role = "source", deliveryType = "batch", fullWidth = false }: {
+  connectorKey?: string; readOnly?: boolean; role?: "source" | "sink"; deliveryType?: string; fullWidth?: boolean;
 }) {
   const connector = catalog.connectors.find(item => item.key === connectorKey)! as unknown as ConnectorDefinition;
   const endpoint = connector[role]! as EndpointDefinition;
+  const [tablesHost, setTablesHost] = useState<HTMLElement | null>(null);
   const [config, setConfig] = useState<JsonObject>({
     delivery_type: deliveryType,
     [role]: { [connectorKey]: endpoint.initial },
   });
-  return <EndpointCard title={role === "source" ? "Source" : "Destination"} role={role}
+  return <><EndpointCard title={role === "source" ? "Source" : "Destination"} role={role}
     selectedKey={connectorKey} connectors={[connector]} endpoint={endpoint} config={config}
-    readOnly={readOnly} showRequiredErrors={false} onChoose={() => undefined} onConfig={setConfig} />;
+    readOnly={readOnly} showRequiredErrors={false} onChoose={() => undefined} onConfig={setConfig} tablesHost={fullWidth ? tablesHost : undefined} />
+    {fullWidth && <><button>Destination settings</button><section class="source-tables-card" aria-label="Source tables" ref={setTablesHost} /></>}
+  </>;
 }
+
+it.each(["postgres", "mysql", "clickhouse"])("keeps one full-width %s table group mounted outside Source while metadata unlocks it", async connectorKey => {
+  vi.spyOn(api, "checkConnection").mockResolvedValue({ status: "verified", options: {}, tables: [] });
+  const view = render(<Form connectorKey={connectorKey} fullWidth deliveryType={connectorKey === "mysql" ? "stream" : "batch"} />);
+  const host = view.getByRole("region", { name: "Source tables" });
+  host.scrollIntoView = vi.fn();
+  const group = view.getByRole("group", { name: "Table settings" });
+  expect(host.contains(group)).toBe(true);
+  expect(view.container.querySelector(".endpoint-card-source")?.contains(group)).toBe(false);
+  const destination = view.getByRole("button", { name: "Destination settings" });
+  expect(destination.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  expect((within(group).getByRole("radio", { name: "Selected tables" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(view.getByRole("button", { name: "Connect & load metadata" }));
+  await waitFor(() => expect((within(group).getByRole("radio", { name: "Selected tables" }) as HTMLButtonElement).disabled).toBe(false));
+  expect(view.getByRole("group", { name: "Table settings" })).toBe(group);
+  expect(view.getByRole("region", { name: "Source tables" })).toBe(host);
+  if (connectorKey === "mysql") expect(within(group).getByText("New tables")).toBeTruthy();
+});
 
 it.each(["postgres", "mysql", "clickhouse"])("shows the required check and locks only dependent %s settings", connectorKey => {
   const view = render(<Form connectorKey={connectorKey} />);

@@ -8,7 +8,28 @@ import { TableCatalogContext } from "../src/schema/tableCatalog";
 import type { SelectionPreview } from "../src/generated/apiContract";
 import { render } from "./support/render";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+it.each([false, true])("shows an immediate, layout-free full value only when the field is truncated (%s)", truncated => {
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ measureText: () => ({ width: truncated ? 400 : 20 }), font: "" } as unknown as CanvasRenderingContext2D);
+  const value = "schema.a_very_long_table_name";
+  const view = render(<div><TablePatternInput id="overflow" label="Include" value={value} mode="glob" disabled={false}
+    required invalid={false} onChange={vi.fn()} onModeChange={vi.fn()} /><button>Following</button></div>);
+  const input = view.getByRole("textbox");
+  Object.defineProperty(input, "clientWidth", { value: 100 });
+  const following = view.getByRole("button", { name: "Following" });
+  fireEvent.mouseEnter(input);
+  const tooltip = view.queryByRole("tooltip");
+  if (truncated) {
+    expect(tooltip?.textContent).toBe(value);
+    expect(tooltip?.parentElement).toBe(document.body);
+    expect(input.getAttribute("aria-describedby")).toBe(tooltip?.id);
+  } else expect(tooltip).toBeNull();
+  expect(input.hasAttribute("title")).toBe(false);
+  expect(view.getByRole("button", { name: "Following" })).toBe(following);
+  fireEvent.mouseLeave(input);
+  expect(view.queryByRole("tooltip")).toBeNull();
+});
 
 it("uses prefix completions for plain glob input and preserves authored patterns", () => {
   expect(completionPattern("schema", "glob")).toBe("schema*");

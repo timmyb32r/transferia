@@ -25,6 +25,7 @@ export interface ConnectionFieldGroup {
   disabled: boolean;
   status?: ComponentChildren;
   renderField?: (name: string, field: ComponentChildren) => ComponentChildren;
+  renderGroup?: (group: ComponentChildren) => ComponentChildren;
 }
 
 export function ObjectNodeEditor({
@@ -142,6 +143,7 @@ export function ObjectNodeEditor({
   });
 
   const grouped = regular.filter(([name]) => connectionFields?.names.includes(name));
+  const renderConnectionGroup = (group: ComponentChildren) => connectionFields?.renderGroup ? connectionFields.renderGroup(group) : group;
   const regularProperty = ([name, child]: PropertyEntry, fieldDisabled = disabled) => (
         <Fragment key={name}>
           {name === "unknown_fields" &&
@@ -196,7 +198,7 @@ export function ObjectNodeEditor({
       {regular.map(entry => !connectionFields || !connectionFields.names.includes(entry[0])
         ? regularProperty(entry)
         : entry[0] !== grouped[0]?.[0] ? null
-        : <section class="connection-dependent-settings" key="connection-dependent-settings">
+        : <Fragment key="connection-dependent-settings">{renderConnectionGroup(<section class="connection-dependent-settings">
             {connectionFields.status && <div class="connection-dependent-status" id={connectionStatusId}>{connectionFields.status}</div>}
             <fieldset class="connection-dependent-fields" aria-label={connectionFields.label}
               aria-describedby={connectionFields.status ? connectionStatusId : undefined} disabled={disabled || connectionFields.disabled}>
@@ -205,7 +207,7 @@ export function ObjectNodeEditor({
                 return connectionFields.renderField ? connectionFields.renderField(entry[0], field) : field;
               })}
             </fieldset>
-          </section>)}
+          </section>)}</Fragment>)}
       {deferredVariants.map(({ name, branchIndex, branch }) => (
         <div
           class={[

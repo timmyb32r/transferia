@@ -7,6 +7,13 @@ it("accepts the production Copy/Copied overlay", () => {
   expect(checkTooltipPolicy("ui/CopyButton.tsx", source)).toEqual([]);
 });
 
+it("allows only the approved immediate full-table-name overlay", () => {
+  const source = readFileSync(new URL("../src/features/tableSelection/TablePatternInput.tsx", import.meta.url), "utf8");
+  expect(checkTooltipPolicy("features/tableSelection/TablePatternInput.tsx", source)).toEqual([]);
+  expect(checkTooltipPolicy("features/AnotherInput.tsx", source)).toHaveLength(1);
+  expect(checkTooltipPolicy("features/tableSelection/TablePatternInput.tsx", '<span role="tooltip" class="other-tooltip" />')).toHaveLength(1);
+});
+
 it.each(["ui/OtherButton.tsx", "features/CopyButton.tsx"])("rejects a copied overlay in %s", path => {
   const source = readFileSync(new URL("../src/ui/CopyButton.tsx", import.meta.url), "utf8");
   expect(checkTooltipPolicy(path, source)).toHaveLength(1);

@@ -89,8 +89,11 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   `Available tables (N)` and `Schemas loaded X/N · Y failed` in one fixed-size,
   two-line action opening the shared catalog popup. Both counters refer to the
   catalog after Hide system tables. Schema failures are amber; the popup exposes
-  Loaded / Not loaded / Failed per table with the cached error as accessible text
-  and a native title. Rows and controls keep fixed geometry during polling.
+  Loaded / Not loaded / Failed per table. The amber failure count is a separate
+  one-click action opening the Failed filter; the catalog has All / Failed /
+  Not loaded filters. Clicking Failed on a row selects its full cached error in
+  a fixed-height, keyboard-scrollable details area with Copy. Keep this area
+  reserved throughout browsing rather than expanding rows. Controls keep fixed geometry during polling.
   Place the inline Hide system tables checkbox beside Selected / All tables.
   Use `Add tables` and retain the overall All matched tables disclosure.
 - Keep table-group padding compact (8px). Empty Exclude starts as a quiet
@@ -102,6 +105,16 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   Reserve equal label heights and a fixed Delete column so opening Exclude does
   not move Delete or later controls in normal-width forms. Only table sections
   narrower than 380px put Exclude below Include; Delete stays on the Include row.
+- Source and transform scopes share `TableRuleFields`: magnifier, exact Use,
+  independent modes, optional Exclude and exact-match check. Source Include is
+  labelled once; subsequent rules omit visible repeated labels while retaining
+  unique accessible names. Keep the compact matching rail reserved, remove the
+  large per-row separator/padding, and never collapse it on a late preview result.
+- A truncated table-pattern value gets an immediate full-value tooltip on hover.
+  Measure the rendered text against the actual input space (excluding inline
+  icons), and show no tooltip if it fits. The shared `TablePatternInput` owns
+  this explicit exception to native-title defaults: a pointer-transparent fixed
+  overlay, without a competing native title or any change to field geometry.
 - Exact Include names get a green check inside a permanently reserved input slot,
   not a duplicate Table found line or a matched-table disclosure. Pattern rules
   retain their disclosure; an already-open list stays mounted while typing until
@@ -130,7 +143,10 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   spinner. This action palette does not recolor classic or dark themes.
 - Database-source metadata uses **A — required form item**: a neutral
   `Required` badge, a stable Connected/pending/error status beside the button, and a bordered group for
-  dependent table fields. The primary action is `Connect & load metadata`, then
+  dependent table fields. Tables occupy a full-width island below both endpoints,
+  in DOM and keyboard order after Destination, with the existing form contexts
+  preserved. The island is mounted and locked before connection, not inserted
+  by an asynchronous response. The primary action is `Connect & load metadata`, then
   `Refresh metadata` after success; reserve the longer label's width. Before
   verification show `Required to unlock tables and transforms` and a small
   lock, not a validation error. Unlock only after authenticated verification
@@ -140,6 +156,10 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   failing, or invalidating credentials. Connection/advanced options stay outside
   the locked group so users can repair a failed connection. Ordinary diagnostic
   checks in destinations and non-table sources do not gain a required badge.
+- Only an explicitly clicked successful metadata connection scrolls to Tables,
+  once, without stealing keyboard focus. Polling, Validate's automatic connection
+  and remounts never trigger this. Cancel the pending reveal on a new gesture,
+  focus change, failed/stale response or unmount; honor reduced-motion preferences.
 - Source and Transforms share one authenticated table catalog and a server-side
   metadata session. Fewer than 1000 catalog tables triggers asynchronous schema
   preloading; 1000 or more uses explicit `Load schemas` beside each transform's

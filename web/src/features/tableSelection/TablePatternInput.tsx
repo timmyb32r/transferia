@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { createPortal } from "preact/compat";
 import type { PatternMode, TableIdentity } from "../../generated/apiContract";
 import { useTableCatalog } from "../../schema/tableCatalog";
 import { AutofillResistantInput } from "../../ui/AutofillResistantField";
@@ -25,6 +26,29 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
   const input = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState(false);
   const [active, setActive] = useState(-1);
+  const [fullName, setFullName] = useState<{ left: number; top: number; above: boolean }>();
+  const hideFullName = () => setFullName(undefined);
+  const showFullName = () => {
+    const element = input.current;
+    if (!element || !value) return;
+    const style = getComputedStyle(element);
+    const measure = document.createElement("canvas").getContext("2d");
+    if (!measure) return;
+    measure.font = style.font;
+    const width = measure.measureText(value).width + (parseFloat(style.letterSpacing) || 0) * Math.max(0, value.length - 1);
+    if (width <= element.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0)) return;
+    const rect = element.getBoundingClientRect();
+    const above = rect.bottom + 100 > window.innerHeight;
+    setFullName({ left: Math.max(12, Math.min(rect.left, window.innerWidth - Math.min(680, window.innerWidth - 24) - 12)),
+      top: above ? rect.top - 6 : rect.bottom + 6, above });
+  };
+  useLayoutEffect(hideFullName, [value, disabled]);
+  useEffect(() => {
+    if (!fullName) return;
+    window.addEventListener("scroll", hideFullName, true);
+    window.addEventListener("resize", hideFullName);
+    return () => { window.removeEventListener("scroll", hideFullName, true); window.removeEventListener("resize", hideFullName); };
+  }, [Boolean(fullName)]);
   const [result, setResult] = useState<{ key: string; tables: TableIdentity[]; matches: TableIdentity[] }>();
   const key = JSON.stringify([value, mode]);
   const tables = catalog?.tables;
@@ -73,9 +97,11 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
       aria-label={label} aria-autocomplete={catalog ? "list" : undefined} aria-expanded={catalog ? open : undefined} aria-controls={catalog ? `${id}-suggestions` : undefined}
       aria-activedescendant={open && active >= 0 ? `${id}-suggestion-${active}` : undefined}
       aria-invalid={invalid} required={required}
+      aria-describedby={fullName ? `${id}-full-name` : undefined}
       placeholder={placeholder ?? (required ? `${namespace}.table or ${namespace}.*` : "Optional pattern")}
       value={value} disabled={disabled} onFocus={() => setFocused(true)}
-      onInput={event => { setFocused(true); onChange(event.currentTarget.value); }}
+      onMouseEnter={showFullName} onMouseLeave={hideFullName}
+      onInput={event => { hideFullName(); setFocused(true); onChange(event.currentTarget.value); }}
       onKeyDown={event => {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault(); setFocused(true);
@@ -118,5 +144,8 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
       </div>
       {current && current.length > suggestions.length && <div class="select-empty">Showing {suggestions.length} of {current.length}; keep typing to narrow the list.</div>}
     </div>}
+    {fullName && createPortal(<span id={`${id}-full-name`} role="tooltip"
+      class={`table-pattern-tooltip${fullName.above ? " table-pattern-tooltip-above" : ""}`}
+      style={{ left: fullName.left, top: fullName.top }}>{value}</span>, document.body)}
   </div>;
 }

@@ -7,7 +7,6 @@ import { CopyIcon } from "../../ui/CopyButton";
 import { AutofillResistantInput, AutofillResistantTextarea } from "../../ui/AutofillResistantField";
 import { SelectControl } from "../../ui/SelectControl";
 import { DragHandleIcon, TrashIcon } from "../../ui/icons";
-import { TablePatternInput } from "../tableSelection/TablePatternInput";
 import { exactPattern } from "../tableSelection/model";
 import { TransformPreview } from "./TransformPreview";
 import { TransformTableScope, useTransformMatches } from "./TransformTableScope";
@@ -21,7 +20,6 @@ const ACTIONS = [
   { value: "filter", label: "String filter" },
 ];
 const DEFAULT_TABLES: JsonObject = { include: "*", include_mode: "glob", exclude_mode: "glob" };
-const SCOPE_HELP = "Default: glob / wildcard. * matches any number of characters; ? matches one. The .* button enables regular expressions independently for each field. Match the complete current table name (namespace.table for namespaced sources). Each step sees the name and columns produced by previous steps. Exclude applies only to this step. A table that does not match passes through unchanged; matching tables must have the columns this transform requires.";
 
 function action(entry: JsonObject): string | undefined {
   const keys = Object.keys(entry).filter(key => key !== "tables");
@@ -167,23 +165,10 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
     {expanded && <div class="middleware-strip-body" id={`${id}-settings`}>
       {!known && !unselected ? <p role="alert">This transform cannot be edited here. Open YAML to correct its configuration.</p> : <>
         <TransformTableScope id={id} index={index} matches={matches}
-          onUseTable={disabled ? undefined : table => updateTables({ include: exactPattern(table, tables.include_mode === "regex" ? "regex" : "glob") })}>
-        <div class="middleware-scope-fields">
-          {(["include", "exclude"] as const).map(field => {
-            const label = field === "include" ? "Include" : "Exclude";
-            const mode = tables[`${field}_mode`] === "regex" ? "regex" : "glob";
-            return <div class="middleware-pattern-field" key={field}>
-              <label for={`${id}-${field}`}>{label}{field === "exclude" && <small class="optional">(optional)</small>}
-                <span class="help" tabIndex={0} title={SCOPE_HELP} aria-label={`${label}: ${SCOPE_HELP}`}>?</span>
-              </label>
-              <TablePatternInput id={`${id}-${field}`} label={label} value={field === "include" ? include : exclude}
-                mode={mode} disabled={disabled} required={field === "include"} invalid={false}
-                onChange={value => updateTables({ [field]: value || (field === "exclude" ? null : "") })}
-                onModeChange={value => updateTables({ [`${field}_mode`]: value })} />
-            </div>;
-          })}
-        </div>
-        </TransformTableScope>
+          rule={{ include, exclude, include_mode: tables.include_mode === "regex" ? "regex" : "glob",
+            exclude_mode: tables.exclude_mode === "regex" ? "regex" : "glob" }} disabled={disabled}
+          onChange={patch => updateTables(patch as JsonObject)}
+          onUseTable={disabled ? undefined : table => updateTables({ include: exactPattern(table, tables.include_mode === "regex" ? "regex" : "glob") })} />
         <div class={`middleware-action-field${unselected && !disabled ? " required-incomplete" : ""}`}>
           <label for={`${id}-action`}>Transformation</label>
           <SelectControl id={`${id}-action`} value={kind ?? ""} placeholder="Select transformation"

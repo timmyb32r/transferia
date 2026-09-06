@@ -1,5 +1,6 @@
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
-import { useEffect, useMemo } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "preact/hooks";
+import { createPortal } from "preact/compat";
 import { visibleTableCatalog } from "../features/tableSelection/catalog";
 import { TableNamingProvider } from "../features/tableSelection/naming";
 import { SchemaForm } from "../schema/SchemaForm";
@@ -22,6 +23,7 @@ import { TableSelectionEditor } from "../features/tableSelection/TableSelectionE
 import { AutofillResistantInput } from "../ui/AutofillResistantField";
 import type { VerifiedTableCatalog } from "../features/middleware/useTransformCatalog";
 import { useSourceMetadataContext } from "./sourceMetadata";
+import { beginMetadataReveal } from "./metadataReveal";
 
 export function EndpointCard(props: {
   title: string;
@@ -37,6 +39,7 @@ export function EndpointCard(props: {
   onConfig: (config: JsonObject) => void;
   onTableConnection?: ((identity: string | undefined) => void) | undefined;
   onTableCatalog?: ((catalog: VerifiedTableCatalog | undefined) => void) | undefined;
+  tablesHost?: HTMLElement | null | undefined;
 }) {
   const showSettings = props.showSettings ?? true;
   const api = useControlPlane();
@@ -69,6 +72,19 @@ export function EndpointCard(props: {
     : visibleTableCatalog(props.selectedKey, hideSystemTables, checkedTables),
   [props.selectedKey, hideSystemTables, checkedTables]);
   const tablesReady = tableSettingsReady(check);
+  const currentTableState = useRef({ tableIdentity, tablesReady });
+  currentTableState.current = { tableIdentity, tablesReady };
+  const reveal = useRef<ReturnType<typeof beginMetadataReveal>>();
+  useLayoutEffect(() => () => reveal.current?.cancel(), [tableIdentity]);
+  const connectAndReveal = () => {
+    if (check.state === "checking") return;
+    reveal.current?.cancel();
+    const intent = requiresTableCheck && props.tablesHost
+      ? beginMetadataReveal(() => props.tablesHost ?? null, () => currentTableState.current.tableIdentity === tableIdentity && currentTableState.current.tablesReady)
+      : undefined;
+    reveal.current = intent;
+    void checkConnection().then(() => intent?.complete());
+  };
   const tableNode = node?.kind === "object" ? node.properties.tables : undefined;
   const tableIssue = tableNode ? firstCompletionIssue(tableNode, isObject(value) ? value.tables : undefined, true, "/tables") : undefined;
   const tablesIncomplete = tableIssue !== undefined && !tableIssue.hidden;
@@ -178,6 +194,7 @@ export function EndpointCard(props: {
               names: ["hide_system_tables", "tables", "new_tables"],
               label: "Table settings",
               disabled: !tablesReady,
+              ...(props.tablesHost === undefined ? {} : { renderGroup: group => props.tablesHost ? createPortal(group, props.tablesHost) : null }),
               renderField: (name, field) => name === "hide_system_tables" ? null : name !== "tables" ? field
                 : <div data-field-name="tables" key="tables"
                   class={[!props.readOnly && tablesReady && tablesIncomplete ? "required-incomplete" : "",
@@ -199,7 +216,7 @@ export function EndpointCard(props: {
             } : undefined}
             connectionAction={
               props.endpoint.connection_check ? (
-                <ConnectionCheck check={check} required={requiresTableCheck} onCheck={() => void checkConnection()} />
+                <ConnectionCheck check={check} required={requiresTableCheck} onCheck={connectAndReveal} />
               ) : undefined
             }
             onChange={(next) =>

@@ -3,12 +3,14 @@ import ts from "typescript";
 export function checkTooltipPolicy(path, source) {
   const violations = [];
   // Native titles remain the default. Only the shared CopyButton owns the
-  // approved stateful Copy/Copied overlay; it must not add a native title too.
+  // approved stateful Copy/Copied overlay. Truncated table patterns have the
+  // explicitly requested immediate full-value overlay, never a native title.
   if (/data-tooltip|content\s*:\s*attr\(\s*title/.test(source))
     violations.push(`${path}: use native title, not a second tooltip renderer`);
   if (!path.endsWith(".tsx")) return violations;
   const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const copyComponent = path === "ui/CopyButton.tsx";
+  const tablePatternComponent = path === "features/tableSelection/TablePatternInput.tsx";
   const visit = (node) => {
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
       const attributes = node.attributes.properties.filter(ts.isJsxAttribute);
@@ -22,8 +24,10 @@ export function checkTooltipPolicy(path, source) {
         const copyClass = className && (ts.isStringLiteral(className) && className.text === "copy-tooltip"
           || ts.isJsxExpression(className) && className.expression && ts.isTemplateExpression(className.expression)
             && className.expression.head.text === "copy-tooltip");
-        if (!hidden && !(copyComponent && copyClass))
-          violations.push(`${path}: tooltip descriptions must use class="visually-hidden"; visual overlays belong only to the shared CopyButton`);
+        const tableClass = className && ts.isJsxExpression(className) && className.expression
+          && ts.isTemplateExpression(className.expression) && className.expression.head.text === "table-pattern-tooltip";
+        if (!hidden && !(copyComponent && copyClass) && !(tablePatternComponent && tableClass))
+          violations.push(`${path}: tooltip descriptions must use class="visually-hidden"; visual overlays belong only to shared CopyButton and TablePatternInput`);
       }
     }
     ts.forEachChild(node, visit);

@@ -23,6 +23,22 @@ function Editor({ value = [step], disabled = false }: { value?: JsonValue; disab
 }
 
 describe("ordered transform strips", () => {
+  it("shares the source rule controls, including magnifier, optional Exclude and exact Use", () => {
+    const table = { namespace: "analytics", name: "reports" };
+    const preview = vi.fn().mockResolvedValue({ cards: [{ selected: [table], excluded: [] }], issues: [] });
+    const view = render(<TableCatalogContext.Provider value={{ tables: [table], preview }}><Editor value={[]} /></TableCatalogContext.Provider>);
+    fireEvent.click(view.getByRole("button", { name: "Add transform" }));
+    expect(view.queryByLabelText("Exclude transform 1")).toBeNull();
+    const browse = view.getByRole("button", { name: "Browse tables for Include transform 1" });
+    fireEvent.click(browse);
+    fireEvent.click(view.getByRole("button", { name: "Use analytics.reports in Include" }));
+    expect((view.getByLabelText("Include transform 1") as HTMLInputElement).value).toBe("analytics.reports");
+    expect(view.queryByRole("dialog")).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Add Exclude for transform 1" }));
+    const exclude = view.getByLabelText("Exclude transform 1");
+    expect(document.activeElement).toBe(exclude);
+    expect(exclude.closest(".table-rule-patterns")).toBe(view.getByLabelText("Include transform 1").closest(".table-rule-patterns"));
+  });
   it.each([
     ["glob", "reports_daily", "analytics.reports_daily"],
     ["regex", "reports_daily", String.raw`analytics\.reports_daily`],
@@ -35,7 +51,7 @@ describe("ordered transform strips", () => {
       <Editor value={[step, { ...step, tables: { ...step.tables, include_mode: mode! } }]} />
     </TableCatalogContext.Provider>);
     fireEvent.click(view.getByRole("button", { name: "Expand transform 2" }));
-    const include = view.getByRole("combobox", { name: "Include" }) as HTMLInputElement;
+    const include = view.getByRole("combobox", { name: "Include transform 2" }) as HTMLInputElement;
     const available = view.getByRole("button", { name: "Available tables for transform 2" });
     available.focus();
     fireEvent.click(available);
@@ -44,10 +60,10 @@ describe("ordered transform strips", () => {
     fireEvent.click(view.getByRole("button", { name: `Use analytics.${name} in Include` }));
     expect(view.queryByRole("dialog", { name: "Available tables" })).toBeNull();
     expect(include.value).toBe(expected);
-    expect(view.getByRole("combobox", { name: "Include" })).toBe(include);
+    expect(view.getByRole("combobox", { name: "Include transform 2" })).toBe(include);
     expect(document.activeElement).toBe(available);
-    expect(view.getByRole("button", { name: "Include regex" }).getAttribute("aria-pressed")).toBe(String(mode === "regex"));
-    expect((view.getByRole("combobox", { name: "Exclude" }) as HTMLInputElement).value).toBe(step.tables.exclude);
+    expect(view.getByRole("button", { name: "Include transform 2 regex" }).getAttribute("aria-pressed")).toBe(String(mode === "regex"));
+    expect((view.getByRole("combobox", { name: "Exclude transform 2" }) as HTMLInputElement).value).toBe(step.tables.exclude);
     expect(view.getByDisplayValue(step.datafusion.sql)).toBeTruthy();
     expect(view.container.querySelector(".middleware-scope-summary")?.textContent).toContain(step.tables.include);
   });
@@ -59,7 +75,7 @@ describe("ordered transform strips", () => {
     fireEvent.click(view.getByRole("button", { name: "Add transform" }));
     fireEvent.click(view.getByRole("button", { name: "Available tables for transform 1" }));
     fireEvent.click(view.getByRole("button", { name: "Use system.query_log in Include" }));
-    expect((view.getByRole("combobox", { name: "Include" }) as HTMLInputElement).value).toBe("system.query_log");
+    expect((view.getByRole("combobox", { name: "Include transform 1" }) as HTMLInputElement).value).toBe("system.query_log");
     expect(view.queryByRole("dialog")).toBeNull();
   });
 
@@ -168,7 +184,7 @@ describe("ordered transform strips", () => {
     expect(view.queryByRole("alert")).toBeNull();
     expect(view.queryByLabelText("SQL over table input")).toBeNull();
     expect(view.queryByLabelText("Column")).toBeNull();
-    expect(view.getByRole("textbox", { name: "Include" })).toBeTruthy();
+    expect(view.getByRole("textbox", { name: "Include transform 1" })).toBeTruthy();
     expect((view.getByRole("button", { name: "Preview transform 1" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -202,14 +218,14 @@ describe("ordered transform strips", () => {
     const view = render(<Editor />);
     fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
     const selector = view.getByRole("button", { name: "Transformation" });
-    const include = view.getByRole("textbox", { name: "Include" });
+    const include = view.getByRole("textbox", { name: "Include transform 1" });
     fireEvent.click(selector);
     fireEvent.click(view.getByRole("option", { name: "Not selected" }));
     expect(view.getByRole("button", { name: "Transformation" })).toBe(selector);
     expect(selector.textContent).toBe("Not selected");
-    expect(view.getByRole("textbox", { name: "Include" })).toBe(include);
+    expect(view.getByRole("textbox", { name: "Include transform 1" })).toBe(include);
     expect((include as HTMLInputElement).value).toBe(step.tables.include);
-    expect((view.getByRole("textbox", { name: "Exclude" }) as HTMLInputElement).value).toBe(step.tables.exclude);
+    expect((view.getByRole("textbox", { name: "Exclude transform 1" }) as HTMLInputElement).value).toBe(step.tables.exclude);
     expect(view.queryByDisplayValue(step.datafusion.sql)).toBeNull();
   });
 
@@ -238,9 +254,9 @@ describe("ordered transform strips", () => {
     const onChange = vi.fn();
     const view = render(<MiddlewareEditor value={[step]} disabled={false} onChange={onChange} />);
     fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
-    fireEvent.input(view.getByRole("textbox", { name: "Include" }), { target: { value: "public.events*" } });
+    fireEvent.input(view.getByRole("textbox", { name: "Include transform 1" }), { target: { value: "public.events*" } });
     expect(onChange).toHaveBeenLastCalledWith([{ ...step, tables: { ...step.tables, include: "public.events*" } }]);
-    fireEvent.click(view.getByRole("button", { name: "Exclude regex" }));
+    fireEvent.click(view.getByRole("button", { name: "Exclude transform 1 regex" }));
     expect(onChange).toHaveBeenLastCalledWith([{ ...step, tables: { ...step.tables, exclude_mode: "regex" } }]);
   });
 

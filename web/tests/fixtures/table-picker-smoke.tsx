@@ -28,15 +28,19 @@ const api = {
 } satisfies Pick<ControlPlanePort, "connectMetadata" | "releaseMetadata" | "previewTables">;
 
 function Fixture() {
+  const [tablesHost, setTablesHost] = useState<HTMLElement | null>(null);
   const [config, setConfig] = useState<JsonObject>({ delivery_type: "batch", source: { [key]: { ...connector.source!.initial,
     hide_system_tables: false, tables: { type: "selected", rules: [{ include: "system.query_*" }, { include: "system.tables" }] },
   } } });
   const source = (config.source as JsonObject)[key] as JsonObject;
   const metadata = useSourceMetadata({ connector: key, config: source, mode: "batch", sessionKey: "fixture", validating: false });
   return <SourceMetadataContext.Provider value={metadata}>
-    <main class="route-composition" style={{ display: "block", maxWidth: "1080px", padding: "24px", margin: "auto" }}>
+    <main class="route-composition" style={{ maxWidth: "1080px", padding: "24px", margin: "auto" }}>
       <EndpointCard title="Source" role="source" selectedKey={key} connectors={[connector]} endpoint={connector.source!}
-        config={config} readOnly={false} showRequiredErrors={false} onChoose={() => {}} onConfig={setConfig} />
+        config={config} readOnly={false} showRequiredErrors={false} onChoose={() => {}} onConfig={setConfig} tablesHost={tablesHost} />
+      <div class="route-arrow">→</div>
+      <article class="card endpoint-card endpoint-card-sink"><h2>Destination</h2><p>Discard</p></article>
+      <section class="card source-tables-card" ref={setTablesHost} tabIndex={-1} aria-label="Source tables" />
     </main>
   </SourceMetadataContext.Provider>;
 }

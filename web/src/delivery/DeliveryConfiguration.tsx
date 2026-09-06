@@ -60,6 +60,7 @@ export function DeliveryConfiguration({
   const widgets = useWidgetRegistry();
   const api = useControlPlane();
   const [checkedTables, setCheckedTables] = useState<VerifiedTableCatalog>();
+  const [tablesHost, setTablesHost] = useState<HTMLElement | null>(null);
   const sharedMetadata = useSourceMetadataContext();
   const deliveryTypeSelected = stringValue(editor.config.delivery_type) !== "";
   const routeSelectionComplete =
@@ -70,6 +71,9 @@ export function DeliveryConfiguration({
   const routeSettingsAvailable = routeSelectionComplete && selection?.routeError === undefined;
   const allSinkConnectors = orderedEndpointConnectors(catalog, "sink");
   const sourceConfig = selection ? endpointValue(editor.config, "source", selection.sourceKey) : undefined;
+  const sourceNode = selection?.source ? compiledSchema(selection.source.schema, widgets) : undefined;
+  const hasTableSettings = routeSettingsAvailable && selection?.source?.connection_check === true
+    && sourceNode?.kind === "object" && sourceNode.properties.tables?.xUi.widget === "table_selection";
   const previewSource = selection?.source?.table_preview && isObject(sourceConfig)
     ? { connector: selection.sourceKey, config: sourceConfig } : undefined;
   const sharedCheck = sharedMetadata?.check;
@@ -150,6 +154,7 @@ export function DeliveryConfiguration({
             title="Source"
             onTableConnection={onTableConnection}
             onTableCatalog={setCheckedTables}
+            tablesHost={hasTableSettings ? tablesHost : undefined}
             role="source"
             selectedKey={selection?.sourceKey ?? ""}
             connectors={allSourceConnectors}
@@ -182,6 +187,7 @@ export function DeliveryConfiguration({
             onChoose={onChooseEndpoint}
             onConfig={onConfig}
           />
+          {hasTableSettings && <section class="card source-tables-card" ref={setTablesHost} tabIndex={-1} aria-label="Source tables" />}
           {routeSettingsAvailable &&
             selection?.source && (
               <ParserDetailsForm

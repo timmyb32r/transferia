@@ -13,6 +13,24 @@ const pending = { namespace: "public", name: "later" };
 const metadata: MetadataStatus = { id: "session", catalog_count: 3, loaded: [user],
   errors: [{ table: system, message: "Introspection disabled" }], loading: false };
 
+it("opens failed tables and their full error with one click, then filters pending schemas locally", () => {
+  const preview = vi.fn();
+  const view = render(<TableCatalogContext.Provider value={{ tables: [user, system, pending], preview, metadata }}>
+    <AvailableTablesButton label="Browse metadata" title="Browse metadata" showMetadata />
+  </TableCatalogContext.Provider>);
+  fireEvent.click(view.getByRole("button", { name: "Show 1 failed schemas" }));
+  const dialog = view.getByRole("dialog");
+  expect(within(dialog).getByRole("radio", { name: "Failed (1)" }).getAttribute("aria-checked")).toBe("true");
+  expect(within(dialog).getByRole("button", { name: "Copy system.symbols" })).toBeTruthy();
+  expect(within(dialog).queryByRole("button", { name: "Copy public.events" })).toBeNull();
+  const error = within(dialog).getByRole("region", { name: "Schema error" });
+  expect(error.textContent).toContain("Introspection disabled");
+  fireEvent.click(within(dialog).getByRole("radio", { name: "Not loaded (1)" }));
+  expect(within(dialog).getByRole("button", { name: "Copy public.later" })).toBeTruthy();
+  expect(within(dialog).getByRole("region", { name: "Schema error" })).toBe(error);
+  expect(preview).not.toHaveBeenCalled();
+});
+
 it("uses the visible catalog for both schema counters and exposes cached failure reasons in the same popup", () => {
   const preview = vi.fn();
   const form = (hide: boolean) => <TableCatalogContext.Provider value={{ tables: hide ? [user, pending] : [user, system, pending], preview, metadata }}>
@@ -21,10 +39,12 @@ it("uses the visible catalog for both schema counters and exposes cached failure
   const view = render(form(false));
   const trigger = view.getByRole("button", { name: "Browse metadata" });
   expect(trigger.textContent).toContain("Available tables (3)");
-  expect(trigger.textContent).toContain("Schemas loaded 1/3 · 1 failed");
+  expect(trigger.textContent).toContain("Schemas loaded 1/3");
+  expect(view.getByRole("button", { name: "Show 1 failed schemas" }).textContent).toBe("1 failed");
   fireEvent.click(trigger);
   const dialog = view.getByRole("dialog");
-  expect(within(dialog).getByLabelText("Schema failed for system.symbols: Introspection disabled").title).toBe("Introspection disabled");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Show schema error for system.symbols" }));
+  expect(within(dialog).getByRole("region", { name: "Schema error" }).textContent).toContain("Introspection disabled");
   expect(within(dialog).getByLabelText("Schema Not loaded for public.later").textContent).toBe("Not loaded");
   fireEvent.click(within(dialog).getByRole("button", { name: "Close available tables" }));
   view.rerender(form(true));
@@ -51,7 +71,7 @@ it("keeps popup controls and rows mounted while schema progress advances", () =>
   expect(document.activeElement).toBe(input);
   expect(view.getByRole("button", { name: "Copy public.events" })).toBe(copy);
   expect(copy.closest(".available-table-row")).toBe(row);
-  expect(trigger.textContent).toContain("Schemas loaded 1/3 · 1 failed");
+  expect(trigger.textContent).toContain("Schemas loaded 1/3");
 });
 
 it("exposes metadata polling failure without pretending the cached schemas are still loading", () => {
@@ -61,4 +81,23 @@ it("exposes metadata polling failure without pretending the cached schemas are s
   </TableCatalogContext.Provider>);
   fireEvent.click(view.getByRole("button", { name: "Browse metadata" }));
   expect(view.getByRole("status").textContent).toBe(error);
+});
+
+it("defers filtered row removal while the pointer is over its Copy/Use controls", () => {
+  const tables = [pending];
+  const form = (loaded: MetadataStatus["loaded"]) => <TableCatalogContext.Provider value={{ tables, preview: vi.fn(),
+    metadata: { ...metadata, loaded, errors: [], catalog_count: 1 } }}>
+    <AvailableTablesButton label="Browse metadata" title="Browse metadata" showMetadata />
+  </TableCatalogContext.Provider>;
+  const view = render(form([]));
+  fireEvent.click(view.getByRole("button", { name: "Browse metadata" }));
+  fireEvent.click(view.getByRole("radio", { name: "Not loaded (1)" }));
+  const list = view.getByRole("region", { name: "Available table names" });
+  const copy = view.getByRole("button", { name: "Copy public.later" });
+  fireEvent.pointerEnter(list);
+  view.rerender(form([pending]));
+  expect(view.getByRole("button", { name: "Copy public.later" })).toBe(copy);
+  expect(view.getByLabelText("Schema Loaded for public.later")).toBeTruthy();
+  fireEvent.pointerLeave(list);
+  expect(view.queryByRole("button", { name: "Copy public.later" })).toBeNull();
 });

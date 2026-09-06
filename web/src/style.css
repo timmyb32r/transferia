@@ -1047,6 +1047,7 @@ h3 {
   grid-template-areas:
     "source arrow sink"
     "sourcebridge . ."
+    "tables tables tables"
     "parser parser parser";
   align-items: start;
   margin-bottom: 0;
@@ -1057,6 +1058,10 @@ h3 {
 .endpoint-card-sink {
   grid-area: sink;
 }
+.source-tables-card { grid-area: tables; min-width: 0; margin-top: var(--route-gap); container: form-space / inline-size; scroll-margin-top: 24px; }
+:root .route-composition > .source-tables-card { background: var(--panel2); border-color: var(--route-outline); }
+.source-tables-card > .connection-dependent-settings { border: 0; border-radius: 0; }
+.source-tables-card .connection-dependent-fields { padding: 0; }
 .route-composition > .endpoint-card {
   align-self: stretch;
 }
@@ -3372,16 +3377,22 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .middleware-chevron.open { transform: rotate(45deg); }
 .middleware-strip.expanded { border-color: var(--line-strong); }
 .middleware-strip-body { display: grid; gap: 16px; min-width: 0; border-top: 1px solid var(--line-inner); padding: 18px 20px 12px 44px; }
-.middleware-scope-fields, .middleware-filter-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.middleware-pattern-field { min-width: 0; display: grid; gap: 6px; }
-.middleware-pattern-field > label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
-.middleware-pattern-field .optional { font-weight: 400; margin-left: 0; }
-.middleware-pattern-field .help { margin-left: 2px; }
+.middleware-filter-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.middleware-table-scope { container: table-space / inline-size; }
 .middleware-table-scope { display: grid; gap: 6px; min-width: 0; }
-:root .available-tables-action > button { display: inline-flex; align-items: center; gap: 6px; padding: 0 7px; height: 22px; min-width: 0; margin-left: 0; border-color: var(--line-strong); background: transparent; box-shadow: none; color: var(--blue); font-size: 11px; }
-:root .available-tables-action > button:hover:not(:disabled) { color: var(--blue); background: var(--surface-hover); }
+:root .available-tables-action > .table-matches-height-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0 7px; height: 22px; min-width: 0; margin-left: 0; border-color: var(--line-strong); background: transparent; box-shadow: none; color: var(--blue); font-size: 11px; }
+:root .available-tables-action > .table-matches-height-toggle:hover:not(:disabled) { color: var(--blue); background: var(--surface-hover); }
 .middleware-scope-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }
 .available-tables-dialog { display: grid; grid-template-rows: auto auto 24px minmax(0, 1fr); gap: 10px; width: min(680px, 100%); height: min(560px, calc(100dvh - 48px)); padding: 20px; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 18px 48px var(--shadow); }
+.available-tables-dialog:has(.available-tables-filters) { grid-template-rows: auto auto 40px 24px minmax(0, 1fr) 116px; height: min(700px, calc(100dvh - 48px)); }
+.available-tables-filters .segmented-control { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+:root .available-tables-filters .segmented-control > button { min-width: 0; padding: 0 6px; }
+.available-table-error { display: grid; grid-template-rows: 28px minmax(0, 1fr); min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-soft); }
+.available-table-error-heading { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--warning-text); }
+.available-table-error-heading > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root .available-table-error-heading .copy-action { width: 24px; height: 24px; padding: 0; }
+.available-table-error pre { margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.4 var(--font-code); color: var(--text-secondary); }
+:root .available-table-failed { width: 100%; height: 28px; padding: 0; text-align: left; color: var(--warning-text); background: transparent; border-color: transparent; box-shadow: none; text-decoration: underline dotted; text-underline-offset: 3px; }
 .available-tables-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .available-tables-dialog h2 { margin: 0; font-size: 17px; }
 .available-tables-dialog h2 .table-match-count { margin-left: 8px; font-size: 12px; font-weight: 400; }
@@ -3446,7 +3457,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   :root .transform-preview-controls > button { width: 100%; min-width: 0; }
 }
 @container transforms (max-width: 440px) {
-  .middleware-scope-fields, .middleware-filter-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .middleware-filter-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .middleware-order-hint, .middleware-preview-hint { display: none; }
 }
 .actions {
@@ -5200,7 +5211,8 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
       "source"
       "parser"
       "arrow"
-      "sink";
+      "sink"
+      "tables";
   }
   .parse-policy-row {
     grid-template-columns: minmax(0, 1fr);
@@ -5235,17 +5247,19 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .table-selection-editor {
   display: grid;
   container: table-space / inline-size;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
 }
 .table-selection-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; }
 .table-selection-heading h3 { margin: 0; font-size: 16px; }
-:root .available-tables-metadata > button { display: grid; gap: 4px; height: 48px; width: 248px; max-width: 100%; padding: 6px 10px; text-align: left; justify-items: start; }
+:root .available-tables-metadata > .table-matches-height-toggle { display: grid; gap: 4px; height: 48px; width: 248px; max-width: 100%; padding: 6px 10px; text-align: left; justify-items: start; }
 .available-tables-label { white-space: nowrap; }
+.available-tables-metadata { position: relative; }
+.available-tables-metadata .available-tables-summary { padding-right: 58px; }
+:root .available-tables-failures { position: absolute; right: 8px; bottom: 5px; width: 56px; height: 18px; min-height: 0; padding: 0; border-color: transparent; background: transparent; box-shadow: none; color: var(--warning-text); font-size: 11px; line-height: 14px; text-align: right; }
 .available-tables-summary { display: block; width: 100%; height: 14px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .available-tables-summary .has-error { color: var(--warning-text); }
 .available-table-row .available-table-schema { flex: 0 0 70px; font-size: 11px; color: var(--muted); }
-.available-table-row .available-table-schema.has-error { color: var(--warning-text); }
 .table-system-toggle, .table-system-toggle label { display: inline-flex; align-items: center; gap: 7px; }
 .table-system-toggle { font-size: 12px; white-space: nowrap; }
 .table-system-toggle input { margin: 0; }
@@ -5262,7 +5276,6 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   gap: 0;
   min-width: 0;
 }
-.table-rule-row ~ .table-rule-row { padding-top: 12px; border-top: 1px solid var(--line); }
 .table-rule-patterns {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 78px var(--control-height);
@@ -5270,6 +5283,11 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   gap: 8px;
 }
 .table-rule-patterns.table-rule-with-exclude { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) var(--control-height); }
+.table-rule-patterns.table-rule-without-action { grid-template-columns: minmax(0, 1fr) 78px; }
+.table-rule-patterns.table-rule-with-exclude.table-rule-without-action { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
+:root .table-rule-compact .field-label { display: none; }
+:root .table-rule-compact .table-exclude-hide { top: calc((var(--control-height) - 20px) / 2); right: calc(var(--control-height) + 4px); }
+.table-rule-compact .table-exclude-field input[type="text"] { padding-right: calc(var(--control-height) + 38px); }
 .table-exclude-field { position: relative; min-width: 0; }
 .table-rule-patterns .field-label { min-height: 20px; }
 .table-exclude-field .field-label { padding-right: 30px; }
@@ -5277,6 +5295,8 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 :root .table-exclude-add { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: var(--control-height); padding: 0 4px; }
 :root .table-exclude-hide { position: absolute; top: 0; right: 0; height: 20px; min-height: 0; padding: 0 2px; font-size: 11px; }
 .table-pattern-input { position: relative; min-width: 0; height: var(--control-height); }
+.table-pattern-tooltip { position: fixed; z-index: 1500; pointer-events: none; width: max-content; max-width: min(680px, calc(100vw - 24px)); padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: var(--popup); color: var(--text-primary); box-shadow: 0 4px 16px var(--shadow); font: 12px/1.4 var(--font-code); white-space: pre-wrap; overflow-wrap: anywhere; }
+.table-pattern-tooltip-above { transform: translateY(-100%); }
 .table-pattern-input input[type="text"] { width: 100%; padding-right: calc(var(--control-height) + 4px); }
 .table-pattern-with-browser input[type="text"] { padding-right: calc(var(--control-height) * 2); }
 .table-pattern-with-browser.table-pattern-with-confirmation input[type="text"] { padding-right: calc(var(--control-height) * 2 + 22px); }
@@ -5473,4 +5493,5 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   .table-rule-patterns.table-rule-with-exclude { grid-template-columns: minmax(0, 1fr) var(--control-height); }
   .table-rule-with-exclude > .table-exclude-field { grid-column: 1; grid-row: 2; }
   .table-rule-with-exclude > .icon-button { grid-column: 2; grid-row: 1; }
+  .table-rule-patterns.table-rule-with-exclude.table-rule-without-action { grid-template-columns: minmax(0, 1fr); }
 }

@@ -5,15 +5,12 @@ import type { JsonValue } from "../../json";
 import { isObject } from "../../schema/value";
 import { useTableCatalog } from "../../schema/tableCatalog";
 import { Button } from "../../ui/Button";
-import { FormField } from "../../ui/FormField";
 import { SegmentedControl } from "../../ui/SegmentedControl";
 import { TrashIcon } from "../../ui/icons";
-import { exactPattern, hasPattern, selectionIssue, tablePreviewError } from "./model";
+import { hasPattern, selectionIssue, tablePreviewError } from "./model";
 import { MatchedTablesDisclosure } from "./MatchedTablesDisclosure";
-import { TablePatternInput } from "./TablePatternInput";
-import { AvailableTablesButton, AvailableTablesDialog } from "./AvailableTablesDialog";
-import { useTableNamespace } from "./naming";
-const HELP = "Default: glob / wildcard, where * matches any number of characters and ? one character. The .* button enables regex independently for each field.";
+import { TableRuleFields } from "./TableRuleFields";
+import { AvailableTablesButton } from "./AvailableTablesDialog";
 const RULE_HELP = "Suggestions escape exact names. Every row must select at least one table after exclusion. Duplicate includes and cross-row include/exclude conflicts fail validation.";
 
 export function TableSelectionEditor({ value, disabled = false, fixed = false, onChange, toolbar }: {
@@ -22,7 +19,6 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
   toolbar?: ComponentChildren;
 }) {
   const catalog = useTableCatalog();
-  const namespace = useTableNamespace();
   const id = useId();
   const selection: TableSelection = isObject(value) && (value.type === "selected" || value.type === "all")
     ? value as unknown as TableSelection : { type: "selected", rules: [] };
@@ -36,9 +32,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
   const [expanded, setExpanded] = useState(false);
   const [expandedRules, setExpandedRules] = useState<number[]>([]);
   const [expandedExcludes, setExpandedExcludes] = useState<number[]>([]);
-  const [browseRule, setBrowseRule] = useState<number>();
   const focusField = useRef<string>();
-  useLayoutEffect(() => { if (!catalog || disabled) setBrowseRule(undefined); }, [catalog, disabled]);
   useLayoutEffect(() => {
     if (focusField.current === undefined) return;
     document.getElementById(focusField.current)?.focus({ preventScroll: true });
@@ -97,7 +91,6 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
     {toolbar}
     </div>
     {rules.map((rule, index) => {
-      const excludeOpen = !!rule.exclude || expandedExcludes.includes(index);
       const invalid = current?.result?.issues.some(issue => issue.kind === "empty_match" && issue.card === index);
       // Keep an explicitly opened viewport until the user closes it. A typed
       // exact name must not pull later controls upward under an active pointer.
@@ -106,50 +99,21 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
         || (issue.kind === "empty_match" ? issue.card === index : issue.first_card === index || issue.second_card === index));
       const exactFound = !showMatches && rule.include.trim().length > 0
         && current?.result?.cards[index]?.selected.length === 1 && !rowIssue;
-      const field = (kind: "include" | "exclude") => {
-        const mode = rule[`${kind}_mode`] ?? "glob";
-        const text = rule[kind] ?? "";
-        const controlId = `${id}-${index}-${kind}`;
-        return <FormField label={kind === "include" ? "Include" : "Exclude"} optional={false} controlId={controlId}
-          description={`${HELP} Use ${namespace}.table or ${namespace}.*. ${RULE_HELP} ${kind === "exclude" ? "Exclude applies only to this row." : includeHelp}`}>
-          <TablePatternInput id={controlId} label={`${kind === "include" ? "Include" : "Exclude"} rule ${index + 1}`}
-            value={text} mode={mode} disabled={disabled || !catalog} required={kind === "include"}
-            invalid={kind === "include" && !!invalid} onChange={value => {
-              if (kind === "exclude" && !expandedExcludes.includes(index)) setExpandedExcludes([...expandedExcludes, index]);
-              update(index, { [kind]: value });
-            }}
-            confirmed={kind === "include" ? exactFound : undefined}
-            onBrowse={kind === "include" ? () => setBrowseRule(index) : undefined}
-            onModeChange={mode => update(index, { [`${kind}_mode`]: mode })} />
-        </FormField>;
-      };
       return <section class="table-rule-row" key={`${selection.type}-${index}`} aria-label={`Table rule ${index + 1}`}>
-        <div class={`table-rule-patterns${excludeOpen ? " table-rule-with-exclude" : ""}`}>
-          {field("include")}
-          {excludeOpen ? <div class="table-exclude-field">
-            {field("exclude")}
-            <Button variant="plain" class="table-exclude-hide" aria-label={`Hide Exclude for rule ${index + 1}`}
-              title={rule.exclude ? "Clear Exclude to hide it" : "Hide empty Exclude"}
-              disabled={disabled || !catalog || !!rule.exclude} aria-expanded="true" aria-controls={`${id}-${index}-exclude`}
-              onClick={() => {
-                focusField.current = `${id}-${index}-add-exclude`;
-                setExpandedExcludes(expandedExcludes.filter(item => item !== index));
-              }}>Hide</Button>
-          </div> : <Button id={`${id}-${index}-add-exclude`} variant="plain" class="table-exclude-add"
-            aria-label={`Add Exclude for rule ${index + 1}`} aria-expanded="false" disabled={disabled || !catalog}
-            onClick={() => {
-              focusField.current = `${id}-${index}-exclude`;
-              setExpandedExcludes([...expandedExcludes, index]);
-            }}><span aria-hidden="true">+</span> Exclude</Button>}
-          <Button variant="plain" shape="icon" aria-label={`Remove rule ${index + 1}`} title="Remove rule" disabled={disabled || !catalog}
+        <TableRuleFields id={`${id}-${index}`} rule={rule} labelSuffix={`rule ${index + 1}`} compact={index > 0}
+          disabled={disabled || !catalog} confirmed={exactFound} invalid={!!invalid}
+          includeHelp={`${RULE_HELP} ${includeHelp}`} excludeHelp={`${RULE_HELP} Exclude applies only to this row.`}
+          excludeExpanded={expandedExcludes.includes(index)}
+          onExcludeExpanded={open => setExpandedExcludes(open ? [...new Set([...expandedExcludes, index])] : expandedExcludes.filter(item => item !== index))}
+          onChange={patch => update(index, patch)} onUse={() => setExpandedRules(expandedRules.filter(item => item !== index))}
+          trailing={<Button variant="plain" shape="icon" aria-label={`Remove rule ${index + 1}`} title="Remove rule" disabled={disabled || !catalog}
             onClick={() => { if (selection.type === "selected") {
               setExpanded(false); setExpandedRules([]);
               setExpandedExcludes(expandedExcludes.filter(item => item !== index).map(item => item > index ? item - 1 : item));
               change({ ...selection, rules: selection.rules.filter((_, i) => i !== index) });
             } }}>
             <TrashIcon />
-          </Button>
-        </div>
+          </Button>} />
         {showMatches ? <MatchedTablesDisclosure id={`${id}-rule-${index}-matches`} headerClass="table-rule-result"
           label="Matched tables" toggleLabel={`Matched tables for rule ${index + 1}`} regionLabel={`Matches for rule ${index + 1}`}
           open={expandedRules.includes(index)}
@@ -167,11 +131,5 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
         } }}><span aria-hidden="true">+</span> Add tables</Button>} />
     <span class={`table-selection-status${issue ? " has-error" : ""}`} role="status" title={status || undefined}
       aria-busy={!!catalog && !incomplete && !current}>{status}</span>
-    {browseRule !== undefined && catalog && !disabled && rules[browseRule] && <AvailableTablesDialog catalog={catalog}
-      onUse={table => {
-        setExpandedRules(expandedRules.filter(index => index !== browseRule));
-        update(browseRule, { include: exactPattern(table, rules[browseRule]!.include_mode ?? "glob") });
-      }}
-      onClose={() => setBrowseRule(undefined)} />}
   </section>;
 }

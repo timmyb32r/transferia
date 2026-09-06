@@ -16,9 +16,18 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("puts source tables below both endpoints and compacts repeated rules without asynchronous movement", () => {
+    expect(styles).toContain('"tables tables tables"');
+    expect(styles).toContain(".source-tables-card { grid-area: tables;");
+    expect(styles).toContain(":root .table-rule-compact .field-label { display: none; }");
+    expect(styles).not.toContain(".table-rule-row ~ .table-rule-row { padding-top: 12px;");
+    expect(styles).toContain("grid-template-rows: auto auto 40px 24px minmax(0, 1fr) 116px;");
+    expect(styles).toMatch(/\.table-pattern-tooltip \{[^}]*position: fixed;[^}]*pointer-events: none;/);
+  });
   it("reserves source metadata and exact-match slots and keeps the picker within narrow forms", () => {
     const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
-    expect(rule(":root .available-tables-metadata > button")).toContain("height: 48px; width: 248px;");
+    expect(rule(":root .available-tables-metadata > .table-matches-height-toggle")).toContain("height: 48px; width: 248px;");
+    expect(rule(":root .available-tables-failures")).toContain("width: 56px; height: 18px;");
     expect(rule(".available-tables-summary")).toContain("height: 14px;");
     expect(rule(".available-table-row .available-table-schema")).toContain("flex: 0 0 70px;");
     expect(rule(".table-pattern-confirmation")).toContain("position: absolute;");
