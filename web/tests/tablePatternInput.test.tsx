@@ -20,7 +20,7 @@ it("uses prefix completions for plain glob input and preserves authored patterns
   expect(literalPatternPrefix("schema\\.reports*", "glob")).toBe("schema.reports");
 });
 
-it("shows anchored server suggestions without native datalist and selects exact names by keyboard", async () => {
+it("shows anchored server suggestions without native datalist and selects exact names by explicit click", async () => {
   const tables = [{ namespace: "schema", name: "reports" }, { namespace: "information_schema", name: "reports" }];
   const preview = vi.fn().mockResolvedValue({ cards: [{ selected: [tables[0]], excluded: [] }], issues: [] });
   function Field() {
@@ -41,10 +41,90 @@ it("shows anchored server suggestions without native datalist and selects exact 
   expect(view.getByRole("option").querySelector("strong")?.textContent).toBe("schema");
   expect(input.hasAttribute("list")).toBe(false);
   expect(view.container.querySelector("datalist")).toBeNull();
-  fireEvent.keyDown(input, { key: "ArrowDown" });
-  fireEvent.keyDown(input, { key: "Enter" });
+  fireEvent.click(view.getByRole("option", { name: "schema.reports" }));
   expect((input as HTMLInputElement).value).toBe("schema.reports");
   expect(input.getAttribute("aria-expanded")).toBe("false");
+});
+
+const fields = [{ label: "Include rule 1", required: true }, { label: "Exclude rule 1", required: false }];
+
+it.each(fields.flatMap(field => (["glob", "regex"] as const).map(mode => ({ ...field, mode }))))(
+  "Enter finishes $label in $mode mode without accepting the highlighted suggestion", async ({ label, required, mode }) => {
+    const tables = [{ namespace: "system", name: "query_log" }];
+    const preview = vi.fn().mockResolvedValue({ cards: [{ selected: tables, excluded: [] }], issues: [] });
+    const onChange = vi.fn();
+    const onKeyDown = vi.fn();
+    const value = mode === "glob" ? "system*" : "system.*";
+    const view = render(<div onKeyDown={onKeyDown}>
+      <TableCatalogContext.Provider value={{ tables, preview }}>
+        <TablePatternInput id="pattern" label={label} value={value} mode={mode} disabled={false} required={required} invalid={false}
+          onChange={onChange} onModeChange={() => undefined} />
+      </TableCatalogContext.Provider>
+      <button type="button">Following control</button>
+    </div>);
+    const input = view.getByRole("combobox") as HTMLInputElement;
+    const following = view.getByRole("button", { name: "Following control" });
+    act(() => input.focus());
+    await waitFor(() => expect(view.getByRole("option")).toBeTruthy());
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.getAttribute("aria-activedescendant")).toBe("pattern-suggestion-0");
+    onKeyDown.mockClear();
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    fireEvent(input, enter);
+    expect(enter.defaultPrevented).toBe(true);
+    expect(onKeyDown).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(document.body);
+    expect(input.value).toBe(value);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+    expect(input.hasAttribute("aria-activedescendant")).toBe(false);
+    expect(view.queryByRole("listbox")).toBeNull();
+    expect(view.getByRole("button", { name: "Following control" })).toBe(following);
+  },
+);
+
+it.each(fields)("Enter finishes $label while suggestions are loading and a late response cannot reopen them", async ({ label, required }) => {
+  const tables = [{ namespace: "system", name: "query_log" }];
+  let finish!: (result: SelectionPreview) => void;
+  const preview = vi.fn(() => new Promise<SelectionPreview>(resolve => { finish = resolve; }));
+  const onChange = vi.fn();
+  const view = render(<TableCatalogContext.Provider value={{ tables, preview }}>
+    <TablePatternInput id="pattern" label={label} value="system*" mode="glob" disabled={false} required={required} invalid={false}
+      onChange={onChange} onModeChange={() => undefined} />
+  </TableCatalogContext.Provider>);
+  const input = view.getByRole("combobox") as HTMLInputElement;
+  act(() => input.focus());
+  await waitFor(() => expect(preview).toHaveBeenCalledOnce());
+  expect(view.getByRole("listbox").getAttribute("aria-busy")).toBe("true");
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(document.activeElement).toBe(document.body);
+  expect(view.queryByRole("listbox")).toBeNull();
+  await act(async () => finish({ cards: [{ selected: tables, excluded: [] }], issues: [] }));
+  expect(view.queryByRole("listbox")).toBeNull();
+  expect(input.value).toBe("system*");
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+it.each(fields)("Enter also finishes an empty $label with no suggestion menu", ({ label, required }) => {
+  const view = render(<TablePatternInput id="pattern" label={label} value="" mode="glob" disabled={false} required={required} invalid={false}
+    onChange={() => undefined} onModeChange={() => undefined} />);
+  const input = view.getByRole("combobox");
+  act(() => input.focus());
+  expect(view.queryByRole("listbox")).toBeNull();
+  expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
+  expect(document.activeElement).toBe(document.body);
+});
+
+it.each(fields)("Enter does not finish $label during IME composition", ({ label, required }) => {
+  const onChange = vi.fn();
+  const view = render(<TablePatternInput id="pattern" label={label} value="system*" mode="glob" disabled={false} required={required} invalid={false}
+    onChange={onChange} onModeChange={() => undefined} />);
+  const input = view.getByRole("combobox");
+  act(() => input.focus());
+  expect(fireEvent.keyDown(input, { key: "Enter", isComposing: true })).toBe(true);
+  expect(document.activeElement).toBe(input);
+  expect(input.getAttribute("aria-expanded")).toBe("true");
+  expect(onChange).not.toHaveBeenCalled();
 });
 
 it("closes suggestions and restores input focus when Escape is pressed on the regex button", async () => {

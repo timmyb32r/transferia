@@ -79,8 +79,12 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
             setActive(next);
             document.getElementById(`${id}-suggestion-${next}`)?.scrollIntoView?.({ block: "nearest" });
           }
-        } else if (event.key === "Enter" && open && suggestions[active]) {
-          event.preventDefault(); choose(suggestions[active]);
+        } else if (event.key === "Enter" && !event.isComposing) {
+          event.preventDefault();
+          event.stopPropagation();
+          setFocused(false);
+          setActive(-1);
+          event.currentTarget.blur();
         }
       }} />
     <Button shape="icon" class="regex-toggle" aria-label={`${label.toLowerCase().replace(" rule", " regex rule")}`}
