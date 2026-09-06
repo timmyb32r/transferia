@@ -758,9 +758,17 @@ pub async fn begin_locked_snapshot(
             .await?;
         }
         resources.tables_locked = true;
-        validate_locked_membership(resources.owner.as_mut().ok_or_else(||
-            anyhow::anyhow!("MySQL snapshot lock connection is missing"))?,
-            tables, selection, request_timeout, cancellation).await?;
+        validate_locked_membership(
+            resources
+                .owner
+                .as_mut()
+                .ok_or_else(|| anyhow::anyhow!("MySQL snapshot lock connection is missing"))?,
+            tables,
+            selection,
+            request_timeout,
+            cancellation,
+        )
+        .await?;
 
         let mut authoritative_tables = Vec::with_capacity(tables.len());
         for table in tables {
@@ -894,10 +902,18 @@ async fn validate_locked_membership(
             result.map_err(|_| anyhow::anyhow!("MySQL locked catalog check timed out"))??,
     };
     let matched = selection.resolve_tables(catalog)?;
-    let expected = tables.iter().map(|table| transferia_registry::TableIdentity {
-        namespace: table.database.clone(), name: table.name.clone(),
-    }).collect::<std::collections::BTreeSet<_>>();
-    if matched.into_iter().collect::<std::collections::BTreeSet<_>>() != expected {
+    let expected = tables
+        .iter()
+        .map(|table| transferia_registry::TableIdentity {
+            namespace: table.database.clone(),
+            name: table.name.clone(),
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    if matched
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        != expected
+    {
         return Err(replication_safety_violation(anyhow::anyhow!(
             "MySQL table-rule membership changed between discovery and the locked binlog boundary; repeat discovery before starting the delivery")));
     }
@@ -1259,7 +1275,8 @@ fn validate_authoritative_table_selection(
             table.name
         );
         anyhow::ensure!(
-            identity.database == table.database && identity.table == table.name,
+            (identity.database.as_str(), identity.table.as_str())
+                == (table.database.as_str(), table.name.as_str()),
             "MySQL authoritative identity does not exactly match configured table '{}.{}'",
             table.database,
             table.name

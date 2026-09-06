@@ -128,7 +128,10 @@ pub enum DecodedBinlogEvent {
     TableMapped(MySqlTableIdentity),
     Rows(DecodedRowsEvent),
     TransactionCommitted(CommittedTransaction),
-    TableCreated { table: transferia_registry::TableIdentity, committed: CommittedTransaction },
+    TableCreated {
+        table: transferia_registry::TableIdentity,
+        committed: CommittedTransaction,
+    },
     TransactionRolledBack(RolledBackTransaction),
     BinlogRotated(RotatedBinlog),
     Ignored(IgnoredBinlogEvent),
@@ -180,7 +183,10 @@ impl MySqlBinlogDecoder {
         self.allow_gtid_auto_position_rotate = true;
     }
 
-    pub(crate) fn set_table_selection(&mut self, selection: transferia_registry::table_selection::CompiledSelection) {
+    pub(crate) fn set_table_selection(
+        &mut self,
+        selection: transferia_registry::table_selection::CompiledSelection,
+    ) {
         self.table_selection = Some(selection);
     }
 
@@ -188,11 +194,7 @@ impl MySqlBinlogDecoder {
         &mut self,
         tables: impl IntoIterator<Item = (Vec<u8>, Vec<u8>)>,
     ) {
-        self.selected_tables = Some(
-            tables
-                .into_iter()
-                .collect(),
-        );
+        self.selected_tables = Some(tables.into_iter().collect());
     }
 
     #[must_use]
@@ -293,17 +295,18 @@ impl MySqlBinlogDecoder {
                     self.decode_begin(event_type, event_bytes, &header)
                 } else if statement.eq_ignore_ascii_case(b"COMMIT") {
                     self.decode_commit(event_type, event_bytes, &header, None)
+                        .map(DecodedBinlogEvent::TransactionCommitted)
                 } else if statement.eq_ignore_ascii_case(b"ROLLBACK") {
                     self.decode_rollback(event_type, event_bytes, &header)
                 } else {
-                    if let Some(message) = self.table_selection.as_ref()
-                        .and_then(|selection| super::ddl::rename_error(statement, &schema, selection))
-                    {
+                    if let Some(message) = self.table_selection.as_ref().and_then(|selection| {
+                        super::ddl::rename_error(statement, &schema, selection)
+                    }) {
                         return Err(BinlogDecodeError::UnsafeRename(message));
                     }
                     if let Some(table) = super::ddl::created_table(statement, &schema) {
-                        let DecodedBinlogEvent::TransactionCommitted(committed) =
-                            self.decode_commit(event_type, event_bytes, &header, None)? else { unreachable!() };
+                        let committed =
+                            self.decode_commit(event_type, event_bytes, &header, None)?;
                         return Ok(DecodedBinlogEvent::TableCreated { table, committed });
                     }
                     Err(BinlogDecodeError::UnsupportedStatement { schema })
@@ -329,9 +332,9 @@ impl MySqlBinlogDecoder {
                 }
             }
             EventData::RowsEvent(rows) => self.decode_rows(event_type, event_bytes, &header, &rows),
-            EventData::XidEvent(xid) => {
-                self.decode_commit(event_type, event_bytes, &header, Some(xid.xid))
-            }
+            EventData::XidEvent(xid) => self
+                .decode_commit(event_type, event_bytes, &header, Some(xid.xid))
+                .map(DecodedBinlogEvent::TransactionCommitted),
             EventData::RotateEvent(rotate) => {
                 if self.active_transaction.is_some() {
                     return Err(BinlogDecodeError::RotateInsideTransaction);
@@ -445,7 +448,7 @@ impl MySqlBinlogDecoder {
         event_bytes: u64,
         header: &mysql_async::binlog::events::BinlogEventHeader,
         xid: Option<u64>,
-    ) -> Result<DecodedBinlogEvent, BinlogDecodeError> {
+    ) -> Result<CommittedTransaction, BinlogDecodeError> {
         self.require_transaction(event_type)?;
         self.check_transaction_limits(event_type, event_bytes)?;
         let next = self.next_position(event_type, header.log_pos())?;
@@ -456,15 +459,13 @@ impl MySqlBinlogDecoder {
             .ok_or(BinlogDecodeError::TransactionNotActive(event_type))?;
         self.table_maps.clear();
         self.current_position = next.clone();
-        Ok(DecodedBinlogEvent::TransactionCommitted(
-            CommittedTransaction {
-                transaction: transaction.marker,
-                xid,
-                next_position: next,
-                event_count: transaction.event_count,
-                encoded_bytes: transaction.encoded_bytes,
-            },
-        ))
+        Ok(CommittedTransaction {
+            transaction: transaction.marker,
+            xid,
+            next_position: next,
+            event_count: transaction.event_count,
+            encoded_bytes: transaction.encoded_bytes,
+        })
     }
 
     fn decode_rollback(

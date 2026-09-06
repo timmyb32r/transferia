@@ -164,7 +164,7 @@ async fn query_shard_groups(client: &ReconnectingClient) -> anyhow::Result<Vec<S
     Ok(groups)
 }
 
-pub(crate) fn connection_check_error(error: &clickhouse_arrow::Error) -> anyhow::Error {
+pub fn connection_check_error(error: &clickhouse_arrow::Error) -> anyhow::Error {
     let rendered = error.to_string();
     if rendered.contains("AUTHENTICATION_FAILED") || rendered.contains("Authentication failed") {
         anyhow::anyhow!(

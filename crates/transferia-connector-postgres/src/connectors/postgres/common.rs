@@ -152,11 +152,15 @@ pub async fn connect(config: &PostgresConnectionConfig) -> anyhow::Result<tokio_
     Ok(client)
 }
 
-/// Enumerate only persistent user tables the authenticated role can read.
-pub async fn list_tables(config: &PostgresConnectionConfig) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
+/// Enumerate persistent tables the authenticated role can read, including system schemas.
+/// Keep the catalog complete so source filters can be toggled without reconnecting.
+pub async fn list_tables(
+    config: &PostgresConnectionConfig,
+) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
     let client = connect(config).await?;
     let rows = transferia_connector_support::external_request::observe_external_request(
-        "postgres", "list_tables",
+        "postgres",
+        "list_tables",
         // MDB transaction pooling may release the backend after each Sync.
         // Parse/bind/execute together without a session-scoped named statement.
         client.query_typed(
@@ -165,18 +169,32 @@ pub async fn list_tables(config: &PostgresConnectionConfig) -> anyhow::Result<Ve
              WHERE c.relkind IN ('r', 'p') AND c.relpersistence = 'p' \
              AND pg_catalog.has_schema_privilege(n.oid, 'USAGE') \
              AND pg_catalog.has_table_privilege(c.oid, 'SELECT') \
-             ORDER BY n.nspname, c.relname", &[],
+             ORDER BY n.nspname, c.relname",
+            &[],
         ),
-    ).await.map_err(|error| {
+    )
+    .await
+    .map_err(|error| {
         let diagnostic = error.as_db_error().map_or_else(
             || error.to_string(),
-            |database| format!("{} (SQLSTATE {})", database.message(), database.code().code()),
+            |database| {
+                format!(
+                    "{} (SQLSTATE {})",
+                    database.message(),
+                    database.code().code()
+                )
+            },
         );
         anyhow::anyhow!("PostgreSQL table discovery failed: {diagnostic}")
     })?;
-    rows.into_iter().map(|row| Ok(transferia_registry::TableIdentity {
-        namespace: row.try_get(0)?, name: row.try_get(1)?,
-    })).collect()
+    rows.into_iter()
+        .map(|row| {
+            Ok(transferia_registry::TableIdentity {
+                namespace: row.try_get(0)?,
+                name: row.try_get(1)?,
+            })
+        })
+        .collect()
 }
 
 pub async fn check_connection(config: &PostgresConnectionConfig) -> anyhow::Result<()> {
@@ -186,11 +204,8 @@ pub async fn check_connection(config: &PostgresConnectionConfig) -> anyhow::Resu
             .downcast_ref::<tokio_postgres::Error>()
             .and_then(tokio_postgres::Error::code)
             .map(tokio_postgres::error::SqlState::code);
-        if let Some(message) = authentication_check_message(code, config.password.is_empty()) {
-            anyhow::anyhow!(message)
-        } else {
-            error
-        }
+        authentication_check_message(code, config.password.is_empty())
+            .map_or(error, |message| anyhow::anyhow!(message))
     })?;
     client.simple_query("SELECT 1").await?;
     Ok(())

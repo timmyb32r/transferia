@@ -112,10 +112,20 @@ impl SelectionPreview {
     /// Startup must not consume a partially valid preview. Return table
     /// identities only after every rule and cross-card conflict was checked.
     pub fn selected_tables(&self) -> anyhow::Result<Vec<TableIdentity>> {
-        anyhow::ensure!(self.cards.iter().any(|card| !card.selected.is_empty()),
-            "No tables selected. A delivery must select at least one table.");
-        anyhow::ensure!(self.issues.is_empty(), "Invalid table selection: {:?}", self.issues);
-        Ok(self.cards.iter().flat_map(|card| card.selected.iter().cloned()).collect())
+        anyhow::ensure!(
+            self.cards.iter().any(|card| !card.selected.is_empty()),
+            "No tables selected. A delivery must select at least one table."
+        );
+        anyhow::ensure!(
+            self.issues.is_empty(),
+            "Invalid table selection: {:?}",
+            self.issues
+        );
+        Ok(self
+            .cards
+            .iter()
+            .flat_map(|card| card.selected.iter().cloned())
+            .collect())
     }
 }
 
@@ -136,7 +146,7 @@ pub struct CompiledSelection {
 
 impl TableSelection {
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         matches!(self, Self::Selected { rules } if rules.is_empty())
     }
 
@@ -145,20 +155,37 @@ impl TableSelection {
         let source_rules = match self {
             Self::Selected { rules } => rules.as_slice(),
             Self::All {} => {
-                all_rule = [TableRule { include: "*".into(), include_mode: PatternMode::Glob,
-                    exclude: None, exclude_mode: PatternMode::Glob }];
+                all_rule = [TableRule {
+                    include: "*".into(),
+                    include_mode: PatternMode::Glob,
+                    exclude: None,
+                    exclude_mode: PatternMode::Glob,
+                }];
                 &all_rule
             }
         };
-        let rules = source_rules.iter().enumerate().map(|(card, rule)| {
-            let compile = |text: &str, field, mode| compile_pattern(text, mode)
-                .map_err(|reason| PatternError { card, field, reason });
-            Ok(CompiledRule {
-                include: compile(&rule.include, PatternField::Include, rule.include_mode)?,
-                exclude: rule.exclude.as_deref().filter(|text| !text.is_empty())
-                    .map(|text| compile(text, PatternField::Exclude, rule.exclude_mode)).transpose()?,
+        let rules = source_rules
+            .iter()
+            .enumerate()
+            .map(|(card, rule)| {
+                let compile = |text: &str, field, mode| {
+                    compile_pattern(text, mode).map_err(|reason| PatternError {
+                        card,
+                        field,
+                        reason,
+                    })
+                };
+                Ok(CompiledRule {
+                    include: compile(&rule.include, PatternField::Include, rule.include_mode)?,
+                    exclude: rule
+                        .exclude
+                        .as_deref()
+                        .filter(|text| !text.is_empty())
+                        .map(|text| compile(text, PatternField::Exclude, rule.exclude_mode))
+                        .transpose()?,
+                })
             })
-        }).collect::<Result<Vec<_>, PatternError>>()?;
+            .collect::<Result<Vec<_>, PatternError>>()?;
         Ok(CompiledSelection { rules })
     }
 }
@@ -170,13 +197,19 @@ impl CompiledSelection {
     pub fn classify(&self, table: &TableIdentity) -> TableClassification {
         let name = table.qualified_name();
         let mut result = TableClassification {
-            selected_by: Vec::new(), excluded_by: Vec::new(), issues: Vec::new(),
+            selected_by: Vec::new(),
+            excluded_by: Vec::new(),
+            issues: Vec::new(),
         };
         for (index, rule) in self.rules.iter().enumerate() {
             if !rule.include.is_match(&name) {
                 continue;
             }
-            if rule.exclude.as_ref().is_some_and(|exclude| exclude.is_match(&name)) {
+            if rule
+                .exclude
+                .as_ref()
+                .is_some_and(|exclude| exclude.is_match(&name))
+            {
                 result.excluded_by.push(index);
             } else {
                 result.selected_by.push(index);
@@ -184,10 +217,17 @@ impl CompiledSelection {
         }
         for (position, &first) in result.selected_by.iter().enumerate() {
             for &second in result.selected_by.iter().skip(position + 1) {
-                result.issues.push(conflict(table, first, second, ConflictKind::MultipleIncludes));
+                result.issues.push(conflict(
+                    table,
+                    first,
+                    second,
+                    ConflictKind::MultipleIncludes,
+                ));
             }
             for &second in &result.excluded_by {
-                result.issues.push(conflict(table, first, second, ConflictKind::IncludeExclude));
+                result
+                    .issues
+                    .push(conflict(table, first, second, ConflictKind::IncludeExclude));
             }
         }
         result
@@ -196,15 +236,18 @@ impl CompiledSelection {
     pub fn resolve(&self, catalog: &[TableIdentity]) -> anyhow::Result<SelectionPreview> {
         let mut seen = BTreeSet::new();
         let mut result = SelectionPreview {
-            cards: vec![CardMatches::default(); self.rules.len()], issues: Vec::new(),
+            cards: vec![CardMatches::default(); self.rules.len()],
+            issues: Vec::new(),
         };
         if self.rules.is_empty() {
             result.issues.push(SelectionIssue::NoRules);
         }
         for table in catalog {
-            anyhow::ensure!(!table.namespace.is_empty() && !table.name.is_empty(),
-                "Table catalog contains an empty namespace or table name");
-            anyhow::ensure!(seen.insert(table), "Table catalog repeats {:?}", table);
+            anyhow::ensure!(
+                !table.namespace.is_empty() && !table.name.is_empty(),
+                "Table catalog contains an empty namespace or table name"
+            );
+            anyhow::ensure!(seen.insert(table), "Table catalog repeats {table:?}");
             let classification = self.classify(table);
             for index in classification.selected_by {
                 result.cards[index].selected.push(table.clone());
@@ -225,9 +268,17 @@ impl CompiledSelection {
     }
 }
 
-fn conflict(table: &TableIdentity, first: usize, second: usize, kind: ConflictKind) -> SelectionIssue {
+fn conflict(
+    table: &TableIdentity,
+    first: usize,
+    second: usize,
+    kind: ConflictKind,
+) -> SelectionIssue {
     SelectionIssue::Conflict {
-        table: table.clone(), first_card: first.min(second), second_card: first.max(second), kind,
+        table: table.clone(),
+        first_card: first.min(second),
+        second_card: first.max(second),
+        kind,
     }
 }
 

@@ -436,20 +436,33 @@ impl MySqlSourceConnector {
     }
 
     async fn resolved_tables(&self) -> anyhow::Result<&[TableConfig]> {
-        self.resolved_tables.get_or_try_init(|| async {
-            let catalog = crate::connectors::mysql::common::list_tables(&self.config.connection).await?;
-            Ok(self.config.resolve_tables(catalog)?.into_iter().map(|table| TableConfig {
-                database: table.namespace,
-                name: table.name,
-            }).collect())
-        }).await.map(Vec::as_slice)
+        self.resolved_tables
+            .get_or_try_init(|| async {
+                let catalog =
+                    crate::connectors::mysql::common::list_tables(&self.config.connection).await?;
+                Ok(self
+                    .config
+                    .resolve_tables(catalog)?
+                    .into_iter()
+                    .map(|table| TableConfig {
+                        database: table.namespace,
+                        name: table.name,
+                    })
+                    .collect())
+            })
+            .await
+            .map(Vec::as_slice)
     }
 
     async fn load_discovered_tables(&self) -> anyhow::Result<Vec<DiscoveredTable>> {
-        self.load_selected_tables(self.resolved_tables().await?).await
+        self.load_selected_tables(self.resolved_tables().await?)
+            .await
     }
 
-    async fn load_selected_tables(&self, selected: &[TableConfig]) -> anyhow::Result<Vec<DiscoveredTable>> {
+    async fn load_selected_tables(
+        &self,
+        selected: &[TableConfig],
+    ) -> anyhow::Result<Vec<DiscoveredTable>> {
         // Also validate restored snapshot/replication membership before any
         // database request; never silently drop a durably recorded table.
         for table in selected {
@@ -505,12 +518,15 @@ impl MySqlSourceConnector {
                 "MySQL source identity changed before replication stream handoff"
             )));
         }
-        let selected = expected_authoritative_tables.iter().map(|table| TableConfig {
-            database: table.database.clone(), name: table.table.clone(),
-        }).collect::<Vec<_>>();
+        let selected = expected_authoritative_tables
+            .iter()
+            .map(|table| TableConfig {
+                database: table.database.clone(),
+                name: table.table.clone(),
+            })
+            .collect::<Vec<_>>();
         let current_tables = self.load_selected_tables(&selected).await?;
-        let current_authoritative_tables =
-            authoritative_table_identities(&current_tables);
+        let current_authoritative_tables = authoritative_table_identities(&current_tables);
         if current_authoritative_tables != expected_authoritative_tables {
             return Err(replication_safety_violation(anyhow::anyhow!(
                 "MySQL authoritative table identity changed before replication stream handoff"
@@ -1086,24 +1102,41 @@ impl SourceConnector for MySqlSourceConnector {
                 // The prepared execution predates any admitted CREATEs. On
                 // every retry, restore membership from the same checkpoint as
                 // the binlog position, never from today's wildcard catalog.
-                let recorded = crate::connectors::mysql::src_stream::inspect_replication_membership(
-                    replication, source_identity, &context.durable, &replay_identity,
-                ).await.map_err(classify_replication_error)?;
+                let recorded =
+                    crate::connectors::mysql::src_stream::inspect_replication_membership(
+                        replication,
+                        source_identity,
+                        &context.durable,
+                        &replay_identity,
+                    )
+                    .await
+                    .map_err(classify_replication_error)?;
                 let restored_tables;
                 let restored_authoritative;
                 let (tables, authoritative_tables) = if let Some(recorded) = recorded {
-                    let selected = recorded.iter().map(|table| TableConfig {
-                        database: table.database.clone(), name: table.table.clone(),
-                    }).collect::<Vec<_>>();
-                    restored_tables = self.load_selected_tables(&selected).await
+                    let selected = recorded
+                        .iter()
+                        .map(|table| TableConfig {
+                            database: table.database.clone(),
+                            name: table.table.clone(),
+                        })
+                        .collect::<Vec<_>>();
+                    restored_tables = self
+                        .load_selected_tables(&selected)
+                        .await
                         .map_err(classify_replication_error)?;
                     restored_authoritative = authoritative_table_identities(&restored_tables);
                     if restored_authoritative != recorded {
-                        return Err(classify_replication_error(replication_safety_violation(anyhow::anyhow!(
-                            "MySQL durable table schemas changed before replication restart"))));
+                        return Err(classify_replication_error(replication_safety_violation(
+                            anyhow::anyhow!(
+                                "MySQL durable table schemas changed before replication restart"
+                            ),
+                        )));
                     }
                     (restored_tables.as_slice(), &restored_authoritative)
-                } else { (tables.as_slice(), authoritative_tables) };
+                } else {
+                    (tables.as_slice(), authoritative_tables)
+                };
                 let (connection, gtid_state) = self
                     .acquire_stream_handoff(
                         source_identity,
@@ -1197,7 +1230,8 @@ impl SourceConnector for MySqlSourceConnector {
                     let (session_table, _session_connection_id, session_max_row_bytes, connection) =
                         session.into_parts();
                     anyhow::ensure!(
-                        session_table.name == table.config.name && session_table.database == table.config.database,
+                        session_table.name == table.config.name
+                            && session_table.database == table.config.database,
                         "MySQL prepared snapshot session belongs to a different table"
                     );
                     anyhow::ensure!(
@@ -1289,7 +1323,7 @@ impl SourceConnector for MySqlSourceConnector {
     }
 }
 
-pub(crate) fn build_delivery_discovery(
+pub fn build_delivery_discovery(
     replication: bool,
     delivery_type: DeliveryType,
     request: transferia_core::delivery::DeliveryDiscoveryRequest,
@@ -1393,7 +1427,7 @@ pub(crate) fn build_delivery_discovery(
     })
 }
 
-pub(crate) fn authoritative_table_identities(
+pub fn authoritative_table_identities(
     tables: &[DiscoveredTable],
 ) -> Vec<AuthoritativeTableIdentity> {
     tables
@@ -1466,7 +1500,7 @@ fn classify_replication_error(error: anyhow::Error) -> anyhow::Error {
     }
 }
 
-pub(crate) async fn discover_table(
+pub async fn discover_table(
     connection: &mut Conn,
     database: &str,
     table: TableConfig,

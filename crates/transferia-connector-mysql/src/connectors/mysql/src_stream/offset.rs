@@ -35,7 +35,7 @@ pub struct MySqlReplicationOffsetTracker {
 
 /// Recover membership from the same durable record as the committed binlog
 /// position. A current catalog must never implicitly admit post-boundary tables.
-pub(crate) async fn inspect_replication_membership(
+pub async fn inspect_replication_membership(
     config: &MySqlReplicationConfig,
     source: &MySqlSourceIdentity,
     durable: &DurableContext,
@@ -46,9 +46,22 @@ pub(crate) async fn inspect_replication_membership(
     };
     let state: ReplicationOffsetState = serde_json::from_slice(&current.payload)
         .map_err(|error| replication_safety_violation(error.into()))?;
-    validate_identity(config, source, &state.authoritative_tables, None, replay_identity)
-        .map_err(replication_safety_violation)?;
-    let state = decode_and_validate(&current.payload, config, source, &state.authoritative_tables, None, replay_identity)?;
+    validate_identity(
+        config,
+        source,
+        &state.authoritative_tables,
+        None,
+        replay_identity,
+    )
+    .map_err(replication_safety_violation)?;
+    let state = decode_and_validate(
+        &current.payload,
+        config,
+        source,
+        &state.authoritative_tables,
+        None,
+        replay_identity,
+    )?;
     Ok(Some(state.authoritative_tables))
 }
 
@@ -199,7 +212,8 @@ impl MySqlReplicationOffsetTracker {
         committed_position: &MySqlBinlogPosition,
         committed_gtids: &GtidSet,
     ) -> anyhow::Result<()> {
-        self.store_admission(committed_position, committed_gtids, &[]).await
+        self.store_admission(committed_position, committed_gtids, &[])
+            .await
     }
 
     /// Persist membership and the CREATE transaction position in one CAS. This
@@ -231,12 +245,18 @@ impl MySqlReplicationOffsetTracker {
         next.committed_position = committed_position.clone();
         next.committed_gtids = committed_gtids.clone();
         for table in added {
-            anyhow::ensure!(!next.authoritative_tables.iter().any(|old| old.database == table.database && old.table == table.table),
-                "MySQL dataset admission repeats an already committed table");
+            anyhow::ensure!(
+                !next
+                    .authoritative_tables
+                    .iter()
+                    .any(|old| old.database == table.database && old.table == table.table),
+                "MySQL dataset admission repeats an already committed table"
+            );
             next.authoritative_tables.push(table.clone());
         }
         if !added.is_empty() {
-            validate_table_identities(&next.authoritative_tables).map_err(replication_safety_violation)?;
+            validate_table_identities(&next.authoritative_tables)
+                .map_err(replication_safety_violation)?;
         }
         let payload = serde_json::to_vec(&next)?;
         match self
@@ -320,7 +340,9 @@ fn validate_identity(
     Ok(())
 }
 
-fn validate_table_identities(authoritative_tables: &[AuthoritativeTableIdentity]) -> anyhow::Result<()> {
+fn validate_table_identities(
+    authoritative_tables: &[AuthoritativeTableIdentity],
+) -> anyhow::Result<()> {
     anyhow::ensure!(
         !authoritative_tables.is_empty(),
         "MySQL replication requires at least one authoritative table"

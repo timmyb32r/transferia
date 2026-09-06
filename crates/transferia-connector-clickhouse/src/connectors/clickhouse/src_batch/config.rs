@@ -65,7 +65,9 @@ pub struct ClickHouseSourceConfig {
     pub request_timeout_ms: u64,
 }
 
-fn default_hide_system_tables() -> bool { true }
+const fn default_hide_system_tables() -> bool {
+    true
+}
 
 pub(super) fn is_system_database(database: &str) -> bool {
     matches!(database, "system" | "_system" | "INFORMATION_SCHEMA")
@@ -150,7 +152,7 @@ impl ClickHouseParquetCompression {
 
 /// Discovery uses the table's PRIMARY KEY, or ORDER BY when both keys match,
 /// as the delivery row identity. This is a delivery contract, not a claim that
-/// ClickHouse enforces uniqueness. Key expressions must be plain columns.
+/// `ClickHouse` enforces uniqueness. Key expressions must be plain columns.
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TableConfig {

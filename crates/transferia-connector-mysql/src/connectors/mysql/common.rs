@@ -162,36 +162,60 @@ pub async fn check_connection(config: &MySqlConnectionConfig) -> anyhow::Result<
     Ok(())
 }
 
-pub async fn list_tables(config: &MySqlConnectionConfig) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
+pub async fn list_tables(
+    config: &MySqlConnectionConfig,
+) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
     let mut connection = transferia_connector_support::external_request::observe_external_request(
-        "mysql", "connect_table_catalog", connect(config)).await?;
+        "mysql",
+        "connect_table_catalog",
+        connect(config),
+    )
+    .await?;
     let result = list_tables_on_connection(&mut connection).await;
     let closed = transferia_connector_support::external_request::observe_external_request(
-        "mysql", "disconnect_table_catalog", connection.disconnect()).await;
+        "mysql",
+        "disconnect_table_catalog",
+        connection.disconnect(),
+    )
+    .await;
     let tables = result?;
     closed?;
     Ok(tables)
 }
 
-pub(crate) async fn list_tables_on_connection(connection: &mut Conn) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
+pub async fn list_tables_on_connection(
+    connection: &mut Conn,
+) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
     // information_schema visibility is evaluated for the authenticated role,
     // across all databases rather than only the connection's default database.
-    let rows: Vec<(String, String)> = transferia_connector_support::external_request::observe_external_request(
-        "mysql", "list_tables",
-        connection.query("SELECT TABLE_SCHEMA, TABLE_NAME FROM information_schema.TABLES \
+    let rows: Vec<(String, String)> =
+        transferia_connector_support::external_request::observe_external_request(
+            "mysql",
+            "list_tables",
+            connection.query(
+                "SELECT TABLE_SCHEMA, TABLE_NAME FROM information_schema.TABLES \
             WHERE TABLE_TYPE = 'BASE TABLE' \
-            ORDER BY TABLE_SCHEMA, TABLE_NAME"),
-    ).await?;
+            ORDER BY TABLE_SCHEMA, TABLE_NAME",
+            ),
+        )
+        .await?;
     let mut tables = Vec::with_capacity(rows.len());
     for (namespace, name) in rows {
         // Metadata visibility does not imply SELECT access to all columns.
-        let query = format!("SELECT * FROM {}.{} LIMIT 0", quote_identifier(&namespace), quote_identifier(&name));
+        let query = format!(
+            "SELECT * FROM {}.{} LIMIT 0",
+            quote_identifier(&namespace),
+            quote_identifier(&name)
+        );
         let result = transferia_connector_support::external_request::observe_external_request(
-            "mysql", "check_table_read_access", connection.query_drop(query),
-        ).await;
+            "mysql",
+            "check_table_read_access",
+            connection.query_drop(query),
+        )
+        .await;
         match result {
             Ok(()) => tables.push(transferia_registry::TableIdentity { namespace, name }),
-            Err(mysql_async::Error::Server(error)) if matches!(error.code, 1142 | 1143) => {},
+            Err(mysql_async::Error::Server(error)) if matches!(error.code, 1142 | 1143) => {}
             Err(error) => return Err(error.into()),
         }
     }
