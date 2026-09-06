@@ -1058,45 +1058,44 @@ h3 {
 .endpoint-card-sink {
   grid-area: sink;
 }
-.source-tables-card { grid-area: tables; min-width: 0; margin-top: var(--route-gap); container: form-space / inline-size; scroll-margin-top: 24px; }
-:root .route-composition > .source-tables-card { background: var(--panel2); border-color: var(--route-outline); }
+.source-tables-card { grid-area: tables; container: form-space / inline-size; scroll-margin-top: 24px; }
 .source-tables-card > .connection-dependent-settings { border: 0; border-radius: 0; }
 .source-tables-card .connection-dependent-fields { padding: 0; }
 .route-composition > .endpoint-card {
   align-self: stretch;
 }
 .route-composition > .endpoint-card-source,
-.route-composition > .source-parser-bridge,
-.route-composition > .parser-details-card,
+.route-composition > .source-details-bridge,
+.route-composition > .source-details-card,
 .route-composition > .endpoint-card-sink {
   background: var(--panel);
 }
-.route-composition:has(> .parser-details-card) > .endpoint-card-source {
+.route-composition:has(> .source-details-card) > .endpoint-card-source,
+.route-composition:has(> .source-details-card) > .source-details-bridge,
+.route-composition:has(> .source-details-card) > .source-details-card {
+  border-color: var(--route-line);
+}
+.route-composition:has(> .source-details-card) > .endpoint-card-source {
   border-bottom-color: transparent;
   border-radius: var(--radius-panel) var(--radius-panel) 0 0;
 }
-.route-composition:has(> .parser-details-card) > .endpoint-card-source,
-.route-composition:has(> .parser-details-card) > .source-parser-bridge,
-.route-composition:has(> .parser-details-card) > .parser-details-card {
-  border-color: var(--route-line);
-}
 /* Variant B: neutral islands, with white controls and unchanged geometry.
-   The parser bridge belongs to the source surface, not a separate island. */
+   Tables and parser details continue the source surface, not a separate island. */
 :root[data-theme="light"] .identity-card,
 :root[data-theme="light"] .route-composition > .endpoint-card,
-:root[data-theme="light"] .route-composition > .source-parser-bridge,
-:root[data-theme="light"] .route-composition > .parser-details-card {
+:root[data-theme="light"] .route-composition > .source-details-bridge,
+:root[data-theme="light"] .route-composition > .source-details-card {
   background: #edf1f4;
   border-color: #cfd8de;
 }
-:root[data-theme="light"] .route-composition:has(> .parser-details-card) > .endpoint-card-source {
+:root[data-theme="light"] .route-composition:has(> .source-details-card) > .endpoint-card-source {
   border-bottom-color: transparent;
 }
 :root[data-theme="light"] .route-composition {
   --route-surface: #edf1f4;
   --route-outline: #cfd8de;
 }
-.source-parser-bridge {
+.source-details-bridge {
   position: relative;
   z-index: 2;
   grid-area: sourcebridge;
@@ -1106,8 +1105,8 @@ h3 {
   border-left: 1px solid var(--line);
 }
 /* Round the concave corner, covering the straight border underneath it. */
-.source-parser-bridge::before,
-.source-parser-bridge::after {
+.source-details-bridge::before,
+.source-details-bridge::after {
   content: "";
   position: absolute;
   pointer-events: none;
@@ -1116,10 +1115,10 @@ h3 {
   width: calc(var(--radius-panel) + 1px);
   height: calc(var(--radius-panel) + 1px);
 }
-.source-parser-bridge::before {
+.source-details-bridge::before {
   background: var(--route-surface);
 }
-.source-parser-bridge::after {
+.source-details-bridge::after {
   background: var(--canvas);
   border-left: 1px solid var(--route-outline);
   border-bottom: 1px solid var(--route-outline);
@@ -3593,9 +3592,9 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .section-heading h2 {
   margin: 3px 0 0;
 }
-.parser-details-card {
+.parser-details-card { grid-area: parser; }
+.source-details-card {
   position: relative;
-  grid-area: parser;
   grid-column: 1 / -1;
   min-width: 0;
   padding: 20px 22px 22px;
@@ -3603,7 +3602,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   border-radius: 0 var(--radius-panel) var(--radius-panel);
   outline: none;
 }
-.parser-details-card > * {
+.source-details-card > * {
   position: relative;
   z-index: 1;
 }
@@ -5209,24 +5208,24 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
     grid-template-columns: 1fr;
     grid-template-areas:
       "source"
+      "tables"
       "parser"
       "arrow"
-      "sink"
-      "tables";
+      "sink";
   }
   .parse-policy-row {
     grid-template-columns: minmax(0, 1fr);
   }
-  .route-composition:has(> .parser-details-card) > .endpoint-card-source {
+  .route-composition:has(> .source-details-card) > .endpoint-card-source {
     border-bottom-color: transparent;
     border-radius: var(--radius-panel) var(--radius-panel) 0 0;
   }
-  .parser-details-card {
+  .source-details-card {
     grid-column: 1;
     border-radius: 0 0 var(--radius-panel) var(--radius-panel);
     border-top-color: var(--line-inner);
   }
-  .source-parser-bridge {
+  .source-details-bridge {
     display: none;
   }
   .route-arrow {

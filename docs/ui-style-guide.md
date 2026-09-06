@@ -143,9 +143,11 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   spinner. This action palette does not recolor classic or dark themes.
 - Database-source metadata uses **A — required form item**: a neutral
   `Required` badge, a stable Connected/pending/error status beside the button, and a bordered group for
-  dependent table fields. Tables occupy a full-width island below both endpoints,
-  in DOM and keyboard order after Destination, with the existing form contexts
-  preserved. The island is mounted and locked before connection, not inserted
+  dependent table fields. Tables continue the Source surface at full route width,
+  using the same bridge, concave join and border treatment as parser details;
+  they are not a separate island. On narrow screens they sit directly below
+  Source, before Destination. Existing form contexts and DOM order are preserved.
+  The continuation is mounted and locked before connection, not inserted
   by an asynchronous response. The primary action is `Connect & load metadata`, then
   `Refresh metadata` after success; reserve the longer label's width. Before
   verification show `Required to unlock tables and transforms` and a small

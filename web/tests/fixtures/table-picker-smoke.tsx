@@ -40,7 +40,8 @@ function Fixture() {
         config={config} readOnly={false} showRequiredErrors={false} onChoose={() => {}} onConfig={setConfig} tablesHost={tablesHost} />
       <div class="route-arrow">→</div>
       <article class="card endpoint-card endpoint-card-sink"><h2>Destination</h2><p>Discard</p></article>
-      <section class="card source-tables-card" ref={setTablesHost} tabIndex={-1} aria-label="Source tables" />
+      <div class="source-details-bridge" aria-hidden="true" />
+      <section class="source-details-card source-tables-card" ref={setTablesHost} tabIndex={-1} aria-label="Source tables" />
     </main>
   </SourceMetadataContext.Provider>;
 }

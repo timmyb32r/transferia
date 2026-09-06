@@ -24,6 +24,17 @@ describe("delivery layout contract", () => {
     expect(styles).toContain("grid-template-rows: auto auto 40px 24px minmax(0, 1fr) 116px;");
     expect(styles).toMatch(/\.table-pattern-tooltip \{[^}]*position: fixed;[^}]*pointer-events: none;/);
   });
+  it("joins Tables to Source like parser details instead of adding a separate island", () => {
+    const tables = styles.split(".source-tables-card {")[1]?.split("}")[0];
+    expect(tables).not.toMatch(/(?:margin|padding|background|border|box-shadow)\s*:/);
+    expect(tables).not.toContain("margin-top:");
+    const details = styles.split("\n.source-details-card {")[1]?.split("}")[0];
+    expect(details).toContain("grid-column: 1 / -1;");
+    expect(details).toContain("border-radius: 0 var(--radius-panel) var(--radius-panel);");
+    expect(styles).toContain(".route-composition:has(> .source-details-card) > .endpoint-card-source {");
+    const stacked = styles.split("@media (max-width: 1300px) {")[1];
+    expect(stacked).toMatch(/grid-template-areas:\s*"source"\s*"tables"\s*"parser"\s*"arrow"\s*"sink"/);
+  });
   it("reserves source metadata and exact-match slots and keeps the picker within narrow forms", () => {
     const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
     expect(rule(":root .available-tables-metadata > .table-matches-height-toggle")).toContain("height: 48px; width: 248px;");
@@ -248,20 +259,20 @@ describe("delivery layout contract", () => {
   });
   it("shares the destination gaps and panel radius with the parser join", () => {
     expect(styles).toContain("grid-template-columns: minmax(450px, 1fr) var(--route-gap) minmax(450px, 1fr);");
-    const bridge = styles.split(".source-parser-bridge {")[1]?.split("}")[0];
+    const bridge = styles.split(".source-details-bridge {")[1]?.split("}")[0];
     // The one-pixel overlap hides the parser top border without shrinking the gap.
     expect(bridge).toContain("height: calc(var(--route-gap) + 1px);");
     expect(bridge).toContain("margin-bottom: -1px;");
     expect(styles).toContain("border-bottom-left-radius: var(--radius-panel);");
     expect(styles).toContain("border-radius: 0 var(--radius-panel) var(--radius-panel);");
-    expect(styles).toContain(".source-parser-bridge {\n    display: none;");
+    expect(styles).toContain(".source-details-bridge {\n    display: none;");
   });
   it("shades the three delivery islands without changing control geometry or dark themes", () => {
     const selectors = [
       ':root[data-theme="light"] .identity-card',
       ':root[data-theme="light"] .route-composition > .endpoint-card',
-      ':root[data-theme="light"] .route-composition > .source-parser-bridge',
-      ':root[data-theme="light"] .route-composition > .parser-details-card',
+      ':root[data-theme="light"] .route-composition > .source-details-bridge',
+      ':root[data-theme="light"] .route-composition > .source-details-card',
     ].join(",\n");
     const rule = styles.split(`${selectors} {`)[1]?.split("}")[0];
     expect(rule?.trim()).toBe("background: #edf1f4;\n  border-color: #cfd8de;");
@@ -270,7 +281,7 @@ describe("delivery layout contract", () => {
       expect(theme).toContain("--control: #ffffff;");
       expect(theme).toContain("--canvas: #ffffff;");
     }
-    expect(styles).toContain(':root[data-theme="light"] .route-composition:has(> .parser-details-card) > .endpoint-card-source {\n  border-bottom-color: transparent;');
+    expect(styles).toContain(':root[data-theme="light"] .route-composition:has(> .source-details-card) > .endpoint-card-source {\n  border-bottom-color: transparent;');
   });
   it("uses identical field spacing for ordinary and advanced settings in every endpoint", () => {
     expect(styles).toMatch(/\.foldout-content,\s*\.schema-object\s*\{\s*display:\s*grid;\s*gap:\s*10px;/s);
@@ -389,9 +400,9 @@ describe("delivery layout contract", () => {
     );
   });
 
-  it("does not paint a browser focus highlight around parser settings", () => {
+  it("does not paint a browser focus highlight around source detail settings", () => {
     expect(styles).toMatch(
-      /\.parser-details-card\s*\{[^}]*outline:\s*none;/s,
+      /\.source-details-card\s*\{[^}]*outline:\s*none;/s,
     );
   });
 

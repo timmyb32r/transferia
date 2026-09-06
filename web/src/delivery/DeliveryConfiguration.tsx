@@ -187,7 +187,10 @@ export function DeliveryConfiguration({
             onChoose={onChooseEndpoint}
             onConfig={onConfig}
           />
-          {hasTableSettings && <section class="card source-tables-card" ref={setTablesHost} tabIndex={-1} aria-label="Source tables" />}
+          {hasTableSettings && <>
+            <div class="source-details-bridge" aria-hidden="true" />
+            <section class="source-details-card source-tables-card" ref={setTablesHost} tabIndex={-1} aria-label="Source tables" />
+          </>}
           {routeSettingsAvailable &&
             selection?.source && (
               <ParserDetailsForm

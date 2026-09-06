@@ -1573,8 +1573,9 @@ describe("schema form", () => {
     expect(details.container.textContent).not.toContain("JSON path");
     expect(details.container.textContent).not.toContain("JSON type");
     expect(
-      details.container.querySelector(".source-parser-bridge"),
+      details.container.querySelector(".source-details-bridge"),
     ).not.toBeNull();
+    expect(details.container.querySelector(".parser-details-card.source-details-card")).not.toBeNull();
 
     const incompleteValue = {
       parser: {

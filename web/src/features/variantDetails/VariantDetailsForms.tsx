@@ -8,8 +8,8 @@ export function ParserDetailsForm(props: SchemaFormProps) {
     <VariantDetailsForm
       {...props}
       widget="parser"
-      bridgeClass="source-parser-bridge"
-      cardClass="parser-details-card"
+      bridgeClass="source-details-bridge"
+      cardClass="source-details-card parser-details-card"
     />
   );
 }
