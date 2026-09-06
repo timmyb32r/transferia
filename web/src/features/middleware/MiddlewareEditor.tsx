@@ -117,14 +117,14 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
     onDragOver={event => { if (!disabled) event.preventDefault(); }}
     onDrop={event => { event.preventDefault(); if (!disabled) onDrop(); }}>
     <div class="middleware-strip-heading">
-      <Button shape="icon" class="middleware-drag" disabled={disabled} draggable={!disabled}
+      <Button variant="plain" shape="icon" class="middleware-drag" disabled={disabled} draggable={!disabled}
         aria-label={`Reorder transform ${index + 1}`} title="Drag to reorder"
         onDragStart={event => {
           event.dataTransfer?.setData("text/plain", String(index));
           if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
           onDragStart();
         }} onDragEnd={onDragEnd}><DragHandleIcon /></Button>
-      <Button class="middleware-strip-toggle" aria-expanded={expanded} aria-controls={`${id}-settings`}
+      <Button variant="plain" class="middleware-strip-toggle" aria-expanded={expanded} aria-controls={`${id}-settings`}
         aria-label={`${expanded ? "Collapse" : "Expand"} transform ${index + 1}`}
         onClick={() => setExpanded(!expanded)}>
         <span class="middleware-step-number">{index + 1}</span>
@@ -141,7 +141,7 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
         <Button class="middleware-clone" disabled={disabled} aria-label={`Clone transform ${index + 1}`} title="Clone transform with its Include / Exclude" onClick={onClone}>
           <span class="ui-icon copy-icon" aria-hidden="true" /><span>Clone</span>
         </Button>
-        <Button shape="icon" disabled={disabled} aria-label={`Delete transform ${index + 1}`} title="Delete transform" onClick={onDelete}><TrashIcon /></Button>
+        <Button variant="plain" shape="icon" disabled={disabled} aria-label={`Delete transform ${index + 1}`} title="Delete transform" onClick={onDelete}><TrashIcon /></Button>
       </div>
     </div>
     {expanded && <div class="middleware-strip-body" id={`${id}-settings`}>
@@ -184,7 +184,7 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
         </label>}
       </>}
       <div class="middleware-preview">
-        <Button class="middleware-preview-toggle" aria-label={`Preview transform ${index + 1}`}
+        <Button variant="plain" class="middleware-preview-toggle" aria-label={`Preview transform ${index + 1}`}
           aria-expanded={preview} aria-controls={`${id}-preview`} onClick={() => setPreview(!preview)}>
           <span class={`middleware-chevron ${preview ? "open" : ""}`} aria-hidden="true" />Preview
           <span class="middleware-preview-hint">Before / after this step</span>

@@ -166,7 +166,7 @@ export function ColumnMappingsEditor({
           {someRowsSelected && (
             <div class="bulk-selection-toolbar" role="status">
               <span>{selectedRows.size} selected</span>
-              <Button
+              <Button variant="plain"
                 class="bulk-delete"
                 aria-label={`Delete ${selectedRows.size} selected ${selectedRows.size === 1 ? "column" : "columns"}`}
                 title="Delete selected columns"
@@ -178,7 +178,7 @@ export function ColumnMappingsEditor({
             </div>
           )}
           {systemColumns && (
-            <Button
+            <Button variant="plain"
               class="inline-disclosure"
               aria-expanded={systemColumnsOpen}
               disabled={disabled}
@@ -299,7 +299,7 @@ export function ColumnMappingsEditor({
                     }}
                   >
                     <td class="drag-column">
-                      <Button
+                      <Button variant="plain"
                         class="drag-handle"
                         draggable={!disabled}
                         disabled={disabled}

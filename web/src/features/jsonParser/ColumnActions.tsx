@@ -69,28 +69,28 @@ export function ColumnActions({
           })}
         >
           {hasSettings && (
-            <Button role="menuitem" onClick={() => run(onSettings)}>
+            <Button variant="plain" role="menuitem" onClick={() => run(onSettings)}>
               Column settings{settingsExpanded ? " ✓" : ""}
             </Button>
           )}
-          <Button
+          <Button variant="plain"
             role="menuitem"
             disabled={onMoveUp === undefined}
             onClick={() => onMoveUp && run(onMoveUp)}
           >
             Move up
           </Button>
-          <Button
+          <Button variant="plain"
             role="menuitem"
             disabled={onMoveDown === undefined}
             onClick={() => onMoveDown && run(onMoveDown)}
           >
             Move down
           </Button>
-          <Button role="menuitem" onClick={() => run(onDuplicate)}>
+          <Button variant="plain" role="menuitem" onClick={() => run(onDuplicate)}>
             Duplicate
           </Button>
-          <Button class="danger" role="menuitem" onClick={() => run(onDelete)}>
+          <Button variant="plain" class="danger" role="menuitem" onClick={() => run(onDelete)}>
             Delete
           </Button>
         </div>

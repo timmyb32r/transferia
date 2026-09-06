@@ -90,7 +90,7 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
           event.currentTarget.blur();
         }
       }} />
-    <Button shape="icon" class="regex-toggle" aria-label={label.includes(" rule") ? label.toLowerCase().replace(" rule", " regex rule") : `${label} regex`}
+    <Button variant="plain" shape="icon" class="regex-toggle" aria-label={label.includes(" rule") ? label.toLowerCase().replace(" rule", " regex rule") : `${label} regex`}
       aria-pressed={mode === "regex"} title={mode === "regex" ? REGEX_HELP : GLOB_HELP}
       disabled={disabled} onClick={() => onModeChange(mode === "regex" ? "glob" : "regex")}>.*</Button>
     {open && <div class="select-menu select-menu-floating table-suggestions"
@@ -100,7 +100,7 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
           : suggestions.length === 0 ? <div class="select-empty">No matching tables</div>
           : suggestions.map((table, index) => {
             const name = qualifiedName(table);
-            return <Button id={`${id}-suggestion-${index}`} key={name} role="option" aria-selected={index === active}
+            return <Button variant="plain" id={`${id}-suggestion-${index}`} key={name} role="option" aria-selected={index === active}
               tabIndex={-1} class="select-option" onPointerDown={event => event.preventDefault()}
               onClick={() => choose(table)}>
               {prefix && name.startsWith(prefix) ? <><strong>{name.slice(0, prefix.length)}</strong>{name.slice(prefix.length)}</> : name}

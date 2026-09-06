@@ -147,7 +147,7 @@ export function MessagePreviewDialog({
                 })),
                 { key: "parsed", label: "Schema" },
               ].map((tab) => (
-                <Button
+                <Button variant="plain"
                   key={tab.key}
                   type="button"
                   role="tab"

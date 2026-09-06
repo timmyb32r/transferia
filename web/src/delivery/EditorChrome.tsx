@@ -184,7 +184,7 @@ function TransportControls({
   onStop: (runId: string) => void;
 }) {
   const deactivate = (
-    <Button
+    <Button variant="plain"
       class="transport-action deactivate-action"
       aria-label="Deactivate"
       disabled={blocked || !active || runId === undefined}
@@ -196,7 +196,7 @@ function TransportControls({
     </Button>
   );
   const toggle = active ? (
-    <Button
+    <Button variant="plain"
       class="transport-action run-toggle-action pause-action"
       aria-label="Pause"
       disabled={blocked || runId === undefined}
@@ -240,7 +240,7 @@ function ActivationButton({
   onClick: () => void;
 }) {
   const button = (
-    <Button
+    <Button variant="plain"
       class={`transport-action run-toggle-action activate-action${diagnostic ? " diagnostic-disabled" : ""}`}
       aria-label="Activate"
       aria-disabled={!ready || pending}
@@ -303,7 +303,7 @@ export function DeliverySidebar({
       </Button>
       <nav class="delivery-list">
         {deliveries.map((delivery) => (
-          <Button
+          <Button variant="plain"
             class={
               delivery.id === selectedId
                 ? "delivery-item active"
@@ -331,7 +331,7 @@ export function DeliverySidebar({
         }
       >
         <Button
-          variant={dataWidgetAvailable ? "primary" : "default"}
+          variant={dataWidgetAvailable ? "primary" : "plain"}
           class={
             dataWidgetAvailable
               ? "sidebar-tool-button data-widget-ready"
@@ -404,7 +404,7 @@ export function EditorTabs({
         role="tablist"
         aria-label="Configuration view"
       >
-        <Button
+        <Button variant="plain"
           role="tab"
           aria-selected={active === "ui"}
           class={active === "ui" ? "active" : ""}
@@ -413,7 +413,7 @@ export function EditorTabs({
         >
           UI
         </Button>
-        <Button
+        <Button variant="plain"
           role="tab"
           aria-selected={active === "yaml"}
           class={active === "yaml" ? "active" : ""}
@@ -431,7 +431,7 @@ export function EditorTabs({
                 "Data schema becomes available after discovery has produced a table")
           }
         >
-          <Button
+          <Button variant="plain"
             role="tab"
             aria-selected={active === "data_schema"}
             aria-disabled={!dataSchemaAvailable}
@@ -460,7 +460,7 @@ export function EditorTabs({
                 "Complete the required source and destination fields")
           }
         >
-          <Button
+          <Button variant="plain"
             role="tab"
             aria-selected={active === "speedtest"}
             aria-disabled={!speedtestAvailable}
@@ -484,7 +484,7 @@ export function EditorTabs({
           class="editor-tab-tooltip performance-advice-tab-tooltip"
           content={performanceAdviceTooltip}
         >
-          <Button
+          <Button variant="plain"
             role="tab"
             aria-label={performanceAdviceLabel}
             aria-selected={active === "performance_advice"}
@@ -508,7 +508,7 @@ export function EditorTabs({
             </span>
           </Button>
         </InstantTooltip>
-        <Button
+        <Button variant="plain"
           role="tab"
           aria-selected={active === "logs"}
           class={active === "logs" ? "active" : ""}

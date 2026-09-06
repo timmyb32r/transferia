@@ -36,7 +36,7 @@ export function MatchedTablesDisclosure({ id, label, regionLabel = label, toggle
     <div class={headerClass} aria-live={headerClass === "table-rule-result" ? "polite" : undefined}
       aria-atomic={headerClass === "table-rule-result" ? "true" : undefined}>
       {before}
-      <Button class="matched-toggle" aria-label={toggleLabel}
+      <Button variant="plain" class="matched-toggle" aria-label={toggleLabel}
         aria-expanded={open} aria-controls={id} disabled={!tables}
         onClick={() => { setSize({ full: false, height: "" }); onToggle(); }}>
         <span class="table-matches-chevron" aria-hidden="true" />

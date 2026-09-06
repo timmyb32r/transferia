@@ -16,6 +16,23 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("shares high-contrast secondary action colors without recoloring disabled controls or resizing buttons", () => {
+    const theme = ':root[data-design="airy-v0"][data-theme="light"]';
+    const tokens = styles.split(`${theme} {`)[1]?.split("}")[0];
+    for (const token of ["--secondary-action-surface: var(--control);", "--secondary-action-text: color-mix(in srgb, var(--blue-hover) 90%, var(--text-primary));",
+      "--secondary-action-border: var(--blue);", "--secondary-action-hover: var(--surface-selected);"]) {
+      expect(tokens).toContain(token);
+    }
+    const selector = `${theme} .secondary-button:where(:not(:disabled, .diagnostic-disabled))`;
+    const idle = styles.split(`${selector} {`)[1]?.split("}")[0];
+    const hover = styles.split(`${selector}:hover {`)[1]?.split("}")[0];
+    expect(idle).toContain("color: var(--secondary-action-text);");
+    expect(idle).toContain("background: var(--secondary-action-surface);");
+    expect(idle).toContain("border-color: var(--secondary-action-border);");
+    expect(hover).toContain("background: var(--secondary-action-hover);");
+    expect(`${idle}${hover}`).not.toMatch(/(?:width|height|padding|margin|transform|border-width|font-size)\s*:/);
+    expect(styles).not.toMatch(/data-theme="dark"[^{}]*\.secondary-button/);
+  });
   it("keeps transform strip controls fixed while preview status and result change", () => {
     const output = styles.split(".transform-preview-output {")[1]?.split("}")[0];
     expect(output).toContain("height: 240px;");

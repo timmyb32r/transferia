@@ -231,7 +231,7 @@ export function SpeedtestWorkspace({
         role="tablist"
         aria-label="Speedtest mode"
       >
-        <Button
+        <Button variant="plain"
           role="tab"
           aria-selected={activeTab === "estimate"}
           class={activeTab === "estimate" ? "active" : ""}
@@ -240,7 +240,7 @@ export function SpeedtestWorkspace({
         >
           Estimate maximum performance
         </Button>
-        <Button
+        <Button variant="plain"
           role="tab"
           aria-selected={activeTab === "tune"}
           class={activeTab === "tune" ? "active" : ""}
@@ -309,7 +309,7 @@ export function SpeedtestWorkspace({
               role="radiogroup"
               aria-label="Tuning budget"
             >
-              <Button
+              <Button variant="plain"
                 role="radio"
                 aria-checked={budgetType === "automatic"}
                 class={budgetType === "automatic" ? "active" : ""}
@@ -318,7 +318,7 @@ export function SpeedtestWorkspace({
               >
                 Automatic
               </Button>
-              <Button
+              <Button variant="plain"
                 role="radio"
                 aria-checked={budgetType === "time"}
                 class={budgetType === "time" ? "active" : ""}

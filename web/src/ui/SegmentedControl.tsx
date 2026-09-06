@@ -5,7 +5,7 @@ export function SegmentedControl<T extends string>({ label, value, options, disa
   disabled?: boolean; onChange: (value: T) => void;
 }) {
   return <div class="segmented-control" role="radiogroup" aria-label={label}>
-    {options.map((option, index) => <Button role="radio" aria-checked={value === option.value}
+    {options.map((option, index) => <Button variant="plain" role="radio" aria-checked={value === option.value}
       disabled={disabled} tabIndex={value === option.value ? 0 : -1}
       onClick={() => onChange(option.value)} onKeyDown={event => {
         const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1

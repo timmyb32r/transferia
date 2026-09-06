@@ -108,7 +108,7 @@ export function CompactArrayEditor({
                     </td>
                   )}
                   <td class="actions-column">
-                    <Button
+                    <Button variant="plain"
                       shape="row"
                       class="danger"
                       title={`Remove ${singular}`}

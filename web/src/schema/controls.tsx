@@ -78,7 +78,7 @@ export function PasswordInput({
         disabled={disabled}
         onInput={(event) => onChange(event.currentTarget.value)}
       />
-      <Button
+      <Button variant="plain"
         class="password-reveal"
         aria-label={visible ? "Hide secret" : "Show secret"}
         aria-pressed={visible}

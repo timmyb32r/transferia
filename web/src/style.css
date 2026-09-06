@@ -620,6 +620,10 @@
   --text-hover: #111827;
   --blue: #0d9488;
   --blue-hover: #0f7f76;
+  --secondary-action-surface: var(--control);
+  --secondary-action-text: color-mix(in srgb, var(--blue-hover) 90%, var(--text-primary));
+  --secondary-action-border: var(--blue);
+  --secondary-action-hover: var(--surface-selected);
   --red: #dc5d68;
   --text-primary: #0b1220;
   --text-secondary: #202938;
@@ -1480,6 +1484,7 @@ button.diagnostic-disabled {
   color: var(--red);
 }
 .column-editor.required-missing .add-row-button {
+  --secondary-action-border: var(--red);
   border-color: var(--red);
   box-shadow: inset 0 0 0 1px var(--red);
 }
@@ -2059,6 +2064,16 @@ button::after {
 .primary:hover:not(:disabled) {
   background: var(--blue-hover);
   border-color: var(--blue-hover);
+}
+/* Action appearance is independent of button size and of neutral controls
+   (tabs, selectors and disclosures use the plain Button variant). */
+:root[data-design="airy-v0"][data-theme="light"] .secondary-button:where(:not(:disabled, .diagnostic-disabled)) {
+  color: var(--secondary-action-text);
+  background: var(--secondary-action-surface);
+  border-color: var(--secondary-action-border);
+}
+:root[data-design="airy-v0"][data-theme="light"] .secondary-button:where(:not(:disabled, .diagnostic-disabled)):hover {
+  background: var(--secondary-action-hover);
 }
 .transport-controls {
   display: grid;

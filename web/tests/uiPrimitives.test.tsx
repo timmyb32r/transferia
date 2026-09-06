@@ -12,6 +12,22 @@ import { MultiSelectControl, SelectControl } from "../src/ui/SelectControl";
 afterEach(cleanup);
 
 describe("UI primitives", () => {
+  it("defaults every action shape to secondary and keeps semantic variants separate", () => {
+    const view = render(<>
+      <Button>Add transform</Button>
+      <Button shape="icon">+</Button>
+      <Button shape="add-row">Add column</Button>
+      <Button variant="plain">Matched tables</Button>
+      <Button variant="primary">Check connection</Button>
+      <Button variant="danger">Delete</Button>
+    </>);
+    for (const name of ["Add transform", "+", "Add column"]) {
+      expect(view.getByRole("button", { name }).classList.contains("secondary-button")).toBe(true);
+    }
+    for (const name of ["Matched tables", "Check connection", "Delete"]) {
+      expect(view.getByRole("button", { name }).classList.contains("secondary-button")).toBe(false);
+    }
+  });
   it("uses only the native visual tooltip and retains an accessible description", () => {
     const view = render(<InstantTooltip content="Discovery failed"><button>Scan</button></InstantTooltip>);
     const host = view.getByTitle("Discovery failed");

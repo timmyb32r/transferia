@@ -314,7 +314,7 @@ export function CompatibilityMatrixLauncher({
 
   return (
     <>
-      <Button
+      <Button variant="plain"
         class="sidebar-tool-button compatibility-launcher"
         onClick={() => setOpen(true)}
       >
@@ -532,21 +532,21 @@ export function CompatibilityMatrixDialog({
           role="tablist"
           aria-label="Catalog view"
         >
-          <Button
+          <Button variant="plain"
             role="tab"
             aria-selected={activeTab === "matrix"}
             onClick={() => setActiveTab("matrix")}
           >
             Matrix
           </Button>
-          <Button
+          <Button variant="plain"
             role="tab"
             aria-selected={activeTab === "entities"}
             onClick={() => setActiveTab("entities")}
           >
             Entities
           </Button>
-          <Button
+          <Button variant="plain"
             role="tab"
             aria-selected={activeTab === "properties"}
             onClick={() => setActiveTab("properties")}
@@ -708,7 +708,7 @@ export function CompatibilityMatrixDialog({
               <section aria-label="Delivery type">
                 <h3>Delivery type</h3>
                 {deliveryTypeProperties.map((group) => (
-                  <Button
+                  <Button variant="plain"
                     key={group.key}
                     aria-pressed={selectedProperty?.key === group.key}
                     onClick={() => setActiveProperty(group.key)}
@@ -720,7 +720,7 @@ export function CompatibilityMatrixDialog({
               <section aria-label="Other properties">
                 <h3>Other properties</h3>
                 {otherProperties.map((group) => (
-                  <Button
+                  <Button variant="plain"
                     key={group.key}
                     aria-pressed={selectedProperty?.key === group.key}
                     onClick={() => setActiveProperty(group.key)}

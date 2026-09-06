@@ -134,7 +134,7 @@ export function TransformPreview({ entries, index, source }: {
         onClick={() => { void run(); }}>Run preview</Button>
     </div>
     <div class="transform-preview-limits">
-      <Button class="middleware-preview-toggle" aria-expanded={limitsOpen} aria-controls={`${id}-limits`}
+      <Button variant="plain" class="middleware-preview-toggle" aria-expanded={limitsOpen} aria-controls={`${id}-limits`}
         title="Preview only. Exceeding a limit fails preview; values are never silently truncated. SQL memory limits tracked engine allocations and retained results, not total process memory. Timeout cancels asynchronous work; it is not CPU isolation. Table samples do not contain generated transport or CDC metadata."
         onClick={() => setLimitsOpen(!limitsOpen)}>
         <span class={`middleware-chevron ${limitsOpen ? "open" : ""}`} aria-hidden="true" />Preview limits
@@ -150,7 +150,7 @@ export function TransformPreview({ entries, index, source }: {
       {running ? "Reading source rows and applying preceding transforms…" : loadingTables ? "Loading source tables…" : feedback?.text ?? note}
     </p>
     <div class="transform-preview-tabs editor-view-tabs" role="tablist" aria-label="Transform preview view">
-      {(["before", "after"] as const).map(value => <Button key={value} role="tab" id={`${id}-${value}`}
+      {(["before", "after"] as const).map(value => <Button variant="plain" key={value} role="tab" id={`${id}-${value}`}
         aria-selected={tab === value} aria-controls={`${id}-data`} tabIndex={tab === value ? 0 : -1}
         class={tab === value ? "active" : ""} onClick={() => setTab(value)}
         onKeyDown={event => {

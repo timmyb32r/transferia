@@ -103,7 +103,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
       return <section class="table-rule-row" key={`${selection.type}-${index}`} aria-label={`Table rule ${index + 1}`}>
         <div class="table-rule-patterns">
           {field("include")}{field("exclude")}
-          <Button shape="icon" aria-label={`Remove rule ${index + 1}`} title="Remove rule" disabled={disabled || !catalog}
+          <Button variant="plain" shape="icon" aria-label={`Remove rule ${index + 1}`} title="Remove rule" disabled={disabled || !catalog}
             onClick={() => { if (selection.type === "selected") { setExpanded(false); setExpandedRules([]); change({ ...selection, rules: selection.rules.filter((_, i) => i !== index) }); } }}>
             <TrashIcon />
           </Button>

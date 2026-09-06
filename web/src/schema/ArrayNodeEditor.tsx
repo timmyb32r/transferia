@@ -38,7 +38,7 @@ export function ArrayNodeEditor({
               }}
             />
           </div>
-          <Button
+          <Button variant="plain"
             shape="icon"
             class="danger"
             title="Remove"

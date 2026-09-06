@@ -141,7 +141,7 @@ export function AppearanceSettings({
         </div>
       )}
 
-      <Button
+      <Button variant="plain"
         class="settings-toggle"
         aria-expanded={open}
         aria-controls="appearance-settings-panel"

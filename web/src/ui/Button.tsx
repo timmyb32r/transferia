@@ -1,6 +1,6 @@
 import type { ComponentChildren, JSX, Ref } from "preact";
 
-type ButtonVariant = "default" | "primary" | "danger";
+type ButtonVariant = "secondary" | "primary" | "danger" | "plain";
 type ButtonShape = "default" | "icon" | "row" | "add-row";
 
 export interface ButtonProps extends Omit<
@@ -16,9 +16,10 @@ export interface ButtonProps extends Omit<
 }
 
 const VARIANT_CLASS: Record<ButtonVariant, string> = {
-  default: "",
+  secondary: "secondary-button",
   primary: "primary",
   danger: "danger-button",
+  plain: "",
 };
 
 const SHAPE_CLASS: Record<ButtonShape, string> = {
@@ -31,7 +32,7 @@ const SHAPE_CLASS: Record<ButtonShape, string> = {
 export function Button({
   children,
   class: className,
-  variant = "default",
+  variant = "secondary",
   shape = "default",
   type = "button",
   buttonRef,

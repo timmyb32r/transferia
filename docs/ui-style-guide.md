@@ -33,7 +33,7 @@ Each open matching list uses **A — a text action above the list**: `Show all`
 fits the current results without internal scrolling; `Restore height` returns
 to the compact viewport. Center the visible CSS arrow icon and label as one
 pair, reserving the wider pair's width so the button stays in place. Use a
-compact outlined secondary button with a transparent surface and neutral hover;
+compact outlined secondary button using the shared action colors below;
 never reserve scrollbar gutters inside the action. Use one native delayed title
 tooltip. Do not expose a drag-to-resize
 corner or a double-click-only action. Fit height is measured on activation and
@@ -61,6 +61,20 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
 
 ## Component rules
 
+- Secondary actions in every form use a **white surface, teal text/icons and a
+  visible teal outline** in airy-light. Hover adds the existing soft teal tint;
+  press and focus keep their immediate shared feedback without changing geometry.
+  `Button` defaults to `variant="secondary"`; standard, icon, add-row and compact
+  actions (including Add transform, Preview, Copy, Available tables and Show all)
+  share `--secondary-action-*` tokens. Small labels use a slightly darkened
+  `--blue-hover` for readable contrast on both white and hover surfaces.
+  Do not add feature-local action palettes.
+- Use `variant="plain"` for tabs, selectors, navigation, drag handles and
+  disclosures such as Matched tables. These are not secondary form actions and
+  keep their existing neutral/selected treatments. Primary, danger and transport
+  actions retain their semantic styling. Disabled controls remain gray, without
+  enabled hover/press feedback; pending actions retain their label, dimensions and
+  spinner. This action palette does not recolor classic or dark themes.
 - Database-source connection checks use **A — required form item**: a neutral
   `Required` badge, a stable status beside the button, and a bordered group for
   dependent table fields. Before verification show `Not checked` and a small

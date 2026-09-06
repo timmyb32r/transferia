@@ -293,7 +293,7 @@ export function DataSchemaInspector({
               onChange={setSelectedTable}
             />
             <div class="schema-inspector-type-tabs" role="tablist" aria-label="Column type view">
-              <Button
+              <Button variant="plain"
                 role="tab"
                 aria-selected={typeView === "arrow"}
                 class={typeView === "arrow" ? "active" : undefined}
@@ -301,7 +301,7 @@ export function DataSchemaInspector({
               >
                 Arrow types
               </Button>
-              <Button
+              <Button variant="plain"
                 role="tab"
                 aria-selected={typeView === "destination"}
                 class={typeView === "destination" ? "active" : undefined}
