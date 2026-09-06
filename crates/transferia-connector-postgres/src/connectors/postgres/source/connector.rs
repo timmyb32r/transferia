@@ -3,6 +3,7 @@ use std::io::Cursor;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use anyhow::Context as _;
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
@@ -317,7 +318,7 @@ impl PostgresSourceConnector {
                     // Validation discovers metadata only. Readers create the shared
                     // snapshot at execution time and revalidate the schema in it.
                     let client = connect(&self.config.connection).await?;
-                    discover_tables(&client, self.resolved_tables().await?)
+                    discover_validation_tables(&client, self.resolved_tables().await?)
                         .await
                         .map(Arc::new)
                 } else {
@@ -693,13 +694,36 @@ pub(super) fn require_replication_replay_identity(
     Ok(replay_identity)
 }
 
+pub(super) async fn discover_validation_tables(
+    client: &tokio_postgres::Client,
+    configured: &[TableConfig],
+) -> anyhow::Result<Vec<DiscoveredTable>> {
+    // Keep Parse/Describe/Bind on one backend through transaction poolers.
+    // This metadata-only transaction never exports or retains a snapshot.
+    client
+        .batch_execute("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .await?;
+    let result = discover_tables(client, configured).await;
+    let rollback = client.batch_execute("ROLLBACK").await;
+    let tables = result?;
+    rollback?;
+    Ok(tables)
+}
+
 async fn discover_tables(
     client: &tokio_postgres::Client,
     configured: &[TableConfig],
 ) -> anyhow::Result<Vec<DiscoveredTable>> {
     let mut tables = Vec::with_capacity(configured.len());
     for table in configured {
-        tables.push(discover_table(client, table.clone()).await?);
+        tables.push(discover_table(client, table.clone()).await.map_err(|error| {
+            let diagnostic = error.chain()
+                .find_map(|cause| cause.downcast_ref::<tokio_postgres::Error>())
+                .and_then(tokio_postgres::Error::as_db_error)
+                .map(|database| format!("{} (SQLSTATE {})", database.message(), database.code().code()))
+                .unwrap_or_else(|| format!("{error:#}"));
+            anyhow::anyhow!("PostgreSQL table '{}.{}' schema discovery failed: {diagnostic}", table.schema, table.name)
+        })?);
     }
     Ok(tables)
 }
@@ -1283,9 +1307,9 @@ pub async fn discover_table(
         quote_identifier(&table.schema),
         quote_identifier(&table.name)
     );
-    let statement = client.prepare(&query).await.map_err(|error| {
-        anyhow::anyhow!(
-            "cannot inspect PostgreSQL table '{}.{}': {error}",
+    let statement = client.prepare(&query).await.with_context(|| {
+        format!(
+            "cannot inspect PostgreSQL table '{}.{}'",
             table.schema,
             table.name
         )

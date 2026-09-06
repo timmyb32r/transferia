@@ -1,5 +1,62 @@
 use std::sync::Arc;
 
+#[tokio::test]
+async fn validation_pins_pooler_backend_and_preserves_database_error() {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    fn message(tag: u8, body: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![tag];
+        bytes.extend_from_slice(&((body.len() + 4) as u32).to_be_bytes());
+        bytes.extend_from_slice(body);
+        bytes
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let size = socket.read_u32().await.unwrap();
+        let mut startup = vec![0; size as usize - 4];
+        socket.read_exact(&mut startup).await.unwrap();
+        socket.write_all(&[message(b'R', &0_u32.to_be_bytes()), message(b'Z', b"I")].concat()).await.unwrap();
+        let mut began = false;
+        loop {
+            let tag = socket.read_u8().await.unwrap();
+            let size = socket.read_u32().await.unwrap();
+            let mut body = vec![0; size as usize - 4];
+            socket.read_exact(&mut body).await.unwrap();
+            if tag == b'Q' {
+                let sql = std::str::from_utf8(&body).unwrap();
+                if !began {
+                    assert!(sql.starts_with("BEGIN TRANSACTION"));
+                    assert!(sql.contains("READ ONLY"));
+                    began = true;
+                    socket.write_all(&[message(b'C', b"BEGIN\0"), message(b'Z', b"T")].concat()).await.unwrap();
+                } else {
+                    assert_eq!(sql, "ROLLBACK\0");
+                    socket.write_all(&[message(b'C', b"ROLLBACK\0"), message(b'Z', b"I")].concat()).await.unwrap();
+                    break;
+                }
+            } else if tag == b'P' {
+                assert!(began, "metadata must not prepare outside a transaction");
+                socket.write_all(&message(b'E', b"SERROR\0C42501\0Mpermission denied for table private_table\0Dprivate details\0\0")).await.unwrap();
+            } else if tag == b'S' {
+                socket.write_all(&message(b'Z', b"E")).await.unwrap();
+            }
+        }
+    });
+    let (client, connection) = tokio_postgres::connect(
+        &format!("host={} port={} user=reader sslmode=disable", address.ip(), address.port()),
+        tokio_postgres::NoTls,
+    ).await.unwrap();
+    tokio::spawn(async move { drop(connection.await); });
+    let error = super::connector::discover_validation_tables(&client, &[TableConfig {
+        schema: "public".into(), name: "private_table".into(),
+    }]).await.err().expect("discovery must report the database failure").to_string();
+    server.await.unwrap();
+    assert!(error.contains("public.private_table"));
+    assert!(error.contains("permission denied for table private_table (SQLSTATE 42501)"));
+    assert!(!error.contains("private details"));
+}
+
 use arrow::datatypes::DataType;
 
 use super::config::PostgresSourceConfig;
