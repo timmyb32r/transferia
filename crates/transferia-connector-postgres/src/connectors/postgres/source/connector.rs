@@ -917,15 +917,19 @@ impl transferia_registry::SourceMetadataReader for PostgresMetadataReader {
         !hide || (table.namespace != "information_schema" && !table.namespace.starts_with("pg_"))
     }
 
-    fn load_table(&self, table: transferia_registry::TableIdentity, cancellation: tokio_util::sync::CancellationToken)
-        -> BoxFuture<'_, anyhow::Result<()>> {
+    fn load_tables(&self, tables: Vec<transferia_registry::TableIdentity>, cancellation: tokio_util::sync::CancellationToken)
+        -> BoxFuture<'_, anyhow::Result<std::collections::BTreeMap<transferia_registry::TableIdentity, Result<(), String>>>> {
         Box::pin(async move {
             let mut state = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata loading cancelled"),
                 state = self.state.lock() => state,
             };
-            if state.tables.contains_key(&table) { return Ok(()); }
+            let mut results = std::collections::BTreeMap::new();
+            let missing = tables.into_iter().filter(|table| {
+                if state.tables.contains_key(table) { results.insert(table.clone(), Ok(())); false } else { true }
+            }).collect::<Vec<_>>();
+            if missing.is_empty() { return Ok(results); }
             // A cancelled query drops its connection, never leaves an open
             // metadata transaction to contaminate the next request.
             let client = match state.client.take().filter(|client| !client.is_closed()) {
@@ -935,21 +939,24 @@ impl transferia_registry::SourceMetadataReader for PostgresMetadataReader {
                     result = observe_external_request("postgres", "connect_metadata", super::super::common::connect_sample(&self.config.connection)) => result?,
                 },
             };
-            let configured = [TableConfig { schema: table.namespace.clone(), name: table.name.clone() }];
             let result = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata loading cancelled"),
-                result = observe_external_request("postgres", "load_table_metadata",
-                    discover_validation_tables(&client, &configured, self.config.unsupported_types)) => result,
+                result = super::metadata::discover_tables(&client, &missing, self.config.unsupported_types) => result,
             };
-            let mut tables = result?;
+            let tables = result?;
             state.client = Some(client);
-            if self.delivery_type != DeliveryType::Batch {
-                validate_replication_table_identities(&tables)?;
+            for (table, discovered) in tables {
+                let discovered = discovered.and_then(|discovered| {
+                    if self.delivery_type != DeliveryType::Batch {
+                        validate_replication_table_identities(std::slice::from_ref(&discovered))?;
+                    }
+                    Ok(discovered)
+                });
+                results.insert(table.clone(), discovered.map(|discovered| { state.tables.insert(table, discovered); })
+                    .map_err(|error| format!("{error:#}")));
             }
-            let discovered = tables.pop().ok_or_else(|| anyhow::anyhow!("PostgreSQL returned no table metadata"))?;
-            state.tables.insert(table, discovered);
-            Ok(())
+            Ok(results)
         })
     }
 
@@ -1515,6 +1522,14 @@ pub async fn discover_table(
             Ok(row.get::<_, u32>(1))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
+    assemble_metadata_table(table, columns, type_oids, replica_identity, relation_oid)
+}
+
+pub(super) fn assemble_metadata_table(table: TableConfig, columns: Vec<SchemaColumn>, type_oids: Vec<u32>,
+    replica_identity: String, relation_oid: u32) -> anyhow::Result<DiscoveredTable> {
+    anyhow::ensure!(!columns.is_empty() && columns.len() == type_oids.len(), "PostgreSQL table '{}.{}' has incomplete column metadata", table.schema, table.name);
+    anyhow::ensure!(matches!(replica_identity.as_str(), "d" | "n" | "f" | "i"),
+        "PostgreSQL table '{}.{}' returned unsupported replica identity '{}'", table.schema, table.name, replica_identity);
     for index in 0..columns.len() {
         for reserved in [old_value_column_name(index), old_key_column_name(index)] {
             anyhow::ensure!(

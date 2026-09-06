@@ -1,5 +1,6 @@
 mod config;
 mod connector;
+mod metadata;
 
 pub use config::PostgresSourceConfig;
 pub use config::UnsupportedTypePolicy;

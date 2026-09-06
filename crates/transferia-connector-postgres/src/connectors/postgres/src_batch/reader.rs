@@ -182,7 +182,7 @@ pub(crate) fn source_select_projection(columns: &[Column], policy: crate::connec
         .map(|columns| columns.join(", "))
 }
 
-pub(super) fn source_column_expression(
+pub(crate) fn source_column_expression(
     name: &str,
     data_type: &tokio_postgres::types::Type,
     policy: crate::connectors::postgres::source::UnsupportedTypePolicy,

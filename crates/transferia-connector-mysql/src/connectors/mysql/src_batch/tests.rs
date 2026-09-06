@@ -1,6 +1,24 @@
 use std::mem::size_of;
 
 #[test]
+fn metadata_batch_uses_one_parameterized_catalog_join_for_one_hundred_tables() {
+    let query = super::metadata::catalog_query(100, true);
+    assert_eq!(query.matches('?').count(), 200);
+    assert_eq!(query.matches("information_schema.COLUMNS AS c").count(), 1);
+    assert_eq!(query.matches("information_schema.TABLES AS t").count(), 1);
+    assert!(query.contains("SELECT 99 AS request_index"));
+    assert!(query.contains("ORDER BY r.request_index, c.ORDINAL_POSITION"));
+    for metadata in ["c.COLUMN_TYPE", "c.GENERATION_EXPRESSION", "c.NUMERIC_PRECISION", "c.NUMERIC_SCALE",
+        "c.CHARACTER_OCTET_LENGTH", "c.SRS_ID AS SRS_ID", "col.PAD_ATTRIBUTE AS COLLATION_PADDING", "s.SEQ_IN_INDEX", "s.SUB_PART"] {
+        assert!(query.contains(metadata), "lost native metadata {metadata}");
+    }
+    let maria = super::metadata::catalog_query(2, false);
+    assert!(maria.contains("NULL AS COLLATION_PADDING"));
+    assert!(maria.contains("NULL AS SRS_ID"));
+    assert!(!maria.contains("c.SRS_ID"));
+}
+
+#[test]
 fn table_sample_select_quotes_identifiers_and_limits_rows_in_database() {
     let table = transferia_registry::TableIdentity { namespace: "some`database".into(), name: "events`; DROP TABLE x; --".into() };
     assert_eq!(super::sample::sample_query(&table, "`id`", 7).unwrap(),

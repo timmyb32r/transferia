@@ -109,6 +109,13 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   the selected table's current schema against the cache before reading rows;
   drift is an explicit error, never an automatic cache replacement. Actual
   delivery startup always discovers fresh schemas independently of this cache.
+- Metadata catalog reads use batches of up to 100 uncached tables, shared by
+  preload, Load schemas and Validate. Progress advances as each batch completes;
+  overlapping requests reuse its results. MySQL uses one joined catalog query;
+  PostgreSQL uses one catalog query and one combined projection preflight.
+  ClickHouse batches columns and keys but retains per-table projection checks.
+  Decoder errors are table-local; a failed batch SQL request is reported for all
+  tables in that request, never hidden by dropping a table or switching readers.
 - Keep the page white and the three delivery islands slate gray, with white
   fields. Parser details continue the source island rather than introducing a
   fourth palette. Use consistent borders across these connected surfaces.

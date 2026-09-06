@@ -7,6 +7,7 @@ use transferia_core::delivery::{DatasetRole, UpdatePolicy};
 struct Reader {
     loads: AtomicUsize,
     assemblies: AtomicUsize,
+    batches: std::sync::Mutex<Vec<Vec<TableIdentity>>>,
 }
 
 impl SourceMetadataReader for Reader {
@@ -14,12 +15,16 @@ impl SourceMetadataReader for Reader {
         !hide || table.namespace != "pg_catalog"
     }
 
-    fn load_table(&self, table: TableIdentity, _: CancellationToken) -> BoxFuture<'_, anyhow::Result<()>> {
+    fn load_tables(&self, tables: Vec<TableIdentity>, _: CancellationToken)
+        -> BoxFuture<'_, anyhow::Result<BTreeMap<TableIdentity, Result<(), String>>>> {
         Box::pin(async move {
-            self.loads.fetch_add(1, Ordering::SeqCst);
+            self.loads.fetch_add(tables.len(), Ordering::SeqCst);
+            self.batches.lock().unwrap().push(tables.clone());
             tokio::task::yield_now().await;
-            anyhow::ensure!(table.name != "bad", "unsupported column in bad");
-            Ok(())
+            Ok(tables.into_iter().map(|table| {
+                let result = if table.name == "bad" { Err("unsupported column in bad".into()) } else { Ok(()) };
+                (table, result)
+            }).collect())
         })
     }
 
@@ -56,6 +61,7 @@ fn session(id: &str, catalog: Vec<TableIdentity>, reader: Arc<Reader>) -> Arc<Me
         id: id.into(), connector: "postgres".into(), identity: metadata_identity(&source()),
         resolved_identity: metadata_identity(&source()), delivery_type: DeliveryType::Batch, reader,
         entries: catalog.iter().cloned().map(|table| (table, SchemaEntry::new())).collect(),
+        load_gate: Mutex::new(()),
         catalog, active_loads: AtomicUsize::new(0), cancellation: CancellationToken::new(),
         validation: Mutex::new(None), validation_gate: Arc::new(Mutex::new(())),
     })
@@ -76,15 +82,35 @@ async fn schemas_and_errors_are_loaded_once_across_concurrent_and_repeated_reque
     let session = session("cache", vec![table("good"), table("bad")], reader.clone());
     for name in ["good", "bad"] {
         let table = table(name);
-        let (first, concurrent) = tokio::join!(session.ensure_table(&table), session.ensure_table(&table));
+        let (first, concurrent) = tokio::join!(session.ensure_tables(std::slice::from_ref(&table)), session.ensure_tables(std::slice::from_ref(&table)));
         assert_eq!(first.is_ok(), name == "good");
         assert_eq!(concurrent.is_ok(), name == "good");
-        assert_eq!(session.ensure_table(&table).await.is_ok(), name == "good");
+        assert_eq!(session.ensure_tables(&[table]).await.is_ok(), name == "good");
     }
     assert_eq!(reader.loads.load(Ordering::SeqCst), 2);
     let status = session.status().await;
     assert_eq!(status.loaded, vec![table("good")]);
     assert_eq!(status.errors[0].table, table("bad"));
+}
+
+#[tokio::test]
+async fn metadata_fetches_hundreds_of_schemas_in_batches_and_keeps_individual_errors() -> anyhow::Result<()> {
+    let reader = Arc::new(Reader::default());
+    let mut catalog = (0..204).map(|index| table(&format!("table{index:03}"))).collect::<Vec<_>>();
+    catalog.push(table("bad"));
+    let session = session("cache", catalog.clone(), reader.clone());
+    let (background, foreground) = tokio::join!(session.ensure_tables(&catalog), session.ensure_tables(&catalog));
+    assert!(background.is_err());
+    assert!(foreground.is_err());
+    assert_eq!(reader.batches.lock().unwrap().iter().map(Vec::len).collect::<Vec<_>>(), vec![100, 100, 5]);
+    assert_eq!(reader.loads.load(Ordering::SeqCst), 205);
+    let status = session.status().await;
+    assert_eq!(status.loaded.len(), 204);
+    assert_eq!(status.errors.len(), 1);
+    assert_eq!(status.errors[0].table, table("bad"));
+    assert!(session.ensure_tables(&catalog).await.is_err());
+    assert_eq!(reader.batches.lock().unwrap().len(), 3);
+    Ok(())
 }
 
 #[tokio::test]
@@ -101,6 +127,8 @@ async fn prefetch_boundary_is_strict_and_individual_errors_do_not_stop_the_catal
         tasks.wait().await;
         assert_eq!(reader.loads.load(Ordering::SeqCst), if count < 1000 { count } else { 0 });
         if count < 1000 {
+            assert_eq!(reader.batches.lock().unwrap().iter().map(Vec::len).collect::<Vec<_>>(),
+                [vec![100; 9], vec![99]].concat());
             let status = session.status().await;
             assert_eq!(status.loaded.len(), count - 1);
             assert_eq!(status.errors.len(), 1);
@@ -116,7 +144,7 @@ async fn membership_filters_reuse_full_catalog_and_progress_counts_only_selected
     let session = session("cache", vec![table("good"), system.clone()], reader.clone());
     let mut selected = config();
     selected["source"]["postgres"]["hide_system_tables"] = Value::Bool(true);
-    session.ensure_table(&system).await?;
+    session.ensure_tables(&[system]).await?;
     session.begin_validation("delivery", 7, &selected).await?;
     let progress = session.status().await.validation.unwrap();
     assert_eq!((progress.checked, progress.total), (0, 1));
@@ -148,7 +176,7 @@ async fn cached_discovery_rejects_another_endpoint_or_mode_before_loading() -> a
 #[tokio::test]
 async fn release_cancels_the_whole_operation_even_after_schema_cache_hits() -> anyhow::Result<()> {
     let session = session("cache", vec![table("good")], Arc::new(Reader::default()));
-    session.ensure_table(&table("good")).await?;
+    session.ensure_tables(&[table("good")]).await?;
     let running = Arc::clone(&session);
     let started = Arc::new(tokio::sync::Notify::new());
     let waiting = Arc::clone(&started);
@@ -161,7 +189,7 @@ async fn release_cancels_the_whole_operation_even_after_schema_cache_hits() -> a
     started.notified().await;
     session.cancellation.cancel();
     assert!(operation.await?.unwrap_err().to_string().contains("released"));
-    assert!(session.ensure_table(&table("good")).await.is_err());
+    assert!(session.ensure_tables(&[table("good")]).await.is_err());
     Ok(())
 }
 
@@ -173,7 +201,7 @@ async fn discovery_is_cache_only_and_refresh_is_explicit() -> anyhow::Result<()>
     service.metadata_sessions.lock().await.insert(session.id.clone(), session.clone());
     assert!(service.cached_source_discovery("cache", &config(), CancellationToken::new()).await.is_err());
     assert_eq!(reader.loads.load(Ordering::SeqCst), 0);
-    session.ensure_table(&table("good")).await?;
+    session.ensure_tables(&[table("good")]).await?;
     for _ in 0..2 {
         service.cached_source_discovery("cache", &config(), CancellationToken::new()).await?;
     }

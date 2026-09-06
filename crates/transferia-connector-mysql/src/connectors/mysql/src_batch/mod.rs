@@ -1,5 +1,6 @@
 mod config;
 mod connector;
+mod metadata;
 mod reader;
 mod sample;
 

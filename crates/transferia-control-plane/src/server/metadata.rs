@@ -12,6 +12,8 @@ use transferia_server_contracts::api::{
 
 // This is an editor preload policy, not a delivery/table-count limit.
 const AUTOMATIC_SCHEMA_CATALOG_BOUNDARY: usize = 1000;
+// Query capacity only: larger catalogs are split, never rejected or truncated.
+const SCHEMA_BATCH_SIZE: usize = 100;
 
 type SchemaEntry = tokio::sync::OnceCell<Result<(), String>>;
 
@@ -24,6 +26,7 @@ pub(super) struct MetadataSession {
     reader: Arc<dyn SourceMetadataReader>,
     catalog: Vec<TableIdentity>,
     entries: BTreeMap<TableIdentity, SchemaEntry>,
+    load_gate: Mutex<()>,
     active_loads: AtomicUsize,
     cancellation: CancellationToken,
     validation: Mutex<Option<(MetadataValidationProgress, Vec<TableIdentity>)>>,
@@ -63,10 +66,7 @@ impl MetadataSession {
         let session = Arc::clone(self);
         tasks.spawn(async move {
             let _loading = Loading(&session.active_loads);
-            for table in &session.catalog {
-                if session.cancellation.is_cancelled() { break; }
-                drop(session.ensure_table(table).await);
-            }
+            drop(session.ensure_tables(&session.catalog).await);
         });
     }
 
@@ -90,17 +90,44 @@ impl MetadataSession {
         selection.compile()?.resolve(&visible)?.selected_tables()
     }
 
-    async fn ensure_table(&self, table: &TableIdentity) -> anyhow::Result<()> {
+    async fn ensure_tables(&self, tables: &[TableIdentity]) -> anyhow::Result<()> {
         self.ensure_active()?;
-        let entry = self.entries.get(table).ok_or_else(|| anyhow::anyhow!(
-            "Table {} is not in the authenticated catalog; refresh metadata", table.qualified_name()))?;
-        // OnceCell deduplicates background/manual/Validate requests. Failed
-        // schemas are retained too; only an explicit refresh retries them.
-        entry.get_or_init(|| async {
-            self.reader.load_table(table.clone(), self.cancellation.child_token()).await
-                .map_err(|error| format!("{error:#}"))
-        }).await.as_ref().map_err(|message| anyhow::anyhow!("{}: {message}", table.qualified_name()))?;
+        let tables = tables.iter().cloned().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+        for table in &tables {
+            anyhow::ensure!(self.entries.contains_key(table),
+                "Table {} is not in the authenticated catalog; refresh metadata", table.qualified_name());
+        }
+        let pending = tables.iter().filter(|table| self.entries[*table].get().is_none()).cloned().collect::<Vec<_>>();
+        for chunk in pending.chunks(SCHEMA_BATCH_SIZE) {
+            // Recheck cache after locking: foreground requests may overlap a
+            // prefetch. Release between batches so foreground work can interleave.
+            let _gate = self.run(&self.cancellation, async { Ok(self.load_gate.lock().await) }).await?;
+            let missing = chunk.iter().filter(|table| self.entries[*table].get().is_none()).cloned().collect::<Vec<_>>();
+            if missing.is_empty() { continue; }
+            let result = self.reader.load_tables(missing.clone(), self.cancellation.child_token()).await;
+            self.ensure_active()?;
+            let result = result.and_then(|results| {
+                anyhow::ensure!(results.len() == missing.len() && missing.iter().all(|table| results.contains_key(table)),
+                    "Source metadata batch returned different table identities");
+                Ok(results)
+            });
+            let results = match result {
+                Ok(results) => results,
+                Err(error) => {
+                    let message = format!("{error:#}");
+                    missing.into_iter().map(|table| (table, Err(message.clone()))).collect()
+                },
+            };
+            for (table, result) in results {
+                self.entries[&table].set(result).map_err(|_| anyhow::anyhow!("Metadata entry initialized twice"))?;
+            }
+        }
         self.ensure_active()?;
+        for table in &tables {
+            if let Some(Err(message)) = self.entries[table].get() {
+                anyhow::bail!("{}: {message}", table.qualified_name());
+            }
+        }
         Ok(())
     }
 
@@ -202,12 +229,7 @@ impl PreviewDiscoveryProvider for CachedDiscovery {
             anyhow::ensure!(metadata_identity(&serde_json::to_value(resolved)?) == self.session.resolved_identity,
                 "Resolved source endpoint changed; refresh metadata");
             let _loading = Loading::new(&self.session.active_loads);
-            for table in &self.selected {
-                tokio::select! {
-                    () = context.cancellation.cancelled() => anyhow::bail!("Schema validation cancelled"),
-                    result = self.session.ensure_table(table) => result?,
-                }
-            }
+            self.session.run(&context.cancellation, self.session.ensure_tables(&self.selected)).await?;
             if let Some((progress, _)) = self.session.validation.lock().await.as_mut() {
                 progress.phase = MetadataValidationPhase::Pipeline;
             }
@@ -253,6 +275,7 @@ impl ControlPlane {
             id: id.clone(), connector: request.source.connector, identity, resolved_identity,
             delivery_type: request.delivery_type, reader,
             entries: tables.iter().cloned().map(|table| (table, SchemaEntry::new())).collect(),
+            load_gate: Mutex::new(()),
             catalog: tables, active_loads: AtomicUsize::new(0), cancellation: self.shutdown.child_token(),
             validation: Mutex::new(None), validation_gate: Arc::new(Mutex::new(())),
         });
@@ -293,12 +316,8 @@ impl ControlPlane {
             }
         }
         let _loading = Loading::new(&session.active_loads);
-        for table in request.tables.into_iter().collect::<BTreeSet<_>>() {
-            tokio::select! {
-                () = cancellation.cancelled() => return Err(ServiceError::Validation("Metadata loading cancelled".to_owned())),
-                result = session.ensure_table(&table) => { result.map_err(|error| ServiceError::Validation(format!("{error:#}")))?; },
-            }
-        }
+        session.run(&cancellation, session.ensure_tables(&request.tables)).await
+            .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
         drop(_loading);
         Ok(session.status().await)
     }

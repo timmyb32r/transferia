@@ -829,15 +829,19 @@ impl transferia_registry::SourceMetadataReader for MySqlMetadataReader {
         !hide || !matches!(table.namespace.as_str(), "mysql" | "information_schema" | "performance_schema" | "sys")
     }
 
-    fn load_table(&self, table: transferia_registry::TableIdentity, cancellation: tokio_util::sync::CancellationToken)
-        -> BoxFuture<'_, anyhow::Result<()>> {
+    fn load_tables(&self, tables: Vec<transferia_registry::TableIdentity>, cancellation: tokio_util::sync::CancellationToken)
+        -> BoxFuture<'_, anyhow::Result<std::collections::BTreeMap<transferia_registry::TableIdentity, Result<(), String>>>> {
         Box::pin(async move {
             let mut state = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("MySQL metadata loading cancelled"),
                 state = self.state.lock() => state,
             };
-            if state.tables.contains_key(&table) { return Ok(()); }
+            let mut results = std::collections::BTreeMap::new();
+            let missing = tables.into_iter().filter(|table| {
+                if state.tables.contains_key(table) { results.insert(table.clone(), Ok(())); false } else { true }
+            }).collect::<Vec<_>>();
+            if missing.is_empty() { return Ok(results); }
             let mut connection = match state.connection.take().filter(|connection| !connection.is_disconnected()) {
                 Some(connection) => connection,
                 None => tokio::select! {
@@ -848,14 +852,16 @@ impl transferia_registry::SourceMetadataReader for MySqlMetadataReader {
             let result = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("MySQL metadata loading cancelled"),
-                result = discover_table(&mut connection, &table.namespace, TableConfig {
-                    database: table.namespace.clone(), name: table.name.clone(),
-                }, self.delivery_type != DeliveryType::Batch, self.config.read_protocol) => result,
+                result = super::metadata::discover_tables(&mut connection, &missing,
+                    self.delivery_type != DeliveryType::Batch, self.config.read_protocol) => result,
             };
             let discovered = result?;
             state.connection = Some(connection);
-            state.tables.insert(table, discovered);
-            Ok(())
+            for (table, discovered) in discovered {
+                results.insert(table.clone(), discovered.map(|discovered| { state.tables.insert(table, discovered); })
+                    .map_err(|error| format!("{error:#}")));
+            }
+            Ok(results)
         })
     }
 
@@ -1649,6 +1655,11 @@ pub async fn discover_table(
         ),
     )
     .await?;
+    assemble_table(database, table, engine, rows, mysql8, replication, read_protocol)
+}
+
+pub(super) fn assemble_table(database: &str, table: TableConfig, engine: String, rows: Vec<Row>,
+    mysql8: bool, replication: bool, read_protocol: MySqlReadProtocol) -> anyhow::Result<DiscoveredTable> {
     if rows.is_empty() {
         return Err(classify_discovery_contract_error(
             replication,

@@ -249,11 +249,15 @@ pub trait SourceConnector: Send + Sync {
 pub trait SourceMetadataReader: Send + Sync {
     fn includes_table(&self, table: &TableIdentity, hide_system_tables: bool) -> bool;
 
-    fn load_table(
+    /// Fetch a set of exact table identities through set-based catalog queries.
+    /// Return one result per requested identity, including individual failures.
+    /// A transport/query failure applies to the complete batch; callers cache it
+    /// explicitly, never fall back to silently omitting tables.
+    fn load_tables(
         &self,
-        table: TableIdentity,
+        tables: Vec<TableIdentity>,
         cancellation: CancellationToken,
-    ) -> BoxFuture<'_, anyhow::Result<()>>;
+    ) -> BoxFuture<'_, anyhow::Result<std::collections::BTreeMap<TableIdentity, Result<(), String>>>>;
 
     /// Assemble only previously loaded exact identities. Missing metadata is an
     /// error, never an implicit network fetch or an omitted dataset.

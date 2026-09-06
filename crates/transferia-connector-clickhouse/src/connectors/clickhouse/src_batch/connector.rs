@@ -69,24 +69,29 @@ impl transferia_registry::SourceMetadataReader for ClickHouseMetadataReader {
         !hide || !super::config::is_system_database(&table.namespace)
     }
 
-    fn load_table(&self, table: transferia_registry::TableIdentity, cancellation: tokio_util::sync::CancellationToken)
-        -> BoxFuture<'_, anyhow::Result<()>> {
+    fn load_tables(&self, tables: Vec<transferia_registry::TableIdentity>, cancellation: tokio_util::sync::CancellationToken)
+        -> BoxFuture<'_, anyhow::Result<std::collections::BTreeMap<transferia_registry::TableIdentity, Result<(), String>>>> {
         Box::pin(async move {
             let mut cached = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("ClickHouse metadata loading cancelled"),
                 state = self.tables.lock() => state,
             };
-            if cached.contains_key(&table) { return Ok(()); }
+            let mut results = std::collections::BTreeMap::new();
+            let missing = tables.into_iter().filter(|table| {
+                if cached.contains_key(table) { results.insert(table.clone(), Ok(())); false } else { true }
+            }).collect::<Vec<_>>();
+            if missing.is_empty() { return Ok(results); }
             let discovered = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("ClickHouse metadata loading cancelled"),
-                result = discover_table(&self.client, TableConfig {
-                    database: table.namespace.clone(), name: table.name.clone(),
-                }, self.config.unsupported_types) => result?,
+                result = super::metadata::discover_tables(&self.client, &missing, self.config.unsupported_types) => result?,
             };
-            cached.insert(table, discovered);
-            Ok(())
+            for (table, discovered) in discovered {
+                results.insert(table.clone(), discovered.map(|discovered| { cached.insert(table, discovered); })
+                    .map_err(|error| format!("{error:#}")));
+            }
+            Ok(results)
         })
     }
 
@@ -557,6 +562,20 @@ pub(super) async fn discover_table(
             table.name
         )
     })?;
+    let key_query = format!(
+        "SELECT primary_key, sorting_key FROM system.tables WHERE database = {} AND name = {}",
+        quote_string_literal(&table.database), quote_string_literal(&table.name),
+    );
+    let key_batches = client.query_all(&key_query).await
+        .map_err(|error| anyhow::anyhow!("cannot inspect ClickHouse source table key: {error}"))?;
+    let discovered = decode_table(table, batches, key_batches, unsupported_types)?;
+    validate_projection(client, &discovered).await?;
+    Ok(discovered)
+}
+
+pub(super) fn decode_table(table: TableConfig, batches: Vec<arrow::record_batch::RecordBatch>,
+    key_batches: Vec<arrow::record_batch::RecordBatch>, unsupported_types: UnsupportedTypePolicy)
+    -> anyhow::Result<DiscoveredTable> {
     let mut columns = Vec::new();
     let mut names = HashSet::new();
     for batch in batches {
@@ -637,15 +656,6 @@ pub(super) async fn discover_table(
         table.name
     );
     let mut schema = DatasetSchema::new(columns);
-    let key_query = format!(
-        "SELECT primary_key, sorting_key FROM system.tables WHERE database = {} AND name = {}",
-        quote_string_literal(&table.database),
-        quote_string_literal(&table.name),
-    );
-    let key_batches = client
-        .query_all(&key_query)
-        .await
-        .map_err(|error| anyhow::anyhow!("cannot inspect ClickHouse source table key: {error}"))?;
     let mut found_key = false;
     for batch in key_batches {
         anyhow::ensure!(
@@ -690,7 +700,6 @@ pub(super) async fn discover_table(
         schema,
         physical_system_columns,
     };
-    validate_projection(client, &discovered).await?;
     Ok(discovered)
 }
 
@@ -718,7 +727,7 @@ pub(super) fn validate_source_column_kind(
     }
 }
 
-async fn validate_projection(client: &ReconnectingClient, table: &DiscoveredTable) -> anyhow::Result<()> {
+pub(super) async fn validate_projection(client: &ReconnectingClient, table: &DiscoveredTable) -> anyhow::Result<()> {
     let query = format!("DESCRIBE ({})", snapshot_query(table));
     let batches = transferia_connector_support::external_request::observe_external_request(
         "clickhouse", "describe_snapshot", client.query_all(&query),

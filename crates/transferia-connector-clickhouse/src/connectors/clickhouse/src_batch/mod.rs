@@ -1,6 +1,7 @@
 mod config;
 mod connector;
 mod identifiers;
+mod metadata;
 mod parquet;
 mod reader;
 mod sample;

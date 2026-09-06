@@ -1,5 +1,37 @@
 use std::sync::Arc;
 
+#[test]
+fn metadata_batch_keeps_native_types_and_explicit_pseudo_type_policy() -> anyhow::Result<()> {
+    use tokio_postgres::types::Type;
+    use super::{metadata::catalog_type, UnsupportedTypePolicy};
+    for native in [Type::INT8, Type::TIMESTAMPTZ, Type::BYTEA, Type::NUMERIC, Type::INT4_ARRAY] {
+        let catalog = catalog_type(native.oid(), native.name().into(), "b", "pg_catalog".into())?;
+        assert_eq!(UnsupportedTypePolicy::Fail.arrow_type(&catalog)?, UnsupportedTypePolicy::Fail.arrow_type(&native)?);
+    }
+    for kind in ["b", "e", "c", "r", "m"] {
+        assert_eq!(UnsupportedTypePolicy::Fail.arrow_type(&catalog_type(90000, "custom_type".into(), kind, "public".into())?)?, arrow::datatypes::DataType::Utf8);
+    }
+    let pseudo = catalog_type(Type::ANYARRAY.oid(), "anyarray".into(), "p", "pg_catalog".into())?;
+    assert!(UnsupportedTypePolicy::Fail.arrow_type(&pseudo).is_err());
+    assert_eq!(UnsupportedTypePolicy::ToString.arrow_type(&pseudo)?, arrow::datatypes::DataType::Utf8);
+    assert!(catalog_type(90000, "unknown".into(), "?", "public".into()).is_err());
+    assert!(super::metadata::CATALOG_QUERY.contains("WITH RECURSIVE"));
+    assert!(super::metadata::CATALOG_QUERY.contains("t.physical_oid = a.atttypid AND t.typbasetype = 0"));
+    Ok(())
+}
+
+#[test]
+fn metadata_projection_batch_preserves_quoted_tables_without_combining_column_widths() {
+    let tables = (0..100).map(|index| (transferia_registry::TableIdentity {
+        namespace: "schema\"quoted".into(), name: format!("table{index}"),
+    }, "\"id\", \"value\"::text AS \"value\"".into())).collect::<Vec<_>>();
+    let query = super::metadata::projection_query(&tables);
+    assert_eq!(query.matches("SELECT 1 FROM (SELECT").count(), 100);
+    assert_eq!(query.matches(" UNION ALL ").count(), 99);
+    assert!(query.contains("FROM \"schema\"\"quoted\".\"table99\" LIMIT 0) AS metadata_99"));
+    assert!(!query.contains("pg_export_snapshot"));
+}
+
 #[tokio::test]
 async fn validation_pins_pooler_backend_and_preserves_database_error() {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};

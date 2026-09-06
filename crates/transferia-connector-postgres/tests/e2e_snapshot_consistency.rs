@@ -176,6 +176,16 @@ async fn validation_discovery_does_not_call_pg_export_snapshot() -> anyhow::Resu
         cancellation: CancellationToken::new(),
         delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
     }).await?;
+    let metadata = connector.metadata_reader(transferia_delivery_contracts::DeliveryType::Batch)?.unwrap();
+    let selected = transferia_registry::TableIdentity { namespace: "public".into(), name: "snapshot_a".into() };
+    let missing = transferia_registry::TableIdentity { namespace: "public".into(), name: "missing".into() };
+    let loaded = metadata.load_tables(vec![selected.clone(), missing.clone()], CancellationToken::new()).await?;
+    assert!(loaded[&selected].is_ok());
+    assert!(loaded[&missing].is_err());
+    // Warm metadata reuse must not export a snapshot either. Actual startup
+    // below still performs fresh discovery/snapshot validation.
+    let cached = metadata.load_tables(vec![selected], CancellationToken::new()).await?;
+    assert!(cached.values().all(Result::is_ok));
     assert_no_snapshot_owner(&client).await?;
     let Err(error) = build_partition(&connector, 0).await else {
         panic!("execution must still export a snapshot");
