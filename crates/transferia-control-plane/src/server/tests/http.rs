@@ -735,18 +735,43 @@ async fn assets_and_missing_routes_have_correct_http_contracts() -> anyhow::Resu
 
 #[test]
 fn asset_compression_and_versioned_caching_are_negotiated() {
-    for (encoding, compressed) in [("gzip", true), ("br, gzip;q=0.8", true), ("gzip;q=0", false), ("identity", false)] {
+    for (encoding, compressed) in [
+        ("gzip", true),
+        ("br, gzip;q=0.8", true),
+        ("gzip;q=0", false),
+        ("identity", false),
+    ] {
         for (query, cached) in [("v=current", true), ("v=old", false), ("", false)] {
             let uri = format!("/app.js?{query}").parse().unwrap();
             let mut headers = HeaderMap::new();
             headers.insert("accept-encoding", encoding.parse().unwrap());
-            let response = versioned_asset("javascript", b"compressed", "current", "text/javascript", &uri, &headers);
-            assert_eq!(response.headers().contains_key("content-encoding"), compressed);
+            let response = versioned_asset(
+                "javascript",
+                b"compressed",
+                "current",
+                "text/javascript",
+                &uri,
+                &headers,
+            );
+            assert_eq!(
+                response.headers().contains_key("content-encoding"),
+                compressed
+            );
             assert_eq!(response.headers()["vary"], "Accept-Encoding");
-            assert_eq!(response.headers()[CACHE_CONTROL], if cached { "public, max-age=31536000, immutable" } else { "no-store" });
+            assert_eq!(
+                response.headers()[CACHE_CONTROL],
+                if cached {
+                    "public, max-age=31536000, immutable"
+                } else {
+                    "no-store"
+                }
+            );
         }
     }
-    assert_eq!(asset("html", "text/html", true).headers()[CACHE_CONTROL], "no-store");
+    assert_eq!(
+        asset("html", "text/html", true).headers()[CACHE_CONTROL],
+        "no-store"
+    );
 }
 
 #[tokio::test]

@@ -21,8 +21,8 @@ use transferia_delivery_contracts::metrics::ParseCounters;
 use transferia_delivery_contracts::middleware::Middleware;
 use transferia_delivery_contracts::parser::{ParserFactory, ParserSession};
 
-mod row_count;
 mod admission;
+mod row_count;
 pub use admission::DatasetAdmission;
 use admission::DeliveryOutput;
 
@@ -591,8 +591,16 @@ async fn reader_loop_inner(
         }
         let (payload, mut batch_memory, mut marker, source_payload_bytes, source_messages) =
             match batch {
-                SourceBatch::Dataset { dataset, commit_marker, memory } => (
-                    ReadPayload::Dataset(dataset), memory, Some(commit_marker), 0, 0,
+                SourceBatch::Dataset {
+                    dataset,
+                    commit_marker,
+                    memory,
+                } => (
+                    ReadPayload::Dataset(dataset),
+                    memory,
+                    Some(commit_marker),
+                    0,
+                    0,
                 ),
                 SourceBatch::Raw {
                     messages,
@@ -718,7 +726,14 @@ async fn reader_loop_inner(
                     event = events.recv() => event.ok_or_else(|| anyhow::anyhow!("sink closed during dataset admission"))?,
                 };
                 let SinkEvent::CommittedThrough(id) = event;
-                commit_through(source, &mut ledger, id, progress.as_ref(), output_row_counts.as_deref()).await?;
+                commit_through(
+                    source,
+                    &mut ledger,
+                    id,
+                    progress.as_ref(),
+                    output_row_counts.as_deref(),
+                )
+                .await?;
             }
         }
     }
@@ -888,14 +903,28 @@ pub async fn run_partition_pipeline_with_progress_and_row_counts(
     let (event_tx, event_rx) = mpsc::channel(CHANNEL_CAPACITY);
     let (delivery_output, mut sink_task) = if let Some(admission) = admission {
         let (sender, receiver) = mpsc::channel(CHANNEL_CAPACITY);
-        (DeliveryOutput::Evolving(sender), tokio::spawn(admission::run(
-            sink, admission, receiver, event_tx, memory.clone(), local.clone(),
-        )))
+        (
+            DeliveryOutput::Evolving(sender),
+            tokio::spawn(admission::run(
+                sink,
+                admission,
+                receiver,
+                event_tx,
+                memory.clone(),
+                local.clone(),
+            )),
+        )
     } else {
         let (sender, receiver) = mpsc::channel(CHANNEL_CAPACITY);
-        (DeliveryOutput::Fixed(sender), tokio::spawn(sink.run(SinkIo {
-            deliveries: receiver, events: event_tx, memory: memory.clone(), cancellation: local.clone(),
-        })))
+        (
+            DeliveryOutput::Fixed(sender),
+            tokio::spawn(sink.run(SinkIo {
+                deliveries: receiver,
+                events: event_tx,
+                memory: memory.clone(),
+                cancellation: local.clone(),
+            })),
+        )
     };
 
     let parser_token = local.clone();

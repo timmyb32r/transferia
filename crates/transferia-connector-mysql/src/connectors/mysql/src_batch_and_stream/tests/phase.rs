@@ -90,11 +90,11 @@ fn source() -> MySqlSourceIdentity {
 fn tables() -> Vec<TableConfig> {
     vec![
         TableConfig {
-        database: "inventory".to_owned(),
+            database: "inventory".to_owned(),
             name: "accounts".to_owned(),
         },
         TableConfig {
-        database: "inventory".to_owned(),
+            database: "inventory".to_owned(),
             name: "events".to_owned(),
         },
     ]

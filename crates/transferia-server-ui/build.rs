@@ -22,7 +22,15 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
         PathBuf::from(std::env::var_os("OUT_DIR").ok_or("OUT_DIR is missing")?).join("server-ui");
     fs::create_dir_all(&output)?;
     if std::env::var_os("TRANSFERIA_SKIP_SERVER_UI").is_some() {
-        for asset in ["index.html", "app.js", "style.css", "app.js.gz", "style.css.gz", "app.js.version", "style.css.version"] {
+        for asset in [
+            "index.html",
+            "app.js",
+            "style.css",
+            "app.js.gz",
+            "style.css.gz",
+            "app.js.version",
+            "style.css.version",
+        ] {
             fs::write(output.join(asset), "")?;
         }
         return Ok(());

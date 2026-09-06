@@ -912,24 +912,34 @@ async fn run_partition_attempt(
         }
         let mut restored = dependencies.discovery.as_ref().clone();
         restored.datasets = datasets;
-        let restored = crate::delivery::preparation::validate_middlewares(
-            &dependencies.middlewares, restored).await.map_err(DataPlaneFailure::fatal)?;
+        let restored =
+            crate::delivery::preparation::validate_middlewares(&dependencies.middlewares, restored)
+                .await
+                .map_err(DataPlaneFailure::fatal)?;
         crate::delivery::preparation::validate_discovered_pipeline(
-            &dependencies.source_connector.compatibility(dependencies.delivery_type),
-            &dependencies.sink_connector.compatibility(), dependencies.sink_connector.limits(),
-            &restored, dependencies.keep_system_columns).map_err(DataPlaneFailure::fatal)?;
+            &dependencies
+                .source_connector
+                .compatibility(dependencies.delivery_type),
+            &dependencies.sink_connector.compatibility(),
+            dependencies.sink_connector.limits(),
+            &restored,
+            dependencies.keep_system_columns,
+        )
+        .map_err(DataPlaneFailure::fatal)?;
         Arc::new(restored)
-    } else { Arc::clone(&dependencies.discovery) };
+    } else {
+        Arc::clone(&dependencies.discovery)
+    };
     let sink_context = SinkBuildContext {
-            partition_id,
-            delivery_name: Arc::clone(&dependencies.delivery_name),
-            replay_identity: dependencies.replay_identity.clone(),
-            finite_source: dependencies.delivery_finite,
-            counters: sink_counters,
-            keep_system_columns: dependencies.keep_system_columns,
-            discovery,
-            durable: dependencies.durable.clone(),
-        };
+        partition_id,
+        delivery_name: Arc::clone(&dependencies.delivery_name),
+        replay_identity: dependencies.replay_identity.clone(),
+        finite_source: dependencies.delivery_finite,
+        counters: sink_counters,
+        keep_system_columns: dependencies.keep_system_columns,
+        discovery,
+        durable: dependencies.durable.clone(),
+    };
     let sink = dependencies
         .sink_connector
         .build_sink(sink_context.clone())
@@ -939,13 +949,19 @@ async fn run_partition_attempt(
         let _ignored = startup.send(());
     }
     let admission = (dependencies.phase == SourcePhase::Stream
-        && dependencies.source_connector.can_add_datasets(dependencies.delivery_type))
-        .then(|| Box::new(super::admission::AdmissionCoordinator {
+        && dependencies
+            .source_connector
+            .can_add_datasets(dependencies.delivery_type))
+    .then(|| {
+        Box::new(super::admission::AdmissionCoordinator {
             sink: dependencies.sink_connector.clone(),
-            source: dependencies.source_connector.compatibility(dependencies.delivery_type),
+            source: dependencies
+                .source_connector
+                .compatibility(dependencies.delivery_type),
             middlewares: dependencies.middlewares.clone(),
             context: sink_context,
-        }) as Box<dyn transferia_pipeline::DatasetAdmission>);
+        }) as Box<dyn transferia_pipeline::DatasetAdmission>
+    });
     transferia_pipeline::run_partition_pipeline_with_progress_and_row_counts(
         source,
         Arc::clone(&dependencies.parser),

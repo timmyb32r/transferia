@@ -11,11 +11,11 @@ pub use config::{
 };
 pub use connector::MySqlSourceConnector;
 pub(crate) use connector::{
-    authoritative_table_identities, build_delivery_discovery, discover_table,
-    column_generation, column_visibility, has_column_type_modifier, has_extra_modifier,
-    mysql_column_kind, old_value_schema_column, parse_enum_set_values,
-    validate_structured_column_metadata, ColumnPlan, DiscoveredTable, MySqlColumnKind,
-    MYSQL_REPLICATION_SYSTEM_COLUMNS, MYSQL_SOURCE_METADATA_COLUMNS,
+    authoritative_table_identities, build_delivery_discovery, column_generation, column_visibility,
+    discover_table, has_column_type_modifier, has_extra_modifier, mysql_column_kind,
+    old_value_schema_column, parse_enum_set_values, validate_structured_column_metadata,
+    ColumnPlan, DiscoveredTable, MySqlColumnKind, MYSQL_REPLICATION_SYSTEM_COLUMNS,
+    MYSQL_SOURCE_METADATA_COLUMNS,
 };
 pub(crate) use reader::optional_value_column_array;
 

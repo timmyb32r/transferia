@@ -57,8 +57,17 @@ impl MySqlSink {
     async fn write_delivery(&mut self, delivery: &Delivery) -> anyhow::Result<()> {
         for batch in &delivery.outputs {
             self.limits.validate_batch(&self.discovery, batch)?;
-            let dataset = self.discovery.datasets.iter().find(|dataset| dataset.name == batch.table)
-                .ok_or_else(|| anyhow::anyhow!("MySQL batch refers to an undiscovered table '{}'", batch.table))?;
+            let dataset = self
+                .discovery
+                .datasets
+                .iter()
+                .find(|dataset| dataset.name == batch.table)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "MySQL batch refers to an undiscovered table '{}'",
+                        batch.table
+                    )
+                })?;
             self.config.target_database(dataset.namespace.as_deref())?;
         }
         let projected = delivery
@@ -78,8 +87,17 @@ impl MySqlSink {
                 if batch.rows() == 0 {
                     continue;
                 }
-                let dataset = self.discovery.datasets.iter().find(|dataset| dataset.name == batch.table)
-                    .ok_or_else(|| anyhow::anyhow!("MySQL batch refers to an undiscovered table '{}'", batch.table))?;
+                let dataset = self
+                    .discovery
+                    .datasets
+                    .iter()
+                    .find(|dataset| dataset.name == batch.table)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "MySQL batch refers to an undiscovered table '{}'",
+                            batch.table
+                        )
+                    })?;
                 let database = self.config.target_database(dataset.namespace.as_deref())?;
                 match projected {
                     ProjectedSinkBatch::AppendOnly(stored) => {

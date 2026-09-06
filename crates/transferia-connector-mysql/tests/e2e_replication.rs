@@ -903,7 +903,8 @@ async fn durable_offset_replays_until_commit_and_filtered_transactions_checkpoin
 }
 
 #[tokio::test]
-async fn created_table_admission_is_replayed_until_acknowledged_and_restored() -> anyhow::Result<()> {
+async fn created_table_admission_is_replayed_until_acknowledged_and_restored() -> anyhow::Result<()>
+{
     check_created_table_admission(DeliveryType::Stream).await
 }
 
@@ -917,23 +918,58 @@ async fn check_created_table_admission(mode: DeliveryType) -> anyhow::Result<()>
     let mut admin = fixture.connection().await?;
     admin.query_drop("CREATE TABLE admission_seed (id BIGINT PRIMARY KEY, payload VARCHAR(255) NOT NULL) ENGINE=InnoDB").await?;
     admin.query_drop("CREATE TABLE ignored_existing (id BIGINT PRIMARY KEY, payload VARCHAR(255) NOT NULL) ENGINE=InnoDB").await?;
-    admin.query_drop("INSERT INTO ignored_existing VALUES (7, 'before rename')").await?;
-    admin.query_drop("CREATE DATABASE admission_database").await?;
-    admin.query_drop(format!("GRANT SELECT ON admission_database.* TO '{SOURCE_USER}'@'%'")).await?;
+    admin
+        .query_drop("INSERT INTO ignored_existing VALUES (7, 'before rename')")
+        .await?;
+    admin
+        .query_drop("CREATE DATABASE admission_database")
+        .await?;
+    admin
+        .query_drop(format!(
+            "GRANT SELECT ON admission_database.* TO '{SOURCE_USER}'@'%'"
+        ))
+        .await?;
     let config = source_yaml(&fixture.source, &["admission_*"], true)
         .replace(&format!("database: {DATABASE}\n"), "database: ''\n")
-        .replace(&format!("include: {DATABASE}.admission_*"), "include: '*.admission_*'");
+        .replace(
+            &format!("include: {DATABASE}.admission_*"),
+            "include: '*.admission_*'",
+        );
     let durable = TestDurable::new("mysql-admission");
     let cancellation = CancellationToken::new();
     let connector = mysql_connector(&config)?;
-    connector.delivery_discovery(discovery_context(mode, &cancellation)).await?;
-    let prepared = connector.prepare_execution(execution_context(mode, &durable.context, &cancellation))
-        .await?.unwrap();
+    connector
+        .delivery_discovery(discovery_context(mode, &cancellation))
+        .await?;
+    let prepared = connector
+        .prepare_execution(execution_context(mode, &durable.context, &cancellation))
+        .await?
+        .unwrap();
     if mode == DeliveryType::BatchAndStream {
-        read_snapshot(&connector, &prepared.discovery, &durable.context, &cancellation).await?;
-        connector.complete_execution_phase(SourcePhase::Snapshot, durable.context.clone(), cancellation.child_token()).await?;
+        read_snapshot(
+            &connector,
+            &prepared.discovery,
+            &durable.context,
+            &cancellation,
+        )
+        .await?;
+        connector
+            .complete_execution_phase(
+                SourcePhase::Snapshot,
+                durable.context.clone(),
+                cancellation.child_token(),
+            )
+            .await?;
     }
-    let context = || build_context(mode, SourcePhase::Stream, 0, &durable.context, &cancellation);
+    let context = || {
+        build_context(
+            mode,
+            SourcePhase::Stream,
+            0,
+            &durable.context,
+            &cancellation,
+        )
+    };
     let mut stream = connector.build_source(context()).await?;
     let initial = durable.local.snapshot();
     exec_all(&mut admin, &[
@@ -944,7 +980,10 @@ async fn check_created_table_admission(mode: DeliveryType) -> anyhow::Result<()>
     assert_eq!(first.0.name.as_ref(), "admission_new");
     assert_eq!(first.0.namespace.as_deref(), Some("admission_database"));
     assert_eq!(durable.local.snapshot(), initial);
-    assert!(stream.read_batch().await.is_err(), "reader crossed uncommitted CREATE");
+    assert!(
+        stream.read_batch().await.is_err(),
+        "reader crossed uncommitted CREATE"
+    );
     stream.shutdown().await?;
     drop(stream);
     let mut stream = connector.build_source(context()).await?;
@@ -957,49 +996,84 @@ async fn check_created_table_admission(mode: DeliveryType) -> anyhow::Result<()>
     drop(stream);
     drop(connector);
     let resumed = mysql_connector(&config)?;
-    resumed.delivery_discovery(discovery_context(mode, &cancellation)).await?;
-    resumed.prepare_execution(execution_context(mode, &durable.context, &cancellation)).await?;
+    resumed
+        .delivery_discovery(discovery_context(mode, &cancellation))
+        .await?;
+    resumed
+        .prepare_execution(execution_context(mode, &durable.context, &cancellation))
+        .await?;
     let mut stream = resumed.build_source(context()).await?;
-    let names = stream.restored_datasets()?.unwrap().into_iter().map(|table| table.name).collect::<Vec<_>>();
+    let names = stream
+        .restored_datasets()?
+        .unwrap()
+        .into_iter()
+        .map(|table| table.name)
+        .collect::<Vec<_>>();
     assert!(names.iter().any(|name| name.as_ref() == "admission_new"));
     let rows = read_nonempty(&mut stream).await?;
     assert_eq!(rows.source_rows, 1);
     assert_eq!(rows.tables[0].table.as_ref(), "admission_new");
     stream.commit_offsets(&[rows.marker]).await?;
     let before_rename = durable.local.snapshot();
-    admin.query_drop("RENAME TABLE ignored_existing TO admission_renamed").await?;
+    admin
+        .query_drop("RENAME TABLE ignored_existing TO admission_renamed")
+        .await?;
     let error = tokio::time::timeout(TEST_TIMEOUT, async {
         loop {
             match stream.read_batch().await {
                 Err(error) => break error,
-                Ok(SourceBatch::Typed { tables, commit_marker: None, .. }) if tables.is_empty() => {},
+                Ok(SourceBatch::Typed {
+                    tables,
+                    commit_marker: None,
+                    ..
+                }) if tables.is_empty() => {}
                 _ => panic!("rename produced data or an acknowledgeable marker"),
             }
         }
-    }).await?;
+    })
+    .await?;
     let diagnostic = format!("{error:#}");
-    assert!(diagnostic.contains("ignored_existing") && diagnostic.contains("admission_renamed") && diagnostic.contains("rule 1"), "{diagnostic}");
+    assert!(
+        diagnostic.contains("ignored_existing")
+            && diagnostic.contains("admission_renamed")
+            && diagnostic.contains("rule 1"),
+        "{diagnostic}"
+    );
     assert_eq!(durable.local.snapshot(), before_rename);
     stream.shutdown().await?;
     Ok(())
 }
 
-async fn read_admission(source: &mut Box<dyn Source>) -> anyhow::Result<(transferia_core::DiscoveredDataset, CommitMarker)> {
+async fn read_admission(
+    source: &mut Box<dyn Source>,
+) -> anyhow::Result<(transferia_core::DiscoveredDataset, CommitMarker)> {
     tokio::time::timeout(TEST_TIMEOUT, async {
         loop {
             match source.read_batch().await? {
-                SourceBatch::Dataset { dataset, commit_marker, .. } => return Ok((*dataset, commit_marker)),
-                SourceBatch::Typed { tables, commit_marker, .. } if tables.is_empty() => {
-                    if let Some(marker) = commit_marker { source.commit_offsets(&[marker]).await?; }
+                SourceBatch::Dataset {
+                    dataset,
+                    commit_marker,
+                    ..
+                } => return Ok((*dataset, commit_marker)),
+                SourceBatch::Typed {
+                    tables,
+                    commit_marker,
+                    ..
+                } if tables.is_empty() => {
+                    if let Some(marker) = commit_marker {
+                        source.commit_offsets(&[marker]).await?;
+                    }
                 }
                 _ => anyhow::bail!("expected CREATE admission before table rows"),
             }
         }
-    }).await?
+    })
+    .await?
 }
 
 #[tokio::test]
-async fn startup_membership_race_fails_and_ignore_policy_keeps_membership_fixed() -> anyhow::Result<()> {
+async fn startup_membership_race_fails_and_ignore_policy_keeps_membership_fixed(
+) -> anyhow::Result<()> {
     let fixture = MySqlFixture::mysql(MySqlServerMode::ReplicationReady).await?;
     let mut admin = fixture.connection().await?;
     admin.query_drop("CREATE TABLE fixed_seed (id BIGINT PRIMARY KEY, payload VARCHAR(255) NOT NULL) ENGINE=InnoDB").await?;
@@ -1007,11 +1081,22 @@ async fn startup_membership_race_fails_and_ignore_policy_keeps_membership_fixed(
     let cancellation = CancellationToken::new();
     let durable = TestDurable::new("mysql-membership-race");
     let connector = mysql_connector(&config)?;
-    connector.delivery_discovery(discovery_context(DeliveryType::Stream, &cancellation)).await?;
+    connector
+        .delivery_discovery(discovery_context(DeliveryType::Stream, &cancellation))
+        .await?;
     admin.query_drop("CREATE TABLE fixed_between (id BIGINT PRIMARY KEY, payload VARCHAR(255) NOT NULL) ENGINE=InnoDB").await?;
-    let error = connector.prepare_execution(execution_context(DeliveryType::Stream, &durable.context, &cancellation))
-        .await.expect_err("catalog race silently dropped a matching table");
-    assert!(format!("{error:#}").contains("membership changed"), "{error:#}");
+    let error = connector
+        .prepare_execution(execution_context(
+            DeliveryType::Stream,
+            &durable.context,
+            &cancellation,
+        ))
+        .await
+        .expect_err("catalog race silently dropped a matching table");
+    assert!(
+        format!("{error:#}").contains("membership changed"),
+        "{error:#}"
+    );
     drop(connector);
     let config = format!("{config}new_tables: ignore\n");
     let durable = TestDurable::new("mysql-ignore-new-tables");
@@ -1025,10 +1110,18 @@ async fn startup_membership_race_fails_and_ignore_policy_keeps_membership_fixed(
     ]).await?;
     tokio::time::timeout(TEST_TIMEOUT, async {
         loop {
-            let SourceBatch::Typed { tables, source_rows, commit_marker, .. } = stream.read_batch().await? else {
+            let SourceBatch::Typed {
+                tables,
+                source_rows,
+                commit_marker,
+                ..
+            } = stream.read_batch().await?
+            else {
                 anyhow::bail!("fixed membership emitted an unexpected admission");
             };
-            if let Some(marker) = commit_marker { stream.commit_offsets(&[marker]).await?; }
+            if let Some(marker) = commit_marker {
+                stream.commit_offsets(&[marker]).await?;
+            }
             if source_rows > 0 {
                 assert_eq!(source_rows, 1);
                 assert_eq!(tables[0].table.as_ref(), "fixed_seed");
@@ -1036,8 +1129,13 @@ async fn startup_membership_race_fails_and_ignore_policy_keeps_membership_fixed(
             }
         }
         Ok::<_, anyhow::Error>(())
-    }).await??;
-    assert!(!stream.restored_datasets()?.unwrap().iter().any(|table| table.name.as_ref() == "fixed_later"));
+    })
+    .await??;
+    assert!(!stream
+        .restored_datasets()?
+        .unwrap()
+        .iter()
+        .any(|table| table.name.as_ref() == "fixed_later"));
     stream.shutdown().await?;
     Ok(())
 }
@@ -1569,7 +1667,9 @@ async fn read_snapshot(
                     }
                 }
                 SourceBatch::Finished => break,
-                SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => anyhow::bail!("MySQL snapshot emitted raw data"),
+                SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => {
+                    anyhow::bail!("MySQL snapshot emitted raw data")
+                }
             }
         }
         source.shutdown().await?;

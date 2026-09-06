@@ -1,5 +1,5 @@
-pub mod runner;
 mod admission;
+pub mod runner;
 
 pub use transferia_delivery_contracts::{middleware, retry};
 pub use transferia_pipeline::{

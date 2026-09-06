@@ -64,24 +64,41 @@ fn config() -> MySqlSinkConfig {
 fn database_override_is_explicit_and_absent_override_preserves_namespace() {
     use transferia_core::delivery::SinkLimits;
     let mut config = config();
-    assert_eq!(config.target_database(Some("original")).unwrap(), "analytics");
+    assert_eq!(
+        config.target_database(Some("original")).unwrap(),
+        "analytics"
+    );
     config.connection.database.clear();
     config.validate().unwrap();
-    assert_eq!(config.target_database(Some("original")).unwrap(), "original");
+    assert_eq!(
+        config.target_database(Some("original")).unwrap(),
+        "original"
+    );
     assert!(config.target_database(None).is_err());
     assert!(config.target_database(Some("")).is_err());
     let mut discovery = discovery("events");
     assert!(config.validate_discovery(&discovery).is_err());
-    for dataset in &mut discovery.datasets { dataset.namespace = Some(Arc::from("original")); }
+    for dataset in &mut discovery.datasets {
+        dataset.namespace = Some(Arc::from("original"));
+    }
     config.validate_discovery(&discovery).unwrap();
-    let prepared = transferia_registry::SinkPrepare::from_discovery(&discovery, true, "dtt-test", None).unwrap().unwrap();
-    assert!(prepared.datasets.iter().all(|dataset| dataset.namespace.as_deref() == Some("original")));
+    let prepared =
+        transferia_registry::SinkPrepare::from_discovery(&discovery, true, "dtt-test", None)
+            .unwrap()
+            .unwrap();
+    assert!(prepared
+        .datasets
+        .iter()
+        .all(|dataset| dataset.namespace.as_deref() == Some("original")));
 }
 
 #[test]
 fn qualified_writes_quote_database_and_table_separately() {
     assert_eq!(super::writer::quote_table(("a.b", "c`d")), "`a.b`.`c``d`");
-    assert_ne!(super::writer::quote_table(("a.b", "c")), super::writer::quote_table(("a", "b.c")));
+    assert_ne!(
+        super::writer::quote_table(("a.b", "c")),
+        super::writer::quote_table(("a", "b.c"))
+    );
 }
 
 #[test]

@@ -351,7 +351,10 @@ async fn read_filtered_transaction(source: &mut Box<dyn Source>) -> anyhow::Resu
             commit_marker: Some(marker),
             ..
         } if tables.is_empty() => Ok(marker),
-        SourceBatch::Typed { .. } | SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } | SourceBatch::Finished => {
+        SourceBatch::Typed { .. }
+        | SourceBatch::Dataset { .. }
+        | SourceBatch::Raw { .. }
+        | SourceBatch::Finished => {
             anyhow::bail!("filtered PostgreSQL transaction did not retain its commit marker")
         }
     }

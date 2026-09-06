@@ -341,7 +341,11 @@ pub fn validate_discovered_pipeline(
     // Runtime batches route by table name, not by an encoded namespace/name.
     // Reject ambiguous identities before any destination can be prepared.
     let mut names = std::collections::HashMap::new();
-    for dataset in discovery.datasets.iter().filter(|dataset| dataset.role == DatasetRole::Main) {
+    for dataset in discovery
+        .datasets
+        .iter()
+        .filter(|dataset| dataset.role == DatasetRole::Main)
+    {
         if let Some(previous) = names.insert(dataset.name.as_ref(), dataset.namespace.as_deref()) {
             anyhow::bail!(
                 "Selected tables have the same name {:?} in namespaces {:?} and {:?}; select tables with distinct names. Table names are never renamed automatically",
@@ -375,7 +379,12 @@ pub(crate) async fn validate_middlewares(
             main.stored_schema = middleware
                 .output_schema(&main.stored_schema)
                 .await
-                .with_context(|| format!("middleware {index} is incompatible with dataset {:?}", main.name))?;
+                .with_context(|| {
+                    format!(
+                        "middleware {index} is incompatible with dataset {:?}",
+                        main.name
+                    )
+                })?;
         }
     }
     anyhow::ensure!(found_main, "middlewares require a discovered main dataset");

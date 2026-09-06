@@ -3,8 +3,7 @@ use serde::Deserialize;
 use transferia_registry::table_selection::TableSelection;
 
 use crate::connectors::mysql::common::{
-    MySqlConnectionConfig, MYSQL_CLIENT_PACKET_MAX_BYTES,
-    MYSQL_CLIENT_PACKET_MIN_BYTES,
+    MySqlConnectionConfig, MYSQL_CLIENT_PACKET_MAX_BYTES, MYSQL_CLIENT_PACKET_MIN_BYTES,
 };
 use crate::connectors::mysql::src_stream::MySqlReplicationConfig;
 
@@ -100,7 +99,10 @@ pub struct TableConfig {
 impl MySqlSourceConfig {
     pub(crate) fn includes_database(&self, database: &str) -> bool {
         !self.hide_system_tables
-            || !matches!(database, "mysql" | "information_schema" | "performance_schema" | "sys")
+            || !matches!(
+                database,
+                "mysql" | "information_schema" | "performance_schema" | "sys"
+            )
     }
 
     pub(crate) fn resolve_tables(
@@ -113,7 +115,10 @@ impl MySqlSourceConfig {
 
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
-        anyhow::ensure!(!self.tables.is_empty(), "mysql.tables must contain at least one rule");
+        anyhow::ensure!(
+            !self.tables.is_empty(),
+            "mysql.tables must contain at least one rule"
+        );
         self.tables.compile()?;
         anyhow::ensure!(self.batch_rows > 0, "mysql.batch_rows must be positive");
         anyhow::ensure!(

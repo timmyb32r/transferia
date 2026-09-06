@@ -142,7 +142,9 @@ pub enum SpeedtestUnsupported {
 
 pub trait SourceConnector: Send + Sync {
     /// Whether this execution may emit ordered dataset-admission barriers.
-    fn can_add_datasets(&self, _delivery_type: DeliveryType) -> bool { false }
+    fn can_add_datasets(&self, _delivery_type: DeliveryType) -> bool {
+        false
+    }
     /// Describe the record semantics of the requested mode, not a UI toggle.
     fn compatibility(&self, delivery_type: DeliveryType) -> EndpointDescriptor;
 

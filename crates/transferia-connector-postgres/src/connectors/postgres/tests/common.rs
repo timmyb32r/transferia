@@ -45,25 +45,37 @@ async fn table_catalog_uses_one_unnamed_protocol_exchange_for_transaction_poolin
         backend_message(b'D', &row),
         backend_message(b'C', b"SELECT 1\0"),
         backend_message(b'Z', b"I"),
-    ].concat();
+    ]
+    .concat();
     let (config, server) = catalog_protocol_fixture(response).await;
     let result = super::list_tables(&config).await.unwrap();
     server.await.unwrap();
-    assert_eq!(result, vec![transferia_registry::TableIdentity {
-        namespace: "schema.with.dot".into(), name: "table?name".into(),
-    }]);
+    assert_eq!(
+        result,
+        vec![transferia_registry::TableIdentity {
+            namespace: "schema.with.dot".into(),
+            name: "table?name".into(),
+        }]
+    );
 }
 
 #[tokio::test]
 async fn table_catalog_error_explains_the_stage_and_sqlstate_without_error_details() {
     let response = [
-        backend_message(b'E', b"SERROR\0C42501\0Mpermission denied for catalog\0Dprivate diagnostic detail\0\0"),
+        backend_message(
+            b'E',
+            b"SERROR\0C42501\0Mpermission denied for catalog\0Dprivate diagnostic detail\0\0",
+        ),
         backend_message(b'Z', b"I"),
-    ].concat();
+    ]
+    .concat();
     let (config, server) = catalog_protocol_fixture(response).await;
     let error = super::list_tables(&config).await.unwrap_err().to_string();
     server.await.unwrap();
-    assert_eq!(error, "PostgreSQL table discovery failed: permission denied for catalog (SQLSTATE 42501)");
+    assert_eq!(
+        error,
+        "PostgreSQL table discovery failed: permission denied for catalog (SQLSTATE 42501)"
+    );
     assert!(!error.contains("private diagnostic detail"));
     assert!(!error.contains(&config.password));
 }
@@ -78,7 +90,9 @@ fn backend_message(tag: u8, body: &[u8]) -> Vec<u8> {
 // A transaction pooler cannot preserve a named statement after ReadyForQuery.
 // Assert the actual production client sends Parse/Bind/Describe/Execute before
 // its first Sync, rather than mocking list_tables or merely inspecting SQL text.
-async fn catalog_protocol_fixture(response: Vec<u8>) -> (super::PostgresConnectionConfig, tokio::task::JoinHandle<()>) {
+async fn catalog_protocol_fixture(
+    response: Vec<u8>,
+) -> (super::PostgresConnectionConfig, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
@@ -87,31 +101,52 @@ async fn catalog_protocol_fixture(response: Vec<u8>) -> (super::PostgresConnecti
         let mut startup = vec![0; usize::try_from(length - 4).unwrap()];
         socket.read_exact(&mut startup).await.unwrap();
         assert_eq!(&startup[..4], &196_608_u32.to_be_bytes());
-        socket.write_all(&[
-            backend_message(b'R', &0_i32.to_be_bytes()),
-            backend_message(b'Z', b"I"),
-        ].concat()).await.unwrap();
+        socket
+            .write_all(
+                &[
+                    backend_message(b'R', &0_i32.to_be_bytes()),
+                    backend_message(b'Z', b"I"),
+                ]
+                .concat(),
+            )
+            .await
+            .unwrap();
         for &expected in b"PBDES" {
             let tag = socket.read_u8().await.unwrap();
-            assert_eq!(tag, expected, "catalog request must finish execution before Sync");
+            assert_eq!(
+                tag, expected,
+                "catalog request must finish execution before Sync"
+            );
             let length = socket.read_u32().await.unwrap();
             let mut body = vec![0; usize::try_from(length - 4).unwrap()];
             socket.read_exact(&mut body).await.unwrap();
             if tag == b'P' {
                 assert_eq!(body[0], 0, "catalog query must use an unnamed statement");
-                let sql = std::str::from_utf8(body[1..].split(|byte| *byte == 0).next().unwrap()).unwrap();
+                let sql = std::str::from_utf8(body[1..].split(|byte| *byte == 0).next().unwrap())
+                    .unwrap();
                 assert!(sql.contains("has_schema_privilege"));
                 assert!(sql.contains("has_table_privilege"));
             }
             if tag == b'B' {
-                assert_eq!(&body[..2], &[0, 0], "bind unnamed portal to unnamed statement");
+                assert_eq!(
+                    &body[..2],
+                    &[0, 0],
+                    "bind unnamed portal to unnamed statement"
+                );
             }
         }
         socket.write_all(&response).await.unwrap();
     });
-    (super::PostgresConnectionConfig {
-        host: address.ip().to_string(), port: address.port(), database: "catalog_test".into(),
-        username: "reader".into(), password: "test-only-password".into(),
-        trusted_plaintext: true, tls_ca_file: None,
-    }, server)
+    (
+        super::PostgresConnectionConfig {
+            host: address.ip().to_string(),
+            port: address.port(),
+            database: "catalog_test".into(),
+            username: "reader".into(),
+            password: "test-only-password".into(),
+            trusted_plaintext: true,
+            tls_ca_file: None,
+        },
+        server,
+    )
 }

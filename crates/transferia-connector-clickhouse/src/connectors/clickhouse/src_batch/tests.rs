@@ -17,10 +17,12 @@ use super::*;
 
 #[test]
 fn source_type_errors_identify_table_column_and_exact_declaration() {
-    let table = config::TableConfig { database: "analytics".into(), name: "events".into() };
+    let table = config::TableConfig {
+        database: "analytics".into(),
+        name: "events".into(),
+    };
     for declaration in ["NotAClickHouseType", "Nullable("] {
-        let error = connector::source_column_type(&table, "status", declaration)
-            .unwrap_err();
+        let error = connector::source_column_type(&table, "status", declaration).unwrap_err();
         // Display alone must retain the cause too: some consumers render only
         // the top-level message instead of the full anyhow chain.
         let message = error.to_string();
@@ -34,10 +36,23 @@ fn source_type_errors_identify_table_column_and_exact_declaration() {
 
 #[test]
 fn system_table_discovery_filter_is_enabled_by_default_and_matches_database_boundaries() {
-    for database in ["system", "_system", "information_schema", "information_schema_extra", "INFORMATION_SCHEMA"] {
+    for database in [
+        "system",
+        "_system",
+        "information_schema",
+        "information_schema_extra",
+        "INFORMATION_SCHEMA",
+    ] {
         assert!(super::config::is_system_database(database), "{database}");
     }
-    for database in ["default", "system_backup", "_system_backup", "my_information_schema", "INFORMATION_SCHEMA_extra", "System"] {
+    for database in [
+        "default",
+        "system_backup",
+        "_system_backup",
+        "my_information_schema",
+        "INFORMATION_SCHEMA_extra",
+        "System",
+    ] {
         assert!(!super::config::is_system_database(database), "{database}");
     }
     let value = serde_json::json!({
@@ -48,11 +63,24 @@ fn system_table_discovery_filter_is_enabled_by_default_and_matches_database_boun
     assert!(config.hide_system_tables);
     let mut explicit = value;
     explicit["hide_system_tables"] = serde_json::json!(false);
-    assert!(!serde_json::from_value::<ClickHouseSourceConfig>(explicit).unwrap().hide_system_tables);
+    assert!(
+        !serde_json::from_value::<ClickHouseSourceConfig>(explicit)
+            .unwrap()
+            .hide_system_tables
+    );
     let schema = serde_json::to_value(schemars::schema_for!(ClickHouseSourceConfig)).unwrap();
-    assert_eq!(schema.pointer("/properties/hide_system_tables/default"), Some(&serde_json::json!(true)));
-    assert_eq!(schema.pointer("/properties/hide_system_tables/x-ui/order"), Some(&serde_json::json!(1)));
-    assert_eq!(schema.pointer("/properties/tables/x-ui/order"), Some(&serde_json::json!(2)));
+    assert_eq!(
+        schema.pointer("/properties/hide_system_tables/default"),
+        Some(&serde_json::json!(true))
+    );
+    assert_eq!(
+        schema.pointer("/properties/hide_system_tables/x-ui/order"),
+        Some(&serde_json::json!(1))
+    );
+    assert_eq!(
+        schema.pointer("/properties/tables/x-ui/order"),
+        Some(&serde_json::json!(2))
+    );
 }
 
 #[test]
@@ -135,11 +163,18 @@ fn discovered_primary_key_is_validated() {
 
 #[test]
 fn metadata_key_selection_uses_primary_key_or_identical_sorting_key() {
-    let table = config::TableConfig { database: "default".into(), name: "events".into() };
+    let table = config::TableConfig {
+        database: "default".into(),
+        name: "events".into(),
+    };
     for (primary, sorting, expected) in [
         ("id", "id, version", vec!["id"]),
         ("id, version", "id, version", vec!["id", "version"]),
-        ("(`id`, `version`)", "(`id`, `version`)", vec!["id", "version"]),
+        (
+            "(`id`, `version`)",
+            "(`id`, `version`)",
+            vec!["id", "version"],
+        ),
         ("tuple()", "tuple()", vec![]),
         ("", "", vec![]),
     ] {
@@ -148,10 +183,19 @@ fn metadata_key_selection_uses_primary_key_or_identical_sorting_key() {
             SchemaColumn::new("version".into(), DataType::Int64, false),
         ]);
         connector::apply_discovered_primary_key(&mut schema, &table, primary, sorting).unwrap();
-        assert_eq!(schema.columns.iter().filter(|column| column.primary_key).map(|column| column.name.as_str()).collect::<Vec<_>>(), expected);
+        assert_eq!(
+            schema
+                .columns
+                .iter()
+                .filter(|column| column.primary_key)
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
     }
     for key in ["toYYYYMM(id)", "id, id", "tuple(id)"] {
-        let mut schema = DatasetSchema::new(vec![SchemaColumn::new("id".into(), DataType::Int64, false)]);
+        let mut schema =
+            DatasetSchema::new(vec![SchemaColumn::new("id".into(), DataType::Int64, false)]);
         assert!(connector::apply_discovered_primary_key(&mut schema, &table, key, key).is_err());
     }
 }

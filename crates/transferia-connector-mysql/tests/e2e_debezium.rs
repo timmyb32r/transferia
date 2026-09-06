@@ -1076,7 +1076,9 @@ async fn read_nonempty(source: &mut Box<dyn Source>) -> anyhow::Result<TypedSour
                     });
                 }
                 SourceBatch::Typed { .. } => {}
-                SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => anyhow::bail!("MySQL source emitted raw data"),
+                SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => {
+                    anyhow::bail!("MySQL source emitted raw data")
+                }
                 SourceBatch::Finished => {
                     anyhow::bail!("MySQL source finished before emitting data")
                 }

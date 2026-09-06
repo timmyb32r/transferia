@@ -232,7 +232,9 @@ async fn read_snapshot(host: &str, port: u16, format: &str) -> anyhow::Result<Ve
                 }
             }
             SourceBatch::Finished => break,
-            SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => panic!("PostgreSQL snapshot must emit typed batches"),
+            SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => {
+                panic!("PostgreSQL snapshot must emit typed batches")
+            }
         }
     }
     source.shutdown().await?;

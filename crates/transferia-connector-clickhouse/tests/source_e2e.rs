@@ -65,14 +65,22 @@ async fn clickhouse_source_discovers_and_streams_a_deterministic_native_snapshot
     let config: transferia_connector_clickhouse::clickhouse::src_batch::ClickHouseSourceConfig =
         serde_yaml::from_str(&format!("hosts: ['{host}']\nport: {native_port}\ntrusted_plaintext: true\nusername: default\nbatch_rows: 2\nsnapshot_reader: {{ type: native, max_threads: 1, compression: lz4 }}\ntables:\n  type: selected\n  rules:\n    - include: default.events\n"))?;
     assert!(config.hide_system_tables);
-    let checked = ClickHouseSourceConnector::check_connection(config.clone(), Arc::new(MetricsRegistry::new())).await?;
-    let tables = checked.tables.expect("authenticated complete table catalog");
-    assert!(tables.iter().any(|table| table.namespace == "system" && table.name == "tables"));
-    assert!(tables.iter().any(|table| table.namespace == "default" && table.name == "events"));
-    let connector = ClickHouseSourceConnector::from_config(
-        config,
+    let checked = ClickHouseSourceConnector::check_connection(
+        config.clone(),
         Arc::new(MetricsRegistry::new()),
-    )?;
+    )
+    .await?;
+    let tables = checked
+        .tables
+        .expect("authenticated complete table catalog");
+    assert!(tables
+        .iter()
+        .any(|table| table.namespace == "system" && table.name == "tables"));
+    assert!(tables
+        .iter()
+        .any(|table| table.namespace == "default" && table.name == "events"));
+    let connector =
+        ClickHouseSourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))?;
     let discovery = connector
         .delivery_discovery(SourceDiscoveryContext {
             request: DeliveryDiscoveryRequest {

@@ -36,7 +36,9 @@ struct UiHints {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum TableMembership { Fixed }
+enum TableMembership {
+    Fixed,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

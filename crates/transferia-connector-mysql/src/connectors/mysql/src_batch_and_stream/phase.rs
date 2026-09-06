@@ -75,9 +75,14 @@ impl SnapshotStreamTracker {
         };
         let state: PersistedState = serde_json::from_slice(&current.payload)
             .map_err(|error| replication_safety_violation(error.into()))?;
-        let tables = state.configured_tables.iter().map(|(database, name)| TableConfig {
-            database: database.clone(), name: name.clone(),
-        }).collect::<Vec<_>>();
+        let tables = state
+            .configured_tables
+            .iter()
+            .map(|(database, name)| TableConfig {
+                database: database.clone(),
+                name: name.clone(),
+            })
+            .collect::<Vec<_>>();
         validate_claim(server_id, &tables, source, replay_identity)
             .map_err(replication_safety_violation)?;
         let expected = persisted_state(server_id, &tables, source, replay_identity);
@@ -277,7 +282,10 @@ fn persisted_state(
         replay_identity: replay_identity.to_owned(),
         server_id,
         source: source.clone(),
-        configured_tables: tables.iter().map(|table| (table.database.clone(), table.name.clone())).collect(),
+        configured_tables: tables
+            .iter()
+            .map(|table| (table.database.clone(), table.name.clone()))
+            .collect(),
         authoritative_tables: None,
         state: PersistedPhase::Claimed,
     }

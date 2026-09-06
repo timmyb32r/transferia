@@ -21,7 +21,9 @@ use super::api_contract::{
     SqlPlaygroundRequest, StopRequest, UpdateDraftRequest, WorkerLogReadQuery, YamlRequest,
     YamlResponse,
 };
-use super::assets::{APP_JS, INDEX_HTML, STYLE_CSS, APP_JS_GZIP, STYLE_CSS_GZIP, APP_JS_VERSION, STYLE_CSS_VERSION};
+use super::assets::{
+    APP_JS, APP_JS_GZIP, APP_JS_VERSION, INDEX_HTML, STYLE_CSS, STYLE_CSS_GZIP, STYLE_CSS_VERSION,
+};
 use super::service::{ControlPlane, ServiceError};
 use super::ui_catalog::UiCatalog;
 use transferia_runtime::RunId;
@@ -255,7 +257,8 @@ async fn no_store(request: axum::extract::Request, next: axum::middleware::Next)
     let mut response = next.run(request).await;
     response
         .headers_mut()
-        .entry(CACHE_CONTROL).or_insert(HeaderValue::from_static("no-store"));
+        .entry(CACHE_CONTROL)
+        .or_insert(HeaderValue::from_static("no-store"));
     response
 }
 
@@ -276,32 +279,69 @@ async fn index() -> Response {
 }
 
 async fn app_js(uri: Uri, headers: HeaderMap) -> Response {
-    versioned_asset(APP_JS, APP_JS_GZIP, APP_JS_VERSION, "text/javascript; charset=utf-8", &uri, &headers)
+    versioned_asset(
+        APP_JS,
+        APP_JS_GZIP,
+        APP_JS_VERSION,
+        "text/javascript; charset=utf-8",
+        &uri,
+        &headers,
+    )
 }
 
 async fn style_css(uri: Uri, headers: HeaderMap) -> Response {
-    versioned_asset(STYLE_CSS, STYLE_CSS_GZIP, STYLE_CSS_VERSION, "text/css; charset=utf-8", &uri, &headers)
+    versioned_asset(
+        STYLE_CSS,
+        STYLE_CSS_GZIP,
+        STYLE_CSS_VERSION,
+        "text/css; charset=utf-8",
+        &uri,
+        &headers,
+    )
 }
 
-fn versioned_asset(contents: &'static str, gzip: &'static [u8], version: &str, content_type: &'static str, uri: &Uri, headers: &HeaderMap) -> Response {
-    let accepts_gzip = headers.get_all("accept-encoding").iter()
+fn versioned_asset(
+    contents: &'static str,
+    gzip: &'static [u8],
+    version: &str,
+    content_type: &'static str,
+    uri: &Uri,
+    headers: &HeaderMap,
+) -> Response {
+    let accepts_gzip = headers
+        .get_all("accept-encoding")
+        .iter()
         .filter_map(|value| value.to_str().ok())
         .flat_map(|value| value.split(','))
         .any(|entry| {
             let mut parts = entry.split(';');
-            parts.next().is_some_and(|name| name.trim().eq_ignore_ascii_case("gzip"))
-                && parts.all(|parameter| parameter.trim().strip_prefix("q=").is_none_or(|q| q.parse::<f32>().is_ok_and(|q| q > 0.0 && q <= 1.0)))
+            parts
+                .next()
+                .is_some_and(|name| name.trim().eq_ignore_ascii_case("gzip"))
+                && parts.all(|parameter| {
+                    parameter
+                        .trim()
+                        .strip_prefix("q=")
+                        .is_none_or(|q| q.parse::<f32>().is_ok_and(|q| q > 0.0 && q <= 1.0))
+                })
         });
     let mut response = asset(contents, content_type, false);
-    response.headers_mut().insert("vary", HeaderValue::from_static("Accept-Encoding"));
+    response
+        .headers_mut()
+        .insert("vary", HeaderValue::from_static("Accept-Encoding"));
     if accepts_gzip {
         *response.body_mut() = Body::from(gzip);
-        response.headers_mut().insert("content-encoding", HeaderValue::from_static("gzip"));
+        response
+            .headers_mut()
+            .insert("content-encoding", HeaderValue::from_static("gzip"));
     }
     // Only the exact current content version is immutable. Never cache a new
     // bundle under a stale version URL after the server has been upgraded.
     if !version.is_empty() && uri.query() == Some(format!("v={version}").as_str()) {
-        response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("public, max-age=31536000, immutable"));
+        response.headers_mut().insert(
+            CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=31536000, immutable"),
+        );
     }
     response
 }
@@ -351,7 +391,9 @@ async fn table_selection_preview(
 ) -> Result<impl IntoResponse, ApiError> {
     // This is only a preview over the last authenticated catalog. Startup
     // independently re-queries the source; this request cannot authorize tables.
-    let result = request.selection.compile()
+    let result = request
+        .selection
+        .compile()
         .map_err(anyhow::Error::from)
         .and_then(|selection| selection.resolve(&request.catalog))
         .map_err(|error| ApiError(ServiceError::Validation(error.to_string())))?;

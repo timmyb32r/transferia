@@ -268,8 +268,12 @@ impl SinkConnector for MySqlSinkConnector {
             for dataset in &request.datasets {
                 let database = self.config.target_database(dataset.namespace.as_deref())?;
                 validate_identifier("table", &dataset.table)?;
-                anyhow::ensure!(targets.insert((database, dataset.table.as_ref())),
-                    "MySQL destination repeats target '{}.{}'", database, dataset.table);
+                anyhow::ensure!(
+                    targets.insert((database, dataset.table.as_ref())),
+                    "MySQL destination repeats target '{}.{}'",
+                    database,
+                    dataset.table
+                );
             }
             let mut connection = self.sink_connection().await?;
             if let Some(scope) = &self.speedtest_scope {

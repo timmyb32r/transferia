@@ -131,11 +131,14 @@ fn sink_hides_internal_insert_batch_tuning() {
 
 #[test]
 fn new_table_policy_is_visible_only_for_replication_and_defaults_to_auto() {
-    let schema = serde_json::to_value(schemars::schema_for!(
-        mysql::src_batch::MySqlSourceConfig)).unwrap();
+    let schema =
+        serde_json::to_value(schemars::schema_for!(mysql::src_batch::MySqlSourceConfig)).unwrap();
     let policy = &schema["properties"]["new_tables"];
     assert_eq!(policy["default"], "include_automatically");
-    assert_eq!(policy["x-ui"]["delivery_types"], serde_json::json!(["stream", "batch_and_stream"]));
+    assert_eq!(
+        policy["x-ui"]["delivery_types"],
+        serde_json::json!(["stream", "batch_and_stream"])
+    );
     let variants = &schema["$defs"]["NewTables"]["oneOf"];
     assert_eq!(variants[0]["const"], "include_automatically");
     assert_eq!(variants[0]["title"], "Include automatically");

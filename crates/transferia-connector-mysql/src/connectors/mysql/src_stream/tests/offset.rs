@@ -151,23 +151,59 @@ async fn table_membership_and_create_position_are_committed_atomically() {
     let (durable, storage) = durable();
     let initial_gtids = gtids("24bc7856-9a41-11ee-b9d1-0242ac120002:1");
     let (mut tracker, _, _) = MySqlReplicationOffsetTracker::prepare(
-        &config(), &source(), &tables(), durable.clone(), Some(&boundary()),
-        &initial_gtids, &super::super::GtidSet::default(), Arc::from("revision-7"),
-    ).await.unwrap();
+        &config(),
+        &source(),
+        &tables(),
+        durable.clone(),
+        Some(&boundary()),
+        &initial_gtids,
+        &super::super::GtidSet::default(),
+        Arc::from("revision-7"),
+    )
+    .await
+    .unwrap();
     let mut new_table = tables().remove(0);
     new_table.database = "another_database".into();
     new_table.table = "new_table".into();
     let next = super::super::MySqlBinlogPosition::new(b"mysql-bin.000007".to_vec(), 8192).unwrap();
     let next_gtids = gtids("24bc7856-9a41-11ee-b9d1-0242ac120002:1-2");
     let before = storage.compare_exchanges.load(Ordering::Acquire);
-    tracker.store_admission(&next, &next_gtids, &[new_table.clone()]).await.unwrap();
-    assert_eq!(storage.compare_exchanges.load(Ordering::Acquire), before + 1);
+    tracker
+        .store_admission(&next, &next_gtids, &[new_table.clone()])
+        .await
+        .unwrap();
+    assert_eq!(
+        storage.compare_exchanges.load(Ordering::Acquire),
+        before + 1
+    );
     let mut expected_tables = tables();
     expected_tables.push(new_table);
-    assert_eq!(inspect_replication_membership(&config(), &source(), &durable, "revision-7").await.unwrap(), Some(expected_tables.clone()));
-    assert_eq!(inspect_existing_replication_offset(&config(), &source(), &expected_tables, &durable,
-        None, &next_gtids, &super::super::GtidSet::default(), "revision-7").await.unwrap(), Some(next));
-    assert!(inspect_replication_membership(&config(), &source(), &durable, "another-revision").await.is_err());
+    assert_eq!(
+        inspect_replication_membership(&config(), &source(), &durable, "revision-7")
+            .await
+            .unwrap(),
+        Some(expected_tables.clone())
+    );
+    assert_eq!(
+        inspect_existing_replication_offset(
+            &config(),
+            &source(),
+            &expected_tables,
+            &durable,
+            None,
+            &next_gtids,
+            &super::super::GtidSet::default(),
+            "revision-7"
+        )
+        .await
+        .unwrap(),
+        Some(next)
+    );
+    assert!(
+        inspect_replication_membership(&config(), &source(), &durable, "another-revision")
+            .await
+            .is_err()
+    );
 }
 
 fn config() -> MySqlReplicationConfig {

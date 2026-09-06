@@ -3,8 +3,15 @@ use transferia_registry::table_selection::{PatternMode, TableRule, TableSelectio
 
 fn selection() -> CompiledSelection {
     TableSelection::Selected {
-        rules: vec![TableRule { include: "prod.reports_*".into(), exclude: None, include_mode: PatternMode::Glob, exclude_mode: PatternMode::Glob }],
-    }.compile().unwrap()
+        rules: vec![TableRule {
+            include: "prod.reports_*".into(),
+            exclude: None,
+            include_mode: PatternMode::Glob,
+            exclude_mode: PatternMode::Glob,
+        }],
+    }
+    .compile()
+    .unwrap()
 }
 
 #[test]
@@ -16,7 +23,12 @@ fn rename_diagnostics_cover_mysql_forms_and_multi_rename() {
         "RENAME TABLE `staging`.`old` TO `prod`.`reports_new`",
     ] {
         let message = rename_error(query.as_bytes(), b"prod", &selection()).unwrap();
-        for expected in ["staging.old", "prod.reports_new", "rule 1", "No rename progress"] {
+        for expected in [
+            "staging.old",
+            "prod.reports_new",
+            "rule 1",
+            "No rename progress",
+        ] {
             assert!(message.contains(expected), "{message}");
         }
     }
@@ -24,13 +36,22 @@ fn rename_diagnostics_cover_mysql_forms_and_multi_rename() {
 
 #[test]
 fn unqualified_alter_rename_preserves_original_database() {
-    let message = rename_error(b"ALTER TABLE prod.old RENAME TO reports_new", b"other", &selection()).unwrap();
+    let message = rename_error(
+        b"ALTER TABLE prod.old RENAME TO reports_new",
+        b"other",
+        &selection(),
+    )
+    .unwrap();
     assert!(message.contains("prod.reports_new"));
 }
 
 #[test]
 fn unsupported_or_unselected_ddl_is_not_authorized_by_diagnostics() {
-    for query in ["CREATE TABLE prod.reports_new (id INT)", "RENAME TABLE a TO b", "/*! RENAME TABLE old TO prod.reports_new */"] {
+    for query in [
+        "CREATE TABLE prod.reports_new (id INT)",
+        "RENAME TABLE a TO b",
+        "/*! RENAME TABLE old TO prod.reports_new */",
+    ] {
         assert!(rename_error(query.as_bytes(), b"prod", &selection()).is_none());
     }
 }
@@ -38,13 +59,29 @@ fn unsupported_or_unselected_ddl_is_not_authorized_by_diagnostics() {
 #[test]
 fn empty_table_creation_preserves_qualified_identifiers() {
     for (query, namespace, name) in [
-        ("CREATE TABLE reports_new (id BIGINT PRIMARY KEY)", "prod", "reports_new"),
-        ("CREATE TABLE other.reports_new LIKE prod.template", "other", "reports_new"),
-        ("CREATE TABLE `other.db`.`reports.new` (id INT)", "other.db", "reports.new"),
+        (
+            "CREATE TABLE reports_new (id BIGINT PRIMARY KEY)",
+            "prod",
+            "reports_new",
+        ),
+        (
+            "CREATE TABLE other.reports_new LIKE prod.template",
+            "other",
+            "reports_new",
+        ),
+        (
+            "CREATE TABLE `other.db`.`reports.new` (id INT)",
+            "other.db",
+            "reports.new",
+        ),
     ] {
-        assert_eq!(created_table(query.as_bytes(), b"prod"), Some(TableIdentity {
-            namespace: namespace.into(), name: name.into(),
-        }));
+        assert_eq!(
+            created_table(query.as_bytes(), b"prod"),
+            Some(TableIdentity {
+                namespace: namespace.into(),
+                name: name.into(),
+            })
+        );
     }
 }
 
@@ -59,7 +96,10 @@ fn ambiguous_or_populated_creation_is_never_admitted() {
         "/*! CREATE TABLE reports_new (id INT) */",
         "CREATE TABLE",
     ] {
-        assert!(created_table(query.as_bytes(), b"prod").is_none(), "{query}");
+        assert!(
+            created_table(query.as_bytes(), b"prod").is_none(),
+            "{query}"
+        );
     }
     assert!(created_table(b"CREATE TABLE reports_new (id INT)", b"").is_none());
     assert!(created_table(b"\xff", b"prod").is_none());

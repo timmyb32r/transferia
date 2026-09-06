@@ -279,7 +279,9 @@ async fn drain_partition(
                 }
             }
             SourceBatch::Finished => break,
-            SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => panic!("PostgreSQL snapshot must emit typed batches"),
+            SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => {
+                panic!("PostgreSQL snapshot must emit typed batches")
+            }
         }
     }
     rows.sort_by_key(|row| row.0);

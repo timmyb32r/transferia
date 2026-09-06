@@ -60,7 +60,8 @@ pub fn register(
                 }
                 let tables = mysql::list_tables(&config.connection()).await?;
                 Ok(transferia_registry::ConnectionCheckResult {
-                    tables: Some(tables), ..Default::default()
+                    tables: Some(tables),
+                    ..Default::default()
                 })
             })
             .sink::<mysql::sink::MySqlSinkConfig, _, _>(

@@ -17,9 +17,16 @@ pub struct MySqlSinkConfig {
 }
 
 impl MySqlSinkConfig {
-    pub(crate) fn target_database<'a>(&'a self, namespace: Option<&'a str>) -> anyhow::Result<&'a str> {
+    pub(crate) fn target_database<'a>(
+        &'a self,
+        namespace: Option<&'a str>,
+    ) -> anyhow::Result<&'a str> {
         let database = if self.connection.database.is_empty() {
-            namespace.ok_or_else(|| anyhow::anyhow!("MySQL destination needs a Database: the source dataset has no database/schema"))?
+            namespace.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "MySQL destination needs a Database: the source dataset has no database/schema"
+                )
+            })?
         } else {
             &self.connection.database
         };

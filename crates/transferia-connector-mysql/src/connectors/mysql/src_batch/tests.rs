@@ -67,8 +67,9 @@ tables:
 fn system_table_filter_defaults_to_enabled_above_table_selection() -> anyhow::Result<()> {
     let config: MySqlSourceConfig = serde_yaml::from_str(MINIMAL_SOURCE_CONFIG)?;
     assert!(config.hide_system_tables);
-    let explicit: MySqlSourceConfig = serde_yaml::from_str(
-        &format!("{MINIMAL_SOURCE_CONFIG}hide_system_tables: false\n"))?;
+    let explicit: MySqlSourceConfig = serde_yaml::from_str(&format!(
+        "{MINIMAL_SOURCE_CONFIG}hide_system_tables: false\n"
+    ))?;
     assert!(!explicit.hide_system_tables);
     let schema = serde_json::to_value(schemars::schema_for!(MySqlSourceConfig))?;
     let field = &schema["properties"]["hide_system_tables"];
@@ -84,31 +85,51 @@ fn system_table_filter_defaults_to_enabled_above_table_selection() -> anyhow::Re
 fn table_selection_filters_only_exact_mysql_system_databases() -> anyhow::Result<()> {
     let mut config: MySqlSourceConfig = serde_yaml::from_str(MINIMAL_SOURCE_CONFIG)?;
     config.tables = serde_yaml::from_str("type: all")?;
-    let namespaces = ["mysql", "information_schema", "performance_schema", "sys",
-        "reports", "mysql_backup", "information_schema_extra", "performance_schema_backup", "syslog"];
-    let catalog = namespaces.iter().map(|namespace| transferia_registry::TableIdentity {
-        namespace: (*namespace).into(), name: format!("{namespace}_table"),
-    }).collect::<Vec<_>>();
+    let namespaces = [
+        "mysql",
+        "information_schema",
+        "performance_schema",
+        "sys",
+        "reports",
+        "mysql_backup",
+        "information_schema_extra",
+        "performance_schema_backup",
+        "syslog",
+    ];
+    let catalog = namespaces
+        .iter()
+        .map(|namespace| transferia_registry::TableIdentity {
+            namespace: (*namespace).into(),
+            name: format!("{namespace}_table"),
+        })
+        .collect::<Vec<_>>();
     let mut visible = catalog[4..].to_vec();
     visible.sort();
     assert_eq!(config.resolve_tables(catalog.clone())?, visible);
     for table in &catalog {
-        assert_eq!(config.includes_database(&table.namespace), catalog[4..].contains(table));
+        assert_eq!(
+            config.includes_database(&table.namespace),
+            catalog[4..].contains(table)
+        );
     }
     config.hide_system_tables = false;
     let mut all = catalog.clone();
     all.sort();
     assert_eq!(config.resolve_tables(catalog.clone())?, all);
-    assert!(catalog.iter().all(|table| config.includes_database(&table.namespace)));
+    assert!(catalog
+        .iter()
+        .all(|table| config.includes_database(&table.namespace)));
     Ok(())
 }
 
 #[test]
-fn hidden_table_rules_fail_before_startup_instead_of_silently_selecting_nothing() -> anyhow::Result<()> {
+fn hidden_table_rules_fail_before_startup_instead_of_silently_selecting_nothing(
+) -> anyhow::Result<()> {
     let mut config: MySqlSourceConfig = serde_yaml::from_str(MINIMAL_SOURCE_CONFIG)?;
     config.tables = serde_yaml::from_str("type: selected\nrules:\n  - include: mysql.user\n")?;
     let catalog = vec![transferia_registry::TableIdentity {
-        namespace: "mysql".into(), name: "user".into(),
+        namespace: "mysql".into(),
+        name: "user".into(),
     }];
     assert!(config.resolve_tables(catalog.clone()).is_err());
     config.tables = serde_yaml::from_str("type: all")?;

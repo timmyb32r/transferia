@@ -1,7 +1,7 @@
 mod checksum;
 mod config;
-mod decoder;
 mod ddl;
+mod decoder;
 mod identity;
 mod offset;
 mod position;

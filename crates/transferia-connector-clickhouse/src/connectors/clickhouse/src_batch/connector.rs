@@ -182,12 +182,24 @@ impl ClickHouseSourceConnector {
                     .await
                     .map_err(|error| anyhow::anyhow!("ClickHouse connection failed: {error}"))?;
                 let catalog = list_tables(&self.client, self.config.hide_system_tables).await?;
-                let selected = self.config.tables.compile()?.resolve(&catalog)?.selected_tables()?;
+                let selected = self
+                    .config
+                    .tables
+                    .compile()?
+                    .resolve(&catalog)?
+                    .selected_tables()?;
                 let mut tables = Vec::with_capacity(selected.len());
                 for table in selected {
-                    tables.push(discover_table(&self.client, TableConfig {
-                        database: table.namespace, name: table.name,
-                    }).await?);
+                    tables.push(
+                        discover_table(
+                            &self.client,
+                            TableConfig {
+                                database: table.namespace,
+                                name: table.name,
+                            },
+                        )
+                        .await?,
+                    );
                 }
                 Ok(Arc::new(tables))
             })
@@ -350,48 +362,91 @@ fn snapshot_query(table: &TableConfig) -> String {
     )
 }
 
-async fn list_tables(client: &ReconnectingClient, hide_system_tables: bool) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
+async fn list_tables(
+    client: &ReconnectingClient,
+    hide_system_tables: bool,
+) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
     let batches = transferia_connector_support::external_request::observe_external_request(
-        "clickhouse", "list_tables",
-        client.query_all("SELECT database, name FROM system.tables \
+        "clickhouse",
+        "list_tables",
+        client.query_all(
+            "SELECT database, name FROM system.tables \
             WHERE is_temporary = 0 \
-            ORDER BY database, name"),
-    ).await?;
+            ORDER BY database, name",
+        ),
+    )
+    .await?;
     let mut tables = Vec::new();
     for batch in batches {
-        anyhow::ensure!(batch.num_columns() == 2, "ClickHouse table catalog must have two columns");
+        anyhow::ensure!(
+            batch.num_columns() == 2,
+            "ClickHouse table catalog must have two columns"
+        );
         let namespaces = cast(batch.column(0), &DataType::Utf8)?;
         let names = cast(batch.column(1), &DataType::Utf8)?;
-        let namespaces = namespaces.as_any().downcast_ref::<StringArray>()
+        let namespaces = namespaces
+            .as_any()
+            .downcast_ref::<StringArray>()
             .ok_or_else(|| anyhow::anyhow!("ClickHouse catalog database is not a string"))?;
-        let names = names.as_any().downcast_ref::<StringArray>()
+        let names = names
+            .as_any()
+            .downcast_ref::<StringArray>()
             .ok_or_else(|| anyhow::anyhow!("ClickHouse catalog table is not a string"))?;
         for row in 0..batch.num_rows() {
-            anyhow::ensure!(!namespaces.is_null(row) && !names.is_null(row), "ClickHouse table catalog contains NULL names");
+            anyhow::ensure!(
+                !namespaces.is_null(row) && !names.is_null(row),
+                "ClickHouse table catalog contains NULL names"
+            );
             if hide_system_tables && super::config::is_system_database(namespaces.value(row)) {
                 continue;
             }
             tables.push(transferia_registry::TableIdentity {
-                namespace: namespaces.value(row).to_owned(), name: names.value(row).to_owned(),
+                namespace: namespaces.value(row).to_owned(),
+                name: names.value(row).to_owned(),
             });
         }
     }
     let mut readable = Vec::with_capacity(tables.len());
     for table in tables {
-        let query = format!("CHECK GRANT SELECT ON {}.{}", quote_identifier(&table.namespace), quote_identifier(&table.name));
+        let query = format!(
+            "CHECK GRANT SELECT ON {}.{}",
+            quote_identifier(&table.namespace),
+            quote_identifier(&table.name)
+        );
         let grants = transferia_connector_support::external_request::observe_external_request(
-            "clickhouse", "check_table_read_access", client.query_all(&query),
-        ).await?;
-        anyhow::ensure!(grants.iter().map(arrow::record_batch::RecordBatch::num_rows).sum::<usize>() == 1,
-            "ClickHouse CHECK GRANT must return exactly one result");
-        let grant = grants.iter().find(|batch| batch.num_rows() == 1)
+            "clickhouse",
+            "check_table_read_access",
+            client.query_all(&query),
+        )
+        .await?;
+        anyhow::ensure!(
+            grants
+                .iter()
+                .map(arrow::record_batch::RecordBatch::num_rows)
+                .sum::<usize>()
+                == 1,
+            "ClickHouse CHECK GRANT must return exactly one result"
+        );
+        let grant = grants
+            .iter()
+            .find(|batch| batch.num_rows() == 1)
             .ok_or_else(|| anyhow::anyhow!("ClickHouse CHECK GRANT returned no result"))?;
-        anyhow::ensure!(grant.num_columns() == 1, "ClickHouse CHECK GRANT must return one column");
+        anyhow::ensure!(
+            grant.num_columns() == 1,
+            "ClickHouse CHECK GRANT must return one column"
+        );
         let values = cast(grant.column(0), &DataType::UInt8)?;
-        let values = values.as_any().downcast_ref::<arrow::array::UInt8Array>()
+        let values = values
+            .as_any()
+            .downcast_ref::<arrow::array::UInt8Array>()
             .ok_or_else(|| anyhow::anyhow!("ClickHouse CHECK GRANT returned an invalid type"))?;
-        anyhow::ensure!(!values.is_null(0) && values.value(0) <= 1, "ClickHouse CHECK GRANT returned an invalid decision");
-        if values.value(0) == 1 { readable.push(table); }
+        anyhow::ensure!(
+            !values.is_null(0) && values.value(0) <= 1,
+            "ClickHouse CHECK GRANT returned an invalid decision"
+        );
+        if values.value(0) == 1 {
+            readable.push(table);
+        }
     }
     Ok(readable)
 }
@@ -488,27 +543,51 @@ async fn discover_table(
     let mut schema = DatasetSchema::new(columns);
     let key_query = format!(
         "SELECT primary_key, sorting_key FROM system.tables WHERE database = {} AND name = {}",
-        quote_string_literal(&table.database), quote_string_literal(&table.name),
+        quote_string_literal(&table.database),
+        quote_string_literal(&table.name),
     );
-    let key_batches = client.query_all(&key_query).await
+    let key_batches = client
+        .query_all(&key_query)
+        .await
         .map_err(|error| anyhow::anyhow!("cannot inspect ClickHouse source table key: {error}"))?;
     let mut found_key = false;
     for batch in key_batches {
-        anyhow::ensure!(batch.num_columns() == 2, "ClickHouse key metadata must contain two columns");
+        anyhow::ensure!(
+            batch.num_columns() == 2,
+            "ClickHouse key metadata must contain two columns"
+        );
         let primary = cast(batch.column(0), &DataType::Utf8)?;
         let sorting = cast(batch.column(1), &DataType::Utf8)?;
-        let primary = primary.as_any().downcast_ref::<StringArray>()
+        let primary = primary
+            .as_any()
+            .downcast_ref::<StringArray>()
             .ok_or_else(|| anyhow::anyhow!("ClickHouse primary key metadata is not a string"))?;
-        let sorting = sorting.as_any().downcast_ref::<StringArray>()
+        let sorting = sorting
+            .as_any()
+            .downcast_ref::<StringArray>()
             .ok_or_else(|| anyhow::anyhow!("ClickHouse sorting key metadata is not a string"))?;
         for row in 0..batch.num_rows() {
-            anyhow::ensure!(!found_key, "ClickHouse returned duplicate table key metadata");
-            anyhow::ensure!(!primary.is_null(row) && !sorting.is_null(row), "ClickHouse key metadata contains NULL");
-            apply_discovered_primary_key(&mut schema, &table, primary.value(row), sorting.value(row))?;
+            anyhow::ensure!(
+                !found_key,
+                "ClickHouse returned duplicate table key metadata"
+            );
+            anyhow::ensure!(
+                !primary.is_null(row) && !sorting.is_null(row),
+                "ClickHouse key metadata contains NULL"
+            );
+            apply_discovered_primary_key(
+                &mut schema,
+                &table,
+                primary.value(row),
+                sorting.value(row),
+            )?;
             found_key = true;
         }
     }
-    anyhow::ensure!(found_key, "ClickHouse source table disappeared during key discovery");
+    anyhow::ensure!(
+        found_key,
+        "ClickHouse source table disappeared during key discovery"
+    );
     let physical_system_columns = classify_system_columns(&schema)?;
     Ok(DiscoveredTable {
         config: table,
@@ -523,21 +602,34 @@ pub(super) fn apply_discovered_primary_key(
     primary_key: &str,
     sorting_key: &str,
 ) -> anyhow::Result<()> {
-    let selected = if primary_key == sorting_key { sorting_key } else { primary_key };
+    let selected = if primary_key == sorting_key {
+        sorting_key
+    } else {
+        primary_key
+    };
     if matches!(selected.trim(), "" | "tuple()" | "()") {
         return Ok(());
     }
     let selected = selected.trim();
-    let body = selected.strip_prefix('(').and_then(|key| key.strip_suffix(')')).unwrap_or(selected);
+    let body = selected
+        .strip_prefix('(')
+        .and_then(|key| key.strip_suffix(')'))
+        .unwrap_or(selected);
     let mut keys = HashSet::new();
     for key in body.split(',') {
         let key = key.trim();
-        let key = key.strip_prefix('`').and_then(|key| key.strip_suffix('`')).unwrap_or(key);
+        let key = key
+            .strip_prefix('`')
+            .and_then(|key| key.strip_suffix('`'))
+            .unwrap_or(key);
         validate_identifier(key).map_err(|_| anyhow::anyhow!(
             "ClickHouse source key for '{}.{}' must contain plain column names; expressions are not supported",
             table.database, table.name,
         ))?;
-        anyhow::ensure!(keys.insert(key), "ClickHouse source key repeats column '{key}'");
+        anyhow::ensure!(
+            keys.insert(key),
+            "ClickHouse source key repeats column '{key}'"
+        );
         let column = schema
             .columns
             .iter_mut()

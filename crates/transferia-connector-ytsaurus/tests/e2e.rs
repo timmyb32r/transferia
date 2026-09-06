@@ -357,7 +357,9 @@ async fn ytsaurus_source_and_arrow_sink_use_the_real_http_api() -> anyhow::Resul
                 rows += tables[0].batch.num_rows();
             }
             SourceBatch::Finished => break,
-            SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => anyhow::bail!("YTsaurus source returned raw bytes"),
+            SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => {
+                anyhow::bail!("YTsaurus source returned raw bytes")
+            }
         }
     }
     assert_eq!(rows, 3);

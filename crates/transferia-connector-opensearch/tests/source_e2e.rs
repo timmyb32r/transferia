@@ -206,7 +206,9 @@ async fn opensearch_source_reads_one_coherent_index_pit_without_loss() -> anyhow
                     }
                 }
                 SourceBatch::Finished => break,
-                SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => anyhow::bail!("expected typed OpenSearch rows"),
+                SourceBatch::Dataset { .. } | SourceBatch::Raw { .. } => {
+                    anyhow::bail!("expected typed OpenSearch rows")
+                }
             }
         }
         assert_eq!(identities.len(), expected_count);
