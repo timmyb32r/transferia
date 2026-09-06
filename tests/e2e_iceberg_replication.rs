@@ -367,8 +367,12 @@ async fn deliver_to_iceberg(
 #[tokio::test]
 async fn postgres_and_mysql_replicate_to_iceberg_exactly_once() -> anyhow::Result<()> {
     let iceberg = IcebergFixture::start().await?;
-    exercise_mysql(&iceberg).await?;
-    exercise_postgres(&iceberg).await?;
+    exercise_mysql(&iceberg)
+        .await
+        .context("MySQL to Iceberg replication")?;
+    exercise_postgres(&iceberg)
+        .await
+        .context("PostgreSQL to Iceberg replication")?;
     Ok(())
 }
 
@@ -701,7 +705,7 @@ fn postgres_connector(config: &str) -> anyhow::Result<PostgresSourceConnector> {
 
 fn mysql_source_yaml(connection: &MySqlConnectionConfig) -> String {
     format!(
-        "host: '{}'\nport: {}\ndatabase: transferia\nusername: {}\npassword: {}\ntrusted_plaintext: true\ntables:\n  type: selected\n  rules:\n    - include: public.mysql_replica\nreplication:\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n",
+        "host: '{}'\nport: {}\ndatabase: transferia\nusername: {}\npassword: {}\ntrusted_plaintext: true\ntables:\n  type: selected\n  rules:\n    - include: transferia.mysql_replica\nreplication:\n  max_events: 1024\n  poll_interval_ms: 10\n  bootstrap_timeout_ms: 10000\n",
         connection.host, connection.port, connection.username, connection.password,
     )
 }

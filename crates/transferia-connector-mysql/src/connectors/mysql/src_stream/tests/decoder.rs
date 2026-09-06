@@ -29,9 +29,8 @@ fn decoder() -> MySqlBinlogDecoder {
 #[test]
 fn rename_into_selection_fails_without_advancing_binlog_position() {
     let mut decoder = decoder();
-    let selection: transferia_registry::table_selection::TableSelection = serde_yaml::from_str(
-        "rules:\n  - include: db.reports_*\n",
-    ).unwrap();
+    let selection: transferia_registry::table_selection::TableSelection =
+        serde_yaml::from_str("type: selected\nrules:\n  - include: db.reports_*\n").unwrap();
     decoder.set_table_selection(selection.compile().unwrap());
     let before = decoder.current_position().clone();
     let mut data = Vec::new();
@@ -43,7 +42,10 @@ fn rename_into_selection_fails_without_advancing_binlog_position() {
     data.extend_from_slice(b"db\0RENAME TABLE staging.old TO db.reports_new");
     let event = raw_event(EventType::QUERY_EVENT, &data, before.position);
     let error = decoder.decode(&event).unwrap_err();
-    assert!(matches!(error, BinlogDecodeError::UnsafeRename(_)), "{error}");
+    assert!(
+        matches!(error, BinlogDecodeError::UnsafeRename(_)),
+        "{error}"
+    );
     assert_eq!(decoder.current_position(), &before);
 }
 
