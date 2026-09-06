@@ -13,7 +13,7 @@ fn rule(include: &str, exclude: Option<&str>) -> TableRule {
 }
 
 fn resolve(rules: Vec<TableRule>, catalog: &[TableIdentity]) -> SelectionPreview {
-    TableSelection { rules, empty_matches: EmptyMatches::FailValidation }
+    TableSelection { rules }
         .compile().unwrap().resolve(catalog).unwrap()
 }
 
@@ -30,10 +30,10 @@ fn exclusions_are_limited_to_their_own_include() {
     let catalog = [table("db", "reports_test"), table("db", "users_test")];
     let selection = TableSelection {
         rules: vec![rule("db.reports_*", Some("db.*_test")), rule("db.users_test", None)],
-        empty_matches: EmptyMatches::AllowEmptyMatches,
     };
     let result = selection.compile().unwrap().resolve(&catalog).unwrap();
-    assert!(result.issues.is_empty());
+    assert_eq!(result.issues, vec![SelectionIssue::EmptyMatch { card: 0 }]);
+    assert!(result.selected_tables().is_err());
     assert_eq!(result.cards[0].excluded, vec![catalog[0].clone()]);
     assert_eq!(result.cards[1].selected, vec![catalog[1].clone()]);
 }
@@ -50,15 +50,15 @@ fn two_cards_selecting_the_same_table_are_a_conflict() {
 #[test]
 fn another_cards_exclusion_conflicts_in_either_order() {
     let target = table("db", "reports_test");
-    for rules in [
+    for (empty_card, rules) in [
         vec![rule("db.reports_*", Some("db.*_test")), rule("db.reports_test", None)],
         vec![rule("db.reports_test", None), rule("db.reports_*", Some("db.*_test"))],
-    ] {
-        let result = TableSelection { rules, empty_matches: EmptyMatches::AllowEmptyMatches }
+    ].into_iter().enumerate() {
+        let result = TableSelection { rules }
             .compile().unwrap().resolve(&[target.clone()]).unwrap();
         assert_eq!(result.issues, vec![SelectionIssue::Conflict {
             table: target.clone(), first_card: 0, second_card: 1, kind: ConflictKind::IncludeExclude,
-        }]);
+        }, SelectionIssue::EmptyMatch { card: empty_card }]);
     }
 }
 
@@ -66,21 +66,19 @@ fn another_cards_exclusion_conflicts_in_either_order() {
 fn two_exclusions_do_not_conflict() {
     let result = TableSelection {
         rules: vec![rule("db.*", Some("db.*")), rule("db.*", Some("db.*"))],
-        empty_matches: EmptyMatches::AllowEmptyMatches,
     }.compile().unwrap().resolve(&[table("db", "t")]).unwrap();
-    assert_eq!(result.issues, vec![SelectionIssue::NoTables]);
+    assert_eq!(result.issues, vec![SelectionIssue::EmptyMatch { card: 0 }, SelectionIssue::EmptyMatch { card: 1 }]);
 }
 
 #[test]
-fn allowing_empty_cards_never_allows_an_empty_delivery() {
+fn empty_cards_always_fail_in_both_pattern_modes() {
     for mode in [PatternMode::Glob, PatternMode::Regex] {
         for catalog in [vec![], vec![table("db", "unmatched")]] {
             let selection = TableSelection {
                 rules: vec![TableRule { include: "missing".into(), exclude: None, mode }],
-                empty_matches: EmptyMatches::AllowEmptyMatches,
             };
             let preview = selection.compile().unwrap().resolve(&catalog).unwrap();
-            assert_eq!(preview.issues, vec![SelectionIssue::NoTables]);
+            assert_eq!(preview.issues, vec![SelectionIssue::EmptyMatch { card: 0 }]);
             assert!(preview.selected_tables().is_err());
         }
     }
@@ -104,7 +102,6 @@ fn no_matching_exclusion_is_not_an_error() {
 fn regex_matches_entire_name_including_newlines() {
     let selection = TableSelection {
         rules: vec![TableRule { include: r"db\.reports_[0-9]+".into(), exclude: None, mode: PatternMode::Regex }],
-        empty_matches: EmptyMatches::FailValidation,
     };
     let catalog = [table("db", "reports_1"), table("db", "reports_1\n"), table("xdb", "reports_1")];
     let result = selection.compile().unwrap().resolve(&catalog).unwrap();
@@ -127,16 +124,16 @@ fn question_mark_matches_one_unicode_character() {
 }
 
 #[test]
-fn invalid_patterns_fail_even_when_empty_matches_are_allowed() {
+fn invalid_patterns_fail() {
     for bad in [rule("db.x\\", None), TableRule { include: "[".into(), exclude: None, mode: PatternMode::Regex }] {
-        assert!(TableSelection { rules: vec![bad], empty_matches: EmptyMatches::AllowEmptyMatches }.compile().is_err());
+        assert!(TableSelection { rules: vec![bad] }.compile().is_err());
     }
 }
 
 #[test]
 fn invalid_exclude_identifies_card_and_field() {
     let error = TableSelection {
-        rules: vec![rule("db.*", Some("bad\\"))], empty_matches: EmptyMatches::AllowEmptyMatches,
+        rules: vec![rule("db.*", Some("bad\\"))],
     }.compile().err().unwrap();
     assert_eq!(error.card, 0);
     assert_eq!(error.field, PatternField::Exclude);
@@ -148,7 +145,6 @@ fn exact_patterns_roundtrip_in_both_modes() {
     for mode in [PatternMode::Glob, PatternMode::Regex] {
         let result = TableSelection {
             rules: vec![TableRule { include: mode.exact_pattern(&target), exclude: None, mode }],
-            empty_matches: EmptyMatches::FailValidation,
         }.compile().unwrap().resolve(&[target.clone()]).unwrap();
         assert_eq!(result.cards[0].selected, vec![target.clone()]);
     }
@@ -162,7 +158,6 @@ fn qualified_names_do_not_merge_dots_in_different_identifier_parts() {
     for mode in [PatternMode::Glob, PatternMode::Regex] {
         let result = TableSelection {
             rules: vec![TableRule { include: mode.exact_pattern(&target), exclude: None, mode }],
-            empty_matches: EmptyMatches::FailValidation,
         }.compile().unwrap().resolve(&[target.clone(), other.clone()]).unwrap();
         assert_eq!(result.cards[0].selected, vec![target.clone()]);
     }
@@ -171,7 +166,7 @@ fn qualified_names_do_not_merge_dots_in_different_identifier_parts() {
 #[test]
 fn duplicate_catalog_identities_fail_instead_of_silent_deduplication() {
     let compiled = TableSelection {
-        rules: vec![rule("*.*", None)], empty_matches: EmptyMatches::FailValidation,
+        rules: vec![rule("*.*", None)],
     }.compile().unwrap();
     assert!(compiled.resolve(&[table("db", "t"), table("db", "t")]).is_err());
 }
@@ -181,7 +176,12 @@ fn serialized_defaults_fail_on_empty_matches_and_use_glob() {
     let selection: TableSelection = serde_json::from_value(serde_json::json!({
         "rules": [{ "include": "db.*" }]
     })).unwrap();
-    assert_eq!(selection.empty_matches, EmptyMatches::FailValidation);
+    assert_eq!(selection.compile().unwrap().resolve(&[]).unwrap().issues, vec![SelectionIssue::EmptyMatch { card: 0 }]);
+    assert!(serde_json::from_value::<TableSelection>(serde_json::json!({
+        "rules": [], "empty_matches": "allow_empty_matches"
+    })).is_err());
+    assert!(serde_json::to_value(schemars::schema_for!(TableSelection)).unwrap()
+        .pointer("/properties/empty_matches").is_none());
     assert_eq!(selection.rules[0].mode, PatternMode::Glob);
 }
 
@@ -190,7 +190,6 @@ fn classifying_a_future_table_uses_the_same_conflicts_as_preview() {
     let target = table("db", "reports_2027");
     let compiled = TableSelection {
         rules: vec![rule("db.*", None), rule("db.reports_*", None)],
-        empty_matches: EmptyMatches::AllowEmptyMatches,
     }.compile().unwrap();
     assert_eq!(compiled.resolve(&[target.clone()]).unwrap().issues, compiled.classify(&target).issues);
 }
@@ -202,9 +201,9 @@ fn startup_cannot_consume_a_conflicting_preview() {
 }
 
 #[test]
-fn no_rules_is_not_the_same_as_allowing_empty_matches() {
+fn no_rules_rejects_startup() {
     let preview = TableSelection {
-        rules: vec![], empty_matches: EmptyMatches::AllowEmptyMatches,
+        rules: vec![],
     }.compile().unwrap().resolve(&[]).unwrap();
     assert_eq!(preview.issues, vec![SelectionIssue::NoRules]);
     assert!(preview.selected_tables().is_err());

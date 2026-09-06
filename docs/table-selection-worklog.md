@@ -35,7 +35,7 @@ Invocation started 2026-09-06. No accepted obligations cancelled.
 | --- | --- | --- | --- |
 | R1 | Shared exact/glob/regex, lossless qualified names, per-card exclusions and both conflicts | verified | 19 registry tests; shared preview/startup/admission classifier |
 | R2 | Authenticated accessible PG/MySQL/CH catalog, structured namespace/name | verified | PG privilege filters; MySQL SELECT probe; CH CHECK GRANT; network-only cannot enable editor |
-| R3 | Fixed PG/CH selection and empty-match policy | verified | User chose rejection of empty combined selection. Shared startup boundary rejects before destination preparation, even with Allow empty matches. Registry 20 tests and UI regression passed. |
+| R3 | Fixed PG/CH selection and empty-match policy | implemented | Latest decision: every empty card always fails; configurable policy removed from UI, YAML and schemas. Regression tests updated. |
 | R4 | MySQL optional database and cross-database restart identity | verified | Live cross-database CREATE/restart in both modes with database omitted |
 | R5 | MySQL sink override/namespace, missing namespace and collision rejection | verified | Qualified SQL, 16 focused sink tests, startup and admission collision checks |
 | R6 | New tables auto/default and fixed option, prepare before rows, atomic checkpoint and restart | verified | Live CREATE/restart, locked startup race, Ignore, pipeline/coordinator barriers. All-empty startup remains R3. |

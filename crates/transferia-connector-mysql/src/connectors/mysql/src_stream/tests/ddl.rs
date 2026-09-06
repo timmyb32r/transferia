@@ -1,10 +1,9 @@
 use super::*;
-use transferia_registry::table_selection::{EmptyMatches, PatternMode, TableRule, TableSelection};
+use transferia_registry::table_selection::{PatternMode, TableRule, TableSelection};
 
 fn selection() -> CompiledSelection {
     TableSelection {
         rules: vec![TableRule { include: "prod.reports_*".into(), exclude: None, mode: PatternMode::Glob }],
-        empty_matches: EmptyMatches::FailValidation,
     }.compile().unwrap()
 }
 

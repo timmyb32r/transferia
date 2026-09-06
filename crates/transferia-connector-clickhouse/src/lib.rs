@@ -30,7 +30,7 @@ pub fn register(
                         "hosts": [""], "port": clickhouse::DEFAULT_NATIVE_PORT,
                         "http_port": 8123,
                         "trusted_plaintext": true, "username": "", "password": "",
-                        "tables": { "rules": [], "empty_matches": "fail_validation" },
+                        "tables": { "rules": [] },
                         "batch_rows": 65409,
                         "snapshot_reader": {
                             "type": "parquet", "compression": "zstd", "max_threads": 32,

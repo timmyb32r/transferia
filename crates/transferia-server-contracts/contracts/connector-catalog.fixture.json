@@ -4407,10 +4407,6 @@
                   "items": {
                     "$ref": "#/$defs/TableRule"
                   }
-                },
-                "empty_matches": {
-                  "$ref": "#/$defs/EmptyMatches",
-                  "default": "fail_validation"
                 }
               },
               "additionalProperties": false,
@@ -4446,13 +4442,6 @@
               "enum": [
                 "glob",
                 "regex"
-              ]
-            },
-            "EmptyMatches": {
-              "type": "string",
-              "enum": [
-                "fail_validation",
-                "allow_empty_matches"
               ]
             },
             "NewTables": {
@@ -4538,8 +4527,7 @@
           "password": "",
           "max_row_bytes": 1073741824,
           "tables": {
-            "rules": [],
-            "empty_matches": "fail_validation"
+            "rules": []
           },
           "batch_rows": 16384,
           "batch_target_bytes": 8388608,
@@ -5360,10 +5348,6 @@
                   "items": {
                     "$ref": "#/$defs/TableRule"
                   }
-                },
-                "empty_matches": {
-                  "$ref": "#/$defs/EmptyMatches",
-                  "default": "fail_validation"
                 }
               },
               "additionalProperties": false,
@@ -5399,13 +5383,6 @@
               "enum": [
                 "glob",
                 "regex"
-              ]
-            },
-            "EmptyMatches": {
-              "type": "string",
-              "enum": [
-                "fail_validation",
-                "allow_empty_matches"
               ]
             },
             "PostgresCopyFormat": {
@@ -5516,8 +5493,7 @@
           "username": "",
           "password": "",
           "tables": {
-            "rules": [],
-            "empty_matches": "fail_validation"
+            "rules": []
           },
           "installation": {
             "host": "",
@@ -5796,10 +5772,6 @@
                   "items": {
                     "$ref": "#/$defs/TableRule"
                   }
-                },
-                "empty_matches": {
-                  "$ref": "#/$defs/EmptyMatches",
-                  "default": "fail_validation"
                 }
               },
               "additionalProperties": false,
@@ -5835,13 +5807,6 @@
               "enum": [
                 "glob",
                 "regex"
-              ]
-            },
-            "EmptyMatches": {
-              "type": "string",
-              "enum": [
-                "fail_validation",
-                "allow_empty_matches"
               ]
             },
             "ClickHouseSnapshotReader": {
@@ -5955,8 +5920,7 @@
           "username": "",
           "password": "",
           "tables": {
-            "rules": [],
-            "empty_matches": "fail_validation"
+            "rules": []
           },
           "installation": {
             "hosts": [

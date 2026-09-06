@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from "preact/hooks";
-import type { EmptyMatches, PatternMode, SelectionPreview, TableRule, TableSelection } from "../../generated/apiContract";
+import type { PatternMode, SelectionPreview, TableRule, TableSelection } from "../../generated/apiContract";
 import type { JsonValue } from "../../json";
 import { isObject } from "../../schema/value";
 import { useTableCatalog } from "../../schema/tableCatalog";
@@ -16,7 +16,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
   const catalog = useTableCatalog();
   const id = useId();
   const selection: TableSelection = isObject(value) && Array.isArray(value.rules)
-    ? value as unknown as TableSelection : { rules: [], empty_matches: "fail_validation" };
+    ? value as unknown as TableSelection : { rules: [] };
   const fingerprint = JSON.stringify(selection);
   const [preview, setPreview] = useState<{ fingerprint: string; tables: NonNullable<typeof catalog>["tables"]; result?: SelectionPreview; error?: string }>();
   const [expanded, setExpanded] = useState<number[]>([]);
@@ -44,14 +44,6 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
       {!catalog ? "Check connection successfully to load accessible tables and enable table rules."
         : current?.error ?? current?.result?.issues.map(selectionIssue).join("\n") ?? "Updating matched tables…"}
     </div>
-    <FormField label="If a table rule matches nothing" optional={false}
-      description="Fail validation stops before destination changes when a rule selects no tables after its own Exclude. Allow empty matches permits individual empty rules, but the combined selection must contain at least one table; otherwise the delivery fails before destination preparation. Invalid expressions and conflicts always remain errors.">
-      <SelectControl value={selection.empty_matches ?? "fail_validation"} placeholder="Fail validation"
-        disabled={disabled} clearable={false} options={[
-          { value: "fail_validation", label: "Fail validation" },
-          { value: "allow_empty_matches", label: "Allow empty matches" },
-        ]} onChange={empty_matches => change({ ...selection, empty_matches: empty_matches as EmptyMatches })} />
-    </FormField>
     {fixed && <p class="muted">Table patterns are resolved at delivery startup. Tables created later are not added automatically.</p>}
     {selection.rules.map((rule, index) => {
       const mode = rule.mode ?? "glob";
@@ -77,7 +69,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
             </datalist>
           </FormField>
           <FormField label="Exclude" optional controlId={`${id}-${index}-exclude`}
-            description="Exclude subtracts only from this card's Include matches. A table included by another card and excluded here is a conflict. Two cards including the same table also conflict; no winner is chosen silently.">
+            description="Exclude subtracts only from this card's Include matches. Every card must select at least one table after exclusion; otherwise validation fails before destination preparation. A table included by another card and excluded here is a conflict. Two cards including the same table also conflict; no winner is chosen silently.">
             <AutofillResistantInput type="text" id={`${id}-${index}-exclude`} value={rule.exclude ?? ""}
               disabled={disabled || !catalog} onInput={event => update(index, { exclude: event.currentTarget.value })} />
           </FormField>

@@ -12,7 +12,7 @@ const tables = Array.from({ length: 40 }, (_, index) => ({ namespace: "analytics
 const catalog = { tables, preview: async () => ({ cards: [{ selected: tables, excluded: [] }], issues: [] }) };
 function Fixture() {
   const [verified, setVerified] = useState(false);
-  const [value, setValue] = useState<JsonValue>({ rules: [{ include: "analytics.reports_*", mode: "glob" }], empty_matches: "fail_validation" });
+  const [value, setValue] = useState<JsonValue>({ rules: [{ include: "analytics.reports_*", mode: "glob" }] });
   return <main style={{ padding: "24px", maxWidth: "980px", margin: "auto" }}>
     <h1>Table selection · visual smoke fixture</h1>
     <Button onClick={() => setVerified(!verified)}>{verified ? "Invalidate connection" : "Provide verified catalog"}</Button>

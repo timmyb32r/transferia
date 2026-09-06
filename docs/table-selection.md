@@ -8,7 +8,7 @@ barrier followed by an atomic membership/binlog checkpoint. Startup verifies
 the table-rule membership again under the read lock. Restart reconstructs
 the destination actor from committed membership without preparing old tables
 again. A completely empty combined selection always rejects startup before
-destination preparation, even when individual empty rules are allowed.
+destination preparation. Every individual rule must also select at least one table.
 See `table-selection-worklog.md` for acceptance and verification evidence.
 
 ## Scope
@@ -56,15 +56,11 @@ For distinct cards i and j, reject S_i intersect S_j and S_i intersect E_j.
 Show the conflicting tables and both cards. Within-card subtraction is normal,
 not a conflict. Never silently choose a winning card.
 
-If a table rule matches nothing is a source-wide dropdown:
-
-- Fail validation (default).
-- Allow empty matches.
-
-It applies to S_i, not to Exclude by itself. Invalid expressions are errors,
-never empty matches. The union of all S_i must contain at least one table:
-otherwise the delivery fails before destination preparation, including when
-Allow empty matches is selected. Match previews show a count and a bounded list with access
+Every S_i must contain at least one table after its own Exclude is applied.
+An empty card always fails validation before destination preparation, even if
+another card matches tables. This policy is not configurable in UI or YAML.
+An Exclude expression matching nothing is not itself an error. Invalid
+expressions always fail. Match previews show a count and a bounded list with access
 to the complete result without unbounded growth of the form.
 
 ## Runtime membership

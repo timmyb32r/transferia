@@ -48,21 +48,11 @@ pub struct TableRule {
     pub mode: PatternMode,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum EmptyMatches {
-    #[default]
-    FailValidation,
-    AllowEmptyMatches,
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TableSelection {
     pub rules: Vec<TableRule>,
 
-    #[serde(default)]
-    pub empty_matches: EmptyMatches,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, JsonSchema, PartialEq, Eq)]
@@ -91,7 +81,6 @@ pub enum ConflictKind {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SelectionIssue {
     NoRules,
-    NoTables,
     EmptyMatch {
         card: usize,
     },
@@ -121,7 +110,7 @@ impl SelectionPreview {
     /// identities only after every rule and cross-card conflict was checked.
     pub fn selected_tables(&self) -> anyhow::Result<Vec<TableIdentity>> {
         anyhow::ensure!(self.cards.iter().any(|card| !card.selected.is_empty()),
-            "No tables selected. A delivery must select at least one table, even when empty matches are allowed for individual rules.");
+            "No tables selected. A delivery must select at least one table.");
         anyhow::ensure!(self.issues.is_empty(), "Invalid table selection: {:?}", self.issues);
         Ok(self.cards.iter().flat_map(|card| card.selected.iter().cloned()).collect())
     }
@@ -140,7 +129,6 @@ struct CompiledRule {
 
 pub struct CompiledSelection {
     rules: Vec<CompiledRule>,
-    empty_matches: EmptyMatches,
 }
 
 impl TableSelection {
@@ -154,7 +142,7 @@ impl TableSelection {
                     .map(|text| compile(text, PatternField::Exclude)).transpose()?,
             })
         }).collect::<Result<Vec<_>, PatternError>>()?;
-        Ok(CompiledSelection { rules, empty_matches: self.empty_matches })
+        Ok(CompiledSelection { rules })
     }
 }
 
@@ -212,12 +200,9 @@ impl CompiledSelection {
         for (card, matches) in result.cards.iter_mut().enumerate() {
             matches.selected.sort();
             matches.excluded.sort();
-            if matches.selected.is_empty() && self.empty_matches == EmptyMatches::FailValidation {
+            if matches.selected.is_empty() {
                 result.issues.push(SelectionIssue::EmptyMatch { card });
             }
-        }
-        if result.issues.is_empty() && result.cards.iter().all(|card| card.selected.is_empty()) {
-            result.issues.push(SelectionIssue::NoTables);
         }
         Ok(result)
     }

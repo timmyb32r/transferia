@@ -152,8 +152,6 @@ export type DynamicOptions = {
   warning?: string;
 };
 
-export type EmptyMatches = "fail_validation" | "allow_empty_matches";
-
 export type EndpointDefinition = {
   connection_check: boolean;
   delivery_modes: Array<DeliveryMode>;
@@ -305,9 +303,6 @@ export type SelectionIssue =
       kind: "no_rules";
     }
   | {
-      kind: "no_tables";
-    }
-  | {
       card: number;
       kind: "empty_match";
     }
@@ -452,7 +447,6 @@ export type TableRule = {
 };
 
 export type TableSelection = {
-  empty_matches?: EmptyMatches;
   rules: Array<TableRule>;
 };
 

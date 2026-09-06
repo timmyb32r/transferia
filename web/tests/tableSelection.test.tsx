@@ -28,14 +28,16 @@ it("gates additions until a verified catalog is present", () => {
   expect(onChange).not.toHaveBeenCalled();
 });
 
-it("reports an empty combined selection even when individual empty matches are allowed", async () => {
+it("reports an empty rule without offering an empty-match policy", async () => {
   const preview = vi.fn().mockResolvedValue({
-    cards: [{ selected: [], excluded: [] }], issues: [{ kind: "no_tables" }],
+    cards: [{ selected: [], excluded: [] }], issues: [{ kind: "empty_match", card: 0 }],
   });
   const view = render(<TableCatalogContext.Provider value={{ tables: [], preview }}>
-    <TableSelectionEditor value={{ rules: [{ include: "db.*" }], empty_matches: "allow_empty_matches" }} onChange={() => undefined} />
+    <TableSelectionEditor value={{ rules: [{ include: "db.*" }] }} onChange={() => undefined} />
   </TableCatalogContext.Provider>);
-  await waitFor(() => expect(view.getByText(/No tables selected\. A delivery must select at least one table/)).toBeTruthy());
+  await waitFor(() => expect(view.getByText("Rule 1 selects no tables.")).toBeTruthy());
+  expect(view.queryByText("If a table rule matches nothing")).toBeNull();
+  expect(view.queryByText("Allow empty matches")).toBeNull();
 });
 
 it("bounds match previews and expands without removing the fixed viewport", async () => {

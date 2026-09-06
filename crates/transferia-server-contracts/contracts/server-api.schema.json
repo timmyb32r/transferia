@@ -539,13 +539,6 @@
       ],
       "type": "object"
     },
-    "EmptyMatches": {
-      "enum": [
-        "fail_validation",
-        "allow_empty_matches"
-      ],
-      "type": "string"
-    },
     "EndpointDefinition": {
       "additionalProperties": false,
       "properties": {
@@ -1120,18 +1113,6 @@
           "properties": {
             "kind": {
               "const": "no_rules",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "kind": {
-              "const": "no_tables",
               "type": "string"
             }
           },
@@ -1759,10 +1740,6 @@
     "TableSelection": {
       "additionalProperties": false,
       "properties": {
-        "empty_matches": {
-          "$ref": "#/$defs/EmptyMatches",
-          "default": "fail_validation"
-        },
         "rules": {
           "items": {
             "$ref": "#/$defs/TableRule"
