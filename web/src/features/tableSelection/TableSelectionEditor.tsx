@@ -69,7 +69,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
   };
   const matches = [...new Map((current?.result?.cards ?? []).flatMap(card => card.selected)
     .map(table => [JSON.stringify([table.namespace, table.name]), table])).values()];
-  const issue = current?.error || current?.result?.issues.map(selectionIssue).join(" ");
+  const issue = current?.error || current?.result?.issues.map(issue => selectionIssue(issue, selection.type)).join(" ");
   const status = !catalog ? ""
     : issue || (incomplete ? "Enter a table name or pattern." : "");
   const includeHelp = `Include is required. Preview uses the last successful connection check; startup checks the catalog again.${fixed ? " Table patterns are resolved at delivery startup. Tables created later are not added automatically." : ""}`;

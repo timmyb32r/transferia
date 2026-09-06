@@ -1,4 +1,4 @@
-import type { PatternMode, SelectionIssue, TableIdentity } from "../../generated/apiContract";
+import type { PatternMode, SelectionIssue, TableIdentity, TableSelection } from "../../generated/apiContract";
 
 export function qualifiedName(table: TableIdentity): string {
   const part = (value: string) => value.replaceAll("\\", "\\\\").replaceAll(".", "\\.");
@@ -38,9 +38,10 @@ export function tablePreviewError(error: unknown, indices: number[]): string {
       : `Rule ${indices[Number(index)]! + 1}, ${field}: `);
 }
 
-export function selectionIssue(issue: SelectionIssue): string {
+export function selectionIssue(issue: SelectionIssue, mode: TableSelection["type"]): string {
   if (issue.kind === "no_rules") return "Add at least one table rule.";
-  if (issue.kind === "empty_match") return `Rule ${issue.card + 1} selects no tables.`;
+  if (issue.kind === "empty_match") return mode === "all" ? "No tables available for transfer."
+    : `Rule ${issue.card + 1} selects no tables.`;
   return `${qualifiedName(issue.table)}: rules ${issue.first_card + 1} and ${issue.second_card + 1} ${
     issue.conflict === "multiple_includes" ? "both include this table" : "include and exclude the same table"
   }.`;

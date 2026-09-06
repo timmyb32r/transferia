@@ -42,6 +42,35 @@ it.each(["postgres", "mysql", "clickhouse"])("shows the required check and locks
   expect(group.contains(view.getByText("Advanced settings"))).toBe(false);
 });
 
+it.each(["postgres", "mysql", "clickhouse"])("reports an empty %s catalog without an imaginary rule in All tables", async connectorKey => {
+  vi.spyOn(api, "checkConnection").mockResolvedValue({ status: "verified", options: {}, message: null, tables: [] });
+  vi.spyOn(api, "previewTables").mockResolvedValue({
+    cards: [{ selected: [], excluded: [] }], issues: [{ kind: "empty_match", card: 0 }],
+  });
+  const view = render(<Form connectorKey={connectorKey} />);
+  const all = view.getByRole("radio", { name: "All tables" }) as HTMLButtonElement;
+  fireEvent.click(view.getByRole("button", { name: "Check connection" }));
+  await waitFor(() => expect(all.disabled).toBe(false));
+  fireEvent.click(all);
+  const status = view.container.querySelector(".table-selection-status")!;
+  const footer = view.container.querySelector(".table-selection-footer")!;
+  const matched = within(footer as HTMLElement).getByRole("button");
+  const controls = Array.from(footer.children);
+  await waitFor(() => expect(status.textContent).toBe("No tables available for transfer."));
+  expect(status.getAttribute("title")).toBe("No tables available for transfer.");
+  expect(status.classList.contains("has-error")).toBe(true);
+  expect(view.queryByText(/Rule \d+ selects no tables/)).toBeNull();
+  expect(view.queryByRole("combobox", { name: "Include rule 1" })).toBeNull();
+  expect(view.getByRole("button", { name: "All matched tables 0" })).toBe(matched);
+  expect(view.container.querySelector(".table-selection-status")).toBe(status);
+  expect(Array.from(footer.children)).toEqual(controls);
+
+  fireEvent.click(view.getByRole("radio", { name: "Selected tables" }));
+  expect(status.textContent).not.toContain("No tables available for transfer.");
+  fireEvent.input(view.getByRole("combobox", { name: "Include rule 1" }), { target: { value: "db.*" } });
+  await waitFor(() => expect(status.textContent).toBe("Rule 1 selects no tables."));
+});
+
 it("includes the MySQL new-table policy in the same locked group for stream deliveries", () => {
   const view = render(<Form connectorKey="mysql" deliveryType="stream" />);
   const group = view.getByRole("group", { name: "Table settings" });
