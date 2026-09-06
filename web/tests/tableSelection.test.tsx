@@ -62,7 +62,7 @@ it("distinguishes an unknown catalog from an empty one and never reopens a stale
 
 it.each([false, true])("keeps pattern help on the fields, not the table-mode selector (fixed=%s)", fixed => {
   const form = (type: "selected" | "all") => <TableSelectionEditor
-    value={type === "selected" ? { type, rules: [] } : { type }} fixed={fixed} onChange={() => undefined} />;
+    value={type === "selected" ? { type, rules: [{ include: "*", exclude: "*.temp" }] } : { type }} fixed={fixed} onChange={() => undefined} />;
   const view = render(form("selected"));
   const toolbar = view.container.querySelector(".table-selection-toolbar")!;
   expect(toolbar.querySelector(".help, [title], [role=tooltip]")).toBeNull();
@@ -564,6 +564,7 @@ it("keeps inactive drafts, independent regex modes and keyboard segment selectio
   const view = render(<Editor />);
   await waitFor(() => expect(preview).toHaveBeenCalled());
   expect(view.getByRole("button", { name: "All matched tables 1" })).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Add Exclude for rule 1" }));
   fireEvent.input(view.getByLabelText("Exclude rule 1"), { target: { value: "db.temp.*" } });
   fireEvent.click(view.getByRole("button", { name: "exclude regex rule 1" }));
   expect(view.getByRole("button", { name: "exclude regex rule 1" }).getAttribute("aria-pressed")).toBe("true");

@@ -13,6 +13,60 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const table = { namespace: "a.b", name: "reports*?" };
 const tables = [table, { namespace: "db", name: "other" }];
 
+it("reveals an optional Exclude in place and only hides it on explicit activation", async () => {
+  const preview = vi.fn().mockResolvedValue({ cards: [{ selected: tables, excluded: [] }], issues: [] });
+  const changes = vi.fn();
+  function Form() {
+    const [value, setValue] = useState<JsonValue>({ type: "selected", rules: [{ include: "db.*", exclude_mode: "regex" }] });
+    return <TableCatalogContext.Provider value={{ tables, preview }}>
+      <TableSelectionEditor value={value} onChange={next => { changes(next); setValue(next); }} />
+    </TableCatalogContext.Provider>;
+  }
+  const view = render(<Form />);
+  const remove = view.getByRole("button", { name: "Remove rule 1" });
+  const following = view.getByRole("button", { name: "Add tables" });
+  expect(view.queryByLabelText("Exclude rule 1")).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "Add Exclude for rule 1" }));
+  const input = view.getByRole("combobox", { name: "Exclude rule 1" });
+  expect(document.activeElement).toBe(input);
+  expect(changes).not.toHaveBeenCalled();
+  fireEvent.input(input, { target: { value: "db.temp" } });
+  expect((view.getByRole("button", { name: "Hide Exclude for rule 1" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.input(input, { target: { value: "" } });
+  await waitFor(() => expect(preview).toHaveBeenCalled());
+  expect(view.getByRole("combobox", { name: "Exclude rule 1" })).toBe(input);
+  fireEvent.click(view.getByRole("button", { name: "Hide Exclude for rule 1" }));
+  expect(view.queryByLabelText("Exclude rule 1")).toBeNull();
+  expect(document.activeElement).toBe(view.getByRole("button", { name: "Add Exclude for rule 1" }));
+  expect(changes.mock.lastCall?.[0]).toEqual({ type: "selected", rules: [{ include: "db.*", exclude: "", exclude_mode: "regex" }] });
+  expect(view.getByRole("button", { name: "Remove rule 1" })).toBe(remove);
+  expect(view.getByRole("button", { name: "Add tables" })).toBe(following);
+});
+
+it.each(["db.temp*", " "])("keeps a saved Exclude visible in readonly forms without changing %j", exclude => {
+  const onChange = vi.fn();
+  const view = render(<TableSelectionEditor disabled value={{ type: "selected", rules: [{ include: "db.*", exclude }] }} onChange={onChange} />);
+  const input = view.getByLabelText("Exclude rule 1") as HTMLInputElement;
+  expect(input.value).toBe(exclude);
+  expect(input.disabled).toBe(true);
+  expect(view.queryByRole("button", { name: "Add Exclude for rule 1" })).toBeNull();
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+it("keeps an opened Exclude with its rule when an earlier rule is removed", () => {
+  const preview = vi.fn().mockResolvedValue({ cards: [], issues: [] });
+  function Form() {
+    const [value, setValue] = useState<JsonValue>({ type: "selected", rules: [{ include: "first" }, { include: "second" }, { include: "third" }] });
+    return <TableCatalogContext.Provider value={{ tables, preview }}><TableSelectionEditor value={value} onChange={setValue} /></TableCatalogContext.Provider>;
+  }
+  const view = render(<Form />);
+  fireEvent.click(view.getByRole("button", { name: "Add Exclude for rule 2" }));
+  fireEvent.click(view.getByRole("button", { name: "Remove rule 1" }));
+  expect((view.getByLabelText("Include rule 1") as HTMLInputElement).value).toBe("second");
+  expect(view.getByLabelText("Exclude rule 1")).toBeTruthy();
+  expect(view.queryByLabelText("Exclude rule 2")).toBeNull();
+});
+
 it("closes an open picker on metadata invalidation and does not reopen it on reconnect", () => {
   const preview = vi.fn().mockResolvedValue({ cards: [], issues: [] }), onChange = vi.fn();
   const form = (known: boolean, disabled = false) => <TableCatalogContext.Provider value={known ? { tables, preview } : undefined}>

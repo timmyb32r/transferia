@@ -14,7 +14,9 @@ function Source({ connectorKey }: { connectorKey: string }) {
   const connector = catalog.connectors.find(item => item.key === connectorKey)! as unknown as ConnectorDefinition;
   const endpoint = connector.source!;
   return <EndpointCard title="Source" role="source" selectedKey={connectorKey} connectors={[connector]}
-    endpoint={endpoint} config={{ source: { [connectorKey]: endpoint.initial } }} readOnly={false}
+    endpoint={endpoint} config={{ source: { [connectorKey]: { ...endpoint.initial,
+      tables: { type: "selected", rules: [{ include: "*", exclude: "*.temp" }] },
+    } } }} readOnly={false}
     showRequiredErrors={false} onChoose={() => undefined} onConfig={() => undefined} />;
 }
 

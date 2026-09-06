@@ -1235,7 +1235,7 @@ h3 {
   min-width: 0;
   margin: 0;
   border: 0;
-  padding: 12px;
+  padding: 8px;
 }
 .connection-dependent-fields:disabled .field-label { color: var(--muted); }
 :root .connection-dependent-fields input:disabled {
@@ -5234,6 +5234,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 
 .table-selection-editor {
   display: grid;
+  container: table-space / inline-size;
   gap: 12px;
   min-width: 0;
 }
@@ -5264,10 +5265,17 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .table-rule-row ~ .table-rule-row { padding-top: 12px; border-top: 1px solid var(--line); }
 .table-rule-patterns {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 78px var(--control-height);
   align-items: end;
-  gap: 12px;
+  gap: 8px;
 }
+.table-rule-patterns.table-rule-with-exclude { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) var(--control-height); }
+.table-exclude-field { position: relative; min-width: 0; }
+.table-rule-patterns .field-label { min-height: 20px; }
+.table-exclude-field .field-label { padding-right: 30px; }
+:root .table-exclude-add, :root .table-exclude-hide { background: transparent; border-color: transparent; box-shadow: none; color: var(--blue); white-space: nowrap; }
+:root .table-exclude-add { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: var(--control-height); padding: 0 4px; }
+:root .table-exclude-hide { position: absolute; top: 0; right: 0; height: 20px; min-height: 0; padding: 0 2px; font-size: 11px; }
 .table-pattern-input { position: relative; min-width: 0; height: var(--control-height); }
 .table-pattern-input input[type="text"] { width: 100%; padding-right: calc(var(--control-height) + 4px); }
 .table-pattern-with-browser input[type="text"] { padding-right: calc(var(--control-height) * 2); }
@@ -5416,9 +5424,6 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 }
 :root .segmented-control > button[aria-checked="true"]:not(:disabled) { background: var(--surface-selected); color: var(--blue); border-color: var(--blue); }
 .segmented-control > button:active:not(:disabled) { background: var(--surface-selected); }
-@media (max-width: 640px) {
-  .table-rule-patterns { gap: 8px; }
-}
 :root .table-rule-patterns .form-row {
   display: flex;
   flex-direction: column;
@@ -5461,6 +5466,11 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 @container form-space (max-width: 520px) {
   .table-selection-heading { flex-wrap: wrap; }
   .table-selection-heading .available-tables-metadata { flex: 0 1 248px; }
-  .table-rule-patterns { grid-template-columns: minmax(0, 1fr) auto; }
-  .table-rule-patterns .form-row:first-child { grid-column: 1 / -1; }
+}
+/* Only genuinely narrow forms need a second row. Keep Delete beside Include,
+   never where revealing Exclude could move it beneath the initiating pointer. */
+@container table-space (max-width: 380px) {
+  .table-rule-patterns.table-rule-with-exclude { grid-template-columns: minmax(0, 1fr) var(--control-height); }
+  .table-rule-with-exclude > .table-exclude-field { grid-column: 1; grid-row: 2; }
+  .table-rule-with-exclude > .icon-button { grid-column: 2; grid-row: 1; }
 }

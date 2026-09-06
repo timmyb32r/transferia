@@ -24,7 +24,14 @@ describe("delivery layout contract", () => {
     expect(rule(".table-pattern-confirmation")).toContain("position: absolute;");
     expect(rule(".table-pattern-confirmation")).toContain("width: 22px;");
     expect(styles).toContain(".table-pattern-with-browser.table-pattern-with-confirmation input[type=\"text\"] { padding-right: calc(var(--control-height) * 2 + 22px); }");
-    expect(styles).toContain(".table-rule-patterns .form-row:first-child { grid-column: 1 / -1; }");
+    expect(styles).toContain("container: table-space / inline-size;");
+    expect(rule(".table-rule-patterns.table-rule-with-exclude")).toContain("grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) var(--control-height);");
+    expect(rule(".table-rule-patterns")).toContain("grid-template-columns: minmax(0, 1fr) 78px var(--control-height);");
+    expect(rule(".table-rule-patterns .field-label")).toContain("min-height: 20px;");
+    expect(rule(".connection-dependent-fields")).toContain("padding: 8px;");
+    expect(styles).toContain("@container table-space (max-width: 380px)");
+    expect(styles).toContain(".table-rule-with-exclude > .icon-button { grid-column: 2; grid-row: 1; }");
+    expect(styles).not.toContain(".table-rule-patterns .form-row:first-child { grid-column: 1 / -1; }");
     expect(rule(":root .matched-table-row .copy-action")).toContain("width: 24px; height: 24px;");
   });
   it("gives configuration and transform-preview tabs the same continuous slate backing", () => {

@@ -93,6 +93,15 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   and a native title. Rows and controls keep fixed geometry during polling.
   Place the inline Hide system tables checkbox beside Selected / All tables.
   Use `Add tables` and retain the overall All matched tables disclosure.
+- Keep table-group padding compact (8px). Empty Exclude starts as a quiet
+  `+ Exclude` action beside Include, opening its field in the same row and
+  focusing it. This explicit opt-in makes an additional `(optional)` label redundant.
+  Saved nonempty exclusions are always visible, including readonly
+  forms. Clearing a value does not collapse its field; `Hide` explicitly closes
+  an empty Exclude and restores focus to the action without changing configuration.
+  Reserve equal label heights and a fixed Delete column so opening Exclude does
+  not move Delete or later controls in normal-width forms. Only table sections
+  narrower than 380px put Exclude below Include; Delete stays on the Include row.
 - Exact Include names get a green check inside a permanently reserved input slot,
   not a duplicate Table found line or a matched-table disclosure. Pattern rules
   retain their disclosure; an already-open list stays mounted while typing until
