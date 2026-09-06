@@ -76,6 +76,9 @@ describe("App request orchestration", () => {
       expect(slot?.textContent).toBe(`TRANSFER ID · ${transferId}`),
     );
     const copyButton = app.getByRole("button", { name: "Copy transfer ID" });
+    expect(copyButton.classList.contains("copy-action")).toBe(true);
+    expect(copyButton.classList.contains("copy-action-framed")).toBe(false);
+    expect(copyButton.classList.contains("secondary-button")).toBe(false);
     expect(copyButton.querySelector("span.ui-icon.copy-icon")).toBeTruthy();
     expect(copyButton.querySelector("svg")).toBeNull();
     fireEvent.click(copyButton);

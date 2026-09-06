@@ -6,6 +6,8 @@ import { SelectControl } from "../../src/ui/SelectControl";
 import { MatchedTablesDisclosure } from "../../src/features/tableSelection/MatchedTablesDisclosure";
 import "../../src/style.css";
 
+document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
+
 function Fixture() {
   const [pending, setPending] = useState(false);
   const [requests, setRequests] = useState(0);
@@ -14,6 +16,14 @@ function Fixture() {
   const [table, setTable] = useState("logs");
   const row = { display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" } as const;
   return <main style={{ maxWidth: "1000px", margin: "24px auto", padding: "0 20px", display: "grid", gap: "20px" }}>
+    <header class="page-header">
+      <div class="transfer-id-line">
+        <small class="transfer-id-slot">TRANSFER ID · dttabcdefghijklmnopq</small>
+        <Button variant="plain" shape="icon" class="transfer-id-copy copy-action" data-copy="id" aria-label="Copy transfer ID">
+          <span class="ui-icon copy-icon" aria-hidden="true" />
+        </Button>
+      </div>
+    </header>
     <section class="middleware-island">
       <h2>Transforms</h2>
       <p class="middleware-empty">No transforms. Rows pass through unchanged.</p>
@@ -31,7 +41,7 @@ function Fixture() {
         <div class="middleware-strip-heading" style={{ gridTemplateColumns: "max-content", padding: 0 }}>
           <Button class="middleware-clone" data-action="clone"><span class="ui-icon copy-icon" />Clone</Button>
         </div>
-        <div class="available-table-row"><Button shape="icon" data-action="copy" aria-label="Copy table name"><span class="ui-icon copy-icon" /></Button></div>
+        <div class="available-table-row"><span>system.query_log</span><Button variant="plain" shape="icon" class="copy-action copy-action-framed" data-copy="table" aria-label="Copy table name"><span class="ui-icon copy-icon" aria-hidden="true" /></Button></div>
       </div>
       <div style={row}>
         <Button data-action="pending" pending={pending} onClick={() => {

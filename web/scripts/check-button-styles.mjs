@@ -72,6 +72,33 @@ try {
     await page.waitForTimeout(180);
     assert.deepEqual(await paint(control), idle);
   }
+  // Copy is a neutral utility, not an opaque teal secondary form action.
+  const copyId = page.locator('[data-copy="id"]');
+  const copyTable = page.locator('[data-copy="table"]');
+  const neighbour = page.locator('[data-action="add"]');
+  const neighbourBox = await neighbour.boundingBox();
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(180);
+  assert.deepEqual((await paint(copyId)).text, (await paint(copyTable)).text);
+  assert.equal((await paint(copyId)).border[3], 0);
+  assert.deepEqual((await paint(copyTable)).border, [207, 216, 222, 255]);
+  for (const copy of [copyId, copyTable]) {
+    const box = await copy.boundingBox(), idle = await paint(copy);
+    assert.deepEqual(idle.text, [32, 41, 56, 255]);
+    assert.equal(idle.surface[3], 0);
+    await copy.hover();
+    await page.waitForTimeout(180);
+    assert.deepEqual((await paint(copy)).surface, [232, 237, 241, 255]);
+    sameBox(box, await copy.boundingBox());
+    await page.mouse.down();
+    assert.notEqual((await paint(copy)).shadow, "none");
+    sameBox(box, await copy.boundingBox());
+    await page.mouse.up();
+    await copy.focus();
+    assert((await paint(copy)).outline >= 2);
+    sameBox(box, await copy.boundingBox());
+    sameBox(neighbourBox, await neighbour.boundingBox());
+  }
   const enabledAdd = await page.locator('[data-action="add"]').boundingBox();
   const disabledAdd = await page.getByRole("button", { name: "Add transform", exact: true }).nth(1).boundingBox();
   for (const key of ["width", "height"]) assert.equal(enabledAdd[key], disabledAdd[key]);

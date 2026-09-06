@@ -878,8 +878,6 @@ select {
 .transfer-id-copy.icon-button {
   width: 24px;
   height: 24px;
-  border-color: transparent;
-  background: transparent;
 }
 h1 {
   font-size: 20px;
@@ -2077,6 +2075,41 @@ button::after {
 }
 :root[data-design="airy-v0"][data-theme="light"] .secondary-button:where(:not(:disabled, .diagnostic-disabled)):hover {
   background: var(--secondary-action-hover);
+}
+/* Copy is a quiet utility, not a teal form action. Both placements share the
+   same paint; the table list may retain a neutral frame for row scanning. */
+.copy-action.icon-button {
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: transparent;
+  border-radius: var(--radius-control);
+  box-shadow: none;
+}
+.copy-action.copy-action-framed {
+  border-color: var(--line-strong);
+}
+.copy-action.icon-button:hover:not(:disabled, [aria-disabled="true"]) {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+.copy-action.icon-button:active:not(:disabled, [aria-disabled="true"]) {
+  background: color-mix(in srgb, var(--text-secondary) 12%, var(--surface-hover));
+  box-shadow: inset 0 1px 2px var(--shadow);
+  filter: none;
+  transition-duration: 0s;
+}
+.copy-action .copy-icon::before,
+.copy-action .copy-icon::after {
+  border-radius: 2.5px;
+}
+.copy-action .copy-icon::before {
+  left: 5px;
+  /* Hide the rear outline under the front page without an opaque fill, so
+     transparent, hovered and pressed surfaces all render the same glyph. */
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 60% 100%, 60% 40%, 0 40%);
+}
+.copy-action .copy-icon::after {
+  left: 1px;
 }
 .transport-controls {
   display: grid;
@@ -3321,7 +3354,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .available-tables-list > p { margin: 12px; color: var(--muted); font-size: 12px; }
 .available-table-row { display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 2px 8px 2px 12px; border-bottom: 1px solid var(--line-inner); }
 .available-table-row > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-:root .available-table-row .icon-button { flex: 0 0 28px; width: 28px; height: 28px; min-width: 0; padding: 0; border-color: transparent; background: transparent; }
+:root .available-table-row .icon-button { flex: 0 0 28px; width: 28px; height: 28px; min-width: 0; padding: 0; }
 .middleware-action-field { display: grid; gap: 6px; width: min(100%, 300px); }
 .middleware-action-field > label, .middleware-filter-fields label > span, .middleware-sql-field > span { font-size: 12px; font-weight: 600; }
 .middleware-filter-fields label, .middleware-sql-field { display: grid; min-width: 0; gap: 6px; }

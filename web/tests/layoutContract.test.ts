@@ -16,6 +16,25 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("shares neutral copy affordances without changing geometry between interaction states", () => {
+    const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
+    const idle = rule(".copy-action.icon-button");
+    expect(idle).toContain("color: var(--text-secondary);");
+    expect(idle).toContain("background: transparent;");
+    expect(idle).toContain("border-color: transparent;");
+    expect(rule(".copy-action.copy-action-framed")).toContain("border-color: var(--line-strong);");
+    for (const state of ["hover", "active"]) {
+      const paint = rule(`.copy-action.icon-button:${state}:not(:disabled, [aria-disabled=\"true\"])`);
+      expect(paint).toContain("background:");
+      expect(paint).not.toMatch(/(?:width|height|padding|margin|transform|border-width|font-size)\s*:/);
+      expect(paint).not.toContain("var(--blue");
+    }
+    expect(rule(".transfer-id-copy.icon-button")).toContain("width: 24px;");
+    expect(rule(".transfer-id-copy.icon-button")).toContain("height: 24px;");
+    expect(rule(":root .available-table-row .icon-button")).toContain("width: 28px; height: 28px;");
+    // The rear page is occluded by the front page, not drawn through it.
+    expect(rule(".copy-action .copy-icon::before")).toContain("clip-path: polygon(");
+  });
   it("reserves metadata action and status dimensions across async updates", () => {
     expect(styles).toMatch(/\.metadata-button-label\s*\{[^}]*display: grid;/s);
     expect(styles).toMatch(/\.metadata-button-label > span\s*\{[^}]*grid-area: 1 \/ 1;/s);

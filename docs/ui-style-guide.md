@@ -65,10 +65,17 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   visible teal outline** in airy-light. Hover adds the existing soft teal tint;
   press and focus keep their immediate shared feedback without changing geometry.
   `Button` defaults to `variant="secondary"`; standard, icon, add-row and compact
-  actions (including Add transform, Preview, Copy, Available tables and Show all)
+  actions (including Add transform, Preview, Available tables and Show all)
   share `--secondary-action-*` tokens. Small labels use a slightly darkened
   `--blue-hover` for readable contrast on both white and hover surfaces.
   Do not add feature-local action palettes.
+- Copy beside Transfer ID and table names is a **quiet neutral utility**:
+  use the plain Button variant with shared `copy-action` styling, secondary-text
+  icons and a soft neutral hover/press surface in both themes. Transfer ID has
+  no visible border; table rows use `copy-action-framed` for a thin neutral
+  outline. Use the same rounded, overlapping-page glyph with its rear outline
+  occluded, not intersecting. Keep focus rings and immediate clipboard feedback;
+  paint changes must not move or resize the controls.
 - Use `variant="plain"` for tabs, selectors, navigation, drag handles and
   disclosures such as Matched tables. These are not secondary form actions and
   keep their existing neutral/selected treatments. Primary, danger and transport

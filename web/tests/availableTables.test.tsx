@@ -36,6 +36,9 @@ it("copies exact table names with immediate pending feedback and no duplicate cl
   vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
   const view = render(<AvailableTablesDialog catalog={{ tables, preview: vi.fn() }} onClose={() => {}} />);
   const copy = view.getByRole("button", { name: "Copy db.reports" });
+  expect(copy.classList.contains("copy-action")).toBe(true);
+  expect(copy.classList.contains("copy-action-framed")).toBe(true);
+  expect(copy.classList.contains("secondary-button")).toBe(false);
   fireEvent.click(copy);
   fireEvent.click(copy);
   expect(copy.getAttribute("aria-busy")).toBe("true");

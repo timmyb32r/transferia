@@ -92,7 +92,7 @@ export function AvailableTablesDialog({ catalog, onClose }: { catalog: TableCata
           const name = qualifiedName(table);
           return <div class="available-table-row" key={JSON.stringify(table)}>
             <span title={name}>{name}</span>
-            <Button shape="icon" title="Copy table name" aria-label={`Copy ${name}`} pending={copy?.name === name && copy.state === "pending"}
+            <Button variant="plain" shape="icon" class="copy-action copy-action-framed" title="Copy table name" aria-label={`Copy ${name}`} pending={copy?.name === name && copy.state === "pending"}
               disabled={copy?.state === "pending" && copy.name !== name}
               onClick={() => { void copyName(name); }}><span class="ui-icon copy-icon" aria-hidden="true" /></Button>
           </div>;

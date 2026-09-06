@@ -134,8 +134,9 @@ function TransferIdentity({ id }: { id: string | undefined }) {
       </small>
       {id !== undefined && (
         <Button
+          variant="plain"
           shape="icon"
-          class="transfer-id-copy"
+          class="transfer-id-copy copy-action"
           pending={copyState === "copying"}
           aria-label={copyState === "copied" ? "Transfer ID copied" : "Copy transfer ID"}
           title={copyState === "error" ? "Copy failed" : "Copy transfer ID"}
