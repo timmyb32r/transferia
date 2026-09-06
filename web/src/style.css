@@ -593,6 +593,7 @@
   --button-height: 32px;
   --radius-control: 7px;
   --radius-panel: 9px;
+  --editor-section-gap: 20px;
 }
 :root[data-design="airy-v0"][data-theme="light"] {
   color-scheme: light;
@@ -4978,8 +4979,17 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 }
 :root[data-design="airy-v0"] .identity-card {
   width: min(100%, 780px);
-  margin-bottom: 34px;
+  margin-bottom: 0;
   padding: 20px 22px;
+}
+:root[data-design="airy-v0"] .editor-view {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--editor-section-gap);
+}
+:root[data-design="airy-v0"] .editor-view > .route-feedback,
+:root[data-design="airy-v0"] .editor-view > .pipeline-section {
+  margin: 0;
 }
 :root[data-design="airy-v0"] .route-composition {
   --route-gap: 46px;
@@ -4998,7 +5008,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 }
 :root[data-design="airy-v0"] .editor-tabs {
   gap: 3px;
-  margin: 0 0 20px;
+  margin: 0 0 var(--editor-section-gap);
   padding: 3px;
   border-radius: 8px;
   background: var(--panel2);
@@ -5114,6 +5124,9 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   .route-arrow {
     height: 32px;
     transform: rotate(90deg);
+  }
+  :root[data-design="airy-v0"] .route-arrow {
+    height: var(--editor-section-gap);
   }
   .identity-card {
     grid-template-columns: 1fr;

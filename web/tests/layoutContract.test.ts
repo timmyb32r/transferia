@@ -156,6 +156,21 @@ describe("delivery layout contract", () => {
     expect(styles).toMatch(/\.foldout-content,\s*\.schema-object\s*\{\s*display:\s*grid;\s*gap:\s*10px;/s);
     expect(styles).toMatch(/:root\[data-design="airy-v0"\] \.foldout-content,\s*:root\[data-design="airy-v0"\] \.schema-object\s*\{\s*gap:\s*14px;/s);
   });
+  it("uses one airy spacing token between editor tabs and islands, including stacked endpoints", () => {
+    const airy = ':root[data-design="airy-v0"]';
+    const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
+    expect(rule(airy)).toContain("--editor-section-gap: 20px;");
+    expect(rule(`${airy} .editor-tabs`)).toContain("margin: 0 0 var(--editor-section-gap);");
+    expect(rule(`${airy} .editor-view`)).toContain("display: grid;");
+    expect(rule(`${airy} .editor-view`)).toContain("grid-template-columns: minmax(0, 1fr);");
+    expect(rule(`${airy} .editor-view`)).toContain("gap: var(--editor-section-gap);");
+    expect(rule(`${airy} .identity-card`)).toContain("margin-bottom: 0;");
+    expect(rule(`${airy} .editor-view > .route-feedback,\n${airy} .editor-view > .pipeline-section`)).toContain("margin: 0;");
+    const stacked = styles.split("@media (max-width: 1300px) {")[1];
+    expect(stacked).toContain(`${airy} .route-arrow {\n    height: var(--editor-section-gap);`);
+    // Source and parser remain one joined island, with no gap inside their grid.
+    expect(rule(".route-composition")).not.toMatch(/^[ \t]*(?:row-)?gap\s*:/m);
+  });
   it("keeps parser support columns fixed and hover feedback dimension-neutral", () => {
     expect(styles).toMatch(/\.parser-support-table\s*\{[^}]*width: 100%;[^}]*table-layout: fixed;/s);
     expect(styles).toMatch(/\.parser-support-status-column\s*\{[^}]*width: 38px;/s);
