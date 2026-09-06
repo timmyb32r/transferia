@@ -4424,17 +4424,6 @@
                 {
                   "type": "object",
                   "properties": {
-                    "exclude": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "default": null
-                    },
-                    "exclude_mode": {
-                      "$ref": "#/$defs/PatternMode",
-                      "default": "glob"
-                    },
                     "type": {
                       "type": "string",
                       "const": "all"
@@ -5403,17 +5392,6 @@
                 {
                   "type": "object",
                   "properties": {
-                    "exclude": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "default": null
-                    },
-                    "exclude_mode": {
-                      "$ref": "#/$defs/PatternMode",
-                      "default": "glob"
-                    },
                     "type": {
                       "type": "string",
                       "const": "all"
@@ -5790,18 +5768,22 @@
                 "widget": "password"
               }
             },
-            "tables": {
-              "$ref": "#/$defs/TableSelection",
-              "x-ui": {
-                "widget": "table_selection",
-                "table_membership": "fixed"
-              }
-            },
             "hide_system_tables": {
               "title": "Hide system tables",
               "description": "Exclude tables in system, _system, information_schema* and INFORMATION_SCHEMA databases from discovery and table suggestions. Disable to include them.",
               "type": "boolean",
-              "default": true
+              "default": true,
+              "x-ui": {
+                "order": 1
+              }
+            },
+            "tables": {
+              "$ref": "#/$defs/TableSelection",
+              "x-ui": {
+                "widget": "table_selection",
+                "table_membership": "fixed",
+                "order": 2
+              }
             },
             "batch_rows": {
               "title": "Maximum block rows",
@@ -5871,17 +5853,6 @@
                 {
                   "type": "object",
                   "properties": {
-                    "exclude": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "default": null
-                    },
-                    "exclude_mode": {
-                      "$ref": "#/$defs/PatternMode",
-                      "default": "glob"
-                    },
                     "type": {
                       "type": "string",
                       "const": "all"

@@ -34,6 +34,8 @@ fn system_table_discovery_filter_is_enabled_by_default_and_matches_database_boun
     assert!(!serde_json::from_value::<ClickHouseSourceConfig>(explicit).unwrap().hide_system_tables);
     let schema = serde_json::to_value(schemars::schema_for!(ClickHouseSourceConfig)).unwrap();
     assert_eq!(schema.pointer("/properties/hide_system_tables/default"), Some(&serde_json::json!(true)));
+    assert_eq!(schema.pointer("/properties/hide_system_tables/x-ui/order"), Some(&serde_json::json!(1)));
+    assert_eq!(schema.pointer("/properties/tables/x-ui/order"), Some(&serde_json::json!(2)));
 }
 
 #[test]

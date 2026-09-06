@@ -3,8 +3,13 @@ use super::*;
 #[test]
 fn all_tables_and_independent_pattern_modes_share_startup_and_admission_rules() {
     let catalog = [table("db", "reports_1"), table("db", "reports_test"), table("db", "users")];
-    let all = TableSelection::All { exclude: Some("db.reports_*".into()), exclude_mode: PatternMode::Glob };
-    assert_eq!(all.compile().unwrap().resolve(&catalog).unwrap().selected_tables().unwrap(), vec![catalog[2].clone()]);
+    let all = TableSelection::All {};
+    let compiled_all = all.compile().unwrap();
+    assert_eq!(compiled_all.resolve(&catalog).unwrap().selected_tables().unwrap(), catalog);
+    for entry in &catalog {
+        assert_eq!(compiled_all.classify(entry).selected_by, vec![0]);
+        assert!(compiled_all.classify(entry).excluded_by.is_empty());
+    }
     let selected = TableSelection::Selected { rules: vec![TableRule {
         include: "db.reports_*".into(), include_mode: PatternMode::Glob,
         exclude: Some(r"db\.reports_(test|temp)".into()), exclude_mode: PatternMode::Regex,
@@ -13,11 +18,26 @@ fn all_tables_and_independent_pattern_modes_share_startup_and_admission_rules() 
     assert_eq!(compiled.resolve(&catalog).unwrap().selected_tables().unwrap(), vec![catalog[0].clone()]);
     assert_eq!(compiled.classify(&catalog[0]).selected_by, vec![0]);
     assert_eq!(compiled.classify(&catalog[1]).excluded_by, vec![0]);
-    assert!(TableSelection::All { exclude: Some("*".into()), exclude_mode: PatternMode::Glob }
-        .compile().unwrap().resolve(&catalog).unwrap().selected_tables().is_err());
-    assert!(serde_json::from_value::<TableSelection>(serde_json::json!({
-        "type": "all", "rules": [{ "include": "ignored" }]
-    })).is_err());
+    assert!(all.compile().unwrap().resolve(&[]).unwrap().selected_tables().is_err());
+}
+
+#[test]
+fn all_tables_is_a_fieldless_strict_variant_in_config_and_schema() {
+    let all: TableSelection = serde_json::from_value(serde_json::json!({"type": "all"})).unwrap();
+    assert_eq!(serde_json::to_value(all).unwrap(), serde_json::json!({"type": "all"}));
+    for invalid in [
+        serde_json::json!({"type": "all", "exclude": "db.reports_*"}),
+        serde_json::json!({"type": "all", "exclude_mode": "glob"}),
+        serde_json::json!({"type": "all", "rules": [{"include": "ignored"}]}),
+    ] {
+        assert!(serde_json::from_value::<TableSelection>(invalid).is_err());
+    }
+    let schema = serde_json::to_value(schemars::schema_for!(TableSelection)).unwrap();
+    let branches = schema["oneOf"].as_array().unwrap();
+    assert_eq!(branches[0]["properties"]["type"]["const"], "selected");
+    let all = branches.iter().find(|branch| branch["properties"]["type"]["const"] == "all").unwrap();
+    assert_eq!(all["properties"].as_object().unwrap().keys().collect::<Vec<_>>(), vec!["type"]);
+    assert_eq!(all["additionalProperties"], false);
 }
 
 fn table(namespace: &str, name: &str) -> TableIdentity {

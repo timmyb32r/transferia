@@ -36,12 +36,12 @@ pub struct ClickHouseSourceConfig {
     #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub password: String,
 
-    #[schemars(extend("x-ui" = { "widget": "table_selection", "table_membership": "fixed" }))]
-    pub tables: TableSelection,
-
     #[serde(default = "default_hide_system_tables")]
-    #[schemars(title = "Hide system tables", description = "Exclude tables in system, _system, information_schema* and INFORMATION_SCHEMA databases from discovery and table suggestions. Disable to include them.")]
+    #[schemars(title = "Hide system tables", description = "Exclude tables in system, _system, information_schema* and INFORMATION_SCHEMA databases from discovery and table suggestions. Disable to include them.", extend("x-ui" = { "order": 1 }))]
     pub hide_system_tables: bool,
+
+    #[schemars(extend("x-ui" = { "widget": "table_selection", "table_membership": "fixed", "order": 2 }))]
+    pub tables: TableSelection,
 
     #[serde(default = "default_batch_rows")]
     #[schemars(

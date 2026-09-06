@@ -46,15 +46,17 @@ and `exclude_mode`, both defaulting to glob. An exact name is a glob with no
 unescaped wildcard characters. A missing exact table retains its entered name,
 shows an invalid field and prevents startup.
 
-All tables (`type: all`) has only optional `exclude` and `exclude_mode`.
-It explicitly selects the entire accessible catalog before exclusion. The editor
+All tables (`type: all`) has no additional settings.
+It explicitly selects the entire accessible catalog. Use Selected tables to
+apply Include/Exclude rules. The editor
 remembers inactive drafts while mounted; only the active variant is serialized
 and validated. Backend schemas reject fields belonging to an inactive variant.
 
-For patterns and All tables, Matched tables shows the final Include-minus-Exclude
-count. Clicking expands the full list inside a 140px scroll viewport. This
-explicit expansion may move later rows; async changes keep that viewport and
-the result/status regions stable. Exact-name rows do not show a matched list.
+The bottom Matched tables disclosure shows the combined final selection across
+all rules, or the entire accessible catalog in All tables mode. Clicking expands
+the full list inside a bounded scroll viewport. This explicit expansion may move
+later rows; asynchronous changes keep that viewport and the result/status regions
+stable. Per-pattern previews remain available beside the corresponding rule.
 
 ```yaml
 tables:
@@ -96,7 +98,7 @@ to the complete result without unbounded growth of the form.
 
 ## Runtime membership
 
-PostgreSQL resolves a fixed set at startup. Explain this next to table rules:
+PostgreSQL resolves a fixed set at startup. Explain this in the table-rule help:
 "Table patterns are resolved at delivery startup. Tables created later are not
 added automatically." Polling plus real watermark-based DBLog is future work.
 
@@ -157,7 +159,7 @@ Also cover a populated, previously unselected table renamed into the selection
 (including a cross-database rename): it must fail before destination writes and
 without acknowledging past the unsupported change.
 
-The shared evaluator currently has 19 authored unit tests, covering glob/regex,
+The shared evaluator has authored unit tests covering glob/regex,
 Unicode, exact suggestions, identifier boundaries, conflicts, empty-match policy,
 malformed patterns, repeated catalog identities and refusal to consume an invalid
 preview. These are not a substitute for connector and UI integration coverage.

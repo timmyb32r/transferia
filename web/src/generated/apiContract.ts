@@ -453,8 +453,6 @@ export type TableSelection =
       type: "selected";
     }
   | {
-      exclude?: string | null;
-      exclude_mode?: PatternMode;
       type: "all";
     };
 

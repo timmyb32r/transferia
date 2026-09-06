@@ -1766,17 +1766,6 @@
         {
           "additionalProperties": false,
           "properties": {
-            "exclude": {
-              "default": null,
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "exclude_mode": {
-              "$ref": "#/$defs/PatternMode",
-              "default": "glob"
-            },
             "type": {
               "const": "all",
               "type": "string"

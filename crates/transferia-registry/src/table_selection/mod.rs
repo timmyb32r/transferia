@@ -46,6 +46,7 @@ pub struct TableRule {
 
     #[serde(default)]
     pub include_mode: PatternMode,
+
     #[serde(default)]
     pub exclude_mode: PatternMode,
 }
@@ -54,12 +55,7 @@ pub struct TableRule {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TableSelection {
     Selected { rules: Vec<TableRule> },
-    All {
-        #[serde(default)]
-        exclude: Option<String>,
-        #[serde(default)]
-        exclude_mode: PatternMode,
-    },
+    All {},
 }
 
 #[derive(Clone, Copy, Debug, Serialize, JsonSchema, PartialEq, Eq)]
@@ -148,9 +144,9 @@ impl TableSelection {
         let all_rule;
         let source_rules = match self {
             Self::Selected { rules } => rules.as_slice(),
-            Self::All { exclude, exclude_mode } => {
+            Self::All {} => {
                 all_rule = [TableRule { include: "*".into(), include_mode: PatternMode::Glob,
-                    exclude: exclude.clone(), exclude_mode: *exclude_mode }];
+                    exclude: None, exclude_mode: PatternMode::Glob }];
                 &all_rule
             }
         };
