@@ -29,6 +29,12 @@ All tables; do not replace unrelated dropdowns automatically.
 Table matching lists are an explicit layout-stability exception: user-triggered
 expansion may push later rows down. Async preview updates must not change the
 height of an already open list or the result/status control regions.
+Each open matching list uses **A — a text action above the list**: `Show all`
+fits the current results without internal scrolling; `Restore height` returns
+to the compact viewport. Reserve the wider label's width so the button stays
+in place. Use one native delayed title tooltip. Do not expose a drag-to-resize
+corner or a double-click-only action. Fit height is measured on activation and
+stays fixed across preview updates; close/reopen returns to compact height.
 
 | Role | Color | Existing token |
 | --- | --- | --- |

@@ -7,7 +7,8 @@ import { Button } from "../../ui/Button";
 import { FormField } from "../../ui/FormField";
 import { SegmentedControl } from "../../ui/SegmentedControl";
 import { TrashIcon } from "../../ui/icons";
-import { hasPattern, qualifiedName, selectionIssue, tablePreviewError } from "./model";
+import { hasPattern, selectionIssue, tablePreviewError } from "./model";
+import { MatchedTablesDisclosure } from "./MatchedTablesDisclosure";
 import { TablePatternInput } from "./TablePatternInput";
 import { useTableNamespace } from "./naming";
 const HELP = "Default: glob / wildcard, where * matches any number of characters and ? one character. The .* button enables regex independently for each field.";
@@ -107,39 +108,21 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
             <TrashIcon />
           </Button>
         </div>
-        <div class="table-rule-result" aria-live="polite" aria-atomic="true">
-          {showMatches &&
-            <Button class="matched-toggle" aria-label={`Matched tables for rule ${index + 1}`}
-              aria-expanded={expandedRules.includes(index)} aria-controls={`${id}-rule-${index}-matches`} disabled={!current?.result}
-              onClick={() => setExpandedRules(expandedRules.includes(index) ? expandedRules.filter(item => item !== index) : [...expandedRules, index])}>
-              <span class="table-matches-chevron" aria-hidden="true" />
-              Matched tables <span class="table-match-count">{current?.result ? current.result.cards[index]?.selected.length ?? 0 : "—"}</span>
-            </Button>}
+        {showMatches ? <MatchedTablesDisclosure id={`${id}-rule-${index}-matches`} headerClass="table-rule-result"
+          label="Matched tables" toggleLabel={`Matched tables for rule ${index + 1}`} regionLabel={`Matches for rule ${index + 1}`}
+          open={expandedRules.includes(index)}
+          onToggle={() => setExpandedRules(expandedRules.includes(index) ? expandedRules.filter(item => item !== index) : [...expandedRules, index])}
+          tables={current?.result ? current.result.cards[index]?.selected ?? [] : undefined} />
+          : <div class="table-rule-result" aria-live="polite" aria-atomic="true">
           {exactFound && <span class="table-rule-found"><span aria-hidden="true">✓</span>Table found</span>}
-        </div>
-        {expandedRules.includes(index) && <div id={`${id}-rule-${index}-matches`} class="table-rule-matches" aria-label={`Matches for rule ${index + 1}`} aria-busy={!current?.result}>
-          {!current?.result ? <div>Waiting for a valid table selection…</div>
-            : current.result.cards[index]?.selected.length === 0 ? <div>No matched tables.</div>
-            : (current.result.cards[index]?.selected ?? []).map(table => <div key={JSON.stringify([table.namespace, table.name])}>{qualifiedName(table)}</div>)}
         </div>}
       </section>;
     })}
-    <div class="table-selection-footer">
-    {!allTables && <Button shape="icon" aria-label="Add table rule" title="Add table rule" disabled={disabled || !catalog}
-      onClick={() => { if (selection.type === "selected") change({ ...selection, rules: [...rules, { include: "" }] }); }}>+</Button>}
-      <Button class="matched-toggle" aria-expanded={expanded} aria-controls={`${id}-matches`}
-        disabled={!current?.result} onClick={() => setExpanded(!expanded)}>
-        <span class="table-matches-chevron" aria-hidden="true" />
-        All matched tables <span class="table-match-count">{current?.result ? matches.length : "—"}</span>
-      </Button>
-      <span class={`table-selection-status${issue ? " has-error" : ""}`} role="status" title={status || undefined}
-        aria-busy={!!catalog && !incomplete && !current}>{status}</span>
-    </div>
-    {expanded && <div id={`${id}-matches`} class="table-rule-matches" aria-label="All matched tables"
-      aria-busy={!current?.result}>
-      {!current?.result ? <div>Waiting for a valid table selection…</div>
-        : matches.length === 0 ? <div>No matched tables.</div>
-        : matches.map(table => <div key={JSON.stringify([table.namespace, table.name])}>{qualifiedName(table)}</div>)}
-    </div>}
+    <MatchedTablesDisclosure id={`${id}-matches`} headerClass="table-selection-footer" label="All matched tables"
+      open={expanded} onToggle={() => setExpanded(!expanded)} tables={current?.result ? matches : undefined}
+      before={!allTables && <Button shape="icon" aria-label="Add table rule" title="Add table rule" disabled={disabled || !catalog}
+        onClick={() => { if (selection.type === "selected") change({ ...selection, rules: [...rules, { include: "" }] }); }}>+</Button>}
+      after={<span class={`table-selection-status${issue ? " has-error" : ""}`} role="status" title={status || undefined}
+        aria-busy={!!catalog && !incomplete && !current}>{status}</span>} />
   </section>;
 }

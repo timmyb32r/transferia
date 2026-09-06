@@ -154,8 +154,13 @@ it("expands the complete matched list only on request into a bounded inline view
   }).process;
   const css = runtime?.getBuiltinModule?.("fs").readFileSync("src/style.css", "utf8") ?? "";
   expect(css).toMatch(/\.table-rule-matches\s*\{[^}]*height: 140px;[^}]*overflow: auto;/);
-  expect(css).toMatch(/\.table-rule-matches\s*\{[^}]*min-height: 140px;[^}]*resize: vertical;/);
+  expect(css).toMatch(/\.table-rule-matches\s*\{[^}]*min-height: 140px;[^}]*resize: none;/);
   expect(css).toMatch(/\.table-selection-footer\s*\{[^}]*height: var\(--control-height\);/);
+  // Right anchoring isolates the action from changing match counts. Both
+  // labels retain their grid footprint, so toggling height cannot move it.
+  expect(css).toMatch(/\.table-matches-height-toggle\s*\{[^}]*flex: 0 0 auto;[^}]*margin-left: auto;[^}]*height: 22px;/);
+  expect(css).toMatch(/\.table-matches-height-label\s*\{[^}]*display: grid;/);
+  expect(css).toMatch(/\.table-matches-height-label > span\s*\{[^}]*grid-area: 1 \/ 1;[^}]*white-space: nowrap;/);
   expect(css).toMatch(/\.segmented-control\s*\{[^}]*grid-auto-columns: minmax\(max-content, 1fr\);/);
   expect(css).toMatch(/\.segmented-control > button\s*\{[^}]*min-width: max-content;/);
   expect(css).toMatch(/\.regex-toggle\s*\{[^}]*height: calc\(var\(--control-height\) - 8px\);/);
@@ -230,9 +235,60 @@ it("does not apply an obsolete preview to edited rules", async () => {
 });
 
 it.each(["rule", "selected-total", "all-total"] as const)(
-  "preserves the user-resized %s list height across catalog updates", async kind => {
+  "shows all %s matches on one click and restores the previous height", async kind => {
+    const tables = Array.from({ length: 40 }, (_, index) => ({ namespace: "db", name: `t${index}` }));
+    const preview = vi.fn().mockResolvedValue({ cards: [{ selected: tables, excluded: [] }], issues: [] });
+    const selection: JsonValue = kind === "all-total" ? { type: "all" }
+      : { type: "selected", rules: [{ include: "db.*" }] };
+    const view = render(<TableCatalogContext.Provider value={{ tables, preview }}>
+      <TableSelectionEditor value={selection} onChange={() => undefined} />
+    </TableCatalogContext.Provider>);
+    await waitFor(() => expect(view.getByRole("button", { name: "All matched tables 40" })).toBeTruthy());
+    expect(view.queryByRole("button", { name: "Show all", exact: true })).toBeNull();
+    const disclosure = view.getByRole("button", {
+      name: kind === "rule" ? "Matched tables for rule 1" : "All matched tables 40",
+    });
+    const header = disclosure.parentElement;
+    fireEvent.click(disclosure);
+    const region = view.getByLabelText(kind === "rule" ? "Matches for rule 1" : "All matched tables");
+    Object.defineProperties(region, {
+      scrollHeight: { configurable: true, value: 680 },
+      offsetHeight: { configurable: true, value: 140 },
+      clientHeight: { configurable: true, value: 138 },
+    });
+    const heightToggle = view.getByRole("button", { name: "Show all", exact: true });
+    expect(heightToggle.classList.contains("table-matches-height-toggle")).toBe(true);
+    expect(heightToggle.parentElement).toBe(header);
+    expect(heightToggle.getAttribute("aria-controls")).toBe(region.id);
+    expect(heightToggle.getAttribute("title")).toMatch(/all|expand|fit/i);
+    const labels = heightToggle.querySelectorAll<HTMLElement>(".table-matches-height-label > span");
+    expect([...labels].map(label => label.textContent)).toEqual(["Show all", "Restore height"]);
+    expect([...labels].map(label => label.style.visibility)).toEqual(["visible", "hidden"]);
+    expect(region.style.height).toBe("");
+    heightToggle.focus();
+
+    fireEvent.click(heightToggle);
+
+    expect(region.style.height).toBe("682px");
+    expect(view.getByRole("button", { name: "Restore height", exact: true })).toBe(heightToggle);
+    expect([...labels].map(label => label.style.visibility)).toEqual(["hidden", "visible"]);
+    expect(document.activeElement).toBe(heightToggle);
+    expect(view.getByRole("button", {
+      name: kind === "rule" ? "Matched tables for rule 1" : "All matched tables 40",
+    })).toBe(disclosure);
+    expect(disclosure.parentElement).toBe(header);
+    expect(header?.contains(heightToggle)).toBe(true);
+    expect(heightToggle.getAttribute("title")).toMatch(/restore|previous/i);
+    fireEvent.click(heightToggle);
+    expect(region.style.height).toBe("");
+    expect(view.getByRole("button", { name: "Show all", exact: true })).toBe(heightToggle);
+  },
+);
+
+it.each(["rule", "selected-total", "all-total"] as const)(
+  "preserves the explicitly expanded %s list height across catalog updates", async kind => {
     const oldTables = [{ namespace: "db", name: "old" }];
-    const newTables = [{ namespace: "db", name: "new" }];
+    const newTables = Array.from({ length: 40 }, (_, index) => ({ namespace: "db", name: `new${index}` }));
     let finish!: (result: SelectionPreview) => void;
     const preview = vi.fn()
       .mockResolvedValueOnce({ cards: [{ selected: oldTables, excluded: [] }], issues: [] })
@@ -245,28 +301,154 @@ it.each(["rule", "selected-total", "all-total"] as const)(
     </TableCatalogContext.Provider>;
     const view = render(form(oldTables));
     await waitFor(() => expect(view.getByRole("button", { name: "All matched tables 1" })).toBeTruthy());
-    fireEvent.click(view.getByRole("button", {
+    const disclosure = view.getByRole("button", {
       name: kind === "rule" ? "Matched tables for rule 1" : "All matched tables 1",
-    }));
+    });
+    fireEvent.click(disclosure);
     const label = kind === "rule" ? "Matches for rule 1" : "All matched tables";
     const region = view.getByLabelText(label);
     const following = view.getByRole("button", { name: "Following control" });
     expect(region.classList.contains("table-rule-matches")).toBe(true);
-    // Native CSS resizing stores the chosen height inline. JSDOM cannot drag
-    // a browser resize grip; reproduce its result and verify rerender stability.
-    region.style.height = "300px";
+    Object.defineProperties(region, {
+      scrollHeight: { configurable: true, value: 298 },
+      offsetHeight: { configurable: true, value: 140 },
+      clientHeight: { configurable: true, value: 138 },
+    });
+    const heightToggle = view.getByRole("button", { name: "Show all", exact: true });
+    fireEvent.click(heightToggle);
+    expect(region.style.height).toBe("300px");
+    following.focus();
     view.rerender(form(newTables));
     expect(view.getByLabelText(label)).toBe(region);
     expect(region.style.height).toBe("300px");
+    expect(region.textContent).toBe("Waiting for a valid table selection…");
     expect(region.getAttribute("aria-busy")).toBe("true");
+    expect(view.getByRole("button", { name: "Restore height", exact: true })).toBe(heightToggle);
+    expect(document.activeElement).toBe(following);
+    Object.defineProperty(region, "scrollHeight", { configurable: true, value: 1000 });
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
     await act(async () => finish({ cards: [{ selected: newTables, excluded: [] }], issues: [] }));
     expect(view.getByLabelText(label)).toBe(region);
     expect(region.style.height).toBe("300px");
-    expect(region.textContent).toBe("db.new");
+    expect(region.textContent).toBe(newTables.map(qualifiedName).join(""));
+    expect(view.getByRole("button", {
+      name: kind === "rule" ? "Matched tables for rule 1" : "All matched tables 40",
+    })).toBe(disclosure);
     expect(view.getByRole("button", { name: "Following control" })).toBe(following);
+    expect(document.activeElement).toBe(following);
   },
 );
+
+it.each(["rule", "selected-total", "all-total"] as const)(
+  "allows restoring the %s height but never fits pending matches", async kind => {
+    const tables = [{ namespace: "db", name: "old" }];
+    const newTables = [{ namespace: "db", name: "new" }];
+    let finish!: (result: SelectionPreview) => void;
+    const preview = vi.fn()
+      .mockResolvedValueOnce({ cards: [{ selected: tables, excluded: [] }], issues: [] })
+      .mockImplementationOnce(() => new Promise<SelectionPreview>(resolve => { finish = resolve; }));
+    const selection: JsonValue = kind === "all-total" ? { type: "all" }
+      : { type: "selected", rules: [{ include: "db.*" }] };
+    const form = (catalog: typeof tables) => <TableCatalogContext.Provider value={{ tables: catalog, preview }}>
+      <TableSelectionEditor value={selection} onChange={() => undefined} />
+    </TableCatalogContext.Provider>;
+    const view = render(form(tables));
+    await waitFor(() => expect(view.getByRole("button", { name: "All matched tables 1" })).toBeTruthy());
+    fireEvent.click(view.getByRole("button", {
+      name: kind === "rule" ? "Matched tables for rule 1" : "All matched tables 1",
+    }));
+    const region = view.getByLabelText(kind === "rule" ? "Matches for rule 1" : "All matched tables");
+    const heightToggle = view.getByRole("button", { name: "Show all", exact: true }) as HTMLButtonElement;
+    const measure = vi.fn(() => 600);
+    Object.defineProperties(region, {
+      scrollHeight: { configurable: true, get: measure },
+      offsetHeight: { configurable: true, value: 140 },
+      clientHeight: { configurable: true, value: 138 },
+    });
+    fireEvent.click(heightToggle);
+    expect(region.style.height).toBe("602px");
+    measure.mockClear();
+    heightToggle.focus();
+
+    view.rerender(form(newTables));
+
+    expect(view.getByRole("button", { name: "Restore height", exact: true })).toBe(heightToggle);
+    expect(heightToggle.disabled).toBe(false);
+    expect(document.activeElement).toBe(heightToggle);
+    fireEvent.click(heightToggle);
+    expect(view.getByRole("button", { name: "Show all", exact: true })).toBe(heightToggle);
+    expect(heightToggle.disabled).toBe(true);
+    fireEvent.click(heightToggle);
+    expect(region.style.height).toBe("");
+    expect(measure).not.toHaveBeenCalled();
+    expect(region.textContent).toBe("Waiting for a valid table selection…");
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    await act(async () => finish({ cards: [{ selected: newTables, excluded: [] }], issues: [] }));
+    expect(heightToggle.disabled).toBe(false);
+    expect(region.style.height).toBe("");
+    expect(measure).not.toHaveBeenCalled();
+    expect(region.textContent).toBe("db.new");
+  },
+);
+
+it("does not shrink an existing taller height when all matches already fit", async () => {
+  const tables = [{ namespace: "db", name: "table" }];
+  const preview = vi.fn().mockResolvedValue({ cards: [{ selected: tables, excluded: [] }], issues: [] });
+  const view = render(<TableCatalogContext.Provider value={{ tables, preview }}>
+    <TableSelectionEditor value={{ type: "all" }} onChange={() => undefined} />
+  </TableCatalogContext.Provider>);
+  await waitFor(() => expect(view.getByRole("button", { name: "All matched tables 1" })).toBeTruthy());
+  fireEvent.click(view.getByRole("button", { name: "All matched tables 1" }));
+  const region = view.getByLabelText("All matched tables");
+  region.style.height = "240px";
+  Object.defineProperties(region, {
+    scrollHeight: { configurable: true, value: 100 },
+    offsetHeight: { configurable: true, value: 240 },
+    clientHeight: { configurable: true, value: 238 },
+  });
+
+  fireEvent.click(view.getByRole("button", { name: "Show all", exact: true }));
+
+  expect(region.style.height).toBe("240px");
+  fireEvent.click(view.getByRole("button", { name: "Restore height", exact: true }));
+  expect(region.style.height).toBe("240px");
+});
+
+it("sizes rule and total match lists independently and resets a reopened list", async () => {
+  const tables = [{ namespace: "db", name: "first" }, { namespace: "db", name: "second" }];
+  const preview = vi.fn().mockResolvedValue({
+    cards: tables.map(table => ({ selected: [table], excluded: [] })), issues: [],
+  });
+  const view = render(<TableCatalogContext.Provider value={{ tables, preview }}>
+    <TableSelectionEditor value={{ type: "selected", rules: [{ include: "db.f*" }, { include: "db.s*" }] }} onChange={() => undefined} />
+  </TableCatalogContext.Provider>);
+  await waitFor(() => expect(view.getByRole("button", { name: "All matched tables 2" })).toBeTruthy());
+  const disclosures = ["Matched tables for rule 1", "Matched tables for rule 2", "All matched tables 2"]
+    .map(name => view.getByRole("button", { name }));
+  disclosures.forEach(disclosure => fireEvent.click(disclosure));
+  const regions = ["Matches for rule 1", "Matches for rule 2", "All matched tables"]
+    .map(label => view.getByLabelText(label));
+  const buttons = disclosures.map(disclosure => within(disclosure.parentElement!)
+    .getByRole("button", { name: "Show all", exact: true }));
+  regions.forEach((region, index) => Object.defineProperties(region, {
+    scrollHeight: { configurable: true, value: 298 + index * 100 },
+    offsetHeight: { configurable: true, value: 140 },
+    clientHeight: { configurable: true, value: 138 },
+  }));
+
+  fireEvent.click(buttons[0]!);
+  expect(regions.map(region => region.style.height)).toEqual(["300px", "", ""]);
+  fireEvent.click(buttons[1]!);
+  fireEvent.click(buttons[2]!);
+  expect(regions.map(region => region.style.height)).toEqual(["300px", "400px", "500px"]);
+  fireEvent.click(buttons[1]!);
+  expect(regions.map(region => region.style.height)).toEqual(["300px", "", "500px"]);
+  fireEvent.click(disclosures[0]!);
+  expect(view.queryByLabelText("Matches for rule 1")).toBeNull();
+  fireEvent.click(disclosures[0]!);
+  expect(view.getByLabelText("Matches for rule 1").style.height).toBe("");
+  expect(regions[2]!.style.height).toBe("500px");
+});
 
 it("clears displayed matches while edited rules are pending without replacing the footer controls", async () => {
   const tables = [{ namespace: "db", name: "old" }, { namespace: "db", name: "new" }];

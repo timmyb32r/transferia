@@ -5115,7 +5115,13 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 }
 .table-suggestions { z-index: 400; overscroll-behavior: contain; }
 .table-suggestions .select-option { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.table-rule-result { height: 24px; }
+.table-rule-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 24px;
+}
 .table-rule-found {
   display: inline-flex;
   align-items: center;
@@ -5143,8 +5149,28 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   padding: 0 4px;
   border-color: transparent;
   color: var(--text-secondary);
+  min-width: 0;
+  flex-shrink: 1;
 }
-.table-match-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.table-match-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table-match-count { color: var(--muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+:root .table-matches-height-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  height: 22px;
+  padding: 0 7px;
+  font-size: 11px;
+  border-color: var(--line-strong);
+  color: var(--blue);
+  background: var(--control);
+}
+:root .table-matches-height-toggle:disabled { color: var(--disabled-text); }
+.table-matches-height-label { display: grid; }
+.table-matches-height-label > span { grid-area: 1 / 1; white-space: nowrap; }
 .table-matches-chevron {
   width: 6px;
   height: 6px;
@@ -5204,13 +5230,14 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .table-rule-matches {
   height: 140px;
   min-height: 140px;
-  resize: vertical;
+  resize: none;
   overflow: auto;
   overscroll-behavior: contain;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--surface-soft);
 }
+.table-rule-matches:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .table-rule-matches > div {
   padding: 4px 8px;
   overflow-wrap: anywhere;
