@@ -2,6 +2,32 @@ use super::super::{config::UnsupportedTypePolicy, types};
 use arrow::datatypes::{DataType, Field};
 
 #[test]
+fn source_quoted_keys_preserve_names_and_do_not_split_quoted_commas() {
+    use super::super::{config::TableConfig, connector::apply_discovered_primary_key};
+    use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+    let names = ["entries.query_id", "ключ, id", "a`b", "a\\b", "a\"b"];
+    let mut schema = DatasetSchema::new(names.iter().map(|name| SchemaColumn::new((*name).into(), DataType::Int64, false)).collect());
+    let table = TableConfig { database: "db".into(), name: "t".into() };
+    let key = r#"(`entries.query_id`, `ключ, id`, `a\`b`, `a\\b`, "a""b")"#;
+    apply_discovered_primary_key(&mut schema, &table, key, key).unwrap();
+    assert!(schema.columns.iter().all(|column| column.primary_key));
+    assert_eq!(schema.columns.iter().map(|column| column.name.as_str()).collect::<Vec<_>>(), names);
+    // Expanding source support must not silently relax the destination contract.
+    assert!(crate::connectors::clickhouse::sink::identifier::validate_identifier("entries.query_id").is_err());
+}
+
+#[test]
+fn source_quoted_keys_still_reject_expressions_and_malformed_lists() {
+    use super::super::{config::TableConfig, connector::apply_discovered_primary_key};
+    use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+    let table = TableConfig { database: "db".into(), name: "t".into() };
+    for key in ["lower(id)", "id + 1", "`id` + 1", "`id` garbage", "id,", ",id", "`unclosed", "id, `id`"] {
+        let mut schema = DatasetSchema::new(vec![SchemaColumn::new("id".into(), DataType::Int64, false)]);
+        assert!(apply_discovered_primary_key(&mut schema, &table, key, key).is_err(), "{key}");
+    }
+}
+
+#[test]
 fn column_kind_readable_defaults_do_not_block_source_discovery() {
     let table = super::super::config::TableConfig {
         database: "_system".into(),

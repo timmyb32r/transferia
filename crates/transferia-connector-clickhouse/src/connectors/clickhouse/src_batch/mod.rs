@@ -1,5 +1,6 @@
 mod config;
 mod connector;
+mod identifiers;
 mod parquet;
 mod reader;
 mod types;

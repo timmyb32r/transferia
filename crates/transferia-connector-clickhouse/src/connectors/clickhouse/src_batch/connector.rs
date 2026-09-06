@@ -14,7 +14,6 @@ use super::reader::ClickHouseSource;
 use super::reader::SnapshotStream;
 use crate::connectors::clickhouse::sink::client::probe_network;
 use crate::connectors::clickhouse::sink::client::{quote_identifier, ReconnectingClient};
-use crate::connectors::clickhouse::sink::identifier::validate_identifier;
 use crate::connectors::clickhouse::sink::table::quote_string_literal;
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
@@ -512,9 +511,9 @@ async fn discover_table(
                 "ClickHouse schema metadata contains NULL"
             );
             let name = name_values.value(row);
-            validate_identifier(name).map_err(|error| {
-                error.context(format!("unsupported ClickHouse source column {name:?}"))
-            })?;
+            // Catalog names are already ClickHouse identifiers. Preserve their
+            // exact text and quote every SQL reference; sink naming limits do
+            // not apply to reading existing columns (including flattened Nested).
             anyhow::ensure!(
                 names.insert(name.to_owned()),
                 "ClickHouse table '{}.{}' contains duplicate column '{name}'",
@@ -685,24 +684,14 @@ pub(super) fn apply_discovered_primary_key(
     if matches!(selected.trim(), "" | "tuple()" | "()") {
         return Ok(());
     }
-    let selected = selected.trim();
-    let body = selected
-        .strip_prefix('(')
-        .and_then(|key| key.strip_suffix(')'))
-        .unwrap_or(selected);
+    let columns = super::identifiers::key_columns(selected).map_err(|error| anyhow::anyhow!(
+        "ClickHouse source key for '{}.{}' must contain plain column names; expressions are not supported: {error:#}",
+        table.database, table.name,
+    ))?;
     let mut keys = HashSet::new();
-    for key in body.split(',') {
-        let key = key.trim();
-        let key = key
-            .strip_prefix('`')
-            .and_then(|key| key.strip_suffix('`'))
-            .unwrap_or(key);
-        validate_identifier(key).map_err(|_| anyhow::anyhow!(
-            "ClickHouse source key for '{}.{}' must contain plain column names; expressions are not supported",
-            table.database, table.name,
-        ))?;
+    for key in columns {
         anyhow::ensure!(
-            keys.insert(key),
+            keys.insert(key.clone()),
             "ClickHouse source key repeats column '{key}'"
         );
         let column = schema

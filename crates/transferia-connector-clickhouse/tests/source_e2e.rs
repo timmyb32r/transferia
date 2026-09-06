@@ -112,6 +112,46 @@ async fn read_type_snapshot(connector: &ClickHouseSourceConnector) -> anyhow::Re
 }
 
 #[tokio::test]
+async fn quoted_source_identifiers_are_preserved_by_both_readers() -> anyhow::Result<()> {
+    let quote_identifier = |name: &str| format!("`{}`", name.replace('\\', "\\\\").replace('`', "\\`"));
+    let (_container, host, native_port, http_port) = type_fixture().await?;
+    let http = reqwest::Client::new();
+    let url = format!("http://{host}:{http_port}");
+    let names = ["entries.query_id", "ключ, id", "space name", "a`b", "a\\b", "select", "1st", "a\"b", "x` FROM nope --"];
+    let declarations = names.iter().map(|name| format!("{} Int64", quote_identifier(name))).collect::<Vec<_>>().join(", ");
+    execute_fixture_query(&http, &url, &format!(
+        "CREATE TABLE quoted_events ({declarations}) ENGINE=MergeTree ORDER BY {}", quote_identifier(names[1]),
+    )).await?;
+    execute_fixture_query(&http, &url, "INSERT INTO quoted_events VALUES (100,101,102,103,104,105,106,107,108)").await?;
+    execute_fixture_query(&http, &url,
+        "CREATE TABLE nested_events (id Int64, entries Nested(query_id String, count UInt64)) ENGINE=MergeTree ORDER BY id",
+    ).await?;
+    execute_fixture_query(&http, &url, "INSERT INTO nested_events VALUES (1, ['q1','q2'], [2,3])").await?;
+    for reader in ["native", "parquet"] {
+        let connector = type_connector(&host, native_port, http_port, reader, "quoted_events", "")?;
+        let discovery = discover_types(&connector).await?;
+        let columns = &discovery.datasets[0].stored_schema.columns;
+        assert_eq!(columns.iter().map(|column| column.name.as_str()).collect::<Vec<_>>(), names, "{reader}");
+        assert!(columns[1].primary_key, "{reader}");
+        let batch = read_type_snapshot(&connector).await?;
+        assert_eq!(batch.num_rows(), 1);
+        for (index, name) in names.iter().enumerate() {
+            let values = batch.column_by_name(name).unwrap().as_any().downcast_ref::<Int64Array>().unwrap();
+            assert_eq!(values.value(0), 100 + i64::try_from(index)?, "{reader}: {name}");
+        }
+        let connector = type_connector(&host, native_port, http_port, reader, "nested_events", "")?;
+        let discovery = discover_types(&connector).await?;
+        assert!(discovery.datasets[0].stored_schema.columns.iter().any(|column| column.name == "entries.query_id"));
+        let batch = read_type_snapshot(&connector).await?;
+        let entries = batch.column_by_name("entries.query_id").unwrap().as_any().downcast_ref::<ListArray>().unwrap();
+        let values = entries.value(0);
+        let values = values.as_any().downcast_ref::<BinaryArray>().unwrap();
+        assert_eq!(values.iter().collect::<Vec<_>>(), vec![Some(b"q1".as_slice()), Some(b"q2".as_slice())]);
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn readable_generated_columns_work_with_both_source_readers() -> anyhow::Result<()> {
     let (_container, host, native_port, http_port) = type_fixture().await?;
     let http = reqwest::Client::new();
