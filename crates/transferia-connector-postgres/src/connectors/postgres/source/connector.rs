@@ -314,9 +314,10 @@ impl PostgresSourceConnector {
         self.discovered
             .get_or_try_init(|| async {
                 if delivery_type == DeliveryType::Batch {
-                    let snapshot = self.exported_snapshot().await?;
-                    let snapshot_client = snapshot.client().await?;
-                    discover_tables(&snapshot_client, self.resolved_tables().await?)
+                    // Validation discovers metadata only. Readers create the shared
+                    // snapshot at execution time and revalidate the schema in it.
+                    let client = connect(&self.config.connection).await?;
+                    discover_tables(&client, self.resolved_tables().await?)
                         .await
                         .map(Arc::new)
                 } else {

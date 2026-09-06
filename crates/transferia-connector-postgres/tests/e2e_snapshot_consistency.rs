@@ -93,6 +93,52 @@ async fn all_table_partitions_share_one_pre_mutation_snapshot_for_binary_and_tex
 }
 
 #[tokio::test]
+async fn validation_discovery_does_not_call_pg_export_snapshot() -> anyhow::Result<()> {
+    let postgres = GenericImage::new(POSTGRES_IMAGE, POSTGRES_TAG)
+        .with_exposed_port(5_432.tcp())
+        .with_wait_for(WaitFor::message_on_stderr(
+            "database system is ready to accept connections",
+        ))
+        .with_env_var("POSTGRES_PASSWORD", "test")
+        .with_env_var("POSTGRES_DB", "transferia")
+        .start()
+        .await?;
+    let host = reachable_host(&postgres.get_host().await?);
+    let port = postgres.get_host_port_ipv4(5_432.tcp()).await?;
+    let client = connect_with_retry(&connection_string(&host, port)).await?;
+    client.batch_execute(
+        "CREATE TABLE snapshot_a (id bigint PRIMARY KEY); \
+         CREATE ROLE validator LOGIN PASSWORD 'test'; \
+         GRANT SELECT ON snapshot_a TO validator; \
+         REVOKE EXECUTE ON FUNCTION pg_catalog.pg_export_snapshot() FROM PUBLIC;",
+    ).await?;
+    let connector = PostgresSourceConnector::from_config(
+        serde_yaml::from_str(&format!(
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: validator\npassword: test\ntrusted_plaintext: true\ntables:\n  type: selected\n  rules:\n    - include: public.snapshot_a\n"
+        ))?,
+        Arc::new(MetricsRegistry::new()),
+    )?;
+    connector.delivery_discovery(SourceDiscoveryContext {
+        request: transferia_core::delivery::DeliveryDiscoveryRequest {
+            keep_system_columns: true,
+        },
+        cancellation: CancellationToken::new(),
+        delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
+    }).await?;
+    assert_no_snapshot_owner(&client).await?;
+    let Err(error) = build_partition(&connector, 0).await else {
+        panic!("execution must still export a snapshot");
+    };
+    let database_error = error.chain()
+        .find_map(|cause| cause.downcast_ref::<tokio_postgres::Error>())
+        .and_then(tokio_postgres::Error::as_db_error)
+        .expect("execution must report PostgreSQL's snapshot permission error");
+    assert_eq!(database_error.code().code(), "42501");
+    assert!(database_error.message().contains("pg_export_snapshot"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn terminated_snapshot_owner_is_a_non_retryable_source_build_failure() -> anyhow::Result<()> {
     let postgres = GenericImage::new(POSTGRES_IMAGE, POSTGRES_TAG)
         .with_exposed_port(5_432.tcp())
@@ -126,11 +172,13 @@ async fn terminated_snapshot_owner_is_a_non_retryable_source_build_failure() -> 
         })
         .await?;
 
+    let mut first = build_partition(&connector, 0).await?;
     let terminated = client
         .query_one(
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
              WHERE datname = current_database() AND state = 'idle in transaction' \
-               AND pid <> pg_backend_pid() ORDER BY backend_start LIMIT 1",
+               AND pid <> pg_backend_pid() AND query LIKE '%pg_export_snapshot%' \
+             ORDER BY backend_start LIMIT 1",
             &[],
         )
         .await?
@@ -147,6 +195,7 @@ async fn terminated_snapshot_owner_is_a_non_retryable_source_build_failure() -> 
         !failure.is_retryable(),
         "an expired shared snapshot cannot be repaired by retrying one partition: {failure:?}"
     );
+    first.shutdown().await?;
     Ok(())
 }
 
