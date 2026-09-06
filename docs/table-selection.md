@@ -19,13 +19,18 @@ also support an optional database override.
 
 ## Connection and catalog
 
-ClickHouse sources default `hide_system_tables` to true. The visible catalog excludes
-the exact databases `system`, `_system`, `INFORMATION_SCHEMA`, and every database
-whose name starts with lowercase `information_schema`. Check connection retains
+ClickHouse and MySQL sources show the same **Hide system tables** checkbox above
+Tables, enabled by default (`hide_system_tables: true`). ClickHouse excludes the
+exact databases `system`, `_system`, `INFORMATION_SCHEMA`, and every database
+whose name starts with lowercase `information_schema`. MySQL excludes the exact
+databases `mysql`, `information_schema`, `performance_schema` and `sys`.
+Check connection retains
 the full readable catalog. The checkbox filters that cached list locally, without
 invalidating the connection check or making another database request. Suggestions
 and match previews use the filtered list. Startup discovery applies the same
-filter before access checks and rule matching against a fresh catalog.
+filter before rule matching against a fresh catalog. MySQL repeats it at the
+locked snapshot/binlog boundary and for CREATE TABLE admission. Restart fails
+explicitly if the filter contradicts durably recorded replication membership.
 
 - A successful authenticated Check connection loads all accessible tables.
 - Only then can the user add rule cards. Network reachability alone is not enough.

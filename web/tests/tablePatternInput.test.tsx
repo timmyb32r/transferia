@@ -43,7 +43,7 @@ it("shows anchored server suggestions without native datalist and selects exact 
   expect(view.container.querySelector("datalist")).toBeNull();
   fireEvent.keyDown(input, { key: "ArrowDown" });
   fireEvent.keyDown(input, { key: "Enter" });
-  expect((input as HTMLInputElement).value).toBe("schema\\.reports");
+  expect((input as HTMLInputElement).value).toBe("schema.reports");
   expect(input.getAttribute("aria-expanded")).toBe("false");
 });
 

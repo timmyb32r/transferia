@@ -157,7 +157,9 @@ pub async fn list_tables(config: &PostgresConnectionConfig) -> anyhow::Result<Ve
     let client = connect(config).await?;
     let rows = transferia_connector_support::external_request::observe_external_request(
         "postgres", "list_tables",
-        client.query(
+        // MDB transaction pooling may release the backend after each Sync.
+        // Parse/bind/execute together without a session-scoped named statement.
+        client.query_typed(
             "SELECT n.nspname, c.relname FROM pg_catalog.pg_class c \
              JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
              WHERE c.relkind IN ('r', 'p') AND c.relpersistence = 'p' \
@@ -165,7 +167,13 @@ pub async fn list_tables(config: &PostgresConnectionConfig) -> anyhow::Result<Ve
              AND pg_catalog.has_table_privilege(c.oid, 'SELECT') \
              ORDER BY n.nspname, c.relname", &[],
         ),
-    ).await?;
+    ).await.map_err(|error| {
+        let diagnostic = error.as_db_error().map_or_else(
+            || error.to_string(),
+            |database| format!("{} (SQLSTATE {})", database.message(), database.code().code()),
+        );
+        anyhow::anyhow!("PostgreSQL table discovery failed: {diagnostic}")
+    })?;
     rows.into_iter().map(|row| Ok(transferia_registry::TableIdentity {
         namespace: row.try_get(0)?, name: row.try_get(1)?,
     })).collect()

@@ -166,6 +166,18 @@ fn escaped_glob_names_preserve_literal_special_characters() {
 }
 
 #[test]
+fn exact_globs_leave_dots_literal_but_regex_escapes_them() {
+    let target = table("schema", "table");
+    assert_eq!(PatternMode::Glob.exact_pattern(&target), "schema.table");
+    assert_eq!(PatternMode::Regex.exact_pattern(&target), r"schema\.table");
+    let catalog = [target.clone(), table("schemaXtable", "other")];
+    let result = resolve(vec![rule(&PatternMode::Glob.exact_pattern(&target), None)], &catalog);
+    assert_eq!(result.cards[0].selected, vec![target]);
+    assert_eq!(PatternMode::Glob.exact_pattern(&table("a.b", "c")), r"a\\.b.c");
+    assert_eq!(PatternMode::Glob.exact_pattern(&table("a", "b.c")), r"a.b\\.c");
+}
+
+#[test]
 fn question_mark_matches_one_unicode_character() {
     let target = table("db", "я");
     let result = resolve(vec![rule("db.?", None)], &[target.clone(), table("db", "яя")]);

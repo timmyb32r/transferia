@@ -15,6 +15,15 @@ import { visibleTableCatalog } from "../src/features/tableSelection/catalog";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+it("leaves glob dots literal while preserving regex and identifier-boundary escaping", () => {
+  const plain = { namespace: "schema", name: "table" };
+  expect(exactPattern(plain, "glob")).toBe("schema.table");
+  expect(exactPattern(plain, "regex")).toBe(String.raw`schema\.table`);
+  expect(exactPattern({ namespace: "a.b", name: "c" }, "glob")).toBe(String.raw`a\\.b.c`);
+  expect(exactPattern({ namespace: "a", name: "b.c" }, "glob")).toBe(String.raw`a.b\\.c`);
+  expect(exactPattern({ namespace: "db", name: "a*b?c\\d" }, "glob")).toBe(String.raw`db.a\*b\?c\\\\d`);
+});
+
 it("preserves identifier boundaries and inserts exact escaped patterns", () => {
   const table = { namespace: "a.b", name: "c*?\\x" };
   expect(qualifiedName(table)).toBe("a\\.b.c*?\\\\x");
@@ -72,6 +81,10 @@ it("expands the complete matched list only on request into a bounded inline view
   expect(css).toMatch(/\.regex-toggle\s*\{[^}]*height: calc\(var\(--control-height\) - 8px\);/);
   expect(css).toMatch(/\.regex-toggle\[aria-pressed="true"\]\s*\{[^}]*background: var\(--blue\);[^}]*color: var\(--on-accent\);/);
   expect(css).toMatch(/\.table-rule-result\s*\{[^}]*height: 24px;/);
+  // Compact spacing must not remove the fixed match-status slot: typing a
+  // wildcard or receiving a preview must not move the next row or Add button.
+  expect(css).toMatch(/\.table-selection-editor\s*\{[^}]*gap: 4px;/);
+  expect(css).toMatch(/\.table-rule-row\s*\{[^}]*gap: 0;/);
 });
 
 it("collects every card into one matched list without duplicating table identities", async () => {
@@ -240,23 +253,27 @@ it("keeps a catalog across rule edits, invalidates it on connection edits, and d
   expect(hook.result.current.check.state).toBe("idle");
 });
 
-it("keeps the full ClickHouse catalog and connection identity when hiding system tables", async () => {
-  const namespaces = ["system", "_system", "information_schema", "information_schema_extra", "INFORMATION_SCHEMA",
-    "default", "system_backup", "_system_backup", "my_information_schema", "INFORMATION_SCHEMA_extra", "System"];
+it.each([
+  { connector: "clickhouse", hidden: ["system", "_system", "information_schema", "information_schema_extra", "INFORMATION_SCHEMA"],
+    visible: ["default", "system_backup", "_system_backup", "my_information_schema", "INFORMATION_SCHEMA_extra", "System"] },
+  { connector: "mysql", hidden: ["mysql", "information_schema", "performance_schema", "sys"],
+    visible: ["reports", "mysql_backup", "information_schema_extra", "performance_schema_backup", "syslog"] },
+])("keeps the full $connector catalog and connection identity when hiding system tables", async ({ connector, hidden, visible }) => {
+  const namespaces = [...hidden, ...visible];
   const tables = namespaces.map(namespace => ({ namespace, name: "t" }));
   const checkConnection = vi.fn().mockResolvedValue({ status: "verified", options: {}, tables });
   const api = { ...httpControlPlane, checkConnection };
   const config = { host: "first", hide_system_tables: true, tables: { type: "all" } };
-  const hook = renderHook(({ config }) => useEndpointActions({ api, connector: "clickhouse", role: "source", config }), { initialProps: { config } });
+  const hook = renderHook(({ config }) => useEndpointActions({ api, connector, role: "source", config }), { initialProps: { config } });
   await act(async () => { await hook.result.current.checkConnection(); });
-  const identity = tableConnectionIdentity("clickhouse", config);
+  const identity = tableConnectionIdentity(connector, config);
   for (const hide_system_tables of [false, true, false]) {
     hook.rerender({ config: { ...config, hide_system_tables } });
     expect(hook.result.current.check.state).toBe("success");
     expect(hook.result.current.check).toMatchObject({ tables });
-    expect(tableConnectionIdentity("clickhouse", { ...config, hide_system_tables })).toBe(identity);
-    expect(visibleTableCatalog("clickhouse", hide_system_tables, tables).map(table => table.namespace))
-      .toEqual(hide_system_tables ? namespaces.slice(5) : namespaces);
+    expect(tableConnectionIdentity(connector, { ...config, hide_system_tables })).toBe(identity);
+    expect(visibleTableCatalog(connector, hide_system_tables, tables).map(table => table.namespace))
+      .toEqual(hide_system_tables ? visible : namespaces);
   }
   expect(checkConnection).toHaveBeenCalledTimes(1);
   hook.rerender({ config: { ...config, host: "second" } });

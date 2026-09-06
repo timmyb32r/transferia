@@ -772,7 +772,14 @@ export function DeliveryApplication() {
           onUi={() => void applyYamlAndShowUi()}
           onYaml={() => void showYaml()}
           onDataSchema={() => void showDataSchema()}
-          onDataSchemaUnavailable={() => revealMissingRequiredFields("source")}
+          onDataSchemaUnavailable={() => {
+            if (discoveryError === undefined && selection?.source !== undefined && !sourceSchemaComplete) {
+              revealMissingRequiredFields("source");
+            } else if (!isOperationPending(operations.discovery) && dataSchemaUnavailableReason !== undefined) {
+              const requestId = beginOperation("discovery");
+              finishOperation("discovery", requestId, dataSchemaUnavailableReason);
+            }
+          }}
           onSpeedtest={openSpeedtest}
           onSpeedtestUnavailable={openSpeedtest}
           onPerformanceAdvice={() =>

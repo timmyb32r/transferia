@@ -450,8 +450,7 @@ async fn discover_table(
             );
             anyhow::ensure!(default_values.value(row).is_empty(), "ClickHouse source column '{}.{}.{name}' is generated ({}) and cannot be snapshotted through SELECT *", table.database, table.name, default_values.value(row));
             let declared_type = type_values.value(row);
-            let clickhouse_type = Type::from_str(declared_type)?;
-            let data_type = source_arrow_type(&clickhouse_type, declared_type)?;
+            let (clickhouse_type, data_type) = source_column_type(&table, name, declared_type)?;
             let data_type = match system_column_kind(name) {
                 Some(kind) => {
                     anyhow::ensure!(
@@ -634,6 +633,23 @@ fn without_system_columns(schema: &DatasetSchema, system_columns: &SystemColumns
             .map(|(_, column)| column.clone())
             .collect(),
     )
+}
+
+pub(super) fn source_column_type(
+    table: &TableConfig,
+    column: &str,
+    declared_type: &str,
+) -> anyhow::Result<(Type, DataType)> {
+    let decode = || -> anyhow::Result<(Type, DataType)> {
+        let parsed = Type::from_str(declared_type)?;
+        let data_type = source_arrow_type(&parsed, declared_type)?;
+        Ok((parsed, data_type))
+    };
+    decode().map_err(|error| anyhow::anyhow!(
+        "ClickHouse source table {}.{}, column {}, type {}: cannot decode the source type: {error:#}",
+        quote_identifier(&table.database), quote_identifier(&table.name),
+        quote_identifier(column), declared_type,
+    ))
 }
 
 pub(super) fn source_arrow_type(

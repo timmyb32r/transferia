@@ -26,7 +26,7 @@ impl PatternMode {
         match self {
             Self::Regex => regex::escape(&name),
             Self::Glob => name.chars().fold(String::new(), |mut result, ch| {
-                if matches!(ch, '\\' | '*' | '?' | '.') {
+                if matches!(ch, '\\' | '*' | '?') {
                     result.push('\\');
                 }
                 result.push(ch);

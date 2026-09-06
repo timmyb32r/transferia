@@ -458,6 +458,29 @@ describe("App request orchestration", () => {
     expect(api.validate).not.toHaveBeenCalled();
   });
 
+  it("shows the actual discovery failure on Data schema without inventing a YAML configuration error", async () => {
+    installApiMocks([]);
+    vi.mocked(api.catalog).mockResolvedValue({ ...CATALOG, connectors: [
+      connector("source", "Test source", { source: endpoint(["batch"], ["append_only"]) }),
+    ] });
+    const reason = "ClickHouse table analytics.events, column status, type Enum8('NO' = 0, 'YES' = 1): cannot decode the source type";
+    vi.mocked(api.discover).mockRejectedValue(new Error(reason));
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByRole("heading", { name: "Untitled delivery" });
+    chooseFromSelect(app, "Delivery type", "Batch");
+    chooseFromSelect(app, "Source", "Test source");
+    const tab = app.getByRole("tab", { name: "Data schema" });
+    const source = app.getByRole("heading", { name: "Source" });
+    await waitFor(() => expect(tab.closest(".instant-tooltip-host")?.textContent).toContain(reason));
+    fireEvent.click(tab);
+    await waitFor(() => expect(app.getByRole("alert").textContent).toContain(reason));
+    expect(app.queryByText(/Open the YAML view to correct it/)).toBeNull();
+    expect(view.container.querySelector(".required-missing")).toBeNull();
+    expect(app.getByRole("tab", { name: "Data schema" })).toBe(tab);
+    expect(app.getByRole("heading", { name: "Source" })).toBe(source);
+  });
+
   it("sends an unrenderable configuration issue to backend validation", async () => {
     const existing = {
       ...delivery("existing", "Existing"),

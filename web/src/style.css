@@ -4967,7 +4967,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 
 .table-selection-editor {
   display: grid;
-  gap: 12px;
+  gap: 4px;
   min-width: 0;
 }
 .table-selection-toolbar {
@@ -4975,11 +4975,12 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   align-items: center;
   gap: 10px;
   min-width: 0;
+  margin-bottom: 8px;
 }
 .table-selection-toolbar > .help { flex: 0 0 15px; }
 .table-rule-row {
   display: grid;
-  gap: 4px;
+  gap: 0;
   min-width: 0;
 }
 .table-rule-patterns {

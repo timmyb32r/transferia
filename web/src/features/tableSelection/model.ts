@@ -6,7 +6,7 @@ export function qualifiedName(table: TableIdentity): string {
 }
 
 export function exactPattern(table: TableIdentity, mode: PatternMode): string {
-  return qualifiedName(table).replace(mode === "regex" ? /[\\.^$*+?()[\]{}|]/g : /[\\*?.]/g, "\\$&");
+  return qualifiedName(table).replace(mode === "regex" ? /[\\.^$*+?()[\]{}|]/g : /[\\*?]/g, "\\$&");
 }
 
 export function hasPattern(value: string, mode: PatternMode): boolean {

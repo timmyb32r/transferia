@@ -413,6 +413,29 @@ describe("delivery controllers", () => {
     expect(result.current.operations.discovery).toBeUndefined();
   });
 
+  it("clears stale discovery when a current refresh fails", async () => {
+    vi.useFakeTimers();
+    const previous: DiscoveryResult = {
+      source: "source", sink: "sink", pipeline_count: 1, performance_advice: [],
+      datasets: [], sink_limits: { sink: "sink", supported_arrow_types: [] },
+    };
+    vi.spyOn(api, "discover").mockResolvedValueOnce(previous)
+      .mockRejectedValueOnce(new Error("ClickHouse column status: unsupported type"));
+    const initial = newEditor();
+    const { result, rerender } = renderHook(({ editor }: { editor: EditorState }) => {
+      const jobs = useDeliveryJobs();
+      const operations = useOperations();
+      return useDiscovery({ editor, structurallyComplete: true, job: jobs.discovery,
+        operations, isCurrentContext: () => true });
+    }, { initialProps: { editor: initial } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(450); });
+    expect(result.current.discovery).toEqual(previous);
+    rerender({ editor: { ...initial, localRevision: 2 } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(450); });
+    expect(result.current.discovery).toBeUndefined();
+    expect(result.current.error).toContain("column status");
+  });
+
   it("keeps the previous schema visible while refreshed discovery is pending", async () => {
     vi.useFakeTimers();
     const previous: DiscoveryResult = {

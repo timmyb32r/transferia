@@ -38,12 +38,20 @@ pub struct MySqlSourceConfig {
     #[serde(flatten)]
     pub connection: MySqlConnectionConfig,
 
-    #[schemars(extend("x-ui" = { "widget": "table_selection" }))]
+    #[serde(default = "default_hide_system_tables")]
+    #[schemars(
+        title = "Hide system tables",
+        description = "Exclude tables in mysql, information_schema, performance_schema and sys databases from table selection and suggestions. Disable to include them. Changing this filter uses the last successful connection check without reconnecting. The same filter applies at startup and to newly created tables during replication.",
+        extend("x-ui" = { "order": 1 })
+    )]
+    pub hide_system_tables: bool,
+
+    #[schemars(extend("x-ui" = { "widget": "table_selection", "order": 2 }))]
     pub tables: TableSelection,
 
     #[serde(default)]
     #[schemars(title = "New tables", description = "Include automatically follows CREATE TABLE events from the binlog and applies the same Include/Exclude rules. The destination is prepared before the first row is read. Existing tables renamed into a rule are rejected: their earlier rows require a new snapshot. Watermark-based DBLog support is future work. Ignore new tables keeps the startup membership fixed. Restart restores the committed membership, not current wildcard matches.",
-        extend("x-ui" = { "delivery_types": ["stream", "batch_and_stream"] }))]
+        extend("x-ui" = { "delivery_types": ["stream", "batch_and_stream"], "order": 3 }))]
     pub new_tables: NewTables,
 
     #[serde(default = "default_batch_rows")]
@@ -90,6 +98,19 @@ pub struct TableConfig {
 }
 
 impl MySqlSourceConfig {
+    pub(crate) fn includes_database(&self, database: &str) -> bool {
+        !self.hide_system_tables
+            || !matches!(database, "mysql" | "information_schema" | "performance_schema" | "sys")
+    }
+
+    pub(crate) fn resolve_tables(
+        &self,
+        mut catalog: Vec<transferia_registry::TableIdentity>,
+    ) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
+        catalog.retain(|table| self.includes_database(&table.namespace));
+        self.tables.compile()?.resolve(&catalog)?.selected_tables()
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
         anyhow::ensure!(!self.tables.is_empty(), "mysql.tables must contain at least one rule");
@@ -112,6 +133,10 @@ impl MySqlSourceConfig {
         self.replication.validate()?;
         Ok(())
     }
+}
+
+const fn default_hide_system_tables() -> bool {
+    true
 }
 
 const fn default_batch_rows() -> usize {

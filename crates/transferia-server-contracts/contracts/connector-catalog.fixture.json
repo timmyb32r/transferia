@@ -4302,10 +4302,20 @@
                 "widget": "password"
               }
             },
+            "hide_system_tables": {
+              "title": "Hide system tables",
+              "description": "Exclude tables in mysql, information_schema, performance_schema and sys databases from table selection and suggestions. Disable to include them. Changing this filter uses the last successful connection check without reconnecting. The same filter applies at startup and to newly created tables during replication.",
+              "type": "boolean",
+              "default": true,
+              "x-ui": {
+                "order": 1
+              }
+            },
             "tables": {
               "$ref": "#/$defs/TableSelection",
               "x-ui": {
-                "widget": "table_selection"
+                "widget": "table_selection",
+                "order": 2
               }
             },
             "new_tables": {
@@ -4317,7 +4327,8 @@
                 "delivery_types": [
                   "stream",
                   "batch_and_stream"
-                ]
+                ],
+                "order": 3
               }
             },
             "batch_rows": {
@@ -4552,6 +4563,7 @@
           "username": "",
           "password": "",
           "max_row_bytes": 1073741824,
+          "hide_system_tables": true,
           "tables": {
             "type": "selected",
             "rules": []

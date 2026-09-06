@@ -63,7 +63,10 @@ export function useDiscovery({
           operations.finishOperation("discovery", requestId);
         })
         .catch((reason: unknown) => {
-          if (isCurrentContext(context)) setError(errorMessage(reason));
+          if (isCurrentContext(context)) {
+            setDiscovery(undefined);
+            setError(errorMessage(reason));
+          }
           operations.finishOperation("discovery", requestId);
         });
     }, 450);

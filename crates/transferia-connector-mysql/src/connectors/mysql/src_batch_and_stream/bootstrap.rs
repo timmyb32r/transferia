@@ -178,7 +178,7 @@ impl MySqlExecutionLock {
         &mut self,
         preflight: &MySqlReplicationPreflight,
         tables: &[TableConfig],
-        selection: &transferia_registry::table_selection::TableSelection,
+        selection: &crate::connectors::mysql::src_batch::MySqlSourceConfig,
         expected_authoritative_tables: &[AuthoritativeTableIdentity],
         request_timeout: Duration,
         cancellation: &CancellationToken,
@@ -700,7 +700,7 @@ async fn read_authoritative_table_identity(
 pub async fn begin_locked_snapshot(
     config: &MySqlConnectionConfig,
     tables: &[TableConfig],
-    selection: &transferia_registry::table_selection::TableSelection,
+    selection: &crate::connectors::mysql::src_batch::MySqlSourceConfig,
     server_id: u32,
     preflight: &MySqlReplicationPreflight,
     max_row_bytes: usize,
@@ -882,7 +882,7 @@ pub async fn begin_locked_snapshot(
 async fn validate_locked_membership(
     connection: &mut Conn,
     tables: &[TableConfig],
-    selection: &transferia_registry::table_selection::TableSelection,
+    selection: &crate::connectors::mysql::src_batch::MySqlSourceConfig,
     timeout: Duration,
     cancellation: &CancellationToken,
 ) -> anyhow::Result<()> {
@@ -893,7 +893,7 @@ async fn validate_locked_membership(
             crate::connectors::mysql::common::list_tables_on_connection(connection)) =>
             result.map_err(|_| anyhow::anyhow!("MySQL locked catalog check timed out"))??,
     };
-    let matched = selection.compile()?.resolve(&catalog)?.selected_tables()?;
+    let matched = selection.resolve_tables(catalog)?;
     let expected = tables.iter().map(|table| transferia_registry::TableIdentity {
         namespace: table.database.clone(), name: table.name.clone(),
     }).collect::<std::collections::BTreeSet<_>>();

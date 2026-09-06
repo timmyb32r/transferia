@@ -16,6 +16,23 @@ use super::connector::source_arrow_type;
 use super::*;
 
 #[test]
+fn source_type_errors_identify_table_column_and_exact_declaration() {
+    let table = config::TableConfig { database: "analytics".into(), name: "events".into() };
+    for declaration in ["NotAClickHouseType", "Nullable("] {
+        let error = connector::source_column_type(&table, "status", declaration)
+            .unwrap_err();
+        // Display alone must retain the cause too: some consumers render only
+        // the top-level message instead of the full anyhow chain.
+        let message = error.to_string();
+        assert!(message.contains("analytics"), "{message}");
+        assert!(message.contains("events"), "{message}");
+        assert!(message.contains("status"), "{message}");
+        assert!(message.contains(declaration), "{message}");
+        assert!(message.contains("cannot decode"), "{message}");
+    }
+}
+
+#[test]
 fn system_table_discovery_filter_is_enabled_by_default_and_matches_database_boundaries() {
     for database in ["system", "_system", "information_schema", "information_schema_extra", "INFORMATION_SCHEMA"] {
         assert!(super::config::is_system_database(database), "{database}");

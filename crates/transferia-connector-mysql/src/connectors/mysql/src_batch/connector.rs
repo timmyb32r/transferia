@@ -438,8 +438,7 @@ impl MySqlSourceConnector {
     async fn resolved_tables(&self) -> anyhow::Result<&[TableConfig]> {
         self.resolved_tables.get_or_try_init(|| async {
             let catalog = crate::connectors::mysql::common::list_tables(&self.config.connection).await?;
-            let preview = self.config.tables.compile()?.resolve(&catalog)?;
-            Ok(preview.selected_tables()?.into_iter().map(|table| TableConfig {
+            Ok(self.config.resolve_tables(catalog)?.into_iter().map(|table| TableConfig {
                 database: table.namespace,
                 name: table.name,
             }).collect())
@@ -451,6 +450,15 @@ impl MySqlSourceConnector {
     }
 
     async fn load_selected_tables(&self, selected: &[TableConfig]) -> anyhow::Result<Vec<DiscoveredTable>> {
+        // Also validate restored snapshot/replication membership before any
+        // database request; never silently drop a durably recorded table.
+        for table in selected {
+            anyhow::ensure!(self.config.includes_database(&table.database),
+                "MySQL Hide system tables excludes selected table {:?}. Disable the filter to retain this table; changing durably recorded membership requires a new delivery revision",
+                transferia_registry::TableIdentity {
+                    namespace: table.database.clone(), name: table.name.clone(),
+                }.qualified_name());
+        }
         let mut connection = observe_external_request(
             "mysql",
             "connect_source_discovery",
@@ -597,7 +605,7 @@ impl MySqlSourceConnector {
                         let bootstrap = begin_locked_snapshot(
                             &self.config.connection,
                             &selected,
-                            &self.config.tables,
+                            &self.config,
                             replication.server_id,
                             &preflight,
                             self.config.max_row_bytes,
@@ -752,7 +760,7 @@ impl MySqlSourceConnector {
                             .capture_boundary(
                                 &preflight,
                                 self.resolved_tables().await?,
-                                &self.config.tables,
+                                &self.config,
                                 &authoritative_tables,
                                 timeout,
                                 &cancellation,

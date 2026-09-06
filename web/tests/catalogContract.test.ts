@@ -32,6 +32,51 @@ function* descendants(node: CompiledNode): Generator<CompiledNode> {
 }
 
 describe("Rust catalog contract", () => {
+  it("uses the same stable Hide system tables control above Tables in MySQL and ClickHouse", () => {
+    let expectedClasses: string[] | undefined;
+    for (const key of ["mysql", "clickhouse"]) {
+      const source = catalogFixture.connectors.find(connector => connector.key === key)!.source!;
+      const compiled = compileSchema(source.schema, productionWidgetRegistry);
+      if (compiled.kind !== "object") throw new Error(`${key}: expected source object`);
+      const hide = compiled.properties.hide_system_tables!;
+      expect(hide.kind, key).toBe("boolean");
+      expect(hide.title, key).toBe("Hide system tables");
+      expect(hide.xUi.order, key).toBe(1);
+      expect(compiled.properties.tables!.xUi.order, key).toBe(2);
+      expect(source.initial.hide_system_tables, key).toBe(true);
+      // Use real emitted fields and the shared renderer, including the
+      // password's connection-action anchor. No connector-local checkbox UI.
+      const node = { ...compiled, properties: Object.fromEntries(Object.entries(compiled.properties)
+        .filter(([name]) => ["password", "hide_system_tables", "tables"].includes(name))) };
+      const form = (hide_system_tables: boolean) => h(SchemaForm, {
+        node, value: { ...source.initial, hide_system_tables }, onChange: () => undefined,
+        connectionAction: h("button", { type: "button" }, "Check connection"),
+      });
+      const view = render(form(true));
+      const field = view.container.querySelector('[data-field-name="hide_system_tables"]')!;
+      const checkbox = field.querySelector('input[type="checkbox"]')! as HTMLInputElement;
+      const tables = view.container.querySelector('[data-field-name="tables"]')!;
+      const check = view.getByRole("button", { name: "Check connection" });
+      expect(checkbox.checked, key).toBe(true);
+      expect(check.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING, key).toBeTruthy();
+      expect(field.compareDocumentPosition(tables) & Node.DOCUMENT_POSITION_FOLLOWING, key).toBeTruthy();
+      const classes = [field.className, checkbox.parentElement!.className, checkbox.className];
+      expectedClasses ??= classes;
+      expect(classes, key).toEqual(expectedClasses);
+      const siblings = Array.from(field.parentElement!.children);
+      checkbox.focus();
+      view.rerender(form(false));
+      expect(checkbox.checked, key).toBe(false);
+      expect(document.activeElement, key).toBe(checkbox);
+      // Toggling only updates the checked state: no replacement or insertion
+      // of surrounding form controls, banners or reconnect prompts.
+      expect(Array.from(field.parentElement!.children), key).toEqual(siblings);
+      expect(view.getByRole("button", { name: "Check connection" }), key).toBe(check);
+      expect(view.container.querySelector('[data-field-name="tables"]'), key).toBe(tables);
+      view.unmount();
+    }
+  });
+
   it("registers the table selection widget for the emitted tagged union in every database source", () => {
     for (const key of ["postgres", "mysql", "clickhouse"]) {
       const source = catalogFixture.connectors.find(connector => connector.key === key)?.source;

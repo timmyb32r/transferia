@@ -238,6 +238,9 @@ impl MySqlReplicationSource {
         use crate::connectors::mysql::src_batch::{
             authoritative_table_identities, build_delivery_discovery, discover_table, TableConfig,
         };
+        if !self.admission_config.includes_database(&identity.namespace) {
+            return self.finish_transaction(committed);
+        }
         let classification = self.admission_config.tables.compile()?.classify(&identity);
         anyhow::ensure!(classification.issues.is_empty(),
             "MySQL newly created table {:?} conflicts with configured table rules: {:?}",
