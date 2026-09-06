@@ -211,6 +211,7 @@ describe("delivery controllers", () => {
       const jobs = useDeliveryJobs();
       const operations = useOperations();
       return useDeliveryMutations({
+        ensureMetadata: async () => undefined,
         editor,
         jobs,
         operations,
@@ -269,6 +270,7 @@ describe("delivery controllers", () => {
       const jobs = useDeliveryJobs();
       const operations = useOperations();
       const mutations = useDeliveryMutations({
+        ensureMetadata: async () => undefined,
         editor,
         jobs,
         operations,
@@ -324,6 +326,7 @@ describe("delivery controllers", () => {
       const jobs = useDeliveryJobs();
       const operations = useOperations();
       return useDeliveryMutations({
+        ensureMetadata: async () => undefined,
         editor,
         jobs,
         operations,

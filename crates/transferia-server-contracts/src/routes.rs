@@ -18,6 +18,11 @@ macro_rules! routes {
 }
 
 routes![
+    (CONNECT_METADATA, "connect_metadata", "POST", "/api/v1/source-metadata", Some("metadata_connect_request"), None, "metadata_connection_response"),
+    (METADATA_STATUS, "metadata_status", "GET", "/api/v1/source-metadata/{id}", None, None, "metadata_status_response"),
+    (RELEASE_METADATA, "release_metadata", "DELETE", "/api/v1/source-metadata/{id}", None, None, "metadata_status_response"),
+    (LOAD_METADATA_SCHEMAS, "load_metadata_schemas", "POST", "/api/v1/source-metadata/{id}/schemas", Some("metadata_schemas_request"), None, "metadata_status_response"),
+    (METADATA_DISCOVERY, "metadata_discovery", "POST", "/api/v1/source-metadata/{id}/discovery", Some("metadata_discovery_request"), None, "discovery_response"),
     (
         TABLE_SELECTION_PREVIEW,
         "table_selection_preview",
@@ -176,7 +181,7 @@ routes![
         "validate",
         "POST",
         "/api/v1/deliveries/{id}/validate",
-        Some("revision_request"),
+        Some("validation_request"),
         None,
         "validation_response"
     ),

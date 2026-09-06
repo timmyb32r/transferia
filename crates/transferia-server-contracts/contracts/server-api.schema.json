@@ -420,6 +420,14 @@
       ],
       "type": "object"
     },
+    "DeliveryType": {
+      "enum": [
+        "batch",
+        "stream",
+        "batch_and_stream"
+      ],
+      "type": "string"
+    },
     "DestinationColumnView": {
       "additionalProperties": false,
       "properties": {
@@ -808,6 +816,167 @@
         "preview_bytes",
         "metadata",
         "detections"
+      ],
+      "type": "object"
+    },
+    "MetadataConnectRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery_type": {
+          "$ref": "#/$defs/DeliveryType"
+        },
+        "replace_metadata_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/TransformPreviewSource"
+        }
+      },
+      "required": [
+        "source",
+        "delivery_type"
+      ],
+      "type": "object"
+    },
+    "MetadataConnection": {
+      "additionalProperties": false,
+      "properties": {
+        "connection": {
+          "$ref": "#/$defs/ConnectionCheckResult"
+        },
+        "metadata": {
+          "$ref": "#/$defs/MetadataStatus"
+        }
+      },
+      "required": [
+        "connection",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    "MetadataDiscoveryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonObject"
+        }
+      },
+      "required": [
+        "config"
+      ],
+      "type": "object"
+    },
+    "MetadataSchemasRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/TransformPreviewSource"
+        },
+        "tables": {
+          "items": {
+            "$ref": "#/$defs/TableIdentity"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "source",
+        "tables"
+      ],
+      "type": "object"
+    },
+    "MetadataStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/TableMetadataError"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "loaded": {
+          "items": {
+            "$ref": "#/$defs/TableIdentity"
+          },
+          "type": "array"
+        },
+        "loading": {
+          "type": "boolean"
+        },
+        "validation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetadataValidationProgress"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "catalog_count",
+        "loaded",
+        "errors",
+        "loading"
+      ],
+      "type": "object"
+    },
+    "MetadataValidationPhase": {
+      "enum": [
+        "schemas",
+        "pipeline",
+        "complete",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "MetadataValidationProgress": {
+      "additionalProperties": false,
+      "properties": {
+        "checked": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "delivery_id": {
+          "type": "string"
+        },
+        "phase": {
+          "$ref": "#/$defs/MetadataValidationPhase"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "delivery_id",
+        "revision",
+        "checked",
+        "total",
+        "phase"
       ],
       "type": "object"
     },
@@ -1682,6 +1851,22 @@
       ],
       "type": "object"
     },
+    "TableMetadataError": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "table": {
+          "$ref": "#/$defs/TableIdentity"
+        }
+      },
+      "required": [
+        "table",
+        "message"
+      ],
+      "type": "object"
+    },
     "TableRule": {
       "additionalProperties": false,
       "properties": {
@@ -1861,6 +2046,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "metadata_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "middlewares": {
           "items": true,
           "type": "array"
@@ -2037,6 +2229,32 @@
       },
       "required": [
         "delivery"
+      ],
+      "type": "object"
+    },
+    "ValidationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_record_version": {
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "type": "string"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "metadata_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "expected_revision",
+        "expected_record_version"
       ],
       "type": "object"
     },
@@ -2266,6 +2484,21 @@
     "message_preview_response": {
       "$ref": "#/$defs/MessagePreviewResult"
     },
+    "metadata_connect_request": {
+      "$ref": "#/$defs/MetadataConnectRequest"
+    },
+    "metadata_connection_response": {
+      "$ref": "#/$defs/MetadataConnection"
+    },
+    "metadata_discovery_request": {
+      "$ref": "#/$defs/MetadataDiscoveryRequest"
+    },
+    "metadata_schemas_request": {
+      "$ref": "#/$defs/MetadataSchemasRequest"
+    },
+    "metadata_status_response": {
+      "$ref": "#/$defs/MetadataStatus"
+    },
     "revision_request": {
       "$ref": "#/$defs/RevisionRequest"
     },
@@ -2299,6 +2532,9 @@
     "update_draft_request": {
       "$ref": "#/$defs/UpdateDraftRequest"
     },
+    "validation_request": {
+      "$ref": "#/$defs/ValidationRequest"
+    },
     "validation_response": {
       "$ref": "#/$defs/ValidationCommandResult"
     },
@@ -2319,6 +2555,11 @@
     }
   },
   "required": [
+    "metadata_connect_request",
+    "metadata_connection_response",
+    "metadata_status_response",
+    "metadata_schemas_request",
+    "metadata_discovery_request",
     "catalog_response",
     "delivery_list_response",
     "delivery_response",
@@ -2347,6 +2588,7 @@
     "create_draft_request",
     "update_draft_request",
     "revision_request",
+    "validation_request",
     "stop_request",
     "worker_logs_response",
     "worker_log_response",

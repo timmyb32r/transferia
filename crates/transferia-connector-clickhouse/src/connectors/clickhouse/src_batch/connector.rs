@@ -44,6 +44,69 @@ pub(super) const SYSTEM_COLUMN_KINDS: [SystemColumnKind; 4] = [
     SystemColumnKind::MessageIndex,
 ];
 
+struct ClickHouseMetadataReader {
+    client: Arc<ReconnectingClient>,
+    config: ClickHouseSourceConfig,
+    tables: tokio::sync::Mutex<std::collections::BTreeMap<transferia_registry::TableIdentity, DiscoveredTable>>,
+}
+
+impl transferia_registry::SourceMetadataReader for ClickHouseMetadataReader {
+    fn sample_table(&self, table: transferia_registry::TableIdentity, limits: transferia_registry::TableSampleLimits,
+        cancellation: tokio_util::sync::CancellationToken) -> BoxFuture<'_, anyhow::Result<transferia_core::TableData>> {
+        Box::pin(async move {
+            let cached = tokio::select! {
+                biased;
+                () = cancellation.cancelled() => anyhow::bail!("ClickHouse metadata read cancelled"),
+                cached = self.tables.lock() => cached,
+            };
+            let discovered = cached.get(&table).cloned()
+                .ok_or_else(|| anyhow::anyhow!("Load this table's schema before preview"))?;
+            drop(cached);
+            super::sample::sample_with_metadata(self.config.clone(), table, limits, cancellation, Some(discovered)).await
+        })
+    }
+    fn includes_table(&self, table: &transferia_registry::TableIdentity, hide: bool) -> bool {
+        !hide || !super::config::is_system_database(&table.namespace)
+    }
+
+    fn load_table(&self, table: transferia_registry::TableIdentity, cancellation: tokio_util::sync::CancellationToken)
+        -> BoxFuture<'_, anyhow::Result<()>> {
+        Box::pin(async move {
+            let mut cached = tokio::select! {
+                biased;
+                () = cancellation.cancelled() => anyhow::bail!("ClickHouse metadata loading cancelled"),
+                state = self.tables.lock() => state,
+            };
+            if cached.contains_key(&table) { return Ok(()); }
+            let discovered = tokio::select! {
+                biased;
+                () = cancellation.cancelled() => anyhow::bail!("ClickHouse metadata loading cancelled"),
+                result = discover_table(&self.client, TableConfig {
+                    database: table.namespace.clone(), name: table.name.clone(),
+                }, self.config.unsupported_types) => result?,
+            };
+            cached.insert(table, discovered);
+            Ok(())
+        })
+    }
+
+    fn discovery(&self, selected: Vec<transferia_registry::TableIdentity>,
+        request: transferia_core::delivery::DeliveryDiscoveryRequest,
+        cancellation: tokio_util::sync::CancellationToken) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
+        Box::pin(async move {
+            let cached = tokio::select! {
+                biased;
+                () = cancellation.cancelled() => anyhow::bail!("ClickHouse metadata validation cancelled"),
+                state = self.tables.lock() => state,
+            };
+            let tables = selected.iter().map(|table| cached.get(table).cloned()
+                .ok_or_else(|| anyhow::anyhow!("Metadata is not loaded for {}", table.qualified_name())))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            build_metadata_discovery(&tables, request)
+        })
+    }
+}
+
 pub struct ClickHouseSourceConnector {
     config: ClickHouseSourceConfig,
     client: Arc<ReconnectingClient>,
@@ -218,7 +281,70 @@ impl ClickHouseSourceConnector {
     }
 }
 
+fn build_metadata_discovery(
+    tables: &[DiscoveredTable],
+    request: transferia_core::delivery::DeliveryDiscoveryRequest,
+) -> anyhow::Result<DeliveryDiscovery> {
+    let discovered_system_columns = SYSTEM_COLUMN_KINDS
+        .iter()
+        .copied()
+        .map(Into::into)
+        .collect::<Vec<_>>();
+    let datasets = tables
+        .iter()
+        .map(|table| {
+            let mut incoming = table.schema.clone();
+            if table.physical_system_columns.is_empty() {
+                incoming
+                    .columns
+                    .extend(SYSTEM_COLUMN_KINDS.iter().map(|kind| {
+                        SchemaColumn::new(
+                            kind.default_name().to_owned(),
+                            kind.data_type(),
+                            false,
+                        )
+                    }));
+            }
+            let stored_schema = if request.keep_system_columns {
+                incoming.clone()
+            } else if table.physical_system_columns.is_empty() {
+                table.schema.clone()
+            } else {
+                without_system_columns(&table.schema, &table.physical_system_columns)
+            };
+            DiscoveredDataset {
+                namespace: Some(Arc::from(table.config.database.as_str())),
+                update_policy: transferia_core::delivery::UpdatePolicy::Strict,
+                role: DatasetRole::Main,
+                name: Arc::from(table.config.name.as_str()),
+                incoming_schema: incoming.clone(),
+                stored_schema,
+                system_columns: discovered_system_columns.clone(),
+            }
+        })
+        .collect();
+    Ok(DeliveryDiscovery {
+        source_name: Arc::from("clickhouse"),
+        source_topology: SourceTopology::StaticPartitions(
+            (0..tables.len())
+                .map(i64::try_from)
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: request.keep_system_columns,
+        datasets,
+        performance_advice: Vec::new(),
+    })
+}
+
 impl SourceConnector for ClickHouseSourceConnector {
+    fn metadata_reader(&self, _delivery_type: transferia_delivery_contracts::DeliveryType)
+        -> anyhow::Result<Option<Arc<dyn transferia_registry::SourceMetadataReader>>> {
+        Ok(Some(Arc::new(ClickHouseMetadataReader {
+            client: Arc::clone(&self.client), config: self.config.clone(),
+            tables: tokio::sync::Mutex::new(std::collections::BTreeMap::new()),
+        })))
+    }
     fn compatibility(
         &self,
         _delivery_type: transferia_delivery_contracts::DeliveryType,
@@ -240,56 +366,7 @@ impl SourceConnector for ClickHouseSourceConnector {
                 delivery_type: _,
             } = context;
             let tables = tokio::select! { biased; () = cancellation.cancelled() => anyhow::bail!("ClickHouse discovery cancelled"), tables = self.discovered_tables() => tables? };
-            let discovered_system_columns = SYSTEM_COLUMN_KINDS
-                .iter()
-                .copied()
-                .map(Into::into)
-                .collect::<Vec<_>>();
-            let datasets = tables
-                .iter()
-                .map(|table| {
-                    let mut incoming = table.schema.clone();
-                    if table.physical_system_columns.is_empty() {
-                        incoming
-                            .columns
-                            .extend(SYSTEM_COLUMN_KINDS.iter().map(|kind| {
-                                SchemaColumn::new(
-                                    kind.default_name().to_owned(),
-                                    kind.data_type(),
-                                    false,
-                                )
-                            }));
-                    }
-                    let stored_schema = if request.keep_system_columns {
-                        incoming.clone()
-                    } else if table.physical_system_columns.is_empty() {
-                        table.schema.clone()
-                    } else {
-                        without_system_columns(&table.schema, &table.physical_system_columns)
-                    };
-                    DiscoveredDataset {
-                        namespace: Some(Arc::from(table.config.database.as_str())),
-                        update_policy: transferia_core::delivery::UpdatePolicy::Strict,
-                        role: DatasetRole::Main,
-                        name: Arc::from(table.config.name.as_str()),
-                        incoming_schema: incoming.clone(),
-                        stored_schema,
-                        system_columns: discovered_system_columns.clone(),
-                    }
-                })
-                .collect();
-            Ok(DeliveryDiscovery {
-                source_name: Arc::from("clickhouse"),
-                source_topology: SourceTopology::StaticPartitions(
-                    (0..tables.len())
-                        .map(i64::try_from)
-                        .collect::<Result<Vec<_>, _>>()?,
-                ),
-                schema_origin: SchemaOrigin::SourceNative,
-                keep_system_columns: request.keep_system_columns,
-                datasets,
-                performance_advice: Vec::new(),
-            })
+            build_metadata_discovery(&tables, request)
         })
     }
 

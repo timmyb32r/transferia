@@ -109,7 +109,27 @@ pub async fn build_delivery_plan_with(
     cancellation: CancellationToken,
     composition: &dyn Composition,
 ) -> anyhow::Result<DeliveryPlan> {
-    build_delivery_plan_internal(config, None, cancellation, composition, true).await
+    build_delivery_plan_internal(config, None, cancellation, composition, true, None).await
+}
+
+/// Server-owned preview metadata only. Execution entry points never accept this
+/// provider and always perform fresh source discovery.
+pub trait PreviewDiscoveryProvider: Send + Sync {
+    fn discover<'a>(
+        &'a self,
+        kind: &'a str,
+        resolved_source: &'a serde_yaml::Value,
+        context: SourceDiscoveryContext,
+    ) -> futures_util::future::BoxFuture<'a, anyhow::Result<DeliveryDiscovery>>;
+}
+
+pub async fn build_preview_plan_with_metadata(
+    config: Config,
+    cancellation: CancellationToken,
+    composition: &dyn Composition,
+    provider: &dyn PreviewDiscoveryProvider,
+) -> anyhow::Result<DeliveryPlan> {
+    build_delivery_plan_internal(config, None, cancellation, composition, true, Some(provider)).await
 }
 
 pub async fn build_delivery_plan_with_replay_identity(
@@ -129,6 +149,7 @@ pub async fn build_delivery_plan_with_replay_identity(
         cancellation,
         composition,
         true,
+        None,
     )
     .await
 }
@@ -153,6 +174,7 @@ pub async fn build_resolved_delivery_document_with(
             cancellation.child_token(),
             composition,
             false,
+            None,
         )
         .await?;
         pipelines.append(&mut plan.pipelines);
@@ -174,6 +196,7 @@ async fn build_delivery_plan_internal(
     cancellation: CancellationToken,
     composition: &dyn Composition,
     resolve_installations: bool,
+    preview: Option<&dyn PreviewDiscoveryProvider>,
 ) -> anyhow::Result<DeliveryPlan> {
     anyhow::ensure!(
         config.pipeline_memory_limit_bytes > 0,
@@ -227,6 +250,7 @@ async fn build_delivery_plan_internal(
                     composition,
                     pipeline_count,
                     pipelines.len(),
+                    preview,
                 )
                 .await?,
             );
@@ -248,6 +272,7 @@ async fn build_pipeline_plan(
     composition: &dyn Composition,
     pipeline_count: usize,
     pipeline_index: usize,
+    preview: Option<&dyn PreviewDiscoveryProvider>,
 ) -> anyhow::Result<PipelinePlan> {
     let durable_id = if pipeline_count == 1 {
         config.delivery_id.clone()
@@ -276,15 +301,17 @@ async fn build_pipeline_plan(
     let finite_source =
         source_descriptor.source_behavior() == Some(SourceBehavior::FiniteAppendOnlyRows);
     validate_record_semantics(&source_descriptor, &sink_connector.compatibility())?;
-    let discovery = source_connector
-        .delivery_discovery(SourceDiscoveryContext {
+    let context = SourceDiscoveryContext {
             request: DeliveryDiscoveryRequest {
                 keep_system_columns: true,
             },
             cancellation,
             delivery_type: config.delivery_type,
-        })
-        .await?;
+        };
+    let discovery = match preview {
+        Some(provider) => provider.discover(source_kind, config.source.raw()?, context).await?,
+        None => source_connector.delivery_discovery(context).await?,
+    };
     anyhow::ensure!(
         discovery.keep_system_columns,
         "source delivery discovery returned a system-column projection different from the requested policy"

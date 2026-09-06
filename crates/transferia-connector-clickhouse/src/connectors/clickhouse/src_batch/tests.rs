@@ -497,3 +497,19 @@ fn snapshot_normalization_preserves_discovered_column_metadata() -> anyhow::Resu
     );
     Ok(())
 }
+#[test]
+fn cached_preview_rejects_changed_enum_metadata_without_mutating_cached_schema() {
+    let cached = connector::DiscoveredTable {
+        config: config::TableConfig { database: "db".into(), name: "events".into() },
+        schema: transferia_core::DatasetSchema::new(vec![transferia_core::SchemaColumn::new(
+            "value".into(), arrow::datatypes::DataType::Utf8, false)
+            .with_arrow_extension_metadata("clickhouse.enum", "Enum8('a'=1,'b'=2)")]),
+        physical_system_columns: transferia_core::SystemColumns::default(),
+    };
+    assert!(super::sample::validate_cached_schema(&cached, &cached).is_ok());
+    let mut changed = cached.clone();
+    changed.schema.columns[0].arrow_extension_metadata = Some("Enum8('b'=1,'a'=2)".into());
+    let error = super::sample::validate_cached_schema(&cached, &changed).unwrap_err();
+    assert!(error.to_string().contains("db.events"));
+    assert_eq!(cached.schema.columns[0].arrow_extension_metadata.as_deref(), Some("Enum8('a'=1,'b'=2)"));
+}

@@ -21,7 +21,9 @@ import { TopField } from "../ui/FormField";
 import { SelectControl } from "../ui/SelectControl";
 import { MiddlewareEditor } from "../features/middleware/MiddlewareEditor";
 import { TableNamingProvider } from "../features/tableSelection/naming";
-import { useState } from "preact/hooks";
+import { useMemo, useState } from "preact/hooks";
+import { useSourceMetadataContext } from "./sourceMetadata";
+import { tableConnectionIdentity } from "./useEndpointActions";
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import { TableCatalogContext } from "../schema/tableCatalog";
 import { useTransformCatalog, type VerifiedTableCatalog } from "../features/middleware/useTransformCatalog";
@@ -58,6 +60,7 @@ export function DeliveryConfiguration({
   const widgets = useWidgetRegistry();
   const api = useControlPlane();
   const [checkedTables, setCheckedTables] = useState<VerifiedTableCatalog>();
+  const sharedMetadata = useSourceMetadataContext();
   const deliveryTypeSelected = stringValue(editor.config.delivery_type) !== "";
   const routeSelectionComplete =
     deliveryTypeSelected &&
@@ -69,7 +72,11 @@ export function DeliveryConfiguration({
   const sourceConfig = selection ? endpointValue(editor.config, "source", selection.sourceKey) : undefined;
   const previewSource = selection?.source?.table_preview && isObject(sourceConfig)
     ? { connector: selection.sourceKey, config: sourceConfig } : undefined;
-  const transformCatalog = useTransformCatalog(previewSource, checkedTables, api);
+  const sharedCheck = sharedMetadata?.check;
+  const sharedTables = sharedCheck?.state === "success" ? sharedCheck.tables : undefined;
+  const identity = previewSource ? tableConnectionIdentity(previewSource.connector, previewSource.config) : undefined;
+  const sharedCatalog = useMemo(() => identity && sharedTables ? { identity, tables: sharedTables } : undefined, [identity, sharedTables]);
+  const transformCatalog = useTransformCatalog(previewSource, sharedMetadata ? sharedCatalog : checkedTables, api);
   return (
       <div
         class="editor-view"

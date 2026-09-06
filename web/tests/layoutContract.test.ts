@@ -16,6 +16,15 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("reserves metadata action and status dimensions across async updates", () => {
+    expect(styles).toMatch(/\.metadata-button-label\s*\{[^}]*display: grid;/s);
+    expect(styles).toMatch(/\.metadata-button-label > span\s*\{[^}]*grid-area: 1 \/ 1;/s);
+    expect(styles).toMatch(/\.metadata-button-label > span\[aria-hidden\]\s*\{[^}]*visibility: hidden;/s);
+    expect(styles).toMatch(/\.connection-check-required \.connection-check-result\s*\{[^}]*height: 2\.7em;[^}]*overflow: auto;/s);
+    expect(styles).toMatch(/\.transform-schema-loader\s*\{[^}]*height: 38px;/s);
+    expect(styles).toMatch(/\.transform-schema-loader > span\s*\{[^}]*white-space: nowrap;/s);
+    expect(styles).toMatch(/\.transform-load-schemas\s*\{[^}]*width: 126px;[^}]*height: 30px;/s);
+  });
   it("shares high-contrast secondary action colors without recoloring disabled controls or resizing buttons", () => {
     const theme = ':root[data-design="airy-v0"][data-theme="light"]';
     const tokens = styles.split(`${theme} {`)[1]?.split("}")[0];

@@ -21,6 +21,11 @@ use crate::connectors::mysql::common::{connect_sample_with_max_allowed_packet, q
 
 pub(crate) async fn sample_table(config: MySqlSourceConfig, table: TableIdentity, limits: TableSampleLimits,
     cancellation: CancellationToken) -> anyhow::Result<TableData> {
+    sample_with_metadata(config, table, limits, cancellation, None).await
+}
+
+pub(super) async fn sample_with_metadata(config: MySqlSourceConfig, table: TableIdentity, limits: TableSampleLimits,
+    cancellation: CancellationToken, cached: Option<super::connector::DiscoveredTable>) -> anyhow::Result<TableData> {
     limits.validate()?;
     let row_limit = limits.row_limit;
     config.connection.validate()?;
@@ -52,8 +57,16 @@ pub(crate) async fn sample_table(config: MySqlSourceConfig, table: TableIdentity
                 connection.query_first::<u64, _>("SELECT FIND_IN_SET('PAD_CHAR_TO_FULL_LENGTH', @@SESSION.sql_mode)")).await?;
             anyhow::ensure!(forbidden == Some(0), "MySQL sample session retained PAD_CHAR_TO_FULL_LENGTH");
             observe_external_request("mysql", "begin_read_only_table_sample", connection.query_drop("START TRANSACTION READ ONLY")).await?;
+            // An executed SELECT holds the table's metadata lock until the
+            // transaction ends. PREPARE alone would release it immediately.
+            observe_external_request("mysql", "lock_sample_table_metadata",
+                connection.query_drop(format!("SELECT * FROM {}.{} LIMIT 0",
+                    quote_identifier(&table.namespace), quote_identifier(&table.name)))).await?;
             let discovered = discover_table(&mut connection, &table.namespace,
                 TableConfig { database: table.namespace.clone(), name: table.name.clone() }, false, config.read_protocol).await?;
+            if let Some(cached) = &cached { validate_cached_schema(cached, &discovered)?; }
+            anyhow::ensure!(discovered.config.database == table.namespace && discovered.config.name == table.name,
+                "Cached MySQL table identity does not match the sample request");
             let projection = discovered.columns.iter().map(|column| column.expression.as_str()).collect::<Vec<_>>().join(", ");
             let query = sample_query(&table, &projection, row_limit)?;
             let (rows, retained_bytes) = observe_external_request("mysql", "read_table_sample", async {
@@ -90,6 +103,16 @@ pub(super) fn timeout_statement(server_version: &str, timeout_ms: usize) -> Stri
     } else {
         format!("SET SESSION max_execution_time = {timeout_ms}")
     }
+}
+
+pub(super) fn validate_cached_schema(cached: &super::connector::DiscoveredTable, current: &super::connector::DiscoveredTable) -> anyhow::Result<()> {
+    // Compare native plans, not just Arrow storage: ENUM/SET ordinals and
+    // character encodings can change while their Arrow storage stays identical.
+    anyhow::ensure!(cached.config.database == current.config.database && cached.config.name == current.config.name
+        && cached.engine == current.engine && cached.columns == current.columns,
+        "MySQL table '{}.{}' schema changed since metadata was loaded; refresh metadata before preview",
+        cached.config.database, cached.config.name);
+    Ok(())
 }
 
 async fn collect_rows<P: Protocol>(mut result: QueryResult<'_, '_, P>, columns: &[ColumnPlan],

@@ -8,11 +8,14 @@ import type {
   ApiContractName,
   ConfigRequest,
   ConnectionCheckRequest,
+  MetadataConnectRequest,
+  MetadataSchemasRequest,
   TableSelectionPreviewRequest,
   CreateDraftRequest,
   MessagePreviewRequest,
   OptionsRequest,
   RevisionRequest,
+  ValidationRequest,
   TransformPreviewRequest,
   SpeedtestEstimateRequest,
   SpeedtestTuneRequest,
@@ -147,6 +150,16 @@ export const httpControlPlane: ControlPlanePort = {
         ...(signal === undefined ? {} : { signal }),
       },
     ),
+  connectMetadata: (body: MetadataConnectRequest, signal?: AbortSignal) =>
+    routeRequest("connect_metadata", {}, { body, ...(signal === undefined ? {} : { signal }) }),
+  metadataStatus: (id: string, signal?: AbortSignal) =>
+    routeRequest("metadata_status", { id }, { ...(signal === undefined ? {} : { signal }) }),
+  releaseMetadata: (id: string, signal?: AbortSignal) =>
+    routeRequest("release_metadata", { id }, { ...(signal === undefined ? {} : { signal }) }),
+  loadMetadataSchemas: (id: string, body: MetadataSchemasRequest, signal?: AbortSignal) =>
+    routeRequest("load_metadata_schemas", { id }, { body, ...(signal === undefined ? {} : { signal }) }),
+  metadataDiscovery: (id: string, config: JsonObject, signal?: AbortSignal) =>
+    routeRequest("metadata_discovery", { id }, { body: { config }, ...(signal === undefined ? {} : { signal }) }),
   previewTables: (body: TableSelectionPreviewRequest, signal?: AbortSignal) =>
     routeRequest("table_selection_preview", {}, { body, ...(signal === undefined ? {} : { signal }) }),
   previewMessage: (body: MessagePreviewRequest, signal?: AbortSignal) =>
@@ -321,11 +334,13 @@ export const httpControlPlane: ControlPlanePort = {
     id: string,
     expectedRevision: number,
     expectedRecordVersion: string,
+    metadataId: string | undefined,
     signal?: AbortSignal,
   ) => {
-    const body: RevisionRequest = {
+    const body: ValidationRequest = {
       expected_revision: expectedRevision,
       expected_record_version: expectedRecordVersion,
+      metadata_id: metadataId ?? null,
     };
     return routeRequest(
       "validate",

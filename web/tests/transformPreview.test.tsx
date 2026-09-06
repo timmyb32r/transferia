@@ -30,13 +30,14 @@ function setup() {
   const previewTransforms = vi.fn().mockResolvedValue(response);
   const controlPlane = { ...httpControlPlane, checkConnection, previewTransforms };
   const component = (steps = entries) => <ApplicationServicesProvider services={{ controlPlane }}>
+    <TableCatalogContext.Provider value={{ tables: [table], preview: controlPlane.previewTables }}>
     <TransformPreview entries={steps} index={0} source={source} />
+    </TableCatalogContext.Provider>
   </ApplicationServicesProvider>;
   return { checkConnection, previewTransforms, component, view: render(component()) };
 }
 
 async function chooseTable(view: ReturnType<typeof setup>["view"]) {
-  fireEvent.click(view.getByRole("button", { name: "Load tables" }));
   await waitFor(() => expect((view.getByRole("button", { name: "Sample table" }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(view.getByRole("button", { name: "Sample table" }));
   fireEvent.click(await view.findByRole("option", { name: "public.reports" }));
@@ -48,7 +49,7 @@ it("does not connect or sample until explicitly requested", () => {
   expect(previewTransforms).not.toHaveBeenCalled();
 });
 
-it("uses an explicitly refreshed catalog until the shared verified source selection changes", async () => {
+it("uses only the shared verified catalog and invalidates selection when that catalog changes", async () => {
   const other = { namespace: "public", name: "new_reports" };
   const checkConnection = vi.fn().mockResolvedValue({ status: "verified", options: {}, tables: [other] });
   const api = { ...httpControlPlane, checkConnection };
@@ -59,14 +60,13 @@ it("uses an explicitly refreshed catalog until the shared verified source select
     </TableCatalogContext.Provider>
   </ApplicationServicesProvider>;
   const view = render(component(initial));
-  fireEvent.click(view.getByRole("button", { name: "Load tables" }));
-  await waitFor(() => expect(view.getByRole("button", { name: "Load tables" }).getAttribute("aria-busy")).toBe("false"));
   fireEvent.click(view.getByRole("button", { name: "Sample table" }));
-  expect(view.getByRole("option", { name: "public.new_reports" })).toBeTruthy();
-  expect(view.queryByRole("option", { name: "public.reports" })).toBeNull();
-  fireEvent.click(view.getByRole("option", { name: "public.new_reports" }));
-  view.rerender(component([table]));
+  expect(view.getByRole("option", { name: "public.reports" })).toBeTruthy();
+  expect(view.queryByRole("option", { name: "public.new_reports" })).toBeNull();
+  fireEvent.click(view.getByRole("option", { name: "public.reports" }));
+  view.rerender(component([other]));
   expect((view.getByRole("button", { name: "Run preview" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(checkConnection).not.toHaveBeenCalled();
 });
 
 it("loads actual source tables and runs the prefix against a bounded typed sample", async () => {
@@ -74,9 +74,9 @@ it("loads actual source tables and runs the prefix against a bounded typed sampl
   await chooseTable(view);
   fireEvent.click(view.getByRole("button", { name: "Run preview" }));
   await waitFor(() => expect(previewTransforms).toHaveBeenCalledOnce());
-  expect(checkConnection).toHaveBeenCalledWith({ ...source, role: "source" }, expect.any(AbortSignal));
+  expect(checkConnection).not.toHaveBeenCalled();
   expect(previewTransforms).toHaveBeenCalledWith({
-    source, table, row_limit: 20, middlewares: entries, through_step: 0,
+    source, table, metadata_id: null, row_limit: 20, middlewares: entries, through_step: 0,
     max_sample_bytes: 16 * 1024 * 1024, memory_limit_bytes: 256 * 1024 * 1024, timeout_ms: 30000,
   }, expect.any(AbortSignal));
   await waitFor(() => expect(view.getByText("0 rows")).toBeTruthy());
@@ -118,10 +118,11 @@ it("invalidates an in-flight result after a transform edit", async () => {
 });
 
 it("shows source failures in the existing status slot", async () => {
-  const { view, checkConnection } = setup();
-  checkConnection.mockRejectedValue(new Error("Source permission denied"));
+  const { view, previewTransforms } = setup();
+  await chooseTable(view);
+  previewTransforms.mockRejectedValue(new Error("Source permission denied"));
   const status = view.getByRole("status");
-  fireEvent.click(view.getByRole("button", { name: "Load tables" }));
+  fireEvent.click(view.getByRole("button", { name: "Run preview" }));
   await waitFor(() => expect(status.textContent).toContain("Source permission denied"));
   expect(view.getByRole("status")).toBe(status);
 });

@@ -18,6 +18,11 @@ use crate::connectors::clickhouse::sink::client::ReconnectingClient;
 
 pub(crate) async fn sample_table(config: ClickHouseSourceConfig, table: TableIdentity, limits: TableSampleLimits,
     cancellation: CancellationToken) -> anyhow::Result<TableData> {
+    sample_with_metadata(config, table, limits, cancellation, None).await
+}
+
+pub(super) async fn sample_with_metadata(config: ClickHouseSourceConfig, table: TableIdentity, limits: TableSampleLimits,
+    cancellation: CancellationToken, cached: Option<super::connector::DiscoveredTable>) -> anyhow::Result<TableData> {
     limits.validate()?;
     let row_limit = limits.row_limit;
     config.validate_connection()?;
@@ -56,6 +61,9 @@ pub(crate) async fn sample_table(config: ClickHouseSourceConfig, table: TableIde
             observe_external_request("clickhouse", "connect_table_sample", client.ensure_connected()).await?;
             let discovered = observe_external_request("clickhouse", "discover_sample_table", discover_table(&client,
                 TableConfig { database: table.namespace.clone(), name: table.name.clone() }, config.unsupported_types)).await?;
+            if let Some(cached) = &cached { validate_cached_schema(cached, &discovered)?; }
+            anyhow::ensure!(discovered.config.database == table.namespace && discovered.config.name == table.name,
+                "Cached ClickHouse table identity does not match the sample request");
             let query = format!("{} SETTINGS max_result_bytes={}, result_overflow_mode='throw'",
                 sample_query(&snapshot_query(&discovered), row_limit)?, limits.max_bytes);
             let mut stream = observe_external_request("clickhouse", "start_table_sample", client.query_stream(&query)).await?;
@@ -101,4 +109,14 @@ pub(crate) async fn sample_table(config: ClickHouseSourceConfig, table: TableIde
 pub(super) fn sample_query(select: &str, row_limit: usize) -> anyhow::Result<String> {
     anyhow::ensure!(row_limit > 0, "row_limit must be positive");
     Ok(format!("{select} LIMIT {row_limit}"))
+}
+
+pub(super) fn validate_cached_schema(cached: &super::connector::DiscoveredTable, current: &super::connector::DiscoveredTable) -> anyhow::Result<()> {
+    anyhow::ensure!(cached.config.database == current.config.database && cached.config.name == current.config.name
+        && cached.schema.columns.len() == current.schema.columns.len()
+        && cached.schema.columns.iter().zip(&current.schema.columns).all(|(a, b)|
+            a.name == b.name && a.data_type == b.data_type && a.nullable == b.nullable && a.arrow_metadata() == b.arrow_metadata()),
+        "ClickHouse table '{}.{}' schema changed since metadata was loaded; refresh metadata before preview",
+        cached.config.database, cached.config.name);
+    Ok(())
 }

@@ -18,6 +18,7 @@ import { MessagePreviewDialog } from "./MessagePreviewDialog";
 import { tableConnectionIdentity, useEndpointActions } from "./useEndpointActions";
 import { ConnectionCheck, TableConnectionStatus, tableSettingsReady } from "./ConnectionCheck";
 import type { VerifiedTableCatalog } from "../features/middleware/useTransformCatalog";
+import { useSourceMetadataContext } from "./sourceMetadata";
 
 export function EndpointCard(props: {
   title: string;
@@ -44,18 +45,20 @@ export function EndpointCard(props: {
   const node = props.endpoint ? compiledSchema(props.endpoint.schema, widgets) : undefined;
   const requiresTableCheck = props.role === "source" && props.endpoint?.connection_check === true
     && node?.kind === "object" && node.properties.tables?.xUi.widget === "table_selection";
+  const localActions = useEndpointActions({
+    api,
+    connector: props.selectedKey,
+    role: props.role,
+    config: isObject(value) ? value : {},
+  });
+  const sharedMetadata = useSourceMetadataContext();
   const {
     check,
     preview,
     checkConnection,
     previewMessage,
     closePreview,
-  } = useEndpointActions({
-    api,
-    connector: props.selectedKey,
-    role: props.role,
-    config: isObject(value) ? value : {},
-  });
+  } = requiresTableCheck && sharedMetadata ? sharedMetadata : localActions;
   const tableIdentity = isObject(value) ? tableConnectionIdentity(props.selectedKey, value) : undefined;
   const checkedTables = check.state === "success" ? check.tables : undefined;
   const hideSystemTables = isObject(value) && value.hide_system_tables !== false;

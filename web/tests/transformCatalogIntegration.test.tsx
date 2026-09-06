@@ -57,7 +57,7 @@ it.each([
   const view = render(<Form connectorKey={connectorKey} onPublished={published} />);
   const probe = view.getByTestId("transform-catalog");
   expect(probe.textContent).toBe("unavailable");
-  const check = view.getByRole("button", { name: "Check connection" });
+  const check = view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ });
   fireEvent.click(check);
   expect(check.getAttribute("aria-busy")).toBe("true");
   fireEvent.click(check);
@@ -87,12 +87,12 @@ it("does not publish an old check response after credentials change", async () =
   const request = vi.spyOn(api, "checkConnection").mockReturnValue(new Promise(resolve => { finish = resolve; }));
   const published = vi.fn();
   const view = render(<Form connectorKey="postgres" onPublished={published} />);
-  fireEvent.click(view.getByRole("button", { name: "Check connection" }));
+  fireEvent.click(view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ }));
   const signal = request.mock.calls[0]![1]!;
   fireEvent.input(view.getByLabelText(/^Password/), { target: { value: "changed" } });
   await waitFor(() => expect(signal.aborted).toBe(true));
   finish({ status: "verified", options: {}, message: null, tables: [{ namespace: "private", name: "old_catalog" }] });
-  await waitFor(() => expect(view.getByText("Not checked")).toBeTruthy());
+  await waitFor(() => expect(view.getByText("Required to unlock tables and transforms")).toBeTruthy());
   expect(view.getByTestId("transform-catalog").textContent).toBe("unavailable");
   expect(published.mock.calls.every(([value]) => value === undefined)).toBe(true);
 });
@@ -109,7 +109,7 @@ it("withdraws the old catalog while rechecking and publishes the new snapshot", 
   }));
   const published = vi.fn();
   const view = render(<Form connectorKey="postgres" onPublished={published} />);
-  const check = view.getByRole("button", { name: "Check connection" });
+  const check = view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ });
   const probe = view.getByTestId("transform-catalog");
   fireEvent.click(check);
   await waitFor(() => expect(probe.textContent).toBe(JSON.stringify(original)));
@@ -132,7 +132,7 @@ it.each([
   vi.spyOn(api, "checkConnection").mockResolvedValue(result);
   const published = vi.fn();
   const view = render(<Form connectorKey="postgres" onPublished={published} />);
-  const check = view.getByRole("button", { name: "Check connection" });
+  const check = view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ });
   fireEvent.click(check);
   await waitFor(() => expect(check.getAttribute("aria-busy")).toBe("false"));
   expect(view.getByTestId("transform-catalog").textContent).toBe("unavailable");

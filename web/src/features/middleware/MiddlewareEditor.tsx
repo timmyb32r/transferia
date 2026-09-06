@@ -8,7 +8,10 @@ import { SelectControl } from "../../ui/SelectControl";
 import { DragHandleIcon, TrashIcon } from "../../ui/icons";
 import { TablePatternInput } from "../tableSelection/TablePatternInput";
 import { TransformPreview } from "./TransformPreview";
-import { TransformTableScope } from "./TransformTableScope";
+import { TransformTableScope, useTransformMatches } from "./TransformTableScope";
+import { TransformSchemaLoader } from "./TransformSchemaLoader";
+import { useTableCatalog } from "../../schema/tableCatalog";
+import { InstantTooltip } from "../../ui/InstantTooltip";
 import type { TransformPreviewSource } from "../../generated/apiContract";
 
 const ACTIONS = [
@@ -34,6 +37,8 @@ export function MiddlewareEditor({ value, disabled, onChange, source }: {
   source?: TransformPreviewSource | undefined;
 }) {
   const entries = Array.isArray(value) ? value : [];
+  const catalog = useTableCatalog();
+  const needsCatalog = source !== undefined && catalog === undefined;
   const sequence = useRef(0);
   const identity = useRef<{ fingerprint: string; ids: number[] }>({ fingerprint: "", ids: [] });
   const fingerprint = JSON.stringify(entries);
@@ -68,6 +73,7 @@ export function MiddlewareEditor({ value, disabled, onChange, source }: {
         index={index} disabled={disabled} initiallyOpen={ids[index] === newStep}
         onChange={next => commit(entries.map((current, offset) => offset === index ? next : current), ids)}
         onClone={() => {
+          if (needsCatalog) return;
           const next = [...entries], nextIds = [...ids];
           next.splice(index + 1, 0, structuredClone(entry));
           nextIds.splice(index + 1, 0, ++sequence.current);
@@ -86,11 +92,15 @@ export function MiddlewareEditor({ value, disabled, onChange, source }: {
         }}
       />)}
     </div>
-    <Button class="middleware-add" disabled={disabled} aria-label="Add transform" onClick={() => {
+    <InstantTooltip class="middleware-add-hint" content={needsCatalog
+      ? "Connect & load metadata in Source first to obtain the available table list." : "Add transform"}>
+    <Button class="middleware-add" disabled={disabled || needsCatalog} aria-label="Add transform" onClick={() => {
+      if (needsCatalog) return;
       const id = ++sequence.current;
       setNewStep(id);
       commit([...entries, { tables: { ...DEFAULT_TABLES }, datafusion: { sql: "SELECT * FROM input" } }], [...ids, id]);
     }}><span aria-hidden="true">+</span> Add transform</Button>
+    </InstantTooltip>
   </section>;
 }
 
@@ -110,6 +120,10 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
   const tables = isObject(object.tables) ? object.tables : DEFAULT_TABLES;
   const include = typeof tables.include === "string" ? tables.include : "";
   const exclude = typeof tables.exclude === "string" ? tables.exclude : "";
+  const matches = useTransformMatches({ include, exclude: exclude || null,
+    include_mode: tables.include_mode === "regex" ? "regex" : "glob",
+    exclude_mode: tables.exclude_mode === "regex" ? "regex" : "glob" }, expanded);
+  const catalog = useTableCatalog();
   const updateTables = (next: JsonObject) => onChange({ ...object, tables: { ...tables, ...next } });
   const updateRaw = (next: JsonObject) => { if (kind) onChange({ ...object, [kind]: { ...raw, ...next } }); };
   const title = ACTIONS.find(option => option.value === kind)?.label ?? kind ?? "Invalid transform";
@@ -138,7 +152,7 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
         </span>
       </Button>
       <div class="middleware-strip-actions">
-        <Button class="middleware-clone" disabled={disabled} aria-label={`Clone transform ${index + 1}`} title="Clone transform with its Include / Exclude" onClick={onClone}>
+        <Button class="middleware-clone" disabled={disabled || (source !== undefined && !catalog)} aria-label={`Clone transform ${index + 1}`} title="Clone transform with its Include / Exclude" onClick={onClone}>
           <span class="ui-icon copy-icon" aria-hidden="true" /><span>Clone</span>
         </Button>
         <Button variant="plain" shape="icon" disabled={disabled} aria-label={`Delete transform ${index + 1}`} title="Delete transform" onClick={onDelete}><TrashIcon /></Button>
@@ -146,9 +160,7 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
     </div>
     {expanded && <div class="middleware-strip-body" id={`${id}-settings`}>
       {!known ? <p role="alert">This transform cannot be edited here. Open YAML to correct its configuration.</p> : <>
-        <TransformTableScope id={id} index={index} rule={{ include, exclude: exclude || null,
-          include_mode: tables.include_mode === "regex" ? "regex" : "glob",
-          exclude_mode: tables.exclude_mode === "regex" ? "regex" : "glob" }}>
+        <TransformTableScope id={id} index={index} matches={matches}>
         <div class="middleware-scope-fields">
           {(["include", "exclude"] as const).map(field => {
             const label = field === "include" ? "Include" : "Exclude";
@@ -184,6 +196,7 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
         </label>}
       </>}
       <div class="middleware-preview">
+        {source && <TransformSchemaLoader tables={matches?.tables} source={source} disabled={disabled} />}
         <Button variant="plain" class="middleware-preview-toggle" aria-label={`Preview transform ${index + 1}`}
           aria-expanded={preview} aria-controls={`${id}-preview`} onClick={() => setPreview(!preview)}>
           <span class={`middleware-chevron ${preview ? "open" : ""}`} aria-hidden="true" />Preview

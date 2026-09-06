@@ -11,6 +11,8 @@ import {
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import { DeliveryConfiguration } from "./DeliveryConfiguration";
 import { tableConnectionIdentity } from "./useEndpointActions";
+import { SourceMetadataContext, useSourceMetadata } from "./sourceMetadata";
+import type { DeliveryType } from "../generated/apiContract";
 import { DeliveryLogs } from "./DeliveryLogs";
 import { PerformanceAdviceWorkspace } from "./PerformanceAdviceWorkspace";
 import { SpeedtestWorkspace } from "./SpeedtestWorkspace";
@@ -168,6 +170,7 @@ export function DeliveryApplication() {
   const {
     operations,
     beginOperation,
+    updateOperation,
     finishOperation,
     clearErrors,
     clearOperation,
@@ -281,11 +284,25 @@ export function DeliveryApplication() {
     [catalog, editor.config, widgets],
   );
   const selection = readiness?.selection;
-  const [checkedTableConnection, setCheckedTableConnection] = useState<string>();
   const selectedSourceConfig = selection?.sourceKey ? endpointValue(editor.config, "source", selection.sourceKey) : undefined;
   const requiredTableConnection = selection?.sourceKey && isObject(selectedSourceConfig)
     ? tableConnectionIdentity(selection.sourceKey, selectedSourceConfig) : undefined;
-  const tableConnectionRequired = requiredTableConnection !== undefined && checkedTableConnection !== requiredTableConnection;
+  const sourceMetadata = useSourceMetadata({
+    connector: selection?.sourceKey ?? "", config: isObject(selectedSourceConfig) ? selectedSourceConfig : {},
+    mode: requiredTableConnection !== undefined && typeof editor.config.delivery_type === "string"
+      ? editor.config.delivery_type as DeliveryType : undefined,
+    sessionKey: editor.sessionId, validating: isOperationPending(operations.validate),
+  });
+  const tableConnectionRequired = requiredTableConnection !== undefined &&
+    !(sourceMetadata.check.state === "success" && sourceMetadata.check.status === "verified" && sourceMetadata.check.tables !== undefined);
+  const metadataProgress = sourceMetadata.metadata?.validation;
+  useEffect(() => {
+    const operation = operations.validate;
+    if (!operation || !isOperationPending(operation) || !metadataProgress ||
+      metadataProgress.delivery_id !== editor.id || metadataProgress.revision !== editor.persistedRevision) return;
+    updateOperation("validate", operation.requestId, metadataProgress.phase === "schemas"
+      ? `Schemas checked ${metadataProgress.checked}/${metadataProgress.total}` : "Checking transforms and destination…");
+  }, [metadataProgress, operations.validate?.requestId, editor.id, editor.persistedRevision, updateOperation]);
   const sourceSchemaComplete = readiness?.sourceSchemaReady ?? false;
   const structurallyComplete = readiness?.complete ?? false;
   const requiredFieldsComplete =
@@ -307,6 +324,8 @@ export function DeliveryApplication() {
   } = useDiscovery({
     editor,
     structurallyComplete: sourceSchemaComplete,
+    metadataRequired: requiredTableConnection !== undefined,
+    metadata: sourceMetadata.metadata,
     job: discoveryJob,
     operations: { beginOperation, finishOperation, clearOperation },
     isCurrentContext,
@@ -404,6 +423,13 @@ export function DeliveryApplication() {
   );
   const mutations = useDeliveryMutations({
     editor,
+    ensureMetadata: async () => {
+      if (requiredTableConnection === undefined) return undefined;
+      if (sourceMetadata.metadata && !sourceMetadata.metadataError) return sourceMetadata.metadata.id;
+      const metadata = await sourceMetadata.checkConnection();
+      if (!metadata) throw new Error("Load source metadata before validation. See the connection status in Source.");
+      return metadata.id;
+    },
     jobs: {
       list: listJob,
       save: saveJob,
@@ -690,7 +716,7 @@ export function DeliveryApplication() {
   );
 
   return (
-    <div class="shell">
+    <SourceMetadataContext.Provider value={sourceMetadata}><div class="shell">
       <DeliverySidebar
         deliveries={deliveries}
         selectedId={editor.id}
@@ -797,7 +823,6 @@ export function DeliveryApplication() {
 
         {activeView === "ui" ? (
           <DeliveryConfiguration
-            onTableConnection={setCheckedTableConnection}
             catalog={catalog}
             editor={editor}
             selection={selection}
@@ -847,6 +872,6 @@ export function DeliveryApplication() {
           />
         )}
       </main>
-    </div>
+    </div></SourceMetadataContext.Provider>
   );
 }

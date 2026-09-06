@@ -1,4 +1,5 @@
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
+import { useRef } from "preact/hooks";
 import { isDirty, type EditorState } from "../state";
 import type {
   DeliveryRecord,
@@ -21,6 +22,7 @@ export function useDeliveryMutations({
   onRuntime,
   onValidationResult,
   isCurrentContext,
+  ensureMetadata,
 }: {
   editor: EditorState;
   jobs: Pick<DeliveryJobs, "list" | "save" | "validate" | "action">;
@@ -36,8 +38,10 @@ export function useDeliveryMutations({
     result: ValidationCommandResult,
   ) => void;
   isCurrentContext: (context: EditorRequestContext) => boolean;
+  ensureMetadata: () => Promise<string | undefined>;
 }) {
   const api = useControlPlane();
+  const validating = useRef(false);
   const { beginOperation, finishOperation } = operations;
 
   const refreshList = async () => {
@@ -148,27 +152,29 @@ export function useDeliveryMutations({
   };
 
   const validate = async () => {
-    const mustSave = isDirty(editor) || editor.id === undefined;
-    const saved = mustSave ? await save() : undefined;
-    if (mustSave && saved === undefined) return;
-    const id = saved?.id ?? editor.id;
-    const revision = saved?.revision ?? editor.persistedRevision;
-    const recordVersion = saved?.record_version ?? editor.recordVersion;
-    if (
-      id === undefined ||
-      revision === undefined ||
-      recordVersion === undefined
-    )
-      return;
+    if (validating.current) return;
+    validating.current = true;
     const requestId = beginOperation(
       "validate",
       "Validating current revision…",
     );
     const context = editorContext(editor);
     try {
-      const result = await jobs.validate.run(context, undefined, () =>
-        api.validate(id, revision, recordVersion),
-      );
+      const mustSave = isDirty(editor) || editor.id === undefined;
+      const saved = mustSave ? await save() : undefined;
+      const id = saved?.id ?? editor.id;
+      const revision = saved?.revision ?? editor.persistedRevision;
+      const recordVersion = saved?.record_version ?? editor.recordVersion;
+      if ((mustSave && saved === undefined) || id === undefined || revision === undefined || recordVersion === undefined
+        || !isCurrentContext(context)) {
+        finishOperation("validate", requestId);
+        return;
+      }
+      const result = await jobs.validate.run(context, undefined, async (_, signal) => {
+        const metadataId = await ensureMetadata();
+        if (signal.aborted) throw new Error("Validation cancelled");
+        return api.validate(id, revision, recordVersion, metadataId, signal);
+      });
       if (result === undefined) {
         finishOperation("validate", requestId);
         return;
@@ -200,6 +206,8 @@ export function useDeliveryMutations({
       }
     } catch (reason) {
       finishOperation("validate", requestId, errorMessage(reason));
+    } finally {
+      validating.current = false;
     }
   };
 

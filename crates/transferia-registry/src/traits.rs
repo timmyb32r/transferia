@@ -141,6 +141,15 @@ pub enum SpeedtestUnsupported {
 }
 
 pub trait SourceConnector: Send + Sync {
+    /// An editor-owned, metadata-only reader. Never used to construct workers.
+    /// Implementations retain native metadata so assembly preserves topology and
+    /// source-specific identity/type checks without rediscovering cached tables.
+    fn metadata_reader(
+        &self,
+        _delivery_type: DeliveryType,
+    ) -> anyhow::Result<Option<Arc<dyn SourceMetadataReader>>> {
+        Ok(None)
+    }
     /// Whether this execution may emit ordered dataset-admission barriers.
     fn can_add_datasets(&self, _delivery_type: DeliveryType) -> bool {
         false
@@ -235,6 +244,37 @@ pub trait SourceConnector: Send + Sync {
     fn parser(&self) -> Arc<dyn ParserFactory>;
 
     fn parses_rows(&self) -> bool;
+}
+
+pub trait SourceMetadataReader: Send + Sync {
+    fn includes_table(&self, table: &TableIdentity, hide_system_tables: bool) -> bool;
+
+    fn load_table(
+        &self,
+        table: TableIdentity,
+        cancellation: CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<()>>;
+
+    /// Assemble only previously loaded exact identities. Missing metadata is an
+    /// error, never an implicit network fetch or an omitted dataset.
+    fn discovery(
+        &self,
+        tables: Vec<TableIdentity>,
+        request: DeliveryDiscoveryRequest,
+        cancellation: CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>>;
+
+    /// Explicit bounded row preview. Recheck only this table's native schema
+    /// against the cached plan before sampling; drift must fail closed without
+    /// replacing the cache. Keep wire-level schema checks during row decoding.
+    fn sample_table(
+        &self,
+        _table: TableIdentity,
+        _limits: crate::TableSampleLimits,
+        _cancellation: CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<transferia_core::TableData>> {
+        Box::pin(async { anyhow::bail!("Cached metadata row sampling is not supported by this source") })
+    }
 }
 
 pub struct SourceDiscoveryContext {

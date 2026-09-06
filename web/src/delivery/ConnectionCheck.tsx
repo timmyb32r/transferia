@@ -1,5 +1,6 @@
 import { Button } from "../ui/Button";
 import type { ConnectionCheckState } from "./useEndpointActions";
+import { metadataSummary } from "./sourceMetadata";
 
 export function tableSettingsReady(check: ConnectionCheckState): boolean {
   return check.state === "success" && check.status === "verified" && check.tables !== undefined;
@@ -20,7 +21,7 @@ export function TableConnectionStatus({ ready }: { ready: boolean }) {
       <rect x="3" y="7" width="10" height="8" rx="1.5" />
       <path d="M5 7V4a3 3 0 0 1 6 0v3M8 10v2" />
     </svg>}
-    <span>{ready ? "Table settings are ready." : "Complete a successful check to unlock table settings."}</span>
+    <span>{ready ? "Table settings are ready." : "Connect & load metadata to unlock tables and transforms."}</span>
   </span>;
 }
 
@@ -30,15 +31,19 @@ export function ConnectionCheck({ check, required, onCheck }: {
   const checking = check.state === "checking";
   const ready = tableSettingsReady(check);
   const missingCatalog = required && check.state === "success" && check.status === "verified" && !ready;
-  const tone = missingCatalog ? "network_reachable" : check.state === "success" ? check.status : check.state;
+  const tone = missingCatalog ? "network_reachable" : check.state === "success" ? check.metadataError ? "error" : check.status : check.state;
   const message = check.state === "error" ? check.message
     : check.state === "success" ? missingCatalog ? "Connection verified, but the table list is unavailable. Check again."
-      : required && ready ? "Connection verified"
+      : required && ready ? check.metadataError ?? (check.metadata ? metadataSummary(check.metadata) : "Connection verified")
       : check.message ?? "Connection verified, including access to the configured entities."
-    : required ? checking ? "Checking connection…" : "Not checked" : "";
+    : required ? checking ? "Connecting and loading table names…" : "Required to unlock tables and transforms" : "";
   const row = <div class="connection-check">
-    <Button variant="primary" class="connection-check-button" pending={checking} onClick={onCheck}>
-      Check connection
+    <Button variant="primary" class="connection-check-button" pending={checking} onClick={onCheck}
+      title={required && ready ? "Refresh metadata: reload the table catalog and discard cached schemas" : undefined}>
+      {required ? <span class="metadata-button-label">
+        <span aria-hidden="true">Connect & load metadata</span>
+        <span>{ready ? "Refresh metadata" : "Connect & load metadata"}</span>
+      </span> : "Check connection"}
     </Button>
     {!required && <span class="connection-check-spinner-slot"
       aria-label={checking ? "Checking connection…" : undefined} role={checking ? "status" : undefined}>
@@ -53,7 +58,7 @@ export function ConnectionCheck({ check, required, onCheck }: {
     </span>
   </div>;
   return required ? <section class="connection-check-required" aria-label="Required connection check">
-    <div class="connection-check-label">Connection check <span class="connection-required-badge">Required</span></div>
+    <div class="connection-check-label">Source metadata <span class="connection-required-badge">Required</span></div>
     {row}
   </section> : row;
 }

@@ -1,5 +1,9 @@
 import type {
   ConnectionCheckRequest,
+  MetadataConnectRequest,
+  MetadataConnection,
+  MetadataStatus,
+  MetadataSchemasRequest,
   ConnectionCheckResult,
   TableSelectionPreviewRequest,
   SelectionPreview,
@@ -31,6 +35,11 @@ export interface DynamicOptionsQuery {
 }
 
 export interface ControlPlanePort {
+  connectMetadata(request: MetadataConnectRequest, signal?: AbortSignal): Promise<MetadataConnection>;
+  metadataStatus(id: string, signal?: AbortSignal): Promise<MetadataStatus>;
+  releaseMetadata(id: string, signal?: AbortSignal): Promise<MetadataStatus>;
+  loadMetadataSchemas(id: string, request: MetadataSchemasRequest, signal?: AbortSignal): Promise<MetadataStatus>;
+  metadataDiscovery(id: string, config: JsonObject, signal?: AbortSignal): Promise<DiscoveryResult>;
   previewTables(request: TableSelectionPreviewRequest, signal?: AbortSignal): Promise<SelectionPreview>;
   catalog(signal?: AbortSignal): Promise<UiCatalog>;
   options(query: DynamicOptionsQuery): Promise<DynamicOptions>;
@@ -94,6 +103,7 @@ export interface ControlPlanePort {
     id: string,
     expectedRevision: number,
     expectedRecordVersion: string,
+    metadataId: string | undefined,
     signal?: AbortSignal,
   ): Promise<ValidationCommandResult>;
   activate(

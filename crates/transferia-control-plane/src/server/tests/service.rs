@@ -240,7 +240,7 @@ async fn shutdown_always_delegates_worker_termination() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn service() -> ControlPlane {
+pub(super) fn service() -> ControlPlane {
     ControlPlane::new(
         Arc::new(MemoryStore::default()),
         Arc::new(TestSupervisor::new()),
@@ -512,6 +512,7 @@ async fn failed_validation_returns_the_committed_record_version() -> anyhow::Res
             &created.id,
             created.revision,
             created.record_version,
+            None,
             CancellationToken::new(),
         )
         .await?;

@@ -441,3 +441,20 @@ fn user_defined_postgres_types_are_lossless_text_and_pseudo_types_fail_closed() 
     assert!(source_column_expression("value", &pseudo, crate::connectors::postgres::source::UnsupportedTypePolicy::Fail).is_err());
     assert_eq!(source_column_expression("value", &pseudo, crate::connectors::postgres::source::UnsupportedTypePolicy::ToString).unwrap(), "\"value\"::text AS \"value\"");
 }
+#[test]
+fn cached_preview_compares_physical_metadata_without_confusing_domain_and_query_oids() {
+    use crate::connectors::postgres::source::{DiscoveredTable, TableConfig};
+    let cached = DiscoveredTable {
+        config: TableConfig { schema: "public".into(), name: "events".into() },
+        schema: transferia_core::DatasetSchema::new(vec![SchemaColumn::new("value".into(), DataType::Int32, false)]),
+        type_oids: vec![90001], relation_oid: 42, replica_identity_full: false, replica_identity: "d".into(),
+    };
+    assert!(super::sample::validate_cached_schema(&cached, &cached).is_ok());
+    let mut changed = cached.clone();
+    changed.type_oids[0] = 23;
+    assert!(super::sample::validate_cached_schema(&cached, &changed).is_err());
+    changed = cached.clone();
+    changed.schema.columns[0].nullable = true;
+    assert!(super::sample::validate_cached_schema(&cached, &changed).is_err());
+    assert_eq!(cached.type_oids, vec![90001]);
+}

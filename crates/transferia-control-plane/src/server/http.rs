@@ -7,7 +7,7 @@ use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, ORIGIN};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::de::DeserializeOwned;
 use tokio::net::TcpListener;
@@ -154,6 +154,11 @@ declare_api_handlers! {
     CATALOG => get(get_catalog),
     OPTIONS => post(dynamic_options),
     CHECK_CONNECTION => post(check_connection),
+    CONNECT_METADATA => post(connect_metadata),
+    METADATA_STATUS => get(metadata_status),
+    RELEASE_METADATA => delete(release_metadata),
+    LOAD_METADATA_SCHEMAS => post(load_metadata_schemas),
+    METADATA_DISCOVERY => post(metadata_discovery),
     TABLE_SELECTION_PREVIEW => post(table_selection_preview),
     PREVIEW_MESSAGE => post(preview_message),
     PREVIEW_TRANSFORMS => post(preview_transforms),
@@ -388,6 +393,38 @@ async fn check_connection(
     Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
 }
 
+async fn connect_metadata(State(state): State<AppState>,
+    ApiJson(request): ApiJson<transferia_server_contracts::api::MetadataConnectRequest>) -> Result<impl IntoResponse, ApiError> {
+    let cancellation = state.control_plane.request_cancellation();
+    let _guard = CancelOnDrop(cancellation.clone());
+    let result = state.control_plane.connect_metadata(request, cancellation).await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
+}
+
+async fn metadata_status(State(state): State<AppState>, Path(id): Path<String>) -> Result<impl IntoResponse, ApiError> {
+    Ok(([(CACHE_CONTROL, "no-store")], Json(state.control_plane.metadata_status(&id).await?)))
+}
+
+async fn release_metadata(State(state): State<AppState>, Path(id): Path<String>) -> Result<impl IntoResponse, ApiError> {
+    Ok(([(CACHE_CONTROL, "no-store")], Json(state.control_plane.release_metadata(&id).await?)))
+}
+
+async fn load_metadata_schemas(State(state): State<AppState>, Path(id): Path<String>,
+    ApiJson(request): ApiJson<transferia_server_contracts::api::MetadataSchemasRequest>) -> Result<impl IntoResponse, ApiError> {
+    let cancellation = state.control_plane.request_cancellation();
+    let _guard = CancelOnDrop(cancellation.clone());
+    let result = state.control_plane.load_metadata_schemas(&id, request, cancellation).await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
+}
+
+async fn metadata_discovery(State(state): State<AppState>, Path(id): Path<String>,
+    ApiJson(request): ApiJson<transferia_server_contracts::api::MetadataDiscoveryRequest>) -> Result<impl IntoResponse, ApiError> {
+    let cancellation = state.control_plane.request_cancellation();
+    let _guard = CancelOnDrop(cancellation.clone());
+    let result = state.control_plane.cached_source_discovery(&id, &request.config, cancellation).await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
+}
+
 async fn table_selection_preview(
     ApiJson(request): ApiJson<transferia_server_contracts::api::TableSelectionPreviewRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -557,15 +594,18 @@ async fn delete_delivery(
 async fn validate_saved(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    ApiJson(request): ApiJson<RevisionRequest>,
+    ApiJson(request): ApiJson<transferia_server_contracts::api::ValidationRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let cancellation = state.control_plane.request_cancellation();
+    let _guard = CancelOnDrop(cancellation.clone());
     let result = state
         .control_plane
         .validate_saved(
             &id,
             request.expected_revision,
             request.expected_record_version,
-            CancellationToken::new(),
+            request.metadata_id.as_deref(),
+            cancellation,
         )
         .await?;
     Ok(Json(result))

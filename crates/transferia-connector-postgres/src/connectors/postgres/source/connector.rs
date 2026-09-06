@@ -887,7 +887,113 @@ fn build_delivery_discovery(
     })
 }
 
+struct PostgresMetadataReader {
+    config: PostgresSourceConfig,
+    delivery_type: DeliveryType,
+    state: tokio::sync::Mutex<PostgresMetadataState>,
+}
+
+struct PostgresMetadataState {
+    client: Option<super::super::common::SampleConnection>,
+    tables: std::collections::BTreeMap<transferia_registry::TableIdentity, DiscoveredTable>,
+}
+
+impl transferia_registry::SourceMetadataReader for PostgresMetadataReader {
+    fn sample_table(&self, table: transferia_registry::TableIdentity, limits: transferia_registry::TableSampleLimits,
+        cancellation: tokio_util::sync::CancellationToken) -> BoxFuture<'_, anyhow::Result<transferia_core::TableData>> {
+        Box::pin(async move {
+            let cached = tokio::select! {
+                biased;
+                () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata read cancelled"),
+                cached = self.state.lock() => cached,
+            };
+            let discovered = cached.tables.get(&table).cloned()
+                .ok_or_else(|| anyhow::anyhow!("Load this table's schema before preview"))?;
+            drop(cached);
+            super::super::src_batch::sample_with_metadata(self.config.clone(), table, limits, cancellation, Some(discovered)).await
+        })
+    }
+    fn includes_table(&self, table: &transferia_registry::TableIdentity, hide: bool) -> bool {
+        !hide || (table.namespace != "information_schema" && !table.namespace.starts_with("pg_"))
+    }
+
+    fn load_table(&self, table: transferia_registry::TableIdentity, cancellation: tokio_util::sync::CancellationToken)
+        -> BoxFuture<'_, anyhow::Result<()>> {
+        Box::pin(async move {
+            let mut state = tokio::select! {
+                biased;
+                () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata loading cancelled"),
+                state = self.state.lock() => state,
+            };
+            if state.tables.contains_key(&table) { return Ok(()); }
+            // A cancelled query drops its connection, never leaves an open
+            // metadata transaction to contaminate the next request.
+            let client = match state.client.take().filter(|client| !client.is_closed()) {
+                Some(client) => client,
+                None => tokio::select! {
+                    () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata loading cancelled"),
+                    result = observe_external_request("postgres", "connect_metadata", super::super::common::connect_sample(&self.config.connection)) => result?,
+                },
+            };
+            let configured = [TableConfig { schema: table.namespace.clone(), name: table.name.clone() }];
+            let result = tokio::select! {
+                biased;
+                () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata loading cancelled"),
+                result = observe_external_request("postgres", "load_table_metadata",
+                    discover_validation_tables(&client, &configured, self.config.unsupported_types)) => result,
+            };
+            let mut tables = result?;
+            state.client = Some(client);
+            if self.delivery_type != DeliveryType::Batch {
+                validate_replication_table_identities(&tables)?;
+            }
+            let discovered = tables.pop().ok_or_else(|| anyhow::anyhow!("PostgreSQL returned no table metadata"))?;
+            state.tables.insert(table, discovered);
+            Ok(())
+        })
+    }
+
+    fn discovery(&self, selected: Vec<transferia_registry::TableIdentity>,
+        request: transferia_core::delivery::DeliveryDiscoveryRequest,
+        cancellation: tokio_util::sync::CancellationToken) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
+        Box::pin(async move {
+            let state = tokio::select! {
+                biased;
+                () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata validation cancelled"),
+                state = self.state.lock() => state,
+            };
+            let tables = selected.iter().map(|table| state.tables.get(table).cloned()
+                .ok_or_else(|| anyhow::anyhow!("Metadata is not loaded for {}", table.qualified_name())))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let replication = self.delivery_type != DeliveryType::Batch;
+            if replication {
+                validate_replication_table_identities(&tables)?;
+                if let super::super::src_stream::ReplicationPlugin::Pgoutput { publication } = &self.config.replication.plugin {
+                    tokio::select! {
+                        () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata validation cancelled"),
+                        result = async {
+                            let client = observe_external_request("postgres", "connect_metadata_validation", super::super::common::connect_sample(&self.config.connection)).await?;
+                            validate_pgoutput_publication(&*client, publication, &tables, false).await
+                        } => result?,
+                    }
+                }
+            }
+            build_delivery_discovery(replication, self.delivery_type, request, &tables)
+        })
+    }
+}
+
 impl SourceConnector for PostgresSourceConnector {
+    fn metadata_reader(&self, delivery_type: DeliveryType)
+        -> anyhow::Result<Option<Arc<dyn transferia_registry::SourceMetadataReader>>> {
+        self.bind_delivery_type(delivery_type)?;
+        Ok(Some(Arc::new(PostgresMetadataReader {
+            config: self.config.clone(), delivery_type,
+            state: tokio::sync::Mutex::new(PostgresMetadataState {
+                client: None, tables: std::collections::BTreeMap::new(),
+            }),
+        })))
+    }
     fn compatibility(
         &self,
         delivery_type: transferia_delivery_contracts::DeliveryType,

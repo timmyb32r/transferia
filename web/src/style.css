@@ -1129,6 +1129,9 @@ h3 {
   align-items: center;
   flex: 0 0 auto;
 }
+.metadata-button-label { display: grid; }
+.metadata-button-label > span { grid-area: 1 / 1; }
+.metadata-button-label > span[aria-hidden] { visibility: hidden; }
 .connection-check-required {
   display: grid;
   gap: 8px;
@@ -3324,13 +3327,17 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .middleware-filter-fields label, .middleware-sql-field { display: grid; min-width: 0; gap: 6px; }
 .middleware-sql-field textarea, .multiline-input { min-height: 116px; resize: vertical; font-family: var(--font-code); font-size: 12px; line-height: 1.5; }
 .middleware-preview { min-width: 0; border-top: 1px solid var(--line-inner); padding-top: 8px; }
+.transform-schema-loader { display: grid; grid-template-columns: minmax(0, 1fr) 126px; align-items: center; gap: 12px; height: 38px; min-width: 0; }
+.transform-schema-loader > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
+:root .transform-load-schemas { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 126px; height: 30px; padding: 0 8px; font-size: 12px; }
+.middleware-add-hint { justify-self: start; }
 :root .middleware-preview-toggle { display: flex; align-items: center; gap: 10px; height: 34px; min-width: 0; width: 100%; padding: 0 2px; border-color: transparent; background: transparent; box-shadow: none; text-align: left; font-size: 12px; }
 .middleware-preview-hint { margin-left: auto; color: var(--muted); font-size: 11px; }
 :root .middleware-add { display: inline-flex; align-items: center; justify-self: start; gap: 8px; width: auto; min-width: 0; height: 34px; margin: 0; padding: 0 12px; font-size: 12px; }
 .transform-preview-content { display: grid; gap: 10px; padding-top: 10px; min-width: 0; }
 .transform-preview-budget-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 10px; padding: 6px 0; }
 .transform-preview-budget-fields label { display: grid; gap: 6px; font-size: 12px; }
-.transform-preview-controls { display: grid; grid-template-columns: minmax(0, 1fr) 90px max-content max-content; gap: 10px; align-items: end; }
+.transform-preview-controls { display: grid; grid-template-columns: minmax(0, 1fr) 90px max-content; gap: 10px; align-items: end; }
 .transform-preview-controls label { display: grid; gap: 6px; min-width: 0; font-size: 12px; }
 :root .transform-preview-controls > button { height: 36px; min-width: 110px; margin: 0; }
 .transform-preview-status {

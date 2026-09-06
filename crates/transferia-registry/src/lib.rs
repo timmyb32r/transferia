@@ -21,7 +21,7 @@ pub use traits::{
     SinkPrepare, SinkSpeedtestIsolation, SinkSpeedtestIsolationSafety, SnapshotDatasetRowCount,
     SnapshotRowCountStrategy, SourceBuildContext, SourceConnector, SourceDiscoveryContext,
     SourceExecutionContext, SourceExecutionPhase, SourcePhase, SpeedtestPhysicalTarget,
-    SpeedtestUnsupported, TableIdentity,
+    SpeedtestUnsupported, TableIdentity, SourceMetadataReader,
 };
 
 #[cfg(test)]

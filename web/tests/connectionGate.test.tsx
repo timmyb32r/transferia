@@ -31,8 +31,8 @@ it.each(["postgres", "mysql", "clickhouse"])("shows the required check and locks
   const view = render(<Form connectorKey={connectorKey} />);
   const group = view.getByRole("group", { name: "Table settings" });
   expect(view.getByText("Required")).toBeTruthy();
-  expect(view.getByText("Not checked")).toBeTruthy();
-  expect(view.getByText("Complete a successful check to unlock table settings.")).toBeTruthy();
+  expect(view.getByText("Required to unlock tables and transforms")).toBeTruthy();
+  expect(view.getByText("Connect & load metadata to unlock tables and transforms.")).toBeTruthy();
   expect(view.queryByRole("alert")).toBeNull();
   expect((within(group).getByLabelText(/^Hide system tables/) as HTMLInputElement).disabled).toBe(true);
   expect((within(group).getByRole("radio", { name: "Selected tables" }) as HTMLButtonElement).disabled).toBe(true);
@@ -49,7 +49,7 @@ it.each(["postgres", "mysql", "clickhouse"])("reports an empty %s catalog withou
   });
   const view = render(<Form connectorKey={connectorKey} />);
   const all = view.getByRole("radio", { name: "All tables" }) as HTMLButtonElement;
-  fireEvent.click(view.getByRole("button", { name: "Check connection" }));
+  fireEvent.click(view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ }));
   await waitFor(() => expect(all.disabled).toBe(false));
   fireEvent.click(all);
   const status = view.container.querySelector(".table-selection-status")!;
@@ -84,7 +84,7 @@ it.each(["postgres", "mysql", "clickhouse"])("unlocks %s only after verification
   vi.spyOn(api, "checkConnection").mockReturnValue(new Promise(resolve => { finish = resolve; }));
   const view = render(<Form connectorKey={connectorKey} />);
   const group = view.getByRole("group", { name: "Table settings" });
-  const check = view.getByRole("button", { name: "Check connection" });
+  const check = view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ });
   const input = within(group).getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement;
   const checkbox = within(group).getByLabelText(/^Hide system tables/) as HTMLInputElement;
   const status = view.container.querySelector(".connection-check-result")!;
@@ -95,7 +95,7 @@ it.each(["postgres", "mysql", "clickhouse"])("unlocks %s only after verification
   fireEvent.click(check);
   expect(check.getAttribute("aria-busy")).toBe("true");
   expect(check.getAttribute("aria-disabled")).toBe("true");
-  expect(view.getByText("Checking connection…")).toBeTruthy();
+  expect(view.getByText("Connecting and loading table names…")).toBeTruthy();
   expect(input.disabled).toBe(true);
   fireEvent.click(check);
   expect(api.checkConnection).toHaveBeenCalledTimes(1);
@@ -117,7 +117,7 @@ it.each(["postgres", "mysql", "clickhouse"])("unlocks %s only after verification
   expect(api.checkConnection).toHaveBeenCalledTimes(1);
   fireEvent.input(view.getByLabelText(/^Password/), { target: { value: "changed" } });
   expect(input.disabled).toBe(true);
-  expect(view.getByText("Not checked")).toBeTruthy();
+  expect(view.getByText("Required to unlock tables and transforms")).toBeTruthy();
 });
 
 it.each([
@@ -126,8 +126,8 @@ it.each([
 ] satisfies ConnectionCheckResult[])("keeps settings locked for an incomplete check: $status / $message", async result => {
   vi.spyOn(api, "checkConnection").mockResolvedValue(result);
   const view = render(<Form />);
-  fireEvent.click(view.getByRole("button", { name: "Check connection" }));
-  await waitFor(() => expect(view.getByRole("button", { name: "Check connection" }).getAttribute("aria-busy")).toBe("false"));
+  fireEvent.click(view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ }));
+  await waitFor(() => expect(view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ }).getAttribute("aria-busy")).toBe("false"));
   expect((view.getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement).disabled).toBe(true);
   expect(view.queryByText("Table settings are ready.")).toBeNull();
   expect(view.getByText(result.message ?? "Connection verified, but the table list is unavailable. Check again.")).toBeTruthy();
@@ -137,7 +137,7 @@ it("keeps the same status region and locked settings after a failed check", asyn
   vi.spyOn(api, "checkConnection").mockRejectedValue(new Error("Authentication failed. Enter a password."));
   const view = render(<Form />);
   const status = view.container.querySelector(".connection-check-result");
-  fireEvent.click(view.getByRole("button", { name: "Check connection" }));
+  fireEvent.click(view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ }));
   expect(await view.findByRole("alert")).toBe(status);
   expect(status?.textContent).toContain("Authentication failed. Enter a password.");
   expect((view.getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement).disabled).toBe(true);
@@ -148,13 +148,13 @@ it("locks the existing table controls immediately during a recheck", async () =>
     .mockResolvedValueOnce({ status: "verified", options: {}, message: null, tables: [] })
     .mockImplementationOnce(() => new Promise(() => undefined));
   const view = render(<Form />);
-  const check = view.getByRole("button", { name: "Check connection" });
+  const check = view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ });
   const input = view.getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement;
   fireEvent.click(check);
   await waitFor(() => expect(input.disabled).toBe(false));
   fireEvent.click(check);
   expect(input.disabled).toBe(true);
-  expect(view.getByText("Checking connection…")).toBeTruthy();
+  expect(view.getByText("Connecting and loading table names…")).toBeTruthy();
   expect(view.getByRole("combobox", { name: "Include rule 1" })).toBe(input);
   expect(request).toHaveBeenCalledTimes(2);
 });
@@ -163,9 +163,9 @@ it("does not unlock from a stale check after the credentials change", async () =
   let finish!: (result: ConnectionCheckResult) => void;
   vi.spyOn(api, "checkConnection").mockReturnValue(new Promise(resolve => { finish = resolve; }));
   const view = render(<Form />);
-  fireEvent.click(view.getByRole("button", { name: "Check connection" }));
+  fireEvent.click(view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ }));
   fireEvent.input(view.getByLabelText(/^Password/), { target: { value: "changed" } });
-  await waitFor(() => expect(view.getByText("Not checked")).toBeTruthy());
+  await waitFor(() => expect(view.getByText("Required to unlock tables and transforms")).toBeTruthy());
   finish({ status: "verified", options: {}, message: null, tables: [] });
   await Promise.resolve();
   expect((view.getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement).disabled).toBe(true);
@@ -175,7 +175,7 @@ it("does not unlock from a stale check after the credentials change", async () =
 it("does not unlock editing in a read-only delivery after verification", async () => {
   vi.spyOn(api, "checkConnection").mockResolvedValue({ status: "verified", options: {}, message: null, tables: [] });
   const view = render(<Form readOnly />);
-  fireEvent.click(view.getByRole("button", { name: "Check connection" }));
+  fireEvent.click(view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ }));
   await view.findByText("Table settings are ready.");
   expect((view.getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement).disabled).toBe(true);
 });

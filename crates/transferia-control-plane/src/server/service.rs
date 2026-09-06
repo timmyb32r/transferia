@@ -41,6 +41,9 @@ pub use transferia_server_contracts::api::{
 use transferia_server_contracts::{DeliveryRecord, RuntimeState, ValidationState};
 
 const MAX_MESSAGE_PREVIEW_BYTES: usize = 32 * 1024 * 1024;
+
+#[path = "metadata.rs"]
+mod metadata;
 const INLINE_MESSAGE_PREVIEW_BYTES: usize = 16 * 1024;
 const CONNECTION_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 const CONNECTION_TIMEOUT_MESSAGE: &str =
@@ -124,6 +127,8 @@ pub struct ControlPlane {
     mutation: Mutex<()>,
 
     speedtest_tasks: TaskTracker,
+    metadata_tasks: TaskTracker,
+    metadata_sessions: Mutex<std::collections::BTreeMap<String, Arc<metadata::MetadataSession>>>,
 
     shutdown: CancellationToken,
 }
@@ -650,13 +655,17 @@ impl ControlPlane {
         request: TransformPreviewRequest,
         cancellation: CancellationToken,
     ) -> Result<TransformPreviewResult, ServiceError> {
-        Self::preview_transforms_with(&self.transferia, request, cancellation).await
+        let id = request.metadata_id.as_deref().ok_or_else(|| ServiceError::Validation(
+            "Connect & load metadata in Source before running preview".to_owned()))?;
+        let metadata = self.metadata_session(id).await?;
+        Self::preview_transforms_with(&self.transferia, request, cancellation, Some(metadata)).await
     }
 
     async fn preview_transforms_with(
         composition: &dyn Composition,
         request: TransformPreviewRequest,
         cancellation: CancellationToken,
+        metadata: Option<Arc<metadata::MetadataSession>>,
     ) -> Result<TransformPreviewResult, ServiceError> {
         for (name, valid) in [
             ("max_sample_bytes", request.max_sample_bytes > 0),
@@ -676,7 +685,7 @@ impl ControlPlane {
         tokio::select! {
             biased;
             () = cancellation.cancelled() => Err(ServiceError::Validation("transform preview cancelled".into())),
-            result = tokio::time::timeout_at(deadline, Self::preview_transforms_bounded(composition, request, preview_cancellation)) => {
+            result = tokio::time::timeout_at(deadline, Self::preview_transforms_bounded(composition, request, preview_cancellation, metadata)) => {
                 result.map_err(|_| ServiceError::Validation("transform preview exceeded configured timeout_ms".into()))?
             }
         }
@@ -686,6 +695,7 @@ impl ControlPlane {
         composition: &dyn Composition,
         request: TransformPreviewRequest,
         cancellation: CancellationToken,
+        metadata: Option<Arc<metadata::MetadataSession>>,
     ) -> Result<TransformPreviewResult, ServiceError> {
         use transferia_delivery::middleware::{build_middlewares, MiddlewareEntry};
         use transferia_delivery::middleware::preview::preview_chain;
@@ -711,39 +721,46 @@ impl ControlPlane {
             .map_err(ServiceError::Internal)?;
         let middlewares = build_middlewares(&registry, &entries)
             .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
-        let raw = serde_yaml::to_value(request.source.config)
-            .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let resolved = composition.resolve_many(
-            &request.source.connector, EndpointRole::Source, raw, cancellation.clone(),
-        ).await.map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
         let table = transferia_registry::TableIdentity {
             namespace: namespace.clone(),
             name: request.table.name.clone(),
         };
-        let mut sample = None;
-        let mut last_error = None;
-        for endpoint in resolved {
-            let attempt = registry.sample_source_table(
-                &request.source.connector, endpoint, table.clone(), transferia_registry::TableSampleLimits {
-                    row_limit: request.row_limit,
-                    max_bytes: request.max_sample_bytes,
-                    timeout_ms: request.timeout_ms,
-                }, cancellation.clone(),
-            );
-            let result = tokio::select! {
-                biased;
-                () = cancellation.cancelled() => return Err(ServiceError::Validation("transform preview cancelled".into())),
-                result = attempt => result,
-            };
-            match result {
-                Ok(data) => { sample = Some(data); break; }
-                Err(error) => last_error = Some(error),
+        let sample = if let Some(metadata) = metadata {
+            metadata.sample(&request.source, table, transferia_registry::TableSampleLimits {
+                row_limit: request.row_limit, max_bytes: request.max_sample_bytes, timeout_ms: request.timeout_ms,
+            }, cancellation.clone()).await.map_err(|error| ServiceError::Validation(format!("{error:#}")))?
+        } else {
+            let raw = serde_yaml::to_value(request.source.config)
+                .map_err(|error| ServiceError::Validation(error.to_string()))?;
+            let resolved = composition.resolve_many(
+                &request.source.connector, EndpointRole::Source, raw, cancellation.clone(),
+            ).await.map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+            let mut sample = None;
+            let mut last_error = None;
+            for endpoint in resolved {
+                let attempt = registry.sample_source_table(
+                    &request.source.connector, endpoint, table.clone(), transferia_registry::TableSampleLimits {
+                        row_limit: request.row_limit,
+                        max_bytes: request.max_sample_bytes,
+                        timeout_ms: request.timeout_ms,
+                    }, cancellation.clone(),
+                );
+                let result = tokio::select! {
+                    biased;
+                    () = cancellation.cancelled() => return Err(ServiceError::Validation("transform preview cancelled".into())),
+                    result = attempt => result,
+                };
+                match result {
+                    Ok(data) => { sample = Some(data); break; }
+                    Err(error) => last_error = Some(error),
+                }
             }
-        }
-        let sample = sample.ok_or_else(|| ServiceError::Validation(match last_error {
-            Some(error) => format!("source table sample failed: {error:#}"),
-            None => "source resolution returned no endpoints".into(),
-        }))?;
+            let sample = sample.ok_or_else(|| ServiceError::Validation(match last_error {
+                Some(error) => format!("source table sample failed: {error:#}"),
+                None => "source resolution returned no endpoints".into(),
+            }))?;
+            sample
+        };
         let preview = preview_chain(
                 &middlewares, sample, request.through_step,
                 transferia_delivery_contracts::middleware::MiddlewarePreviewContext {
@@ -772,6 +789,8 @@ impl ControlPlane {
             worker_logs: None,
             mutation: Mutex::new(()),
             speedtest_tasks: TaskTracker::new(),
+            metadata_tasks: TaskTracker::new(),
+            metadata_sessions: Mutex::new(std::collections::BTreeMap::new()),
             shutdown: CancellationToken::new(),
         }
     }
@@ -849,6 +868,16 @@ impl ControlPlane {
         config: Value,
         cancellation: CancellationToken,
     ) -> Result<transferia_registry::ConnectionCheckResult, ServiceError> {
+        self.check_connection_resolved(connector, role, config, cancellation).await.map(|(check, _)| check)
+    }
+
+    async fn check_connection_resolved(
+        &self,
+        connector: &str,
+        role: EndpointRole,
+        config: Value,
+        cancellation: CancellationToken,
+    ) -> Result<(transferia_registry::ConnectionCheckResult, Vec<serde_yaml::Value>), ServiceError> {
         let total_started = std::time::Instant::now();
         let raw = serde_yaml::to_value(config)
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
@@ -875,12 +904,12 @@ impl ControlPlane {
         let check_started = std::time::Instant::now();
         let result = async {
             let mut combined = transferia_registry::ConnectionCheckResult::default();
-            for endpoint in resolved {
+            for endpoint in &resolved {
                 let checked = tokio::select! {
                     () = cancellation.cancelled() => return Err(ServiceError::Validation("connection check cancelled".to_owned())),
                     result = tokio::time::timeout(
                         CONNECTION_CHECK_TIMEOUT,
-                        catalog.check_connection(connector, role, endpoint),
+                        catalog.check_connection(connector, role, endpoint.clone()),
                     ) => {
                         result
                             .map_err(|_| ServiceError::Validation(CONNECTION_TIMEOUT_MESSAGE.to_owned()))?
@@ -926,7 +955,7 @@ impl ControlPlane {
             success = result.is_ok(),
             "connection check completed"
         );
-        result
+        result.map(|check| (check, resolved))
     }
 
     pub async fn preview_message(
@@ -1119,19 +1148,31 @@ impl ControlPlane {
             .map_err(Into::into)
     }
 
-    pub async fn validate_preview(
+    async fn validate_preview(
         &self,
         config: &Value,
         cancellation: CancellationToken,
+        cached: Option<Arc<metadata::MetadataSession>>,
     ) -> Result<DiscoveryResult, ServiceError> {
         let yaml = config_yaml_from_json(config)?;
         let parsed = Config::from_yaml(&yaml)
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let preview = async {
+            match cached {
+                Some(session) => {
+                    let provider = metadata::CachedDiscovery::new(Arc::clone(&session), config)?;
+                    session.run(&cancellation, transferia_delivery::delivery::preparation::build_preview_plan_with_metadata(
+                        parsed, cancellation.child_token(), &self.transferia, &provider,
+                    )).await
+                }
+                None => build_delivery_plan_with(parsed, cancellation, &self.transferia).await,
+            }
+        };
         let plan = tokio::select! {
             () = self.shutdown.cancelled() => {
                 return Err(ServiceError::Conflict("the control plane is shutting down".to_owned()));
             }
-            result = build_delivery_plan_with(parsed, cancellation, &self.transferia) => {
+            result = preview => {
                 result.map_err(|error| ServiceError::Validation(error.to_string()))?
             }
         };
@@ -1284,6 +1325,7 @@ impl ControlPlane {
         id: &str,
         expected_revision: u64,
         expected_record_version: u64,
+        metadata_id: Option<&str>,
         cancellation: CancellationToken,
     ) -> Result<ValidationCommandResult, ServiceError> {
         let snapshot = self.store.get(id).await?;
@@ -1294,8 +1336,28 @@ impl ControlPlane {
             )));
         }
         ensure_record_version(id, snapshot.record_version, expected_record_version)?;
-        let result = self.validate_preview(&snapshot.config, cancellation).await;
+        let metadata = match metadata_id {
+            Some(id) => Some(self.metadata_session(id).await?),
+            None => None,
+        };
+        let _metadata_validation = match &metadata {
+            Some(session) => Some(session.run(&cancellation, async {
+                Ok(Arc::clone(&session.validation_gate).lock_owned().await)
+            }).await?),
+            None => None,
+        };
+        let result = async {
+            if let Some(session) = &metadata {
+                session.begin_validation(id, expected_revision, &snapshot.config).await?;
+            }
+            self.validate_preview(&snapshot.config, cancellation.clone(), metadata.clone()).await
+        }.await;
+        if let Some(session) = &metadata {
+            session.finish_validation(id, expected_revision, result.is_ok()).await;
+        }
         let _mutation = self.mutation.lock().await;
+        if let Some(session) = &metadata { session.ensure_active()?; }
+        if cancellation.is_cancelled() { return Err(ServiceError::Conflict("Validation cancelled".to_owned())); }
         let mut current = self.store.get(id).await?;
         if current.revision != expected_revision
             || current.record_version != expected_record_version
@@ -1549,6 +1611,9 @@ impl ControlPlane {
         self.shutdown.cancel();
         self.speedtest_tasks.close();
         self.speedtest_tasks.wait().await;
+        self.metadata_tasks.close();
+        self.metadata_tasks.wait().await;
+        self.metadata_sessions.lock().await.clear();
         self.supervisor.shutdown_all().await?;
         let _mutation = self.mutation.lock().await;
         for mut record in self.store.list().await? {

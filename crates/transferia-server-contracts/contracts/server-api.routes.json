@@ -1,5 +1,45 @@
 [
   {
+    "body": "metadata_connect_request",
+    "method": "POST",
+    "name": "connect_metadata",
+    "path": "/api/v1/source-metadata",
+    "query": null,
+    "response": "metadata_connection_response"
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "name": "metadata_status",
+    "path": "/api/v1/source-metadata/{id}",
+    "query": null,
+    "response": "metadata_status_response"
+  },
+  {
+    "body": null,
+    "method": "DELETE",
+    "name": "release_metadata",
+    "path": "/api/v1/source-metadata/{id}",
+    "query": null,
+    "response": "metadata_status_response"
+  },
+  {
+    "body": "metadata_schemas_request",
+    "method": "POST",
+    "name": "load_metadata_schemas",
+    "path": "/api/v1/source-metadata/{id}/schemas",
+    "query": null,
+    "response": "metadata_status_response"
+  },
+  {
+    "body": "metadata_discovery_request",
+    "method": "POST",
+    "name": "metadata_discovery",
+    "path": "/api/v1/source-metadata/{id}/discovery",
+    "query": null,
+    "response": "discovery_response"
+  },
+  {
     "body": "table_selection_preview_request",
     "method": "POST",
     "name": "table_selection_preview",
@@ -136,7 +176,7 @@
     "response": "delivery_response"
   },
   {
-    "body": "revision_request",
+    "body": "validation_request",
     "method": "POST",
     "name": "validate",
     "path": "/api/v1/deliveries/{id}/validate",

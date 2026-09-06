@@ -926,3 +926,23 @@ fn numeric_conversion_rejects_lossy_or_out_of_range_values() {
     assert!(value_u64::<u8>(&Value::Int(-1)).is_err());
     assert!(value_i64::<i64>(&Value::Bytes(b"1.5".to_vec())).is_err());
 }
+#[test]
+fn cached_preview_rejects_changed_native_types_even_when_storage_is_the_same() {
+    let make = |kind, declaration| super::connector::DiscoveredTable {
+        config: super::config::TableConfig { database: "db".into(), name: "events".into() },
+        schema: transferia_core::DatasetSchema::default(),
+        columns: vec![test_column("value", kind, declaration, None)], engine: "InnoDB".into(),
+    };
+    for (old_kind, old, new_kind, new) in [
+        (MySqlColumnKind::EnumOrdinal, "enum('a','b')", MySqlColumnKind::EnumOrdinal, "enum('b','a')"),
+        (MySqlColumnKind::SetBits, "set('a','b')", MySqlColumnKind::SetBits, "set('b','a')"),
+        (MySqlColumnKind::Int32, "int", MySqlColumnKind::Utf8, "varchar(8)"),
+    ] {
+        let cached = make(old_kind, old);
+        assert!(super::sample::validate_cached_schema(&cached, &cached).is_ok());
+        let error = super::sample::validate_cached_schema(&cached, &make(new_kind, new)).unwrap_err();
+        assert!(error.to_string().contains("db.events"));
+        assert!(error.to_string().contains("refresh metadata"));
+        assert_eq!(cached.columns[0].column_type, old, "validation must not rewrite the cached plan");
+    }
+}

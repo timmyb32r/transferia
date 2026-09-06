@@ -75,15 +75,33 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   actions retain their semantic styling. Disabled controls remain gray, without
   enabled hover/press feedback; pending actions retain their label, dimensions and
   spinner. This action palette does not recolor classic or dark themes.
-- Database-source connection checks use **A — required form item**: a neutral
+- Database-source metadata uses **A — required form item**: a neutral
   `Required` badge, a stable status beside the button, and a bordered group for
-  dependent table fields. Before verification show `Not checked` and a small
+  dependent table fields. The primary action is `Connect & load metadata`, then
+  `Refresh metadata` after success; reserve the longer label's width. Before
+  verification show `Required to unlock tables and transforms` and a small
   lock, not a validation error. Unlock only after authenticated verification
   returns a table catalog (including an empty catalog). Keep status slots and
   controls mounted with identical dimensions while checking, succeeding,
   failing, or invalidating credentials. Connection/advanced options stay outside
   the locked group so users can repair a failed connection. Ordinary diagnostic
   checks in destinations and non-table sources do not gain a required badge.
+- Source and Transforms share one authenticated table catalog and a server-side
+  metadata session. Fewer than 1000 catalog tables triggers asynchronous schema
+  preloading; 1000 or more uses explicit `Load schemas` beside each transform's
+  Preview disclosure. This action loads only that transform's matches, not rows.
+  Keep its status and control slots fixed across pending, partial success and
+  errors. Add transform stays disabled until the catalog is known, with a tooltip
+  directing the user to the source metadata action; known-empty is not unknown.
+- Editor discovery is cache-only. Validate loads missing schemas for the selected
+  source tables and reports `Schemas checked X/Y` in the existing fixed progress
+  overlay, then checks transforms and destination constraints. Validate first
+  connects if needed and joins an already-pending connection request. Cached
+  successes and errors are reused until explicit Refresh, connection/decoding
+  options change, the editor closes, or the server restarts. Run preview checks
+  the selected table's current schema against the cache before reading rows;
+  drift is an explicit error, never an automatic cache replacement. Actual
+  delivery startup always discovers fresh schemas independently of this cache.
 - Keep the page white and the three delivery islands slate gray, with white
   fields. Parser details continue the source island rather than introducing a
   fourth palette. Use consistent borders across these connected surfaces.

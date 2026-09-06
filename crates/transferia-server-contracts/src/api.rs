@@ -41,6 +41,68 @@ pub struct ConnectionCheckRequest {
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct MetadataConnectRequest {
+    pub source: TransformPreviewSource,
+    pub delivery_type: transferia_delivery_contracts::DeliveryType,
+    #[serde(default)]
+    pub replace_metadata_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MetadataConnection {
+    pub connection: ConnectionCheckResult,
+    pub metadata: MetadataStatus,
+}
+
+#[derive(Clone, Debug, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MetadataStatus {
+    pub id: String,
+    pub catalog_count: usize,
+    pub loaded: Vec<transferia_registry::TableIdentity>,
+    pub errors: Vec<TableMetadataError>,
+    pub loading: bool,
+    pub validation: Option<MetadataValidationProgress>,
+}
+
+#[derive(Clone, Debug, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TableMetadataError {
+    pub table: transferia_registry::TableIdentity,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MetadataValidationProgress {
+    pub delivery_id: String,
+    pub revision: u64,
+    pub checked: usize,
+    pub total: usize,
+    pub phase: MetadataValidationPhase,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MetadataValidationPhase { Schemas, Pipeline, Complete, Failed }
+
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MetadataSchemasRequest {
+    pub source: TransformPreviewSource,
+    pub tables: Vec<transferia_registry::TableIdentity>,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MetadataDiscoveryRequest {
+    #[schemars(with = "BTreeMap<String, Value>", extend("x-typescript-type" = "JsonObject"))]
+    pub config: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TableSelectionPreviewRequest {
     pub selection: transferia_registry::table_selection::TableSelection,
     pub catalog: Vec<transferia_registry::TableIdentity>,
@@ -63,6 +125,8 @@ pub struct MessagePreviewRequest {
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TransformPreviewRequest {
+    #[serde(default)]
+    pub metadata_id: Option<String>,
     pub middlewares: Vec<Value>,
     pub through_step: usize,
     pub source: TransformPreviewSource,
@@ -313,6 +377,17 @@ pub struct RevisionRequest {
     #[serde(deserialize_with = "crate::decimal_u64::deserialize")]
     #[schemars(with = "String", extend("pattern" = "^(?:0|[1-9][0-9]*)$"))]
     pub expected_record_version: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ValidationRequest {
+    pub expected_revision: u64,
+    #[serde(deserialize_with = "crate::decimal_u64::deserialize")]
+    #[schemars(with = "String", extend("pattern" = "^(?:0|[1-9][0-9]*)$"))]
+    pub expected_record_version: u64,
+    #[serde(default)]
+    pub metadata_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
@@ -642,6 +717,11 @@ pub struct MessagePreviewMetadataItem {
 #[derive(JsonSchema)]
 #[expect(dead_code, reason = "fields define the generated HTTP contract roots")]
 struct ServerApiContract {
+    metadata_connect_request: MetadataConnectRequest,
+    metadata_connection_response: MetadataConnection,
+    metadata_status_response: MetadataStatus,
+    metadata_schemas_request: MetadataSchemasRequest,
+    metadata_discovery_request: MetadataDiscoveryRequest,
     catalog_response: UiCatalog,
     delivery_list_response: Vec<DeliverySummary>,
     delivery_response: DeliveryRecord,
@@ -670,6 +750,7 @@ struct ServerApiContract {
     create_draft_request: CreateDraftRequest,
     update_draft_request: UpdateDraftRequest,
     revision_request: RevisionRequest,
+    validation_request: ValidationRequest,
     stop_request: StopRequest,
     worker_logs_response: WorkerLogsResult,
     worker_log_response: WorkerLogChunkView,

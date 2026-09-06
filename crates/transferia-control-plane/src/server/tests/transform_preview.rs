@@ -74,7 +74,7 @@ async fn source_preview_executes_real_filter_then_sql_and_never_constructs_worke
     let preview = ControlPlane::preview_transforms_with(&composition, request(serde_json::json!([
         {"filter":{"field":"kind","value":"keep"}},
         {"datafusion":{"sql":"SELECT id * 2 AS doubled FROM input"}}
-    ]), 1)?, CancellationToken::new()).await?;
+    ]), 1)?, CancellationToken::new(), None).await?;
     assert_eq!(serde_json::to_value(preview.before.rows)?, serde_json::json!([{"id":"3","kind":"keep"}]));
     assert_eq!(serde_json::to_value(preview.after.rows)?, serde_json::json!([{"doubled":"6"}]));
     assert_eq!(preview.after.columns[0].arrow_type, "Int64");
@@ -90,7 +90,7 @@ async fn source_preview_keeps_empty_arrow_schema_between_real_transforms() -> an
     let preview = ControlPlane::preview_transforms_with(&SampleComposition::default(), request(serde_json::json!([
         {"filter":{"field":"kind","value":"absent"}},
         {"datafusion":{"sql":"SELECT id * 2 AS doubled FROM input"}}
-    ]), 1)?, CancellationToken::new()).await?;
+    ]), 1)?, CancellationToken::new(), None).await?;
     assert!(preview.before.rows.is_empty());
     assert!(preview.after.rows.is_empty());
     assert_eq!(preview.after.columns[0].name, "doubled");
@@ -102,7 +102,7 @@ async fn source_preview_keeps_empty_arrow_schema_between_real_transforms() -> an
 async fn source_preview_skips_excluded_table_and_its_action_column_validation() -> anyhow::Result<()> {
     let preview = ControlPlane::preview_transforms_with(&SampleComposition::default(), request(serde_json::json!([
         {"tables":{"include":"public.*","exclude":"public.events"},"filter":{"field":"missing","value":"x"}}
-    ]), 0)?, CancellationToken::new()).await?;
+    ]), 0)?, CancellationToken::new(), None).await?;
     assert!(!preview.applied);
     assert_eq!(preview.before.rows, preview.after.rows);
     Ok(())
@@ -113,7 +113,7 @@ async fn source_preview_rejects_malformed_action_before_resolving_or_reading_sou
     let composition = SampleComposition::default();
     let error = ControlPlane::preview_transforms_with(&composition, request(serde_json::json!([
         {"filter":{},"datafusion":{}}
-    ]), 0)?, CancellationToken::new()).await.err().unwrap();
+    ]), 0)?, CancellationToken::new(), None).await.err().unwrap();
     assert!(error.to_string().contains("exactly one"));
     assert_eq!(composition.reads.load(Ordering::SeqCst), 0);
     assert_eq!(composition.resolutions.load(Ordering::SeqCst), 0);
@@ -125,7 +125,7 @@ async fn source_preview_ignores_unfinished_steps_after_the_selected_step() -> an
     let preview = ControlPlane::preview_transforms_with(&SampleComposition::default(), request(serde_json::json!([
         {"datafusion":{"sql":"SELECT id FROM input"}},
         {"tables":{"include":""},"filter":{},"datafusion":{}}
-    ]), 0)?, CancellationToken::new()).await?;
+    ]), 0)?, CancellationToken::new(), None).await?;
     assert_eq!(serde_json::to_value(preview.after.rows)?, serde_json::json!([{"id":"1"},{"id":"3"}]));
     Ok(())
 }
@@ -140,7 +140,7 @@ async fn source_preview_rejects_zero_budgets_before_any_source_io() -> anyhow::R
             "row_limit":20,"max_sample_bytes":16777216,"memory_limit_bytes":268435456,"timeout_ms":30000
         });
         value[field] = Value::from(0);
-        let error = ControlPlane::preview_transforms_with(&composition, serde_json::from_value(value)?, CancellationToken::new()).await.err().unwrap();
+        let error = ControlPlane::preview_transforms_with(&composition, serde_json::from_value(value)?, CancellationToken::new(), None).await.err().unwrap();
         assert!(error.to_string().contains(field));
         assert_eq!(composition.resolutions.load(Ordering::SeqCst), 0);
         assert_eq!(composition.reads.load(Ordering::SeqCst), 0);
@@ -153,7 +153,7 @@ async fn source_preview_timeout_cancels_endpoint_resolution() -> anyhow::Result<
     let composition = SampleComposition { stall_resolution: true, ..Default::default() };
     let mut request = request(serde_json::json!([{"datafusion":{"sql":"SELECT * FROM input"}}]), 0)?;
     request.timeout_ms = 1;
-    let error = ControlPlane::preview_transforms_with(&composition, request, CancellationToken::new()).await.err().unwrap();
+    let error = ControlPlane::preview_transforms_with(&composition, request, CancellationToken::new(), None).await.err().unwrap();
     assert!(error.to_string().contains("timeout_ms"));
     assert!(composition.resolution_cancellation.lock().unwrap().as_ref().unwrap().is_cancelled());
     assert_eq!(composition.reads.load(Ordering::SeqCst), 0);
@@ -164,7 +164,7 @@ async fn source_preview_timeout_cancels_endpoint_resolution() -> anyhow::Result<
 async fn source_preview_explains_unavailable_synthetic_event_metadata() -> anyhow::Result<()> {
     let error = ControlPlane::preview_transforms_with(&SampleComposition::default(), request(serde_json::json!([
         {"datafusion":{"sql":"SELECT _system_offset FROM input"}}
-    ]), 0)?, CancellationToken::new()).await.err().unwrap();
+    ]), 0)?, CancellationToken::new(), None).await.err().unwrap();
     assert!(error.to_string().contains("synthetic transport and CDC metadata are not available"));
     assert!(error.to_string().contains("_system_offset"));
     Ok(())
@@ -175,7 +175,7 @@ async fn source_preview_preserves_exact_native_arrow_metadata_without_inventing_
     let preview = ControlPlane::preview_transforms_with(&SampleComposition::default(), request(serde_json::json!([
         {"filter":{"field":"kind","value":"keep"}},
         {"datafusion":{"sql":"SELECT * FROM input"}}
-    ]), 1)?, CancellationToken::new()).await?;
+    ]), 1)?, CancellationToken::new(), None).await?;
     let metadata = &preview.after.columns[0].metadata;
     assert_eq!(metadata["ARROW:extension:name"], "test.exact.integer");
     assert_eq!(metadata["ARROW:extension:metadata"], "{\"semantic\":\"original\"}");
@@ -192,7 +192,7 @@ async fn source_preview_executes_required_column_and_sql_validation_on_native_in
         serde_json::json!({"datafusion":{"sql":"SELECT missing FROM input"}}),
         serde_json::json!({"datafusion":{"sql":"DROP TABLE input"}}),
     ] {
-        let error = ControlPlane::preview_transforms_with(&SampleComposition::default(), request(serde_json::json!([action]), 0)?, CancellationToken::new()).await.err().unwrap();
+        let error = ControlPlane::preview_transforms_with(&SampleComposition::default(), request(serde_json::json!([action]), 0)?, CancellationToken::new(), None).await.err().unwrap();
         assert!(error.to_string().contains("transform step 1"));
     }
     Ok(())

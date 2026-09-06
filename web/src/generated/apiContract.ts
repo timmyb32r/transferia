@@ -123,6 +123,8 @@ export type DeliverySummary = {
   validation: ValidationState;
 };
 
+export type DeliveryType = "batch" | "stream" | "batch_and_stream";
+
 export type DestinationColumnView = {
   arrow_type: string;
   destination_type: string;
@@ -215,6 +217,49 @@ export type MessagePreviewResult = {
   payload_preview_base64: string;
   preview_bytes: number;
   text_preview: string;
+};
+
+export type MetadataConnectRequest = {
+  delivery_type: DeliveryType;
+  replace_metadata_id?: string | null;
+  source: TransformPreviewSource;
+};
+
+export type MetadataConnection = {
+  connection: ConnectionCheckResult;
+  metadata: MetadataStatus;
+};
+
+export type MetadataDiscoveryRequest = {
+  config: JsonObject;
+};
+
+export type MetadataSchemasRequest = {
+  source: TransformPreviewSource;
+  tables: Array<TableIdentity>;
+};
+
+export type MetadataStatus = {
+  catalog_count: number;
+  errors: Array<TableMetadataError>;
+  id: string;
+  loaded: Array<TableIdentity>;
+  loading: boolean;
+  validation?: MetadataValidationProgress | null;
+};
+
+export type MetadataValidationPhase =
+  | "schemas"
+  | "pipeline"
+  | "complete"
+  | "failed";
+
+export type MetadataValidationProgress = {
+  checked: number;
+  delivery_id: string;
+  phase: MetadataValidationPhase;
+  revision: number;
+  total: number;
 };
 
 export type NameSyntax =
@@ -431,6 +476,11 @@ export type TableIdentity = {
   namespace: string;
 };
 
+export type TableMetadataError = {
+  message: string;
+  table: TableIdentity;
+};
+
 export type TableRule = {
   exclude?: string | null;
   exclude_mode?: PatternMode;
@@ -477,6 +527,7 @@ export type TransformPreviewFrame = {
 export type TransformPreviewRequest = {
   max_sample_bytes: number;
   memory_limit_bytes: number;
+  metadata_id?: string | null;
   middlewares: Array<JsonValue>;
   row_limit: number;
   source: TransformPreviewSource;
@@ -518,6 +569,12 @@ export type UpdateDraftRequest = {
 export type ValidationCommandResult = {
   delivery: DeliveryRecord;
   discovery?: DiscoveryResult;
+};
+
+export type ValidationRequest = {
+  expected_record_version: string;
+  expected_revision: number;
+  metadata_id?: string | null;
 };
 
 export type ValidationState =
@@ -581,6 +638,11 @@ export interface ApiContract {
   health_response: HealthResponse;
   message_preview_request: MessagePreviewRequest;
   message_preview_response: MessagePreviewResult;
+  metadata_connect_request: MetadataConnectRequest;
+  metadata_connection_response: MetadataConnection;
+  metadata_discovery_request: MetadataDiscoveryRequest;
+  metadata_schemas_request: MetadataSchemasRequest;
+  metadata_status_response: MetadataStatus;
   revision_request: RevisionRequest;
   speedtest_estimate_request: SpeedtestEstimateRequest;
   speedtest_estimate_response: SpeedtestEstimateResult;
@@ -592,6 +654,7 @@ export interface ApiContract {
   transform_preview_request: TransformPreviewRequest;
   transform_preview_response: TransformPreviewResult;
   update_draft_request: UpdateDraftRequest;
+  validation_request: ValidationRequest;
   validation_response: ValidationCommandResult;
   worker_log_read_query: WorkerLogReadQuery;
   worker_log_response: WorkerLogChunkView;
@@ -603,6 +666,41 @@ export interface ApiContract {
 export type ApiContractName = keyof ApiContract;
 
 export const API_ROUTES = {
+  connect_metadata: {
+    method: "POST",
+    path: "/api/v1/source-metadata",
+    body: "metadata_connect_request",
+    query: null,
+    response: "metadata_connection_response",
+  },
+  metadata_status: {
+    method: "GET",
+    path: "/api/v1/source-metadata/{id}",
+    body: null,
+    query: null,
+    response: "metadata_status_response",
+  },
+  release_metadata: {
+    method: "DELETE",
+    path: "/api/v1/source-metadata/{id}",
+    body: null,
+    query: null,
+    response: "metadata_status_response",
+  },
+  load_metadata_schemas: {
+    method: "POST",
+    path: "/api/v1/source-metadata/{id}/schemas",
+    body: "metadata_schemas_request",
+    query: null,
+    response: "metadata_status_response",
+  },
+  metadata_discovery: {
+    method: "POST",
+    path: "/api/v1/source-metadata/{id}/discovery",
+    body: "metadata_discovery_request",
+    query: null,
+    response: "discovery_response",
+  },
   table_selection_preview: {
     method: "POST",
     path: "/api/v1/table-selection/preview",
@@ -725,7 +823,7 @@ export const API_ROUTES = {
   validate: {
     method: "POST",
     path: "/api/v1/deliveries/{id}/validate",
-    body: "revision_request",
+    body: "validation_request",
     query: null,
     response: "validation_response",
   },
@@ -768,6 +866,11 @@ export const API_ROUTES = {
   }
 >;
 export interface ApiRouteContract {
+  connect_metadata: ApiContract["metadata_connection_response"];
+  metadata_status: ApiContract["metadata_status_response"];
+  release_metadata: ApiContract["metadata_status_response"];
+  load_metadata_schemas: ApiContract["metadata_status_response"];
+  metadata_discovery: ApiContract["discovery_response"];
   table_selection_preview: ApiContract["table_selection_preview_response"];
   health: ApiContract["health_response"];
   catalog: ApiContract["catalog_response"];
@@ -792,6 +895,11 @@ export interface ApiRouteContract {
   worker_log: ApiContract["worker_log_response"];
 }
 export interface ApiRouteBody {
+  connect_metadata: ApiContract["metadata_connect_request"];
+  metadata_status: undefined;
+  release_metadata: undefined;
+  load_metadata_schemas: ApiContract["metadata_schemas_request"];
+  metadata_discovery: ApiContract["metadata_discovery_request"];
   table_selection_preview: ApiContract["table_selection_preview_request"];
   health: undefined;
   catalog: undefined;
@@ -809,13 +917,18 @@ export interface ApiRouteBody {
   get_delivery: undefined;
   update_delivery: ApiContract["update_draft_request"];
   delete_delivery: ApiContract["revision_request"];
-  validate: ApiContract["revision_request"];
+  validate: ApiContract["validation_request"];
   activate: ApiContract["revision_request"];
   stop: ApiContract["stop_request"];
   worker_logs: undefined;
   worker_log: undefined;
 }
 export interface ApiRouteQuery {
+  connect_metadata: undefined;
+  metadata_status: undefined;
+  release_metadata: undefined;
+  load_metadata_schemas: undefined;
+  metadata_discovery: undefined;
   table_selection_preview: undefined;
   health: undefined;
   catalog: undefined;
@@ -840,6 +953,11 @@ export interface ApiRouteQuery {
   worker_log: ApiContract["worker_log_read_query"];
 }
 export interface ApiRouteParameters {
+  connect_metadata: Record<string, never>;
+  metadata_status: { id: string };
+  release_metadata: { id: string };
+  load_metadata_schemas: { id: string };
+  metadata_discovery: { id: string };
   table_selection_preview: Record<string, never>;
   health: Record<string, never>;
   catalog: Record<string, never>;

@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import type { EditorState } from "../state";
 import type { DiscoveryResult } from "../types";
+import type { MetadataStatus } from "../generated/apiContract";
 import type { EditorRequestContext, useDeliveryJobs } from "./useDeliveryJobs";
 import type { useOperations } from "./useOperations";
 
@@ -12,12 +13,16 @@ type Operations = ReturnType<typeof useOperations>;
 export function useDiscovery({
   editor,
   structurallyComplete,
+  metadataRequired = false,
+  metadata,
   job,
   operations,
   isCurrentContext,
 }: {
   editor: EditorState;
   structurallyComplete: boolean;
+  metadataRequired?: boolean;
+  metadata?: MetadataStatus | undefined;
   job: DeliveryJobs["discovery"];
   operations: Pick<
     Operations,
@@ -37,9 +42,10 @@ export function useDiscovery({
   useEffect(() => {
     job.cancel();
     operations.clearOperation("discovery");
-    if (!structurallyComplete) {
+    if (!structurallyComplete || (metadataRequired && (!metadata || metadata.loading))) {
       setDiscovery(undefined);
-      setError(undefined);
+      setError(metadataRequired && structurallyComplete ? metadata
+        ? "Source schemas are loading…" : "Connect & load metadata in Source first." : undefined);
       return;
     }
     const context = {
@@ -54,7 +60,7 @@ export function useDiscovery({
       const requestId = operations.beginOperation("discovery");
       void job
         .run(context, editor.config, (config, signal) =>
-          api.discover(config, signal),
+          metadataRequired && metadata ? api.metadataDiscovery(metadata.id, config, signal) : api.discover(config, signal),
         )
         .then((result) => {
           if (result !== undefined && isCurrentContext(result.context)) {
@@ -79,6 +85,11 @@ export function useDiscovery({
     editor.sessionId,
     editor.localRevision,
     structurallyComplete,
+    metadataRequired,
+    metadata?.id,
+    metadata?.loading,
+    metadata?.loaded.length,
+    metadata?.errors.length,
   ]);
 
   return { discovery, setDiscovery, error };

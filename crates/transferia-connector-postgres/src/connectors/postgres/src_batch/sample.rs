@@ -18,6 +18,11 @@ use crate::metrics::SourceCounters;
 
 pub(crate) async fn sample_table(config: PostgresSourceConfig, table: TableIdentity, limits: TableSampleLimits,
     cancellation: CancellationToken) -> anyhow::Result<TableData> {
+    sample_with_metadata(config, table, limits, cancellation, None).await
+}
+
+pub(crate) async fn sample_with_metadata(config: PostgresSourceConfig, table: TableIdentity, limits: TableSampleLimits,
+    cancellation: CancellationToken, cached: Option<crate::connectors::postgres::source::DiscoveredTable>) -> anyhow::Result<TableData> {
     limits.validate()?;
     let row_limit = limits.row_limit;
     config.connection.validate()?;
@@ -36,7 +41,13 @@ pub(crate) async fn sample_table(config: PostgresSourceConfig, table: TableIdent
                 client.batch_execute(&format!("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL statement_timeout = {}", limits.timeout_ms))).await?;
             let discovered = observe_external_request("postgres", "discover_sample_table",
                 discover_table(&client, TableConfig { schema: table.namespace.clone(), name: table.name.clone() }, config.unsupported_types)).await?;
+            if let Some(cached) = &cached { validate_cached_schema(cached, &discovered)?; }
+            anyhow::ensure!(discovered.config.schema == table.namespace && discovered.config.name == table.name,
+                "Cached PostgreSQL table identity does not match the sample request");
             let metadata = observe_external_request("postgres", "prepare_sample_columns", client.prepare(&query_identity)).await?;
+            anyhow::ensure!(metadata.columns().len() == discovered.schema.columns.len()
+                && metadata.columns().iter().zip(&discovered.schema.columns).all(|(actual, expected)| actual.name() == expected.name),
+                "PostgreSQL sample source schema changed since metadata was loaded; refresh metadata");
             let projection = source_select_projection(metadata.columns(), config.unsupported_types)?;
             let select = sample_query(&table, &projection, row_limit)?;
             let statement = observe_external_request("postgres", "prepare_table_sample", client.prepare(&select)).await?;
@@ -92,4 +103,18 @@ pub(super) fn sample_query(table: &TableIdentity, projection: &str, row_limit: u
             "sample schema and table names must be non-empty PostgreSQL identifiers without NUL and at most {MAX_IDENTIFIER_BYTES} bytes");
     }
     Ok(format!("SELECT {projection} FROM {}.{} LIMIT {row_limit}", quote_identifier(&table.namespace), quote_identifier(&table.name)))
+}
+
+pub(super) fn validate_cached_schema(cached: &crate::connectors::postgres::source::DiscoveredTable,
+    current: &crate::connectors::postgres::source::DiscoveredTable) -> anyhow::Result<()> {
+    // Physical OIDs are compared with physical OIDs. Query descriptors can
+    // expose a domain's base type instead, so they are not interchangeable.
+    anyhow::ensure!(cached.config.schema == current.config.schema && cached.config.name == current.config.name
+        && cached.relation_oid == current.relation_oid && cached.type_oids == current.type_oids
+        && cached.schema.columns.len() == current.schema.columns.len()
+        && cached.schema.columns.iter().zip(&current.schema.columns).all(|(a, b)|
+            a.name == b.name && a.data_type == b.data_type && a.nullable == b.nullable && a.arrow_metadata() == b.arrow_metadata()),
+        "PostgreSQL table '{}.{}' schema changed since metadata was loaded; refresh metadata before preview",
+        cached.config.schema, cached.config.name);
+    Ok(())
 }

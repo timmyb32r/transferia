@@ -7,6 +7,7 @@ const PROGRESS_MIN_VISIBLE_MS = 500;
 
 interface ProgressTiming {
   requestId: number;
+  label?: string;
   revealTimer?: number;
   removeTimer?: number;
   visibleAt?: number;
@@ -43,7 +44,7 @@ export function useOperations() {
       [key]: { requestId },
     }));
     if (label !== undefined) {
-      const timing: ProgressTiming = { requestId };
+      const timing: ProgressTiming = { requestId, label };
       timing.revealTimer = window.setTimeout(() => {
         const currentTiming = progressTimings.current.get(key);
         if (currentTiming?.requestId !== requestId) return;
@@ -51,7 +52,7 @@ export function useOperations() {
         currentTiming.visibleAt = performance.now();
         setOperations((current) =>
           current[key]?.requestId === requestId
-            ? { ...current, [key]: { requestId, label } }
+            ? { ...current, [key]: { requestId, label: currentTiming.label ?? label } }
             : current,
         );
       }, PROGRESS_REVEAL_DELAY_MS);
@@ -109,6 +110,15 @@ export function useOperations() {
     [cancelTiming],
   );
 
+  const update = useCallback((key: OperationKey, requestId: number, label: string) => {
+    const timing = progressTimings.current.get(key);
+    if (timing?.requestId !== requestId || timing.removeTimer !== undefined) return;
+    timing.label = label;
+    if (timing.visibleAt === undefined) return;
+    setOperations(current => current[key]?.requestId === requestId && !current[key]?.error && !current[key]?.success
+      ? { ...current, [key]: { requestId, label } } : current);
+  }, []);
+
   const clearErrors = useCallback(() => {
     setOperations((current) =>
       Object.fromEntries(
@@ -138,6 +148,7 @@ export function useOperations() {
   return {
     operations,
     beginOperation: begin,
+    updateOperation: update,
     finishOperation: finish,
     clearErrors,
     clearOperation: clear,

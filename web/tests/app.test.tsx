@@ -1074,7 +1074,7 @@ describe("App request orchestration", () => {
       ),
     );
     await waitFor(() =>
-      expect(api.validate).toHaveBeenCalledWith("existing", 2, "2"),
+      expect(api.validate).toHaveBeenCalledWith("existing", 2, "2", undefined, expect.any(AbortSignal)),
     );
     expect(vi.mocked(api.parseYaml).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(api.update).mock.invocationCallOrder[0]!,
@@ -1444,7 +1444,7 @@ describe("App request orchestration", () => {
     fireEvent.click(app.getByRole("button", { name: "Validate" }));
 
     await waitFor(() =>
-      expect(api.validate).toHaveBeenCalledWith("created", 1, "1"),
+      expect(api.validate).toHaveBeenCalledWith("created", 1, "1", undefined, expect.any(AbortSignal)),
     );
     expect(api.delivery).not.toHaveBeenCalled();
     expect(await app.findByText(/Delivery list refresh failed/)).toBeTruthy();
