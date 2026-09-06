@@ -1,5 +1,6 @@
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
-import { useEffect } from "preact/hooks";
+import { useEffect, useMemo } from "preact/hooks";
+import { visibleTableCatalog } from "../features/tableSelection/catalog";
 import { SchemaForm } from "../schema/SchemaForm";
 import { revealDetails } from "../schema/revealDetails";
 import { useWidgetRegistry } from "../schema/widgetRegistry";
@@ -49,6 +50,11 @@ export function EndpointCard(props: {
     config: isObject(value) ? value : {},
   });
   const tableIdentity = isObject(value) ? tableConnectionIdentity(props.selectedKey, value) : undefined;
+  const checkedTables = check.state === "success" ? check.tables : undefined;
+  const hideSystemTables = isObject(value) && value.hide_system_tables !== false;
+  const visibleTables = useMemo(() => checkedTables === undefined ? undefined
+    : visibleTableCatalog(props.selectedKey, hideSystemTables, checkedTables),
+  [props.selectedKey, hideSystemTables, checkedTables]);
   const checkedTableIdentity = check.state === "success" && check.status === "verified" && check.tables !== undefined
     ? tableIdentity : undefined;
   useEffect(() => {
@@ -143,8 +149,8 @@ export function EndpointCard(props: {
               },
             }}
             optionOverrides={check.options}
-            tableCatalog={check.state === "success" && check.status === "verified" && check.tables !== undefined
-              ? { tables: check.tables, preview: api.previewTables } : undefined}
+            tableCatalog={check.state === "success" && check.status === "verified" && visibleTables !== undefined
+              ? { tables: visibleTables, preview: api.previewTables } : undefined}
             connectionAction={
               props.endpoint.connection_check ? (
                 <div class="connection-check">

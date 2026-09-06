@@ -3,15 +3,12 @@ import type { SelectionPreview, TableRule, TableSelection } from "../../generate
 import type { JsonValue } from "../../json";
 import { isObject } from "../../schema/value";
 import { useTableCatalog } from "../../schema/tableCatalog";
-import { AutofillResistantInput } from "../../ui/AutofillResistantField";
 import { Button } from "../../ui/Button";
 import { FormField } from "../../ui/FormField";
 import { SegmentedControl } from "../../ui/SegmentedControl";
 import { TrashIcon } from "../../ui/icons";
-import { exactPattern, qualifiedName, selectionIssue } from "./model";
-
-const GLOB_HELP = "Glob / wildcard: * matches any number of characters; ? matches one character. Backslash escapes literal wildcards. Click to enable regex.";
-const REGEX_HELP = "Regex matches the entire qualified name. Use .* for any characters and . for one character; * and ? are quantifiers. Click to use glob / wildcard.";
+import { hasPattern, qualifiedName, selectionIssue, tablePreviewError } from "./model";
+import { TablePatternInput } from "./TablePatternInput";
 const HELP = "Default: glob / wildcard, where * matches any number of characters and ? one character. The .* button enables regex independently for each field. Use schema.table for PostgreSQL or database.table for MySQL/ClickHouse. Suggestions escape exact names. Every row must select at least one table after exclusion. Duplicate includes and cross-row include/exclude conflicts fail validation.";
 
 export function TableSelectionEditor({ value, disabled = false, fixed = false, onChange }: {
@@ -30,16 +27,32 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
   const incomplete = selection.type === "selected" && (selection.rules.length === 0 || selection.rules.some(rule => !rule.include.trim()));
   const [preview, setPreview] = useState<{ fingerprint: string; tables: NonNullable<typeof catalog>["tables"]; result?: SelectionPreview; error?: string }>();
   const [expanded, setExpanded] = useState(false);
+  const [expandedRules, setExpandedRules] = useState<number[]>([]);
   const tables = catalog?.tables;
   const requestPreview = catalog?.preview;
   useEffect(() => {
     setPreview(undefined);
-    if (!tables || !requestPreview || incomplete) return;
+    if (!tables || !requestPreview) return;
+    const draft = JSON.parse(fingerprint) as TableSelection;
+    const indices = draft.type === "selected" ? draft.rules.flatMap((rule, index) => rule.include.trim() ? [index] : []) : [];
+    if (draft.type === "selected" && indices.length === 0) return;
+    // Empty rows are unfinished editor drafts, not invalid requests. Preview
+    // completed rows while preserving their original indices and conflicts.
+    // The saved configuration is unchanged and still validates every row.
+    const evaluated = draft.type === "selected" ? { ...draft, rules: indices.map(index => draft.rules[index]!) } : draft;
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      void requestPreview({ selection: JSON.parse(fingerprint) as TableSelection, catalog: tables }, controller.signal)
-        .then(result => { if (!controller.signal.aborted) setPreview({ fingerprint, tables, result }); })
-        .catch(error => { if (!controller.signal.aborted) setPreview({ fingerprint, tables, error: error instanceof Error ? error.message : String(error) }); });
+      void requestPreview({ selection: evaluated, catalog: tables }, controller.signal)
+        .then(result => {
+          if (controller.signal.aborted) return;
+          if (draft.type === "selected") result = {
+            cards: draft.rules.map((_, index) => result.cards[indices.indexOf(index)] ?? { selected: [], excluded: [] }),
+            issues: result.issues.map(issue => issue.kind === "empty_match" ? { ...issue, card: indices[issue.card]! }
+              : issue.kind === "conflict" ? { ...issue, first_card: indices[issue.first_card]!, second_card: indices[issue.second_card]! } : issue),
+          };
+          setPreview({ fingerprint, tables, result });
+        })
+        .catch(error => { if (!controller.signal.aborted) setPreview({ fingerprint, tables, error: tablePreviewError(error, indices) }); });
     }, 150);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [fingerprint, tables, requestPreview, incomplete]);
@@ -61,7 +74,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
     <div class="table-selection-toolbar">
     <SegmentedControl label="Tables to transfer" value={selection.type} disabled={disabled || !catalog}
       options={[{ value: "selected", label: "Selected tables" }, { value: "all", label: "All tables" }]}
-      onChange={type => { setExpanded(false); change(drafts.current[type]); }} />
+      onChange={type => { setExpanded(false); setExpandedRules([]); change(drafts.current[type]); }} />
       <span class="help" tabIndex={0} title={help} aria-label="About table selection" aria-describedby={`${id}-help`}>
         <span aria-hidden="true">?</span>
         <span id={`${id}-help`} role="tooltip" class="visually-hidden">{help}</span>
@@ -75,30 +88,34 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
         const controlId = `${id}-${index}-${kind}`;
         return <FormField label={kind === "include" ? "Include" : "Exclude"} optional={kind === "exclude"} controlId={controlId}
           description={`${HELP} ${kind === "exclude" ? "Exclude applies only to this row." : "Include is required."}`}>
-          <div class="table-pattern-input">
-            <AutofillResistantInput type="text" id={controlId} list={`${controlId}-suggestions`}
-              aria-label={`${kind === "include" ? "Include" : "Exclude"} rule ${index + 1}`}
-              aria-invalid={kind === "include" && !!invalid} required={kind === "include"}
-              placeholder={kind === "include" ? "schema.table or schema.*" : "Optional pattern"}
-              value={text} disabled={disabled || !catalog} onInput={event => update(index, { [kind]: event.currentTarget.value })} />
-            <Button shape="icon" class="regex-toggle" aria-label={`${kind} regex rule ${index + 1}`} aria-pressed={mode === "regex"}
-              title={mode === "regex" ? REGEX_HELP : GLOB_HELP} disabled={disabled || !catalog}
-              onClick={() => update(index, { [`${kind}_mode`]: mode === "regex" ? "glob" : "regex" })}>.*</Button>
-          </div>
-          <datalist id={`${controlId}-suggestions`}>
-            {(tables ?? []).filter(table => qualifiedName(table).toLowerCase().includes(text.toLowerCase()))
-              .slice(0, 30).map(table => <option value={exactPattern(table, mode)}>{qualifiedName(table)}</option>)}
-          </datalist>
+          <TablePatternInput id={controlId} label={`${kind === "include" ? "Include" : "Exclude"} rule ${index + 1}`}
+            value={text} mode={mode} disabled={disabled || !catalog} required={kind === "include"}
+            invalid={kind === "include" && !!invalid} onChange={value => update(index, { [kind]: value })}
+            onModeChange={mode => update(index, { [`${kind}_mode`]: mode })} />
         </FormField>;
       };
       return <section class="table-rule-row" key={`${selection.type}-${index}`} aria-label={`Table rule ${index + 1}`}>
         <div class="table-rule-patterns">
           {field("include")}{field("exclude")}
           <Button shape="icon" aria-label={`Remove rule ${index + 1}`} title="Remove rule" disabled={disabled}
-            onClick={() => { if (selection.type === "selected") { setExpanded(false); change({ ...selection, rules: selection.rules.filter((_, i) => i !== index) }); } }}>
+            onClick={() => { if (selection.type === "selected") { setExpanded(false); setExpandedRules([]); change({ ...selection, rules: selection.rules.filter((_, i) => i !== index) }); } }}>
             <TrashIcon />
           </Button>
         </div>
+        <div class="table-rule-result">
+          {(expandedRules.includes(index) || hasPattern(rule.include, rule.include_mode ?? "glob") || hasPattern(rule.exclude ?? "", rule.exclude_mode ?? "glob")) &&
+            <Button class="matched-toggle" aria-label={`Matched tables for rule ${index + 1}`}
+              aria-expanded={expandedRules.includes(index)} aria-controls={`${id}-rule-${index}-matches`} disabled={!current?.result}
+              onClick={() => setExpandedRules(expandedRules.includes(index) ? expandedRules.filter(item => item !== index) : [...expandedRules, index])}>
+              <span class="table-matches-chevron" aria-hidden="true" />
+              Matched tables <span class="table-match-count">{current?.result ? current.result.cards[index]?.selected.length ?? 0 : "—"}</span>
+            </Button>}
+        </div>
+        {expandedRules.includes(index) && <div id={`${id}-rule-${index}-matches`} class="table-rule-matches" aria-label={`Matches for rule ${index + 1}`} aria-busy={!current?.result}>
+          {!current?.result ? <div>Waiting for a valid table selection…</div>
+            : current.result.cards[index]?.selected.length === 0 ? <div>No matched tables.</div>
+            : (current.result.cards[index]?.selected ?? []).map(table => <div key={JSON.stringify([table.namespace, table.name])}>{qualifiedName(table)}</div>)}
+        </div>}
       </section>;
     })}
     <div class="table-selection-footer">

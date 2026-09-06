@@ -5003,8 +5003,18 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   display: grid;
   place-items: center;
   font: 600 13px/1 var(--font-code);
+  transition: none;
 }
-.regex-toggle[aria-pressed="true"] { background: var(--surface-selected); color: var(--blue); border-color: var(--blue); }
+:root .table-pattern-input .regex-toggle[aria-pressed="true"] {
+  background: var(--blue);
+  color: var(--on-accent);
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--on-accent) 20%, transparent);
+}
+.table-suggestions { z-index: 400; overscroll-behavior: contain; }
+.table-suggestions .select-option { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.table-rule-result { height: 24px; }
+.table-selection-editor .table-rule-result .matched-toggle { height: 24px; font-size: 11px; }
 .table-selection-footer {
   display: flex;
   align-items: center;
@@ -5013,7 +5023,7 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   height: var(--control-height);
 }
 .table-selection-footer > button { flex-shrink: 0; }
-.table-selection-footer .matched-toggle {
+.table-selection-editor .matched-toggle {
   display: inline-flex;
   align-items: center;
   gap: 7px;

@@ -10,6 +10,8 @@ import type { ConnectionCheckResult, SelectionPreview } from "../src/generated/a
 import { render, renderHook } from "./support/render";
 import { useState } from "preact/hooks";
 import type { JsonValue } from "../src/json";
+import { tableConnectionIdentity } from "../src/delivery/useEndpointActions";
+import { visibleTableCatalog } from "../src/features/tableSelection/catalog";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -68,6 +70,8 @@ it("expands the complete matched list only on request into a bounded inline view
   expect(css).toMatch(/\.segmented-control\s*\{[^}]*grid-auto-columns: minmax\(max-content, 1fr\);/);
   expect(css).toMatch(/\.segmented-control > button\s*\{[^}]*min-width: max-content;/);
   expect(css).toMatch(/\.regex-toggle\s*\{[^}]*height: calc\(var\(--control-height\) - 8px\);/);
+  expect(css).toMatch(/\.regex-toggle\[aria-pressed="true"\]\s*\{[^}]*background: var\(--blue\);[^}]*color: var\(--on-accent\);/);
+  expect(css).toMatch(/\.table-rule-result\s*\{[^}]*height: 24px;/);
 });
 
 it("collects every card into one matched list without duplicating table identities", async () => {
@@ -83,7 +87,10 @@ it("collects every card into one matched list without duplicating table identiti
     <TableSelectionEditor value={{ type: "selected", rules: [{ include: "db.*" }, { include: "*.users" }] }} onChange={() => undefined} />
   </TableCatalogContext.Provider>);
   await waitFor(() => expect(view.getByRole("button", { name: "Matched tables 3" })).toBeTruthy());
-  expect(view.getAllByRole("button", { name: /Matched tables/ })).toHaveLength(1);
+  expect(view.getAllByRole("button", { name: /^Matched tables for rule/ })).toHaveLength(2);
+  fireEvent.click(view.getByRole("button", { name: "Matched tables for rule 1" }));
+  expect([...view.getByLabelText("Matches for rule 1").children].map(child => child.textContent))
+    .toEqual(["db.users", "db.reports"]);
   fireEvent.click(view.getByRole("button", { name: "Matched tables 3" }));
   expect([...view.getByLabelText("All matched tables").children].map(child => child.textContent))
     .toEqual(["db.users", "db.reports", "other.users"]);
@@ -171,7 +178,7 @@ it("removes stale matches immediately when the authenticated catalog is invalida
   expect(view.getByLabelText("All matched tables").textContent).toBe("db.verified_table");
   view.rerender(<TableCatalogContext.Provider value={undefined}>{editor}</TableCatalogContext.Provider>);
   expect(view.getByLabelText("All matched tables").textContent).toBe("Waiting for a valid table selection…");
-  expect((view.getByRole("button", { name: /Matched tables/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect((view.getByRole("button", { name: "Matched tables —" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 it("shows all tables without any include or exclude fields and previews the complete catalog", async () => {
@@ -231,4 +238,71 @@ it("keeps a catalog across rule edits, invalidates it on connection edits, and d
   expect(hook.result.current.check.state).toBe("success");
   hook.rerender({ config: { ...config, host: "second" } });
   expect(hook.result.current.check.state).toBe("idle");
+});
+
+it("keeps the full ClickHouse catalog and connection identity when hiding system tables", async () => {
+  const namespaces = ["system", "_system", "information_schema", "information_schema_extra", "INFORMATION_SCHEMA",
+    "default", "system_backup", "_system_backup", "my_information_schema", "INFORMATION_SCHEMA_extra", "System"];
+  const tables = namespaces.map(namespace => ({ namespace, name: "t" }));
+  const checkConnection = vi.fn().mockResolvedValue({ status: "verified", options: {}, tables });
+  const api = { ...httpControlPlane, checkConnection };
+  const config = { host: "first", hide_system_tables: true, tables: { type: "all" } };
+  const hook = renderHook(({ config }) => useEndpointActions({ api, connector: "clickhouse", role: "source", config }), { initialProps: { config } });
+  await act(async () => { await hook.result.current.checkConnection(); });
+  const identity = tableConnectionIdentity("clickhouse", config);
+  for (const hide_system_tables of [false, true, false]) {
+    hook.rerender({ config: { ...config, hide_system_tables } });
+    expect(hook.result.current.check.state).toBe("success");
+    expect(hook.result.current.check).toMatchObject({ tables });
+    expect(tableConnectionIdentity("clickhouse", { ...config, hide_system_tables })).toBe(identity);
+    expect(visibleTableCatalog("clickhouse", hide_system_tables, tables).map(table => table.namespace))
+      .toEqual(hide_system_tables ? namespaces.slice(5) : namespaces);
+  }
+  expect(checkConnection).toHaveBeenCalledTimes(1);
+  hook.rerender({ config: { ...config, host: "second" } });
+  expect(hook.result.current.check.state).toBe("idle");
+  expect(visibleTableCatalog("postgres", true, tables)).toBe(tables);
+});
+
+it("previews completed cards beside empty drafts and preserves card indices", async () => {
+  const tables = [{ namespace: "schema", name: "reports" }];
+  const preview = vi.fn().mockResolvedValue({ cards: [{ selected: tables, excluded: [] }], issues: [] });
+  const view = render(<TableCatalogContext.Provider value={{ tables, preview }}>
+    <TableSelectionEditor value={{ type: "selected", rules: [{ include: "" }, { include: "schema*" }] }} onChange={() => undefined} />
+  </TableCatalogContext.Provider>);
+  await waitFor(() => expect(view.getByRole("button", { name: "Matched tables for rule 2" }).textContent).toContain("1"));
+  expect(preview.mock.lastCall?.[0].selection.rules).toEqual([{ include: "schema*" }]);
+  fireEvent.click(view.getByRole("button", { name: "Matched tables for rule 2" }));
+  expect(view.getByLabelText("Matches for rule 2").textContent).toBe("schema.reports");
+});
+
+it("keeps an expanded rule preview collapsible when a pattern becomes an exact name", async () => {
+  const tables = [{ namespace: "schema", name: "reports" }];
+  const preview = vi.fn().mockResolvedValue({ cards: [{ selected: tables, excluded: [] }], issues: [] });
+  function Editor() {
+    const [value, setValue] = useState<JsonValue>({ type: "selected", rules: [{ include: "schema*" }] });
+    return <TableCatalogContext.Provider value={{ tables, preview }}>
+      <TableSelectionEditor value={value} onChange={setValue} />
+    </TableCatalogContext.Provider>;
+  }
+  const view = render(<Editor />);
+  const toggle = view.getByRole("button", { name: "Matched tables for rule 1" });
+  await waitFor(() => expect((toggle as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(toggle);
+  const region = view.getByLabelText("Matches for rule 1");
+  fireEvent.input(view.getByRole("combobox", { name: "Include rule 1" }), { target: { value: "schema.reports" } });
+  expect(view.getByLabelText("Matches for rule 1")).toBe(region);
+  expect(view.getByRole("button", { name: "Matched tables for rule 1" })).toBe(toggle);
+  await waitFor(() => expect((toggle as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(toggle);
+  expect(view.queryByLabelText("Matches for rule 1")).toBeNull();
+  expect(view.queryByRole("button", { name: "Matched tables for rule 1" })).toBeNull();
+});
+
+it("maps invalid-pattern diagnostics back to the original draft row", async () => {
+  const preview = vi.fn().mockRejectedValue(new Error("Invalid table rule at card index 0, Include: invalid regex"));
+  const view = render(<TableCatalogContext.Provider value={{ tables: [], preview }}>
+    <TableSelectionEditor value={{ type: "selected", rules: [{ include: "" }, { include: "[", include_mode: "regex" }] }} onChange={() => undefined} />
+  </TableCatalogContext.Provider>);
+  await waitFor(() => expect(view.getByRole("status").textContent).toBe("Rule 2, Include: invalid regex"));
 });

@@ -7,10 +7,11 @@ import type {
   MessagePreviewResult,
 } from "../generated/apiContract";
 import type { JsonObject } from "../types";
+import { tableConnectionConfig } from "../features/tableSelection/catalog";
 
 export function tableConnectionIdentity(connector: string, config: JsonObject): string | undefined {
-  const { tables, ...connection } = config;
-  if (tables === null || typeof tables !== "object" || Array.isArray(tables) || (tables.type !== "selected" && tables.type !== "all")) return undefined;
+  const connection = tableConnectionConfig(connector, config);
+  if (connection === undefined) return undefined;
   return `${connector}:${JSON.stringify(connection)}`;
 }
 
@@ -55,11 +56,7 @@ export function useEndpointActions({
   const previewController = useRef<AbortController>();
   const endpointIdentity = `${role}:${connector}`;
   // Rules depend on the checked catalog, but do not change the connection.
-  const { tables: _tables, ...connectionConfig } = config;
-  const configFingerprint = JSON.stringify(
-    _tables !== null && typeof _tables === "object" && !Array.isArray(_tables) && (_tables.type === "selected" || _tables.type === "all")
-      ? connectionConfig : config,
-  );
+  const configFingerprint = JSON.stringify(tableConnectionConfig(connector, config) ?? config);
   const previousEndpointIdentity = useRef(endpointIdentity);
   const previousConfigFingerprint = useRef(configFingerprint);
 

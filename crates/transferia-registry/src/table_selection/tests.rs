@@ -66,6 +66,15 @@ fn glob_uses_full_names_and_literal_underscores() {
 }
 
 #[test]
+fn completion_globs_match_from_the_beginning_not_a_substring() {
+    let catalog = [table("schema", "reports"), table("information_schema", "reports"), table("Schema", "reports")];
+    let result = resolve(vec![rule("schema*", None)], &catalog);
+    assert_eq!(result.cards[0].selected, vec![catalog[0].clone()]);
+    let exact = resolve(vec![rule("schema", None)], &catalog);
+    assert!(exact.cards[0].selected.is_empty());
+}
+
+#[test]
 fn exclusions_are_limited_to_their_own_include() {
     let catalog = [table("db", "reports_test"), table("db", "users_test")];
     let selection = TableSelection::Selected {

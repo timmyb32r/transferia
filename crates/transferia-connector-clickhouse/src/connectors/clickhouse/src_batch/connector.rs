@@ -167,7 +167,9 @@ impl ClickHouseSourceConnector {
             .await
             .map_err(|error| super::super::sink::connection_check_error(&error))?;
         Ok(ConnectionCheckResult {
-            tables: Some(list_tables(&client, config.hide_system_tables).await?),
+            // Cache the full readable catalog in the editor. Its visibility
+            // filter must not require another authenticated connection check.
+            tables: Some(list_tables(&client, false).await?),
             ..Default::default()
         })
     }

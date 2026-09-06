@@ -19,12 +19,13 @@ also support an optional database override.
 
 ## Connection and catalog
 
-ClickHouse sources default `hide_system_tables` to true. Discovery excludes
+ClickHouse sources default `hide_system_tables` to true. The visible catalog excludes
 the exact databases `system`, `_system`, `INFORMATION_SCHEMA`, and every database
-whose name starts with lowercase `information_schema`. The filter applies before
-access checks and rule matching, for both Check connection and startup discovery.
-Disable the checkbox to include those databases. Changing it invalidates the
-checked catalog; run Check connection again before editing or starting.
+whose name starts with lowercase `information_schema`. Check connection retains
+the full readable catalog. The checkbox filters that cached list locally, without
+invalidating the connection check or making another database request. Suggestions
+and match previews use the filtered list. Startup discovery applies the same
+filter before access checks and rule matching against a fresh catalog.
 
 - A successful authenticated Check connection loads all accessible tables.
 - Only then can the user add rule cards. Network reachability alone is not enough.
@@ -70,6 +71,10 @@ tables:
 
 - PostgreSQL names are schema.table; MySQL and ClickHouse names are database.table.
 - Glob: `*` matches any number of characters, `?` one character, `_` is literal.
+- Suggestions for a plain glob name complete it from the beginning of the
+  qualified name (`schema` suggests `schema.reports`, not `information_schema.tables`).
+  Patterns use the same server-side matcher as rule previews. Literal prefixes
+  are highlighted; suggestions never use browser-native substring filtering.
 - Regex matches the full qualified name, not a substring.
 - Backslash escapes special characters. Selecting a suggestion produces an
   exact-match expression with the appropriate escaping; it never renames the
