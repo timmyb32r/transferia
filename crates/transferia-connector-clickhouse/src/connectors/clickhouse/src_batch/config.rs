@@ -39,6 +39,10 @@ pub struct ClickHouseSourceConfig {
     #[schemars(extend("x-ui" = { "widget": "table_selection", "table_membership": "fixed" }))]
     pub tables: TableSelection,
 
+    #[serde(default = "default_hide_system_tables")]
+    #[schemars(title = "Hide system tables", description = "Exclude tables in system, _system, information_schema* and INFORMATION_SCHEMA databases from discovery and table suggestions. Disable to include them.")]
+    pub hide_system_tables: bool,
+
     #[serde(default = "default_batch_rows")]
     #[schemars(
         title = "Maximum block rows",
@@ -59,6 +63,13 @@ pub struct ClickHouseSourceConfig {
     #[serde(default = "default_request_timeout_ms")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub request_timeout_ms: u64,
+}
+
+fn default_hide_system_tables() -> bool { true }
+
+pub(super) fn is_system_database(database: &str) -> bool {
+    matches!(database, "system" | "_system" | "INFORMATION_SCHEMA")
+        || database.starts_with("information_schema")
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
@@ -156,7 +167,7 @@ impl ClickHouseSourceConfig {
             "clickhouse.username must not be empty"
         );
         anyhow::ensure!(
-            !self.tables.rules.is_empty(),
+            !self.tables.is_empty(),
             "clickhouse.tables must not be empty"
         );
         anyhow::ensure!(

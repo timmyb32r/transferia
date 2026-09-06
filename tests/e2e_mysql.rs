@@ -69,7 +69,7 @@ async fn read_mysql_snapshot(
 ) -> anyhow::Result<(DeliveryDiscovery, Vec<RecordBatch>)> {
     let source = MySqlSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: root\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: {read_protocol}\ntables:\n  rules:\n    - include: transferia.{table}\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: root\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: {read_protocol}\ntables:\n  type: selected\n  rules:\n    - include: transferia.{table}\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;

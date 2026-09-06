@@ -167,7 +167,7 @@ impl ClickHouseSourceConnector {
             .await
             .map_err(|error| super::super::sink::connection_check_error(&error))?;
         Ok(ConnectionCheckResult {
-            tables: Some(list_tables(&client).await?),
+            tables: Some(list_tables(&client, config.hide_system_tables).await?),
             ..Default::default()
         })
     }
@@ -179,7 +179,7 @@ impl ClickHouseSourceConnector {
                     .ensure_connected()
                     .await
                     .map_err(|error| anyhow::anyhow!("ClickHouse connection failed: {error}"))?;
-                let catalog = list_tables(&self.client).await?;
+                let catalog = list_tables(&self.client, self.config.hide_system_tables).await?;
                 let selected = self.config.tables.compile()?.resolve(&catalog)?.selected_tables()?;
                 let mut tables = Vec::with_capacity(selected.len());
                 for table in selected {
@@ -348,7 +348,7 @@ fn snapshot_query(table: &TableConfig) -> String {
     )
 }
 
-async fn list_tables(client: &ReconnectingClient) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
+async fn list_tables(client: &ReconnectingClient, hide_system_tables: bool) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
     let batches = transferia_connector_support::external_request::observe_external_request(
         "clickhouse", "list_tables",
         client.query_all("SELECT database, name FROM system.tables \
@@ -366,6 +366,9 @@ async fn list_tables(client: &ReconnectingClient) -> anyhow::Result<Vec<transfer
             .ok_or_else(|| anyhow::anyhow!("ClickHouse catalog table is not a string"))?;
         for row in 0..batch.num_rows() {
             anyhow::ensure!(!namespaces.is_null(row) && !names.is_null(row), "ClickHouse table catalog contains NULL names");
+            if hide_system_tables && super::config::is_system_database(namespaces.value(row)) {
+                continue;
+            }
             tables.push(transferia_registry::TableIdentity {
                 namespace: namespaces.value(row).to_owned(), name: names.value(row).to_owned(),
             });

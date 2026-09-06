@@ -10,7 +10,7 @@ import type { JsonObject } from "../types";
 
 export function tableConnectionIdentity(connector: string, config: JsonObject): string | undefined {
   const { tables, ...connection } = config;
-  if (tables === null || typeof tables !== "object" || Array.isArray(tables) || !Array.isArray(tables.rules)) return undefined;
+  if (tables === null || typeof tables !== "object" || Array.isArray(tables) || (tables.type !== "selected" && tables.type !== "all")) return undefined;
   return `${connector}:${JSON.stringify(connection)}`;
 }
 
@@ -57,7 +57,7 @@ export function useEndpointActions({
   // Rules depend on the checked catalog, but do not change the connection.
   const { tables: _tables, ...connectionConfig } = config;
   const configFingerprint = JSON.stringify(
-    _tables !== null && typeof _tables === "object" && !Array.isArray(_tables) && Array.isArray(_tables.rules)
+    _tables !== null && typeof _tables === "object" && !Array.isArray(_tables) && (_tables.type === "selected" || _tables.type === "all")
       ? connectionConfig : config,
   );
   const previousEndpointIdentity = useRef(endpointIdentity);

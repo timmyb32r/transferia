@@ -179,7 +179,7 @@ async fn assert_existing_slot_is_not_adopted(
     let before = slot_lsn(client, SLOT).await?;
     let connector = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.accounts\nreplication:\n  plugin: {{ type: pgoutput, publication: transferia_publication }}\n  poll_interval_ms: 10\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  type: selected\n  rules:\n    - include: public.accounts\nreplication:\n  plugin: {{ type: pgoutput, publication: transferia_publication }}\n  poll_interval_ms: 10\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -270,6 +270,7 @@ username: postgres
 password: test
 trusted_plaintext: true
 tables:
+  type: selected
   rules:
     - include: public.accounts
 {replication}

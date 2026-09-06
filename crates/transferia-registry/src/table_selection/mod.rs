@@ -45,14 +45,21 @@ pub struct TableRule {
     pub exclude: Option<String>,
 
     #[serde(default)]
-    pub mode: PatternMode,
+    pub include_mode: PatternMode,
+    #[serde(default)]
+    pub exclude_mode: PatternMode,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct TableSelection {
-    pub rules: Vec<TableRule>,
-
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TableSelection {
+    Selected { rules: Vec<TableRule> },
+    All {
+        #[serde(default)]
+        exclude: Option<String>,
+        #[serde(default)]
+        exclude_mode: PatternMode,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Serialize, JsonSchema, PartialEq, Eq)]
@@ -132,14 +139,28 @@ pub struct CompiledSelection {
 }
 
 impl TableSelection {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        matches!(self, Self::Selected { rules } if rules.is_empty())
+    }
+
     pub fn compile(&self) -> Result<CompiledSelection, PatternError> {
-        let rules = self.rules.iter().enumerate().map(|(card, rule)| {
-            let compile = |text: &str, field| compile_pattern(text, rule.mode)
+        let all_rule;
+        let source_rules = match self {
+            Self::Selected { rules } => rules.as_slice(),
+            Self::All { exclude, exclude_mode } => {
+                all_rule = [TableRule { include: "*".into(), include_mode: PatternMode::Glob,
+                    exclude: exclude.clone(), exclude_mode: *exclude_mode }];
+                &all_rule
+            }
+        };
+        let rules = source_rules.iter().enumerate().map(|(card, rule)| {
+            let compile = |text: &str, field, mode| compile_pattern(text, mode)
                 .map_err(|reason| PatternError { card, field, reason });
             Ok(CompiledRule {
-                include: compile(&rule.include, PatternField::Include)?,
+                include: compile(&rule.include, PatternField::Include, rule.include_mode)?,
                 exclude: rule.exclude.as_deref().filter(|text| !text.is_empty())
-                    .map(|text| compile(text, PatternField::Exclude)).transpose()?,
+                    .map(|text| compile(text, PatternField::Exclude, rule.exclude_mode)).transpose()?,
             })
         }).collect::<Result<Vec<_>, PatternError>>()?;
         Ok(CompiledSelection { rules })

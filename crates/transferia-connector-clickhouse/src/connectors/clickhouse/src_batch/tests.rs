@@ -16,6 +16,27 @@ use super::connector::source_arrow_type;
 use super::*;
 
 #[test]
+fn system_table_discovery_filter_is_enabled_by_default_and_matches_database_boundaries() {
+    for database in ["system", "_system", "information_schema", "information_schema_extra", "INFORMATION_SCHEMA"] {
+        assert!(super::config::is_system_database(database), "{database}");
+    }
+    for database in ["default", "system_backup", "_system_backup", "my_information_schema", "INFORMATION_SCHEMA_extra", "System"] {
+        assert!(!super::config::is_system_database(database), "{database}");
+    }
+    let value = serde_json::json!({
+        "hosts": ["localhost"], "port": 9000, "trusted_plaintext": true,
+        "username": "default", "tables": {"type": "all"}
+    });
+    let config: ClickHouseSourceConfig = serde_json::from_value(value.clone()).unwrap();
+    assert!(config.hide_system_tables);
+    let mut explicit = value;
+    explicit["hide_system_tables"] = serde_json::json!(false);
+    assert!(!serde_json::from_value::<ClickHouseSourceConfig>(explicit).unwrap().hide_system_tables);
+    let schema = serde_json::to_value(schemars::schema_for!(ClickHouseSourceConfig)).unwrap();
+    assert_eq!(schema.pointer("/properties/hide_system_tables/default"), Some(&serde_json::json!(true)));
+}
+
+#[test]
 fn table_form_has_no_manual_primary_key() {
     let schema = schemars::schema_for!(config::TableConfig);
     let value = serde_json::to_value(schema).unwrap();
@@ -61,7 +82,7 @@ fn source_preserves_date_and_second_timestamp_types() -> anyhow::Result<()> {
 fn discovered_primary_key_is_validated() {
     let base = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\n";
     let duplicate =
-        format!("{base}tables: {{rules: [{{include: default.events, primary_key: [id, id]}}]}}\n");
+        format!("{base}tables: {{type: selected, rules: [{{include: default.events, primary_key: [id, id]}}]}}\n");
     assert!(serde_yaml::from_str::<ClickHouseSourceConfig>(&duplicate).is_err());
 
     let mut schema = DatasetSchema::new(vec![
@@ -122,14 +143,14 @@ fn source_contract_has_no_shard_group() {
         .expect("ClickHouse source schema must serialize");
     assert!(schema.pointer("/properties/shard_group").is_none());
 
-    let legacy = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\nshard_group: legacy\ntables: {rules: [{include: default.events}]}\n";
+    let legacy = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\nshard_group: legacy\ntables: {type: selected, rules: [{include: default.events}]}\n";
     assert!(serde_yaml::from_str::<ClickHouseSourceConfig>(legacy).is_err());
 }
 
 #[test]
 fn source_defaults_use_bounded_high_throughput_parquet_settings() {
     let config: ClickHouseSourceConfig = serde_yaml::from_str(
-        "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: {rules: [{include: default.events}]}\n",
+        "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: {type: selected, rules: [{include: default.events}]}\n",
     )
     .unwrap();
 
@@ -149,7 +170,7 @@ fn source_defaults_use_bounded_high_throughput_parquet_settings() {
 
 #[test]
 fn source_accepts_zstd_parquet_and_native_reader_profiles() {
-    let base = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: {rules: [{include: default.events}]}\n";
+    let base = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: {type: selected, rules: [{include: default.events}]}\n";
     let parquet: ClickHouseSourceConfig = serde_yaml::from_str(&format!(
         "{base}snapshot_reader: {{ type: parquet, compression: zstd, max_threads: 32, row_group_rows: 250000, decode_threads: 16, max_response_bytes: 1073741824 }}\n"
     ))
@@ -178,14 +199,14 @@ fn source_accepts_zstd_parquet_and_native_reader_profiles() {
 
 #[test]
 fn derives_output_name_from_the_source_table() {
-    let yaml = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: {rules: [{include: default.events}]}\n";
+    let yaml = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: {type: selected, rules: [{include: default.events}]}\n";
     assert!(ClickHouseSourceConnector::from_config(
         serde_yaml::from_str(yaml).unwrap(),
         Arc::new(MetricsRegistry::new())
     )
     .is_ok());
 
-    let invalid = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: {rules: [{include: ''}]}\n";
+    let invalid = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: {type: selected, rules: [{include: ''}]}\n";
     assert!(ClickHouseSourceConnector::from_config(
         serde_yaml::from_str(invalid).unwrap(),
         Arc::new(MetricsRegistry::new())
@@ -199,7 +220,7 @@ fn supports_verified_tls() {
         "{}/src/connectors/clickhouse/sink/tests/fixtures/localhost-ca.pem",
         env!("CARGO_MANIFEST_DIR")
     );
-    let value = serde_yaml::from_str(&format!("hosts: [localhost]\nport: 9440\ntrusted_plaintext: false\ntls_ca_file: {ca}\nusername: default\ntables: {{rules: [{{include: default.events}}]}}\n")).unwrap();
+    let value = serde_yaml::from_str(&format!("hosts: [localhost]\nport: 9440\ntrusted_plaintext: false\ntls_ca_file: {ca}\nusername: default\ntables: {{type: selected, rules: [{{include: default.events}}]}}\n")).unwrap();
     assert!(
         ClickHouseSourceConnector::from_config(value, Arc::new(MetricsRegistry::new())).is_ok()
     );

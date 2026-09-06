@@ -97,7 +97,7 @@ async fn incomplete_credentials_produce_a_network_only_result() {
 #[test]
 fn checker_config_ignores_source_and_sink_specific_fields() {
     let source: postgres::PostgresConnectionCheckConfig = serde_yaml::from_str(
-        "host: db.example\nport: 5432\ntables: {rules: [{include: public.events}]}\nbatch_rows: 10\n",
+        "host: db.example\nport: 5432\ntables: {type: selected, rules: [{include: public.events}]}\nbatch_rows: 10\n",
     )
     .unwrap();
     let sink: postgres::PostgresConnectionCheckConfig =

@@ -5,6 +5,13 @@ Invocation started 2026-09-06. No accepted obligations cancelled.
 
 ## Current verification
 
+Latest compact-editor revision: Selected/All tagged variants, independent
+Include/Exclude pattern modes, inline expansion and shared segmented control
+implemented. API and catalog regenerated; examples migrated. Compile-only gate
+passed (Rust 13.15s, TypeScript 2.38s). Regression tests updated for this revision
+but not executed under the ordinary-development compile-only policy. Earlier
+test results below describe the preceding implementation, not this revision.
+
 - Compile-only `TRANSFERIA_SKIP_SERVER_UI=1 just check-affected`: passed,
   final all-empty policy tree: Rust 14.03s, TypeScript 3.82s. Not the release gate.
 - Final empty-selection regression checks: registry matcher 20 passed;

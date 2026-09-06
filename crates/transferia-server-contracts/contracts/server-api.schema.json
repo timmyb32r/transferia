@@ -1724,10 +1724,14 @@
             "null"
           ]
         },
+        "exclude_mode": {
+          "$ref": "#/$defs/PatternMode",
+          "default": "glob"
+        },
         "include": {
           "type": "string"
         },
-        "mode": {
+        "include_mode": {
           "$ref": "#/$defs/PatternMode",
           "default": "glob"
         }
@@ -1738,19 +1742,52 @@
       "type": "object"
     },
     "TableSelection": {
-      "additionalProperties": false,
-      "properties": {
-        "rules": {
-          "items": {
-            "$ref": "#/$defs/TableRule"
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "rules": {
+              "items": {
+                "$ref": "#/$defs/TableRule"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "selected",
+              "type": "string"
+            }
           },
-          "type": "array"
+          "required": [
+            "type",
+            "rules"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "exclude": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "exclude_mode": {
+              "$ref": "#/$defs/PatternMode",
+              "default": "glob"
+            },
+            "type": {
+              "const": "all",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
         }
-      },
-      "required": [
-        "rules"
-      ],
-      "type": "object"
+      ]
     },
     "TableSelectionPreviewRequest": {
       "additionalProperties": false,

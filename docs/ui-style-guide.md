@@ -16,6 +16,20 @@ or define a shared semantic token if the role genuinely differs.
 
 ## Palette
 
+### Segmented choices
+
+Use the shared `SegmentedControl` for two or three short, mutually exclusive
+choices. It is a radio group, not a slider or an on/off switch. All choices stay
+visible; the active segment uses the shared soft teal surface and accent border.
+Keep dimensions identical across idle, selected, pressed, focus and disabled
+states. Support arrow keys, Home/End, Space and one tab stop. Use a dropdown for
+long labels or larger choice sets. The first approved use is Selected tables /
+All tables; do not replace unrelated dropdowns automatically.
+
+Table matching lists are an explicit layout-stability exception: user-triggered
+expansion may push later rows down. Async preview updates must not change the
+height of an already open list or the result/status control regions.
+
 | Role | Color | Existing token |
 | --- | --- | --- |
 | Page, inputs, raised white surfaces | `#FFFFFF` | `--canvas`, `--control`, `--panel`, `--popup` |

@@ -434,7 +434,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
 
     let source = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{pg_host}'\nport: {pg_port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\ntables:\n  rules:\n    - include: public.events\n"
+            "host: '{pg_host}'\nport: {pg_port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\ntables:\n  type: selected\n  rules:\n    - include: public.events\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -759,7 +759,7 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
     durable.delivery_id = Arc::from("transferia_all_types");
     let replication = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 128\ntables:\n  rules:\n    - include: public.all_types\nreplication:\n  plugin: {{ type: pgoutput, publication: transferia_all_types }}\n  poll_interval_ms: 10\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 128\ntables:\n  type: selected\n  rules:\n    - include: public.all_types\nreplication:\n  plugin: {{ type: pgoutput, publication: transferia_all_types }}\n  poll_interval_ms: 10\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -798,7 +798,7 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
 
     let source = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 128\ntables:\n  rules:\n    - include: public.all_types\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 128\ntables:\n  type: selected\n  rules:\n    - include: public.all_types\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;

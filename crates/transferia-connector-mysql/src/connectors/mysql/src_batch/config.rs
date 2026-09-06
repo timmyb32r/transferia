@@ -92,7 +92,7 @@ pub struct TableConfig {
 impl MySqlSourceConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
-        anyhow::ensure!(!self.tables.rules.is_empty(), "mysql.tables must contain at least one rule");
+        anyhow::ensure!(!self.tables.is_empty(), "mysql.tables must contain at least one rule");
         self.tables.compile()?;
         anyhow::ensure!(self.batch_rows > 0, "mysql.batch_rows must be positive");
         anyhow::ensure!(

@@ -19,6 +19,13 @@ also support an optional database override.
 
 ## Connection and catalog
 
+ClickHouse sources default `hide_system_tables` to true. Discovery excludes
+the exact databases `system`, `_system`, `INFORMATION_SCHEMA`, and every database
+whose name starts with lowercase `information_schema`. The filter applies before
+access checks and rule matching, for both Check connection and startup discovery.
+Disable the checkbox to include those databases. Changing it invalidates the
+checked catalog; run Check connection again before editing or starting.
+
 - A successful authenticated Check connection loads all accessible tables.
 - Only then can the user add rule cards. Network reachability alone is not enough.
 - PostgreSQL lists schemas and tables within the configured database. MySQL and
@@ -32,8 +39,32 @@ also support an optional database override.
 
 ## Rules
 
-Each card has Include, optional Exclude, and a shared Glob/Regex selector.
-Glob is the default. An exact name is a glob with no wildcard characters.
+The segmented control defaults to Selected tables (`type: selected`, `rules`).
+Each compact row has required Include, optional Exclude and a delete button;
+the plus button adds a row. Each field has its own `.*` toggle: `include_mode`
+and `exclude_mode`, both defaulting to glob. An exact name is a glob with no
+unescaped wildcard characters. A missing exact table retains its entered name,
+shows an invalid field and prevents startup.
+
+All tables (`type: all`) has only optional `exclude` and `exclude_mode`.
+It explicitly selects the entire accessible catalog before exclusion. The editor
+remembers inactive drafts while mounted; only the active variant is serialized
+and validated. Backend schemas reject fields belonging to an inactive variant.
+
+For patterns and All tables, Matched tables shows the final Include-minus-Exclude
+count. Clicking expands the full list inside a 140px scroll viewport. This
+explicit expansion may move later rows; async changes keep that viewport and
+the result/status regions stable. Exact-name rows do not show a matched list.
+
+```yaml
+tables:
+  type: selected
+  rules:
+    - include: public.reports_*
+      include_mode: glob
+      exclude: 'public\.reports_(test|temp)'
+      exclude_mode: regex
+```
 
 - PostgreSQL names are schema.table; MySQL and ClickHouse names are database.table.
 - Glob: `*` matches any number of characters, `?` one character, `_` is literal.

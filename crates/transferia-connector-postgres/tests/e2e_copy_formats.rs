@@ -167,7 +167,7 @@ async fn binary_and_text_copy_are_wire_and_value_equivalent() -> anyhow::Result<
 async fn read_snapshot(host: &str, port: u16, format: &str) -> anyhow::Result<Vec<SnapshotRow>> {
     let connector = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  rules:\n    - include: public.copy_source\nbatch_rows: 1\ncopy_to_format: {format}\nreplication:\n  plugin: {{ type: pgoutput, publication: must_not_be_used_for_batch }}\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  type: selected\n  rules:\n    - include: public.copy_source\nbatch_rows: 1\ncopy_to_format: {format}\nreplication:\n  plugin: {{ type: pgoutput, publication: must_not_be_used_for_batch }}\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;

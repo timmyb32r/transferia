@@ -442,13 +442,21 @@ export type TableIdentity = {
 
 export type TableRule = {
   exclude?: string | null;
+  exclude_mode?: PatternMode;
   include: string;
-  mode?: PatternMode;
+  include_mode?: PatternMode;
 };
 
-export type TableSelection = {
-  rules: Array<TableRule>;
-};
+export type TableSelection =
+  | {
+      rules: Array<TableRule>;
+      type: "selected";
+    }
+  | {
+      exclude?: string | null;
+      exclude_mode?: PatternMode;
+      type: "all";
+    };
 
 export type TableSelectionPreviewRequest = {
   catalog: Array<TableIdentity>;

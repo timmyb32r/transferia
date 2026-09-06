@@ -102,7 +102,7 @@ async fn incomplete_credentials_produce_a_network_only_result() {
 #[test]
 fn checker_config_ignores_source_specific_fields() {
     let source: mysql::MySqlConnectionCheckConfig = serde_yaml::from_str(
-        "host: db.example\nport: 3306\ntables: {rules: [{include: db.events}]}\nbatch_rows: 10\n",
+        "host: db.example\nport: 3306\ntables: {type: selected, rules: [{include: db.events}]}\nbatch_rows: 10\n",
     )
     .unwrap();
 

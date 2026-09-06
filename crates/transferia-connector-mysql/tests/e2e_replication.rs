@@ -2121,7 +2121,7 @@ fn source_yaml(
         ""
     };
     format!(
-        "host: '{}'\nport: {}\ndatabase: {}\nusername: {}\npassword: {}\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: binary\ntables:\n  rules:\n{tables}\n{replication}",
+        "host: '{}'\nport: {}\ndatabase: {}\nusername: {}\npassword: {}\ntrusted_plaintext: true\nbatch_rows: 1\nread_protocol: binary\ntables:\n  type: selected\n  rules:\n{tables}\n{replication}",
         connection.host,
         connection.port,
         connection.database,

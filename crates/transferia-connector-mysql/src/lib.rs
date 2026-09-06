@@ -33,7 +33,7 @@ pub fn register(
                     serde_json::json!({
                         "host": "", "port": 3306, "database": "", "username": "",
                         "password": "", "trusted_plaintext": true,
-                        "tables": { "rules": [] }, "batch_rows": 16384,
+                        "tables": { "type": "selected", "rules": [] }, "batch_rows": 16384,
                         "batch_target_bytes": 8_388_608, "max_row_bytes": 1_073_741_824,
                         "read_protocol": "binary", "replication": {}
                     })

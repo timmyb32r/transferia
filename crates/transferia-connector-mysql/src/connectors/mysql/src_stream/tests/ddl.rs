@@ -2,8 +2,8 @@ use super::*;
 use transferia_registry::table_selection::{PatternMode, TableRule, TableSelection};
 
 fn selection() -> CompiledSelection {
-    TableSelection {
-        rules: vec![TableRule { include: "prod.reports_*".into(), exclude: None, mode: PatternMode::Glob }],
+    TableSelection::Selected {
+        rules: vec![TableRule { include: "prod.reports_*".into(), exclude: None, include_mode: PatternMode::Glob, exclude_mode: PatternMode::Glob }],
     }.compile().unwrap()
 }
 

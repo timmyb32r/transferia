@@ -45,7 +45,7 @@ pub struct TableConfig {
 impl PostgresSourceConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
-        anyhow::ensure!(!self.tables.rules.is_empty(), "postgres.tables must contain at least one rule");
+        anyhow::ensure!(!self.tables.is_empty(), "postgres.tables must contain at least one rule");
         self.tables.compile()?;
         anyhow::ensure!(self.batch_rows > 0, "postgres.batch_rows must be positive");
         self.replication.validate()?;

@@ -58,6 +58,7 @@ username: reader
 password: secret
 trusted_plaintext: true
 tables:
+  type: selected
   rules:
     - include: transferia.events
 ";

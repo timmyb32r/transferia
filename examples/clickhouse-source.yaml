@@ -11,6 +11,7 @@ source:
       trusted_plaintext: true
     username: default
     tables:
+      type: selected
       rules:
         - include: default.events
 sink:

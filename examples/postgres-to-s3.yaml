@@ -13,6 +13,7 @@ source:
     username: postgres
     password: postgres
     tables:
+      type: selected
       rules:
         - include: public.events
 
