@@ -6,6 +6,10 @@ export function TrashIcon() {
   return <span class="ui-icon trash-icon" aria-hidden="true" />;
 }
 
+export function SearchIcon() {
+  return <span class="ui-icon search-icon" aria-hidden="true" />;
+}
+
 export function EyeIcon() {
   return <span class="ui-icon eye-icon" aria-hidden="true" />;
 }

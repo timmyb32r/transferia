@@ -4,6 +4,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { useSourceMetadata, SourceMetadataContext } from "../src/delivery/sourceMetadata";
 import { ConnectionCheck } from "../src/delivery/ConnectionCheck";
 import { TransformSchemaLoader } from "../src/features/middleware/TransformSchemaLoader";
+import { AvailableTablesButton } from "../src/features/tableSelection/AvailableTablesDialog";
+import { TableCatalogContext } from "../src/schema/tableCatalog";
 import { httpControlPlane as api } from "../src/infrastructure/controlPlane/httpControlPlane";
 import type { MetadataConnection, MetadataStatus } from "../src/generated/apiContract";
 import { render, renderHook } from "./support/render";
@@ -31,6 +33,10 @@ function Harness() {
   const metadata = useSourceMetadata({ ...source, mode: "batch", sessionKey: "editor", validating: false });
   return <SourceMetadataContext.Provider value={metadata}>
     <ConnectionCheck check={metadata.check} required onCheck={() => { void metadata.checkConnection(); }} />
+    <TableCatalogContext.Provider value={metadata.check.state === "success" && metadata.check.tables
+      ? { tables: metadata.check.tables, preview: api.previewTables, metadata: metadata.metadata, metadataError: metadata.metadataError } : undefined}>
+      <AvailableTablesButton label="Source catalog" title="Browse schemas" showMetadata />
+    </TableCatalogContext.Provider>
     <TransformSchemaLoader source={source} tables={[table]} disabled={false} />
     <button data-testid="following-control">Following action</button>
   </SourceMetadataContext.Provider>;
@@ -82,18 +88,20 @@ it("keeps selection filters local but invalidates a changed connection and ignor
   expect(release).toHaveBeenCalledWith("stale");
 });
 
-it("shows polling failure in the fixed source status and stops claiming loading", async () => {
+it("shows polling failure in the fixed catalog status while retaining successful connection status", async () => {
   vi.spyOn(api, "connectMetadata").mockResolvedValue(response(status("one", 2, [], true)));
   vi.spyOn(api, "metadataStatus").mockRejectedValue(new Error("Cache not found"));
   vi.spyOn(api, "releaseMetadata").mockResolvedValue(status());
   const view = render(<Harness />);
-  const slot = view.container.querySelector(".connection-check-result");
+  const slot = view.container.querySelector(".available-tables-summary");
   const following = view.getByTestId("following-control");
   fireEvent.click(view.getByRole("button", { name: "Connect & load metadata" }));
-  await waitFor(() => expect(slot?.textContent).toContain("Cache not found"));
-  expect(slot?.textContent).toContain("retry");
-  expect(view.container.querySelector(".connection-check-result")).toBe(slot);
+  await waitFor(() => expect(slot?.textContent).toBe("Metadata unavailable"));
+  expect(view.container.querySelector(".connection-check-result")?.textContent).toBe("Connected");
+  expect(view.container.querySelector(".available-tables-summary")).toBe(slot);
   expect(view.getByTestId("following-control")).toBe(following);
+  fireEvent.click(view.getByRole("button", { name: "Source catalog" }));
+  expect(view.getByRole("dialog").querySelector(".available-tables-status")?.textContent).toContain("Cache not found");
 });
 
 it("loads only matched schemas on explicit activation, with a stable pending/status slot", async () => {
@@ -105,7 +113,7 @@ it("loads only matched schemas on explicit activation, with a stable pending/sta
   const load = vi.spyOn(api, "loadMetadataSchemas").mockReturnValue(pending.promise);
   const view = render(<Harness />);
   fireEvent.click(view.getByRole("button", { name: "Connect & load metadata" }));
-  const button = view.getByRole("button", { name: "Load schemas", hidden: true });
+  const button = view.container.querySelector<HTMLButtonElement>(".transform-load-schemas")!;
   const row = button.parentElement!;
   const controls = Array.from(row.children);
   const following = view.getByTestId("following-control");

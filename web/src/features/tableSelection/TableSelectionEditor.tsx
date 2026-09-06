@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState } from "preact/hooks";
+import type { ComponentChildren } from "preact";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { SelectionPreview, TableRule, TableSelection } from "../../generated/apiContract";
 import type { JsonValue } from "../../json";
 import { isObject } from "../../schema/value";
@@ -7,17 +8,18 @@ import { Button } from "../../ui/Button";
 import { FormField } from "../../ui/FormField";
 import { SegmentedControl } from "../../ui/SegmentedControl";
 import { TrashIcon } from "../../ui/icons";
-import { hasPattern, selectionIssue, tablePreviewError } from "./model";
+import { exactPattern, hasPattern, selectionIssue, tablePreviewError } from "./model";
 import { MatchedTablesDisclosure } from "./MatchedTablesDisclosure";
 import { TablePatternInput } from "./TablePatternInput";
-import { AvailableTablesButton } from "./AvailableTablesDialog";
+import { AvailableTablesButton, AvailableTablesDialog } from "./AvailableTablesDialog";
 import { useTableNamespace } from "./naming";
 const HELP = "Default: glob / wildcard, where * matches any number of characters and ? one character. The .* button enables regex independently for each field.";
 const RULE_HELP = "Suggestions escape exact names. Every row must select at least one table after exclusion. Duplicate includes and cross-row include/exclude conflicts fail validation.";
 
-export function TableSelectionEditor({ value, disabled = false, fixed = false, onChange }: {
+export function TableSelectionEditor({ value, disabled = false, fixed = false, onChange, toolbar }: {
   value: JsonValue; disabled?: boolean | undefined; fixed?: boolean;
   onChange: (value: JsonValue) => void;
+  toolbar?: ComponentChildren;
 }) {
   const catalog = useTableCatalog();
   const namespace = useTableNamespace();
@@ -33,6 +35,14 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
   const [preview, setPreview] = useState<{ fingerprint: string; tables: NonNullable<typeof catalog>["tables"]; result?: SelectionPreview; error?: string }>();
   const [expanded, setExpanded] = useState(false);
   const [expandedRules, setExpandedRules] = useState<number[]>([]);
+  const [browseRule, setBrowseRule] = useState<number>();
+  const focusNewRule = useRef<number>();
+  useLayoutEffect(() => { if (!catalog || disabled) setBrowseRule(undefined); }, [catalog, disabled]);
+  useLayoutEffect(() => {
+    if (focusNewRule.current === undefined) return;
+    document.getElementById(`${id}-${focusNewRule.current}-include`)?.focus({ preventScroll: true });
+    focusNewRule.current = undefined;
+  });
   const tables = catalog?.tables;
   const requestPreview = catalog?.preview;
   useEffect(() => {
@@ -75,17 +85,21 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
   const status = !catalog ? ""
     : issue || (incomplete ? "Enter a table name or pattern." : "");
   const includeHelp = `Include is required. Preview uses the last successful connection check; startup checks the catalog again.${fixed ? " Table patterns are resolved at delivery startup. Tables created later are not added automatically." : ""}`;
-  return <section class="table-selection-editor">
-    <AvailableTablesButton label="Available tables in source" title="Browse available source tables" />
+  return <section class={`table-selection-editor${incomplete && !disabled && catalog ? " required-incomplete" : ""}`}>
+    <header class="table-selection-heading"><h3>Tables</h3>
+      <AvailableTablesButton label="Available tables in source" title="Browse available source tables and schema status" showMetadata />
+    </header>
     <div class="table-selection-toolbar">
     <SegmentedControl label="Tables to transfer" value={selection.type} disabled={disabled || !catalog}
       options={[{ value: "selected", label: "Selected tables" }, { value: "all", label: "All tables" }]}
       onChange={type => { setExpanded(false); setExpandedRules([]); change(drafts.current[type]); }} />
+    {toolbar}
     </div>
     {rules.map((rule, index) => {
       const invalid = current?.result?.issues.some(issue => issue.kind === "empty_match" && issue.card === index);
-      const showMatches = expandedRules.includes(index) || hasPattern(rule.include, rule.include_mode ?? "glob")
-        || hasPattern(rule.exclude ?? "", rule.exclude_mode ?? "glob");
+      // Keep an explicitly opened viewport until the user closes it. A typed
+      // exact name must not pull later controls upward under an active pointer.
+      const showMatches = expandedRules.includes(index) || hasPattern(rule.include, rule.include_mode ?? "glob");
       const rowIssue = current?.result?.issues.some(issue => issue.kind === "no_rules"
         || (issue.kind === "empty_match" ? issue.card === index : issue.first_card === index || issue.second_card === index));
       const exactFound = !showMatches && rule.include.trim().length > 0
@@ -99,6 +113,8 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
           <TablePatternInput id={controlId} label={`${kind === "include" ? "Include" : "Exclude"} rule ${index + 1}`}
             value={text} mode={mode} disabled={disabled || !catalog} required={kind === "include"}
             invalid={kind === "include" && !!invalid} onChange={value => update(index, { [kind]: value })}
+            confirmed={kind === "include" ? exactFound : undefined}
+            onBrowse={kind === "include" ? () => setBrowseRule(index) : undefined}
             onModeChange={mode => update(index, { [`${kind}_mode`]: mode })} />
         </FormField>;
       };
@@ -115,16 +131,23 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
           open={expandedRules.includes(index)}
           onToggle={() => setExpandedRules(expandedRules.includes(index) ? expandedRules.filter(item => item !== index) : [...expandedRules, index])}
           tables={current?.result ? current.result.cards[index]?.selected ?? [] : undefined} />
-          : <div class="table-rule-result" aria-live="polite" aria-atomic="true">
-          {exactFound && <span class="table-rule-found"><span aria-hidden="true">✓</span>Table found</span>}
-        </div>}
+          : <div class="table-rule-result" />}
       </section>;
     })}
     <MatchedTablesDisclosure id={`${id}-matches`} headerClass="table-selection-footer" label="All matched tables"
       open={expanded} onToggle={() => setExpanded(!expanded)} tables={current?.result ? matches : undefined}
-      before={!allTables && <Button shape="icon" aria-label="Add table rule" title="Add table rule" disabled={disabled || !catalog}
-        onClick={() => { if (selection.type === "selected") change({ ...selection, rules: [...rules, { include: "" }] }); }}>+</Button>}
-      after={<span class={`table-selection-status${issue ? " has-error" : ""}`} role="status" title={status || undefined}
-        aria-busy={!!catalog && !incomplete && !current}>{status}</span>} />
+      before={!allTables && <Button variant="plain" class="table-add-action" aria-label="Add tables" disabled={disabled || !catalog}
+        onClick={() => { if (selection.type === "selected") {
+          focusNewRule.current = rules.length;
+          change({ ...selection, rules: [...rules, { include: "" }] });
+        } }}><span aria-hidden="true">+</span> Add tables</Button>} />
+    <span class={`table-selection-status${issue ? " has-error" : ""}`} role="status" title={status || undefined}
+      aria-busy={!!catalog && !incomplete && !current}>{status}</span>
+    {browseRule !== undefined && catalog && !disabled && rules[browseRule] && <AvailableTablesDialog catalog={catalog}
+      onUse={table => {
+        setExpandedRules(expandedRules.filter(index => index !== browseRule));
+        update(browseRule, { include: exactPattern(table, rules[browseRule]!.include_mode ?? "glob") });
+      }}
+      onClose={() => setBrowseRule(undefined)} />}
   </section>;
 }

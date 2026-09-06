@@ -74,7 +74,8 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   Do not add feature-local action palettes.
 - **All clipboard actions** use `CopyButton`, a quiet neutral icon utility:
   secondary-text icons and a soft neutral hover/press surface in both themes.
-  Transfer ID has no visible border; table rows use a thin neutral outline.
+  Transfer ID and matched-table rows have no visible border; catalog popup rows
+  use a thin neutral outline.
   Clone keeps its label and clone semantics, with the same `CopyIcon` glyph and
   plain `copy-action copy-action-framed` styling. Rounded overlapping pages have
   an occluded rear outline, not intersecting borders.
@@ -84,11 +85,26 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   pending writes are deduplicated. The tooltip has fixed dimensions and never
   enters document flow, captures clicks or creates another tab stop. Do not
   layer native titles over it. Focus rings and control geometry stay unchanged.
-- Source table selectors and transforms share the compact `Available tables (N)`
-  action and the same searchable popup. Source browsing uses the catalog after
-  Hide system tables, not the selected rules, and offers Copy without mutating
-  the selection. Unknown catalogs disable the action; known empty catalogs open
-  normally. Invalidating metadata closes the popup without reopening on reconnect.
+- Source table selectors use **A — a calm Tables section**. Its header combines
+  `Available tables (N)` and `Schemas loaded X/N · Y failed` in one fixed-size,
+  two-line action opening the shared catalog popup. Both counters refer to the
+  catalog after Hide system tables. Schema failures are amber; the popup exposes
+  Loaded / Not loaded / Failed per table with the cached error as accessible text
+  and a native title. Rows and controls keep fixed geometry during polling.
+  Place the inline Hide system tables checkbox beside Selected / All tables.
+  Use `Add tables` and retain the overall All matched tables disclosure.
+- Exact Include names get a green check inside a permanently reserved input slot,
+  not a duplicate Table found line or a matched-table disclosure. Pattern rules
+  retain their disclosure; an already-open list stays mounted while typing until
+  explicitly closed. Keep a compact result rail reserved so pattern edits and
+  asynchronous checks cannot move later controls. Each matched name has frameless Copy.
+- The neutral magnifier immediately before Include's `.*` opens the same popup
+  with Copy and Use. Use inserts an exact-name pattern in the existing Include
+  mode, preserves Exclude and other rules, closes the popup and restores focus to
+  the magnifier. It does not change clipboard contents. Header browsing is read-only.
+  Transforms retain their compact Available tables action and the shared popup.
+  Unknown catalogs disable browsing; known empty catalogs open normally.
+  Invalidating metadata closes either popup without reopening on reconnect.
 - Transform available table rows place a compact `Use` action beside Copy. Use replaces
   the current transform's Include with an exact-name pattern in its existing
   glob/regex mode, preserves Exclude and the transform, and closes the dialog.
@@ -104,12 +120,13 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   enabled hover/press feedback; pending actions retain their label, dimensions and
   spinner. This action palette does not recolor classic or dark themes.
 - Database-source metadata uses **A — required form item**: a neutral
-  `Required` badge, a stable status beside the button, and a bordered group for
+  `Required` badge, a stable Connected/pending/error status beside the button, and a bordered group for
   dependent table fields. The primary action is `Connect & load metadata`, then
   `Refresh metadata` after success; reserve the longer label's width. Before
   verification show `Required to unlock tables and transforms` and a small
   lock, not a validation error. Unlock only after authenticated verification
-  returns a table catalog (including an empty catalog). Keep status slots and
+  returns a table catalog (including an empty catalog). Do not duplicate readiness
+  in a Table settings are ready banner. Keep status slots and
   controls mounted with identical dimensions while checking, succeeding,
   failing, or invalidating credentials. Connection/advanced options stay outside
   the locked group so users can repair a failed connection. Ordinary diagnostic

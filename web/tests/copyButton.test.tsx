@@ -17,7 +17,7 @@ it("shows one delayed Copy tooltip on hover and keyboard focus", async () => {
   expect(button.hasAttribute("title")).toBe(false);
   fireEvent.mouseLeave(button);
   expect(view.queryByRole("tooltip")).toBeNull();
-  fireEvent.focus(button);
+  act(() => button.focus());
   await act(async () => { await vi.advanceTimersByTimeAsync(350); });
   expect(view.getByRole("tooltip").textContent).toBe("Copy");
   fireEvent.keyDown(button, { key: "Escape" });
@@ -82,8 +82,9 @@ it("keeps failure feedback visible and accessible after focus leaves during a wr
   vi.stubGlobal("navigator", { clipboard: { writeText: () => new Promise<void>((_resolve, fail) => { reject = fail; }) } });
   const view = render(<CopyButton text="exact" label="Copy value" />);
   const button = view.getByRole("button", { name: "Copy value" });
+  act(() => button.focus());
   fireEvent.click(button);
-  fireEvent.blur(button);
+  act(() => button.blur());
   reject(new Error("denied"));
   await waitFor(() => expect(button.querySelector(".copy-icon-failed")).not.toBeNull());
   expect(view.queryByRole("tooltip")).toBeNull();

@@ -16,6 +16,17 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("reserves source metadata and exact-match slots and keeps the picker within narrow forms", () => {
+    const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
+    expect(rule(":root .available-tables-metadata > button")).toContain("height: 48px; width: 248px;");
+    expect(rule(".available-tables-summary")).toContain("height: 14px;");
+    expect(rule(".available-table-row .available-table-schema")).toContain("flex: 0 0 70px;");
+    expect(rule(".table-pattern-confirmation")).toContain("position: absolute;");
+    expect(rule(".table-pattern-confirmation")).toContain("width: 22px;");
+    expect(styles).toContain(".table-pattern-with-browser.table-pattern-with-confirmation input[type=\"text\"] { padding-right: calc(var(--control-height) * 2 + 22px); }");
+    expect(styles).toContain(".table-rule-patterns .form-row:first-child { grid-column: 1 / -1; }");
+    expect(rule(":root .matched-table-row .copy-action")).toContain("width: 24px; height: 24px;");
+  });
   it("gives configuration and transform-preview tabs the same continuous slate backing", () => {
     const backing = styles.match(/:root\[data-design="airy-v0"\] \.editor-tabs,\s*:root\[data-design="airy-v0"\] \.transform-preview-tabs\s*\{([^}]+)\}/)?.[1];
     expect(backing).toContain("background: var(--panel2);");

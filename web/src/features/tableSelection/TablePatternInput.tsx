@@ -3,6 +3,7 @@ import type { PatternMode, TableIdentity } from "../../generated/apiContract";
 import { useTableCatalog } from "../../schema/tableCatalog";
 import { AutofillResistantInput } from "../../ui/AutofillResistantField";
 import { Button } from "../../ui/Button";
+import { SearchIcon } from "../../ui/icons";
 import { anchoredMenuStyle, useAnchoredOverlay } from "../../ui/overlay";
 import { completionPattern, exactPattern, literalPatternPrefix, qualifiedName } from "./model";
 import { useTableNamespace } from "./naming";
@@ -10,10 +11,12 @@ import { useTableNamespace } from "./naming";
 const GLOB_HELP = "Glob / wildcard: * matches any number of characters; ? matches one character. Matching starts at the beginning of the qualified name. Click to enable regex.";
 const REGEX_HELP = "Regex is enabled. The expression matches the entire qualified name. Use .* for any characters and . for one character. Click to use glob / wildcard.";
 
-export function TablePatternInput({ id, label, value, mode, disabled, required, invalid, onChange, onModeChange, placeholder }: {
+export function TablePatternInput({ id, label, value, mode, disabled, required, invalid, onChange, onModeChange, placeholder, onBrowse, confirmed }: {
   id: string; label: string; value: string; mode: PatternMode; disabled: boolean;
   required: boolean; invalid: boolean;
   placeholder?: string;
+  onBrowse?: (() => void) | undefined;
+  confirmed?: boolean | undefined;
   onChange: (value: string) => void; onModeChange: (mode: PatternMode) => void;
 }) {
   const catalog = useTableCatalog();
@@ -56,7 +59,7 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
     setActive(-1);
   };
   const prefix = literalPatternPrefix(value, mode);
-  return <div class="table-pattern-input" ref={root} onBlur={event => {
+  return <div class={`table-pattern-input${onBrowse ? " table-pattern-with-browser" : ""}${confirmed !== undefined ? " table-pattern-with-confirmation" : ""}`} ref={root} onBlur={event => {
     if (!root.current?.contains(event.relatedTarget as Node | null)) setFocused(false);
   }} onKeyDown={event => {
     if (event.key !== "Escape" || !catalog) return;
@@ -90,6 +93,12 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
           event.currentTarget.blur();
         }
       }} />
+    {confirmed !== undefined && <span class="table-pattern-confirmation" aria-live="polite">
+      {confirmed && <span role="img" aria-label="Table found" title="Table found">✓</span>}
+    </span>}
+    {onBrowse && <Button variant="plain" shape="icon" class="table-pattern-browse" aria-label={`Browse tables for ${label}`}
+      title="Browse available tables" aria-haspopup="dialog" disabled={disabled || !catalog}
+      onClick={() => { setFocused(false); setActive(-1); onBrowse(); }}><SearchIcon /></Button>}
     <Button variant="plain" shape="icon" class="regex-toggle" aria-label={label.includes(" rule") ? label.toLowerCase().replace(" rule", " regex rule") : `${label} regex`}
       aria-pressed={mode === "regex"} title={mode === "regex" ? REGEX_HELP : GLOB_HELP}
       disabled={disabled} onClick={() => onModeChange(mode === "regex" ? "glob" : "regex")}>.*</Button>

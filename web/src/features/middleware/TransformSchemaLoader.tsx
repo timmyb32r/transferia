@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import { useControlPlane } from "../../bootstrap/ApplicationServicesProvider";
 import { useSourceMetadataContext } from "../../delivery/sourceMetadata";
 import type { TableIdentity, TransformPreviewSource } from "../../generated/apiContract";
@@ -14,7 +14,9 @@ export function TransformSchemaLoader({ tables, source, disabled }: {
   const [failure, setFailure] = useState<{ key: string; message: string }>();
   const active = useRef<AbortController>();
   const key = JSON.stringify([cached?.id, source, tables]);
-  useEffect(() => {
+  // Reset before the new catalog's button can be activated. A delayed reset
+  // could abort that new request and allow a second click to send it again.
+  useLayoutEffect(() => {
     active.current?.abort(); active.current = undefined; setPending(false);
     return () => { active.current?.abort(); };
   }, [key]);

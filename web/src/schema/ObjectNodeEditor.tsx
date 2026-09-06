@@ -23,7 +23,8 @@ export interface ConnectionFieldGroup {
   names: readonly string[];
   label: string;
   disabled: boolean;
-  status: ComponentChildren;
+  status?: ComponentChildren;
+  renderField?: (name: string, field: ComponentChildren) => ComponentChildren;
 }
 
 export function ObjectNodeEditor({
@@ -196,10 +197,13 @@ export function ObjectNodeEditor({
         ? regularProperty(entry)
         : entry[0] !== grouped[0]?.[0] ? null
         : <section class="connection-dependent-settings" key="connection-dependent-settings">
-            <div class="connection-dependent-status" id={connectionStatusId}>{connectionFields.status}</div>
+            {connectionFields.status && <div class="connection-dependent-status" id={connectionStatusId}>{connectionFields.status}</div>}
             <fieldset class="connection-dependent-fields" aria-label={connectionFields.label}
-              aria-describedby={connectionStatusId} disabled={disabled || connectionFields.disabled}>
-              {grouped.map(entry => regularProperty(entry, disabled || connectionFields.disabled))}
+              aria-describedby={connectionFields.status ? connectionStatusId : undefined} disabled={disabled || connectionFields.disabled}>
+              {grouped.map(entry => {
+                const field = regularProperty(entry, disabled || connectionFields.disabled);
+                return connectionFields.renderField ? connectionFields.renderField(entry[0], field) : field;
+              })}
             </fieldset>
           </section>)}
       {deferredVariants.map(({ name, branchIndex, branch }) => (

@@ -3,6 +3,7 @@ import { useEffect, useMemo } from "preact/hooks";
 import { visibleTableCatalog } from "../features/tableSelection/catalog";
 import { TableNamingProvider } from "../features/tableSelection/naming";
 import { SchemaForm } from "../schema/SchemaForm";
+import { firstCompletionIssue } from "../schema/compiler";
 import { revealDetails } from "../schema/revealDetails";
 import { useWidgetRegistry } from "../schema/widgetRegistry";
 import { Button } from "../ui/Button";
@@ -16,7 +17,9 @@ import type {
 import { compiledSchema, endpointValue, isObject } from "./editorConfig";
 import { MessagePreviewDialog } from "./MessagePreviewDialog";
 import { tableConnectionIdentity, useEndpointActions } from "./useEndpointActions";
-import { ConnectionCheck, TableConnectionStatus, tableSettingsReady } from "./ConnectionCheck";
+import { ConnectionCheck, tableSettingsReady } from "./ConnectionCheck";
+import { TableSelectionEditor } from "../features/tableSelection/TableSelectionEditor";
+import { AutofillResistantInput } from "../ui/AutofillResistantField";
 import type { VerifiedTableCatalog } from "../features/middleware/useTransformCatalog";
 import { useSourceMetadataContext } from "./sourceMetadata";
 
@@ -66,6 +69,9 @@ export function EndpointCard(props: {
     : visibleTableCatalog(props.selectedKey, hideSystemTables, checkedTables),
   [props.selectedKey, hideSystemTables, checkedTables]);
   const tablesReady = tableSettingsReady(check);
+  const tableNode = node?.kind === "object" ? node.properties.tables : undefined;
+  const tableIssue = tableNode ? firstCompletionIssue(tableNode, isObject(value) ? value.tables : undefined, true, "/tables") : undefined;
+  const tablesIncomplete = tableIssue !== undefined && !tableIssue.hidden;
   const checkedTableIdentity = tablesReady ? tableIdentity : undefined;
   useEffect(() => {
     props.onTableConnection?.(checkedTableIdentity);
@@ -165,12 +171,31 @@ export function EndpointCard(props: {
             }}
             optionOverrides={check.options}
             tableCatalog={tablesReady && visibleTables !== undefined
-              ? { tables: visibleTables, preview: api.previewTables } : undefined}
+              ? { tables: visibleTables, preview: api.previewTables,
+                metadata: check.state === "success" ? check.metadata : undefined,
+                metadataError: check.state === "success" ? check.metadataError : undefined } : undefined}
             connectionFields={requiresTableCheck ? {
               names: ["hide_system_tables", "tables", "new_tables"],
               label: "Table settings",
               disabled: !tablesReady,
-              status: <TableConnectionStatus ready={tablesReady} />,
+              renderField: (name, field) => name === "hide_system_tables" ? null : name !== "tables" ? field
+                : <div data-field-name="tables" key="tables"
+                  class={[!props.readOnly && tablesReady && tablesIncomplete ? "required-incomplete" : "",
+                    props.showRequiredErrors && tablesIncomplete ? "required-missing" : ""].filter(Boolean).join(" ")}>
+                  <TableSelectionEditor value={isObject(value) ? value.tables ?? null : null}
+                    disabled={props.readOnly || !tablesReady} fixed={node.properties.tables?.xUi.table_membership === "fixed"}
+                    toolbar={node.properties.hide_system_tables && <span class="table-system-toggle">
+                      <label><AutofillResistantInput type="checkbox" checked={hideSystemTables} disabled={props.readOnly || !tablesReady}
+                        onChange={event => props.onConfig({ ...props.config, [props.role]: { [props.selectedKey]: {
+                          ...(isObject(value) ? value : {}), hide_system_tables: event.currentTarget.checked,
+                        } } })} />Hide system tables</label>
+                      <span class="help" tabIndex={0} title="Hide system tables from the available catalog and table selection."
+                        aria-label="About system table filtering">?</span>
+                    </span>}
+                    onChange={tables => props.onConfig({ ...props.config, [props.role]: { [props.selectedKey]: {
+                      ...(isObject(value) ? value : {}), tables,
+                    } } })} />
+                </div>,
             } : undefined}
             connectionAction={
               props.endpoint.connection_check ? (

@@ -35,16 +35,16 @@ it.each([
     expect(help.getAttribute("title")).toContain("Default: glob / wildcard");
     expect(help.getAttribute("title")).toContain("* matches any number of characters and ? one character");
   }
-  const include = view.getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement;
+  const include = view.getByLabelText("Include rule 1") as HTMLInputElement;
   expect(include.placeholder).toBe(`${namespace}.table or ${namespace}.*`);
   expect(include.disabled).toBe(true);
-  expect((view.getByRole("combobox", { name: "Exclude rule 1" }) as HTMLInputElement).placeholder).toBe("Optional pattern");
+  expect((view.getByLabelText("Exclude rule 1") as HTMLInputElement).placeholder).toBe("Optional pattern");
 });
 
 it("updates naming immediately when switching the selected database", () => {
   const view = render(<Source connectorKey="postgres" />);
   view.rerender(<Source connectorKey="clickhouse" />);
-  expect((view.getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement).placeholder)
+  expect((view.getByLabelText("Include rule 1") as HTMLInputElement).placeholder)
     .toBe("database.table or database.*");
   for (const help of view.container.querySelectorAll(".table-rule-patterns .help")) {
     expect(help.getAttribute("title")).toContain("Use database.table or database.*.");
@@ -54,6 +54,6 @@ it("updates naming immediately when switching the selected database", () => {
 
 it("does not guess a database dialect for a standalone table editor", () => {
   const view = render(<TableSelectionEditor value={{ type: "selected", rules: [] }} onChange={() => undefined} />);
-  expect((view.getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement).placeholder)
+  expect((view.getByLabelText("Include rule 1") as HTMLInputElement).placeholder)
     .toBe("namespace.table or namespace.*");
 });

@@ -108,7 +108,7 @@ it.each(fields)("Enter finishes $label while suggestions are loading and a late 
 it.each(fields)("Enter also finishes an empty $label with no suggestion menu", ({ label, required }) => {
   const view = render(<TablePatternInput id="pattern" label={label} value="" mode="glob" disabled={false} required={required} invalid={false}
     onChange={() => undefined} onModeChange={() => undefined} />);
-  const input = view.getByRole("combobox");
+  const input = view.getByRole("textbox");
   act(() => input.focus());
   expect(view.queryByRole("listbox")).toBeNull();
   expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
@@ -119,11 +119,11 @@ it.each(fields)("Enter does not finish $label during IME composition", ({ label,
   const onChange = vi.fn();
   const view = render(<TablePatternInput id="pattern" label={label} value="system*" mode="glob" disabled={false} required={required} invalid={false}
     onChange={onChange} onModeChange={() => undefined} />);
-  const input = view.getByRole("combobox");
+  const input = view.getByRole("textbox");
   act(() => input.focus());
   expect(fireEvent.keyDown(input, { key: "Enter", isComposing: true })).toBe(true);
   expect(document.activeElement).toBe(input);
-  expect(input.getAttribute("aria-expanded")).toBe("true");
+  expect(input.hasAttribute("aria-expanded")).toBe(false);
   expect(onChange).not.toHaveBeenCalled();
 });
 
@@ -154,7 +154,7 @@ it("never displays a stale suggestion response after the pattern changes", async
       onChange={() => undefined} onModeChange={() => undefined} />
   </TableCatalogContext.Provider>;
   const view = render(component("old"));
-  fireEvent.focus(view.getByRole("combobox"));
+  act(() => view.getByRole("combobox").focus());
   await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
   view.rerender(component("new"));
   await act(async () => finish[0]!({ cards: [{ selected: tables, excluded: [] }], issues: [] }));

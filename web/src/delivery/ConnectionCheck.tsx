@@ -1,6 +1,5 @@
 import { Button } from "../ui/Button";
 import type { ConnectionCheckState } from "./useEndpointActions";
-import { metadataSummary } from "./sourceMetadata";
 
 export function tableSettingsReady(check: ConnectionCheckState): boolean {
   return check.state === "success" && check.status === "verified" && check.tables !== undefined;
@@ -14,27 +13,16 @@ function CheckIcon({ ready = false }: { ready?: boolean }) {
   </svg>;
 }
 
-export function TableConnectionStatus({ ready }: { ready: boolean }) {
-  return <span class={ready ? "connection-check-verified" : ""}>
-    {ready ? <CheckIcon ready /> : <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
-      stroke="currentColor" stroke-width="1.5" aria-hidden="true" focusable="false">
-      <rect x="3" y="7" width="10" height="8" rx="1.5" />
-      <path d="M5 7V4a3 3 0 0 1 6 0v3M8 10v2" />
-    </svg>}
-    <span>{ready ? "Table settings are ready." : "Connect & load metadata to unlock tables and transforms."}</span>
-  </span>;
-}
-
 export function ConnectionCheck({ check, required, onCheck }: {
   check: ConnectionCheckState; required: boolean; onCheck: () => void;
 }) {
   const checking = check.state === "checking";
   const ready = tableSettingsReady(check);
   const missingCatalog = required && check.state === "success" && check.status === "verified" && !ready;
-  const tone = missingCatalog ? "network_reachable" : check.state === "success" ? check.metadataError ? "error" : check.status : check.state;
+  const tone = missingCatalog ? "network_reachable" : check.state === "success" ? check.status : check.state;
   const message = check.state === "error" ? check.message
     : check.state === "success" ? missingCatalog ? "Connection verified, but the table list is unavailable. Check again."
-      : required && ready ? check.metadataError ?? (check.metadata ? metadataSummary(check.metadata) : "Connection verified")
+      : required && ready ? "Connected"
       : check.message ?? "Connection verified, including access to the configured entities."
     : required ? checking ? "Connecting and loading table names…" : "Required to unlock tables and transforms" : "";
   const row = <div class="connection-check">

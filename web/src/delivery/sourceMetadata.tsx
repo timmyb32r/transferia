@@ -2,7 +2,7 @@ import { createContext } from "preact";
 import { useContext, useEffect } from "preact/hooks";
 import { useEndpointActions } from "./useEndpointActions";
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
-import type { DeliveryType, MetadataStatus } from "../generated/apiContract";
+import type { DeliveryType } from "../generated/apiContract";
 import type { JsonObject } from "../json";
 
 export type SourceMetadata = ReturnType<typeof useSourceMetadata>;
@@ -37,13 +37,4 @@ export function useSourceMetadata({ connector, config, mode, sessionKey, validat
     return () => { request.abort(); window.clearTimeout(timer); };
   }, [metadata?.id, poll, api, actions.updateMetadata, actions.metadataFailed]);
   return { ...actions, metadata, metadataError };
-}
-
-export function metadataSummary(metadata: MetadataStatus): string {
-  const loaded = metadata.loaded.length;
-  const failed = metadata.errors.length;
-  if (metadata.loading) return `Schemas loaded ${loaded}/${metadata.catalog_count}${failed ? ` · ${failed} failed` : ""}`;
-  if (failed) return `Schemas loaded ${loaded}/${metadata.catalog_count} · ${failed} failed`;
-  if (loaded === metadata.catalog_count) return `Schemas cached ${loaded}/${metadata.catalog_count}`;
-  return `Schemas cached ${loaded}/${metadata.catalog_count} · Load matching schemas in Transforms`;
 }

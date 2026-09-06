@@ -2,6 +2,7 @@ import type { ComponentChildren } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { TableIdentity } from "../../generated/apiContract";
 import { Button } from "../../ui/Button";
+import { CopyButton } from "../../ui/CopyButton";
 import { qualifiedName } from "./model";
 
 export function MatchedTablesDisclosure({ id, label, regionLabel = label, toggleLabel,
@@ -93,7 +94,9 @@ export function MatchedTablesDisclosure({ id, label, regionLabel = label, toggle
       aria-label={regionLabel} aria-busy={!tables} style={{ height: size.height, maxHeight: size.height ? "none" : undefined }}>
       {!tables ? <div>Waiting for a valid table selection…</div>
         : tables.length === 0 ? <div>No matched tables.</div>
-        : tables.map(table => <div key={JSON.stringify([table.namespace, table.name])}>{qualifiedName(table)}</div>)}
+        : tables.map(table => <div class="matched-table-row" key={JSON.stringify([table.namespace, table.name])}>
+          <span>{qualifiedName(table)}</span><CopyButton text={qualifiedName(table)} label={`Copy ${qualifiedName(table)}`} />
+        </div>)}
     </div>}
   </>;
 }

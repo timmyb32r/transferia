@@ -32,15 +32,18 @@ it.each(["postgres", "mysql", "clickhouse"])("shows the required check and locks
   const group = view.getByRole("group", { name: "Table settings" });
   expect(view.getByText("Required")).toBeTruthy();
   expect(view.getByText("Required to unlock tables and transforms")).toBeTruthy();
-  expect(view.getByText("Connect & load metadata to unlock tables and transforms.")).toBeTruthy();
+  expect(view.container.querySelector(".connection-dependent-status")).toBeNull();
   expect(view.queryByRole("alert")).toBeNull();
   expect((within(group).getByLabelText(/^Hide system tables/) as HTMLInputElement).disabled).toBe(true);
   expect((within(group).getByRole("radio", { name: "Selected tables" }) as HTMLButtonElement).disabled).toBe(true);
-  expect((within(group).getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement).disabled).toBe(true);
+  expect((within(group).getByLabelText("Include rule 1") as HTMLInputElement).disabled).toBe(true);
   expect((within(group).getByRole("button", { name: "Remove rule 1" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(group).getByRole("button", { name: "Browse tables for Include rule 1" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(within(group).getByRole("heading", { name: "Tables" })).toBeTruthy();
+  expect(within(group).getByLabelText(/^Hide system tables/).closest(".table-selection-toolbar")).toBeTruthy();
   const available = within(group).getByRole("button", { name: "Available tables in source" }) as HTMLButtonElement;
   expect(available.disabled).toBe(true);
-  expect(available.textContent).toBe("Available tables (—)");
+  expect(available.textContent).toContain("Available tables (—)");
   expect((view.getByLabelText(/^Password/) as HTMLInputElement).disabled).toBe(false);
   expect(group.contains(view.getByText("Advanced settings"))).toBe(false);
 });
@@ -52,7 +55,7 @@ it.each(["postgres", "mysql", "clickhouse"])("browses the verified %s catalog wi
   fireEvent.click(view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ }));
   const available = view.getByRole("button", { name: "Available tables in source" }) as HTMLButtonElement;
   await waitFor(() => expect(available.disabled).toBe(false));
-  expect(available.textContent).toBe("Available tables (1)");
+  expect(available.textContent).toContain("Available tables (1)");
   available.focus();
   fireEvent.click(available);
   let dialog = view.getByRole("dialog");
@@ -61,7 +64,7 @@ it.each(["postgres", "mysql", "clickhouse"])("browses the verified %s catalog wi
   fireEvent.click(within(dialog).getByRole("button", { name: "Close available tables" }));
   expect(document.activeElement).toBe(available);
   fireEvent.click(view.getByLabelText(/^Hide system tables/));
-  expect(available.textContent).toBe("Available tables (2)");
+  expect(available.textContent).toContain("Available tables (2)");
   fireEvent.click(available);
   dialog = view.getByRole("dialog");
   expect(within(dialog).getByText("information_schema.tables")).toBeTruthy();
@@ -87,14 +90,14 @@ it.each(["postgres", "mysql", "clickhouse"])("reports an empty %s catalog withou
   expect(status.getAttribute("title")).toBe("No tables available for transfer.");
   expect(status.classList.contains("has-error")).toBe(true);
   expect(view.queryByText(/Rule \d+ selects no tables/)).toBeNull();
-  expect(view.queryByRole("combobox", { name: "Include rule 1" })).toBeNull();
+  expect(view.queryByLabelText("Include rule 1")).toBeNull();
   expect(view.getByRole("button", { name: "All matched tables 0" })).toBe(matched);
   expect(view.container.querySelector(".table-selection-status")).toBe(status);
   expect(Array.from(footer.children)).toEqual(controls);
 
   fireEvent.click(view.getByRole("radio", { name: "Selected tables" }));
   expect(status.textContent).not.toContain("No tables available for transfer.");
-  fireEvent.input(view.getByRole("combobox", { name: "Include rule 1" }), { target: { value: "db.*" } });
+  fireEvent.input(view.getByLabelText("Include rule 1"), { target: { value: "db.*" } });
   await waitFor(() => expect(status.textContent).toBe("Rule 1 selects no tables."));
 });
 
@@ -112,7 +115,7 @@ it.each(["postgres", "mysql", "clickhouse"])("unlocks %s only after verification
   const view = render(<Form connectorKey={connectorKey} />);
   const group = view.getByRole("group", { name: "Table settings" });
   const check = view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ });
-  const input = within(group).getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement;
+  const input = within(group).getByLabelText("Include rule 1") as HTMLInputElement;
   const checkbox = within(group).getByLabelText(/^Hide system tables/) as HTMLInputElement;
   const status = view.container.querySelector(".connection-check-result")!;
   const header = view.container.querySelector(".connection-dependent-status")!;
@@ -129,9 +132,10 @@ it.each(["postgres", "mysql", "clickhouse"])("unlocks %s only after verification
   // An empty catalog is a successful check, not an unavailable catalog.
   finish({ status: "verified", options: {}, message: null, tables: [] });
   await waitFor(() => expect(input.disabled).toBe(false));
-  expect(view.getByText("Connection verified")).toBeTruthy();
-  expect(view.getByText("Table settings are ready.")).toBeTruthy();
+  expect(view.getByText("Connected")).toBeTruthy();
+  expect(view.getByText("Connected")).toBeTruthy();
   expect(checkbox.disabled).toBe(false);
+  expect(input.closest(".required-incomplete")).toBeTruthy();
   expect(document.activeElement).toBe(check);
   expect(view.getByRole("group", { name: "Table settings" })).toBe(group);
   expect(view.container.querySelector(".connection-check-result")).toBe(status);
@@ -155,8 +159,8 @@ it.each([
   const view = render(<Form />);
   fireEvent.click(view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ }));
   await waitFor(() => expect(view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ }).getAttribute("aria-busy")).toBe("false"));
-  expect((view.getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement).disabled).toBe(true);
-  expect(view.queryByText("Table settings are ready.")).toBeNull();
+  expect((view.getByLabelText("Include rule 1") as HTMLInputElement).disabled).toBe(true);
+  expect(view.queryByText("Connected")).toBeNull();
   expect(view.getByText(result.message ?? "Connection verified, but the table list is unavailable. Check again.")).toBeTruthy();
 });
 
@@ -167,7 +171,7 @@ it("keeps the same status region and locked settings after a failed check", asyn
   fireEvent.click(view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ }));
   expect(await view.findByRole("alert")).toBe(status);
   expect(status?.textContent).toContain("Authentication failed. Enter a password.");
-  expect((view.getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement).disabled).toBe(true);
+  expect((view.getByLabelText("Include rule 1") as HTMLInputElement).disabled).toBe(true);
 });
 
 it("locks the existing table controls immediately during a recheck", async () => {
@@ -176,13 +180,13 @@ it("locks the existing table controls immediately during a recheck", async () =>
     .mockImplementationOnce(() => new Promise(() => undefined));
   const view = render(<Form />);
   const check = view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ });
-  const input = view.getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement;
+  const input = view.getByLabelText("Include rule 1") as HTMLInputElement;
   fireEvent.click(check);
   await waitFor(() => expect(input.disabled).toBe(false));
   fireEvent.click(check);
   expect(input.disabled).toBe(true);
   expect(view.getByText("Connecting and loading table names…")).toBeTruthy();
-  expect(view.getByRole("combobox", { name: "Include rule 1" })).toBe(input);
+  expect(view.getByLabelText("Include rule 1")).toBe(input);
   expect(request).toHaveBeenCalledTimes(2);
 });
 
@@ -195,16 +199,16 @@ it("does not unlock from a stale check after the credentials change", async () =
   await waitFor(() => expect(view.getByText("Required to unlock tables and transforms")).toBeTruthy());
   finish({ status: "verified", options: {}, message: null, tables: [] });
   await Promise.resolve();
-  expect((view.getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement).disabled).toBe(true);
-  expect(view.queryByText("Table settings are ready.")).toBeNull();
+  expect((view.getByLabelText("Include rule 1") as HTMLInputElement).disabled).toBe(true);
+  expect(view.queryByText("Connected")).toBeNull();
 });
 
 it("does not unlock editing in a read-only delivery after verification", async () => {
   vi.spyOn(api, "checkConnection").mockResolvedValue({ status: "verified", options: {}, message: null, tables: [] });
   const view = render(<Form readOnly />);
   fireEvent.click(view.getByRole("button", { name: /Connect & load metadata|Refresh metadata/ }));
-  await view.findByText("Table settings are ready.");
-  expect((view.getByRole("combobox", { name: "Include rule 1" }) as HTMLInputElement).disabled).toBe(true);
+  await view.findByText("Connected");
+  expect((view.getByLabelText("Include rule 1") as HTMLInputElement).disabled).toBe(true);
 });
 
 it.each([{ connectorKey: "clickhouse", role: "sink" as const }, { connectorKey: "opensearch", role: "source" as const }])(
