@@ -4,12 +4,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use anyhow::Context as _;
+use super::config::UnsupportedTypePolicy;
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
 use super::config::{PostgresSourceConfig, TableConfig};
 use crate::connectors::postgres::common::{
-    connect, postgres_to_arrow, quote_identifier, validate_identifier,
+    connect, quote_identifier, validate_identifier,
 };
 use crate::connectors::postgres::src_batch::{ExportedSnapshot, PostgresSource};
 use crate::connectors::postgres::src_batch_and_stream::{
@@ -300,6 +301,8 @@ impl PostgresSourceConnector {
     }
 
     fn bind_delivery_type(&self, delivery_type: DeliveryType) -> anyhow::Result<()> {
+        anyhow::ensure!(delivery_type == DeliveryType::Batch || self.config.unsupported_types == UnsupportedTypePolicy::Fail,
+            "PostgreSQL unsupported_types=to_string is supported only for batch deliveries");
         anyhow::ensure!(
             *self.delivery_type.get_or_init(|| delivery_type) == delivery_type,
             "PostgreSQL source connector cannot be reused for a different delivery type"
@@ -318,7 +321,7 @@ impl PostgresSourceConnector {
                     // Validation discovers metadata only. Readers create the shared
                     // snapshot at execution time and revalidate the schema in it.
                     let client = connect(&self.config.connection).await?;
-                    discover_validation_tables(&client, self.resolved_tables().await?)
+                    discover_validation_tables(&client, self.resolved_tables().await?, self.config.unsupported_types)
                         .await
                         .map(Arc::new)
                 } else {
@@ -697,13 +700,14 @@ pub(super) fn require_replication_replay_identity(
 pub(super) async fn discover_validation_tables(
     client: &tokio_postgres::Client,
     configured: &[TableConfig],
+    policy: UnsupportedTypePolicy,
 ) -> anyhow::Result<Vec<DiscoveredTable>> {
     // Keep Parse/Describe/Bind on one backend through transaction poolers.
     // This metadata-only transaction never exports or retains a snapshot.
     client
         .batch_execute("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         .await?;
-    let result = discover_tables(client, configured).await;
+    let result = discover_tables(client, configured, policy).await;
     let rollback = client.batch_execute("ROLLBACK").await;
     let tables = result?;
     rollback?;
@@ -713,10 +717,11 @@ pub(super) async fn discover_validation_tables(
 async fn discover_tables(
     client: &tokio_postgres::Client,
     configured: &[TableConfig],
+    policy: UnsupportedTypePolicy,
 ) -> anyhow::Result<Vec<DiscoveredTable>> {
     let mut tables = Vec::with_capacity(configured.len());
     for table in configured {
-        tables.push(discover_table(client, table.clone()).await.map_err(|error| {
+        tables.push(discover_table(client, table.clone(), policy).await.map_err(|error| {
             let diagnostic = error.chain()
                 .find_map(|cause| cause.downcast_ref::<tokio_postgres::Error>())
                 .and_then(tokio_postgres::Error::as_db_error)
@@ -732,7 +737,7 @@ async fn discover_replication_tables(
     client: &tokio_postgres::Client,
     configured: &[TableConfig],
 ) -> anyhow::Result<Vec<DiscoveredTable>> {
-    let tables = discover_tables(client, configured).await?;
+    let tables = discover_tables(client, configured, UnsupportedTypePolicy::Fail).await?;
     validate_replication_table_identities(&tables)?;
     Ok(tables)
 }
@@ -1256,6 +1261,7 @@ impl SourceConnector for PostgresSourceConnector {
                     self.config.connection.database.clone(),
                     self.config.batch_rows,
                     self.config.copy_to_format,
+                    self.config.unsupported_types,
                     counters,
                     changelog_snapshot,
                 )
@@ -1301,6 +1307,7 @@ pub fn incoming_user_schema(stored: &DatasetSchema) -> DatasetSchema {
 pub async fn discover_table(
     client: &tokio_postgres::Client,
     table: TableConfig,
+    policy: UnsupportedTypePolicy,
 ) -> anyhow::Result<DiscoveredTable> {
     let query = format!(
         "SELECT * FROM {}.{} LIMIT 0",
@@ -1320,6 +1327,12 @@ pub async fn discover_table(
         table.schema,
         table.name
     );
+    if policy == UnsupportedTypePolicy::ToString {
+        let projection = super::super::src_batch::source_select_projection(statement.columns(), policy)?;
+        client.prepare(&format!("SELECT {projection} FROM {}.{} LIMIT 0",
+            quote_identifier(&table.schema), quote_identifier(&table.name)))
+            .await.context("cannot prepare explicit PostgreSQL to_string projection")?;
+    }
     let nullability = client.query(
         "SELECT column_name, is_nullable = 'YES' FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
         &[&table.schema, &table.name],
@@ -1376,7 +1389,7 @@ pub async fn discover_table(
             })?;
             Ok(SchemaColumn::new(
                 column.name().to_owned(),
-                postgres_to_arrow(column.type_())?,
+                policy.arrow_type(column.type_()).with_context(|| format!("column '{}' type '{}'", column.name(), column.type_()))?,
                 nullable,
             )
             .with_constraints(physical.get::<_, bool>(2), false, None))

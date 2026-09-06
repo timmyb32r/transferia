@@ -5343,6 +5343,17 @@
                 "section": "advanced"
               }
             },
+            "unsupported_types": {
+              "title": "Unsupported source types",
+              "description": "Fail delivery (default) rejects types without a supported Arrow representation. to_string explicitly casts unsupported columns to PostgreSQL text, preserving names and NULL. This changes the type and may not be reversible. PostgreSQL output syntax and session settings determine the text. Conversion errors fail the delivery; values are never skipped. Available for batch deliveries only.",
+              "$ref": "#/$defs/UnsupportedTypePolicy",
+              "x-ui": {
+                "section": "advanced",
+                "delivery_types": [
+                  "batch"
+                ]
+              }
+            },
             "replication": {
               "description": "Configures logical replication for stream and `batch_and_stream` deliveries.",
               "$ref": "#/$defs/PostgresReplicationConfig",
@@ -5465,6 +5476,20 @@
               "enum": [
                 "binary",
                 "text"
+              ]
+            },
+            "UnsupportedTypePolicy": {
+              "oneOf": [
+                {
+                  "title": "Fail delivery",
+                  "type": "string",
+                  "const": "fail"
+                },
+                {
+                  "title": "to_string",
+                  "type": "string",
+                  "const": "to_string"
+                }
               ]
             },
             "PostgresReplicationConfig": {

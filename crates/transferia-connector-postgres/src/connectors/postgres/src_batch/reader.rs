@@ -88,11 +88,12 @@ impl PostgresSource {
         database: String,
         batch_rows: usize,
         copy_format: PostgresCopyFormat,
+        unsupported_types: crate::connectors::postgres::source::UnsupportedTypePolicy,
         counters: Arc<SourceCounters>,
         changelog_snapshot: bool,
     ) -> anyhow::Result<Self> {
         exported_snapshot.import(&client).await?;
-        let current = discover_table(&client, discovered.config.clone()).await?;
+        let current = discover_table(&client, discovered.config.clone(), unsupported_types).await?;
         if !discovered_schema_matches(&current.schema, &discovered.schema)
             || current.type_oids != discovered.type_oids
             || current.replica_identity_full != discovered.replica_identity_full
@@ -114,7 +115,7 @@ impl PostgresSource {
                 quote_identifier(&table.name)
             ))
             .await?;
-        let projection = source_select_projection(metadata.columns())?;
+        let projection = source_select_projection(metadata.columns(), unsupported_types)?;
         let select = format!(
             "SELECT {projection} FROM {}.{}",
             quote_identifier(&table.schema),
@@ -173,10 +174,10 @@ pub(super) fn discovered_schema_matches(current: &DatasetSchema, expected: &Data
             })
 }
 
-pub(super) fn source_select_projection(columns: &[Column]) -> anyhow::Result<String> {
+pub(crate) fn source_select_projection(columns: &[Column], policy: crate::connectors::postgres::source::UnsupportedTypePolicy) -> anyhow::Result<String> {
     columns
         .iter()
-        .map(|column| source_column_expression(column.name(), column.type_()))
+        .map(|column| source_column_expression(column.name(), column.type_(), policy))
         .collect::<anyhow::Result<Vec<_>>>()
         .map(|columns| columns.join(", "))
 }
@@ -184,10 +185,11 @@ pub(super) fn source_select_projection(columns: &[Column]) -> anyhow::Result<Str
 pub(super) fn source_column_expression(
     name: &str,
     data_type: &tokio_postgres::types::Type,
+    policy: crate::connectors::postgres::source::UnsupportedTypePolicy,
 ) -> anyhow::Result<String> {
-    postgres_to_arrow(data_type)?;
+    policy.arrow_type(data_type)?;
     let name = quote_identifier(name);
-    if postgres_requires_text_projection(data_type) {
+    if postgres_requires_text_projection(data_type) || postgres_to_arrow(data_type).is_err() {
         Ok(format!("{name}::text AS {name}"))
     } else {
         Ok(name)

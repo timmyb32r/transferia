@@ -50,7 +50,7 @@ async fn validation_pins_pooler_backend_and_preserves_database_error() {
     tokio::spawn(async move { drop(connection.await); });
     let error = super::connector::discover_validation_tables(&client, &[TableConfig {
         schema: "public".into(), name: "private_table".into(),
-    }]).await.err().expect("discovery must report the database failure").to_string();
+    }], super::UnsupportedTypePolicy::Fail).await.err().expect("discovery must report the database failure").to_string();
     server.await.unwrap();
     assert!(error.contains("public.private_table"));
     assert!(error.contains("permission denied for table private_table (SQLSTATE 42501)"));
@@ -221,6 +221,7 @@ fn snapshot_copy_to_format_defaults_to_binary_and_accepts_explicit_text() {
     .unwrap();
 
     assert_eq!(binary.copy_to_format, PostgresCopyFormat::Binary);
+    assert_eq!(binary.unsupported_types, super::UnsupportedTypePolicy::Fail);
     assert_eq!(text.copy_to_format, PostgresCopyFormat::Text);
 }
 

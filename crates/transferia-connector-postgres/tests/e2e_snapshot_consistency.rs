@@ -93,6 +93,57 @@ async fn all_table_partitions_share_one_pre_mutation_snapshot_for_binary_and_tex
 }
 
 #[tokio::test]
+async fn anyarray_requires_explicit_text_policy_and_preserves_values_and_nulls() -> anyhow::Result<()> {
+    let postgres = GenericImage::new(POSTGRES_IMAGE, POSTGRES_TAG)
+        .with_exposed_port(5_432.tcp())
+        .with_wait_for(WaitFor::message_on_stderr("database system is ready to accept connections"))
+        .with_env_var("POSTGRES_PASSWORD", "test")
+        .with_env_var("POSTGRES_DB", "transferia")
+        .start().await?;
+    let host = reachable_host(&postgres.get_host().await?);
+    let port = postgres.get_host_port_ipv4(5_432.tcp()).await?;
+    let client = connect_with_retry(&connection_string(&host, port)).await?;
+    client.batch_execute("CREATE TABLE missing_value_fixture (id int); INSERT INTO missing_value_fixture VALUES (1); ALTER TABLE missing_value_fixture ADD COLUMN marker text DEFAULT 'missing-value-proof';").await?;
+    for policy in ["fail", "to_string"] {
+        for format in ["binary", "text"] {
+            let connector = PostgresSourceConnector::from_config(
+                serde_yaml::from_str(&format!("host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nhide_system_tables: false\nunsupported_types: {policy}\ncopy_to_format: {format}\ntables:\n  type: selected\n  rules:\n    - include: pg_catalog.pg_attribute\n"))?,
+                Arc::new(MetricsRegistry::new()),
+            )?;
+            let discovery = connector.delivery_discovery(SourceDiscoveryContext {
+                request: transferia_core::delivery::DeliveryDiscoveryRequest { keep_system_columns: true },
+                cancellation: CancellationToken::new(),
+                delivery_type: transferia_delivery_contracts::DeliveryType::Batch,
+            }).await;
+            if policy == "fail" {
+                assert!(discovery.err().expect("default policy must reject anyarray").to_string().contains("anyarray"));
+                continue;
+            }
+            discovery?;
+            let mut source = build_partition(&connector, 0).await?;
+            let mut found_value = false;
+            let mut found_null = false;
+            loop {
+                match source.read_batch().await? {
+                    SourceBatch::Typed { tables, .. } => for table in tables {
+                        let values = array_by_name::<StringArray>(&table.batch, "attmissingval")?;
+                        for index in 0..values.len() {
+                            if values.is_null(index) { found_null = true; }
+                            else if values.value(index) == "{missing-value-proof}" { found_value = true; }
+                        }
+                    },
+                    SourceBatch::Finished => break,
+                    _ => panic!("expected typed PostgreSQL batch"),
+                }
+            }
+            source.shutdown().await?;
+            assert!(found_value && found_null, "text conversion must preserve values and NULL in {format}");
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn validation_discovery_does_not_call_pg_export_snapshot() -> anyhow::Result<()> {
     let postgres = GenericImage::new(POSTGRES_IMAGE, POSTGRES_TAG)
         .with_exposed_port(5_432.tcp())

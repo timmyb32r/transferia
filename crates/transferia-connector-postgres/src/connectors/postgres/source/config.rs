@@ -35,10 +35,38 @@ pub struct PostgresSourceConfig {
     )]
     pub copy_to_format: PostgresCopyFormat,
 
+    #[serde(default)]
+    #[schemars(
+        title = "Unsupported source types",
+        description = "Fail delivery (default) rejects types without a supported Arrow representation. to_string explicitly casts unsupported columns to PostgreSQL text, preserving names and NULL. This changes the type and may not be reversible. PostgreSQL output syntax and session settings determine the text. Conversion errors fail the delivery; values are never skipped. Available for batch deliveries only.",
+        extend("x-ui" = { "section": "advanced", "delivery_types": ["batch"] })
+    )]
+    pub unsupported_types: UnsupportedTypePolicy,
+
     /// Configures logical replication for stream and `batch_and_stream` deliveries.
     #[serde(default)]
     #[schemars(extend("x-ui" = { "widget": "inline_object", "section": "advanced", "delivery_types": ["stream", "batch_and_stream"] }))]
     pub replication: PostgresReplicationConfig,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UnsupportedTypePolicy {
+    #[default]
+    #[schemars(title = "Fail delivery")]
+    Fail,
+    #[schemars(title = "to_string")]
+    ToString,
+}
+
+impl UnsupportedTypePolicy {
+    pub(crate) fn arrow_type(self, data_type: &tokio_postgres::types::Type) -> anyhow::Result<arrow::datatypes::DataType> {
+        match crate::connectors::postgres::common::postgres_to_arrow(data_type) {
+            Ok(data_type) => Ok(data_type),
+            Err(_) if self == Self::ToString => Ok(arrow::datatypes::DataType::Utf8),
+            Err(error) => Err(error),
+        }
+    }
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]

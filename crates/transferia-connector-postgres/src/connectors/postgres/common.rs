@@ -273,7 +273,7 @@ pub fn postgres_to_arrow(data_type: &Type) -> anyhow::Result<DataType> {
         Type::TIMESTAMPTZ => timestamp_data_type(true),
         _ => match data_type.kind() {
             Kind::Pseudo => anyhow::bail!(
-                "PostgreSQL pseudo-type '{data_type}' cannot be stored in a source table"
+                "PostgreSQL source type '{data_type}' has no supported Arrow representation; select unsupported_types=to_string for an explicit batch text conversion"
             ),
             Kind::Simple
             | Kind::Enum(_)

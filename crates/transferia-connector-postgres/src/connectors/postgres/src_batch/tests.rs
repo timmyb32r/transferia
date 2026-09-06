@@ -284,7 +284,7 @@ fn postgres_types_use_native_arrow_where_lossless_and_canonical_text_otherwise()
     ] {
         assert_eq!(postgres_to_arrow(&postgres).unwrap(), arrow);
         assert_eq!(
-            source_column_expression("mixed\"case", &postgres).unwrap(),
+            source_column_expression("mixed\"case", &postgres, crate::connectors::postgres::source::UnsupportedTypePolicy::Fail).unwrap(),
             "\"mixed\"\"case\""
         );
     }
@@ -318,7 +318,7 @@ fn postgres_types_use_native_arrow_where_lossless_and_canonical_text_otherwise()
     ] {
         assert_eq!(postgres_to_arrow(&postgres).unwrap(), DataType::Utf8);
         assert_eq!(
-            source_column_expression("value", &postgres).unwrap(),
+            source_column_expression("value", &postgres, crate::connectors::postgres::source::UnsupportedTypePolicy::Fail).unwrap(),
             "\"value\"::text AS \"value\""
         );
     }
@@ -418,7 +418,7 @@ fn user_defined_postgres_types_are_lossless_text_and_pseudo_types_fail_closed() 
         let data_type = Type::new("custom".to_owned(), 80_000, kind, "public".to_owned());
         assert_eq!(postgres_to_arrow(&data_type).unwrap(), DataType::Utf8);
         assert_eq!(
-            source_column_expression("value", &data_type).unwrap(),
+            source_column_expression("value", &data_type, crate::connectors::postgres::source::UnsupportedTypePolicy::Fail).unwrap(),
             "\"value\"::text AS \"value\""
         );
     }
@@ -430,5 +430,6 @@ fn user_defined_postgres_types_are_lossless_text_and_pseudo_types_fail_closed() 
         "public".to_owned(),
     );
     assert!(postgres_to_arrow(&pseudo).is_err());
-    assert!(source_column_expression("value", &pseudo).is_err());
+    assert!(source_column_expression("value", &pseudo, crate::connectors::postgres::source::UnsupportedTypePolicy::Fail).is_err());
+    assert_eq!(source_column_expression("value", &pseudo, crate::connectors::postgres::source::UnsupportedTypePolicy::ToString).unwrap(), "\"value\"::text AS \"value\"");
 }

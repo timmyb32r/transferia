@@ -2,6 +2,7 @@ mod config;
 mod connector;
 
 pub use config::PostgresSourceConfig;
+pub use config::UnsupportedTypePolicy;
 pub(crate) use config::TableConfig;
 pub use connector::PostgresSourceConnector;
 pub(crate) use connector::{
