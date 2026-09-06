@@ -19,11 +19,14 @@ also support an optional database override.
 
 ## Connection and catalog
 
-ClickHouse and MySQL sources show the same **Hide system tables** checkbox above
+PostgreSQL, ClickHouse and MySQL sources show the same **Hide system tables** checkbox above
 Tables, enabled by default (`hide_system_tables: true`). ClickHouse excludes the
 exact databases `system`, `_system`, `INFORMATION_SCHEMA`, and every database
 whose name starts with lowercase `information_schema`. MySQL excludes the exact
 databases `mysql`, `information_schema`, `performance_schema` and `sys`.
+PostgreSQL excludes `information_schema` and schemas starting with the reserved
+`pg_` prefix, including `pg_catalog` and `pg_toast`. This tests schema names, not
+table names: a user table such as `public.pg_events` remains selectable.
 Check connection retains
 the full readable catalog. The checkbox filters that cached list locally, without
 invalidating the connection check or making another database request. Suggestions

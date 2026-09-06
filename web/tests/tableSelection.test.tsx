@@ -258,6 +258,8 @@ it.each([
     visible: ["default", "system_backup", "_system_backup", "my_information_schema", "INFORMATION_SCHEMA_extra", "System"] },
   { connector: "mysql", hidden: ["mysql", "information_schema", "performance_schema", "sys"],
     visible: ["reports", "mysql_backup", "information_schema_extra", "performance_schema_backup", "syslog"] },
+  { connector: "postgres", hidden: ["pg_catalog", "pg_toast", "pg_temp_1", "pg_toast_temp_1", "information_schema"],
+    visible: ["public", "reports", "pgreports", "information_schema_extra", "PG_CATALOG"] },
 ])("keeps the full $connector catalog and connection identity when hiding system tables", async ({ connector, hidden, visible }) => {
   const namespaces = [...hidden, ...visible];
   const tables = namespaces.map(namespace => ({ namespace, name: "t" }));
@@ -278,7 +280,7 @@ it.each([
   expect(checkConnection).toHaveBeenCalledTimes(1);
   hook.rerender({ config: { ...config, host: "second" } });
   expect(hook.result.current.check.state).toBe("idle");
-  expect(visibleTableCatalog("postgres", true, tables)).toBe(tables);
+  expect(visibleTableCatalog("other", true, tables)).toBe(tables);
 });
 
 it("previews completed cards beside empty drafts and preserves card indices", async () => {

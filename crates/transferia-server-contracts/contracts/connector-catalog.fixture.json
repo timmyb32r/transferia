@@ -5309,11 +5309,21 @@
                 "widget": "password"
               }
             },
+            "hide_system_tables": {
+              "title": "Hide system tables",
+              "description": "Exclude tables in information_schema and schemas whose names start with pg_ from table selection and suggestions. Disable to include them. Changing this filter uses the last successful connection check without reconnecting. The same filter applies at startup; PostgreSQL table membership stays fixed during replication.",
+              "type": "boolean",
+              "default": true,
+              "x-ui": {
+                "order": 1
+              }
+            },
             "tables": {
               "$ref": "#/$defs/TableSelection",
               "x-ui": {
                 "widget": "table_selection",
-                "table_membership": "fixed"
+                "table_membership": "fixed",
+                "order": 2
               }
             },
             "batch_rows": {
@@ -5561,6 +5571,7 @@
             "type": "selected",
             "rules": []
           },
+          "hide_system_tables": true,
           "installation": {
             "host": "",
             "port": 5432,

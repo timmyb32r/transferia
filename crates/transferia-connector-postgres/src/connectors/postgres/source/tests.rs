@@ -16,6 +16,86 @@ use transferia_delivery_contracts::semantics::{RecordSemantics, SourceBehavior};
 use transferia_delivery_contracts::DeliveryType;
 use transferia_registry::SourceConnector;
 
+const MINIMAL_SOURCE_CONFIG: &str = "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables: {type: all}\n";
+
+#[test]
+fn system_table_filter_defaults_to_enabled_above_table_selection() -> anyhow::Result<()> {
+    let config: PostgresSourceConfig = serde_yaml::from_str(MINIMAL_SOURCE_CONFIG)?;
+    assert!(config.hide_system_tables);
+    let explicit: PostgresSourceConfig = serde_yaml::from_str(&format!(
+        "{MINIMAL_SOURCE_CONFIG}hide_system_tables: false\n"
+    ))?;
+    assert!(!explicit.hide_system_tables);
+    let schema = serde_json::to_value(schemars::schema_for!(PostgresSourceConfig))?;
+    let field = &schema["properties"]["hide_system_tables"];
+    assert_eq!(field["title"], "Hide system tables");
+    assert_eq!(field["default"], true);
+    assert_eq!(field["x-ui"]["order"], 1);
+    assert_eq!(schema["properties"]["tables"]["x-ui"]["order"], 2);
+    Ok(())
+}
+
+#[test]
+fn table_selection_filters_system_schemas_without_hiding_user_table_names() -> anyhow::Result<()> {
+    let mut config: PostgresSourceConfig = serde_yaml::from_str(MINIMAL_SOURCE_CONFIG)?;
+    let namespaces = [
+        "pg_catalog",
+        "pg_toast",
+        "pg_temp_1",
+        "pg_toast_temp_1",
+        "information_schema",
+        "public",
+        "reports",
+        "pgreports",
+        "information_schema_extra",
+        "PG_CATALOG",
+    ];
+    let catalog = namespaces
+        .iter()
+        .map(|namespace| transferia_registry::TableIdentity {
+            namespace: (*namespace).into(),
+            name: "pg_events".into(),
+        })
+        .collect::<Vec<_>>();
+    let mut visible = catalog[5..].to_vec();
+    visible.sort();
+    let mut all = catalog.clone();
+    all.sort();
+    for selection in [
+        "type: all",
+        "type: selected\nrules:\n  - include: '*'",
+        "type: selected\nrules:\n  - include: '.*'\n    include_mode: regex",
+    ] {
+        config.tables = serde_yaml::from_str(selection)?;
+        config.hide_system_tables = true;
+        assert_eq!(config.resolve_tables(catalog.clone())?, visible);
+        config.hide_system_tables = false;
+        assert_eq!(config.resolve_tables(catalog.clone())?, all);
+    }
+    Ok(())
+}
+
+#[test]
+fn hidden_table_rules_fail_before_startup_instead_of_silently_selecting_nothing(
+) -> anyhow::Result<()> {
+    let mut config: PostgresSourceConfig = serde_yaml::from_str(MINIMAL_SOURCE_CONFIG)?;
+    let catalog = vec![transferia_registry::TableIdentity {
+        namespace: "pg_catalog".into(),
+        name: "pg_class".into(),
+    }];
+    for selection in [
+        "type: selected\nrules:\n  - include: pg_catalog.pg_class",
+        "type: all",
+    ] {
+        config.tables = serde_yaml::from_str(selection)?;
+        config.hide_system_tables = true;
+        assert!(config.resolve_tables(catalog.clone()).is_err());
+        config.hide_system_tables = false;
+        assert_eq!(config.resolve_tables(catalog.clone())?, catalog);
+    }
+    Ok(())
+}
+
 #[test]
 fn replication_safety_violations_are_fatal_source_build_failures() {
     let error = replication_safety_violation(anyhow::anyhow!(

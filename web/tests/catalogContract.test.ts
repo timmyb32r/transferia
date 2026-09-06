@@ -32,9 +32,9 @@ function* descendants(node: CompiledNode): Generator<CompiledNode> {
 }
 
 describe("Rust catalog contract", () => {
-  it("uses the same stable Hide system tables control above Tables in MySQL and ClickHouse", () => {
+  it("uses the same stable Hide system tables control above Tables in every database source", () => {
     let expectedClasses: string[] | undefined;
-    for (const key of ["mysql", "clickhouse"]) {
+    for (const key of ["postgres", "mysql", "clickhouse"]) {
       const source = catalogFixture.connectors.find(connector => connector.key === key)!.source!;
       const compiled = compileSchema(source.schema, productionWidgetRegistry);
       if (compiled.kind !== "object") throw new Error(`${key}: expected source object`);

@@ -214,13 +214,22 @@ impl PostgresSourceConnector {
     }
 
     async fn resolved_tables(&self) -> anyhow::Result<&[TableConfig]> {
-        let tables = self.resolved_tables.get_or_try_init(|| async {
-            let catalog = super::super::common::list_tables(&self.config.connection).await?;
-            let preview = self.config.tables.compile()?.resolve(&catalog)?;
-            Ok::<_, anyhow::Error>(preview.selected_tables()?.into_iter().map(|table| TableConfig {
-                schema: table.namespace, name: table.name,
-            }).collect())
-        }).await?;
+        let tables = self
+            .resolved_tables
+            .get_or_try_init(|| async {
+                let catalog = super::super::common::list_tables(&self.config.connection).await?;
+                Ok::<_, anyhow::Error>(
+                    self.config
+                        .resolve_tables(catalog)?
+                        .into_iter()
+                        .map(|table| TableConfig {
+                            schema: table.namespace,
+                            name: table.name,
+                        })
+                        .collect(),
+                )
+            })
+            .await?;
         Ok(tables.as_slice())
     }
 
@@ -312,7 +321,8 @@ impl PostgresSourceConnector {
                         .map(Arc::new)
                 } else {
                     let client = connect(&self.config.connection).await?;
-                    let tables = discover_replication_tables(&client, self.resolved_tables().await?).await?;
+                    let tables =
+                        discover_replication_tables(&client, self.resolved_tables().await?).await?;
                     if let super::super::src_stream::ReplicationPlugin::Pgoutput { publication } =
                         &self.config.replication.plugin
                     {

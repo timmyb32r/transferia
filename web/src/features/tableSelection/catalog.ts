@@ -7,13 +7,15 @@ export function tableConnectionConfig(connector: string, config: JsonObject): Js
   const { tables, ...connection } = config;
   if (tables === null || typeof tables !== "object" || Array.isArray(tables)
     || (tables.type !== "selected" && tables.type !== "all")) return undefined;
-  if (connector === "clickhouse" || connector === "mysql") delete connection.hide_system_tables;
+  if (connector === "clickhouse" || connector === "mysql" || connector === "postgres") delete connection.hide_system_tables;
   return connection;
 }
 
 export function visibleTableCatalog(connector: string, hideSystemTables: boolean, tables: TableIdentity[]): TableIdentity[] {
   if (!hideSystemTables) return tables;
   switch (connector) {
+    case "postgres":
+      return tables.filter(({ namespace }) => namespace !== "information_schema" && !namespace.startsWith("pg_"));
     case "clickhouse":
       return tables.filter(({ namespace }) => !(
         namespace === "system" || namespace === "_system" || namespace === "INFORMATION_SCHEMA"
