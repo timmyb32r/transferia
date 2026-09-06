@@ -9,13 +9,16 @@ import { SegmentedControl } from "../../ui/SegmentedControl";
 import { TrashIcon } from "../../ui/icons";
 import { hasPattern, qualifiedName, selectionIssue, tablePreviewError } from "./model";
 import { TablePatternInput } from "./TablePatternInput";
-const HELP = "Default: glob / wildcard, where * matches any number of characters and ? one character. The .* button enables regex independently for each field. Use schema.table for PostgreSQL or database.table for MySQL/ClickHouse. Suggestions escape exact names. Every row must select at least one table after exclusion. Duplicate includes and cross-row include/exclude conflicts fail validation.";
+import { useTableNamespace } from "./naming";
+const HELP = "Default: glob / wildcard, where * matches any number of characters and ? one character. The .* button enables regex independently for each field.";
+const RULE_HELP = "Suggestions escape exact names. Every row must select at least one table after exclusion. Duplicate includes and cross-row include/exclude conflicts fail validation.";
 
 export function TableSelectionEditor({ value, disabled = false, fixed = false, onChange }: {
   value: JsonValue; disabled?: boolean | undefined; fixed?: boolean;
   onChange: (value: JsonValue) => void;
 }) {
   const catalog = useTableCatalog();
+  const namespace = useTableNamespace();
   const id = useId();
   const selection: TableSelection = isObject(value) && (value.type === "selected" || value.type === "all")
     ? value as unknown as TableSelection : { type: "selected", rules: [] };
@@ -89,7 +92,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
         const text = rule[kind] ?? "";
         const controlId = `${id}-${index}-${kind}`;
         return <FormField label={kind === "include" ? "Include" : "Exclude"} optional={kind === "exclude"} controlId={controlId}
-          description={`${HELP} ${kind === "exclude" ? "Exclude applies only to this row." : includeHelp}`}>
+          description={`${HELP} Use ${namespace}.table or ${namespace}.*. ${RULE_HELP} ${kind === "exclude" ? "Exclude applies only to this row." : includeHelp}`}>
           <TablePatternInput id={controlId} label={`${kind === "include" ? "Include" : "Exclude"} rule ${index + 1}`}
             value={text} mode={mode} disabled={disabled || !catalog} required={kind === "include"}
             invalid={kind === "include" && !!invalid} onChange={value => update(index, { [kind]: value })}

@@ -1,6 +1,7 @@
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import { useEffect, useMemo } from "preact/hooks";
 import { visibleTableCatalog } from "../features/tableSelection/catalog";
+import { TableNamingProvider } from "../features/tableSelection/naming";
 import { SchemaForm } from "../schema/SchemaForm";
 import { revealDetails } from "../schema/revealDetails";
 import { useWidgetRegistry } from "../schema/widgetRegistry";
@@ -122,6 +123,7 @@ export function EndpointCard(props: {
       </div>
       {props.endpoint && node && showSettings && (
         <div class="endpoint-fields">
+          <TableNamingProvider connector={props.selectedKey}>
           <SchemaForm
             node={node}
             value={value}
@@ -173,6 +175,7 @@ export function EndpointCard(props: {
               })
             }
           />
+          </TableNamingProvider>
         </div>
       )}
       {showSettings && preview.open && (

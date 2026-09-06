@@ -5,6 +5,7 @@ import { AutofillResistantInput } from "../../ui/AutofillResistantField";
 import { Button } from "../../ui/Button";
 import { anchoredMenuStyle, useAnchoredOverlay } from "../../ui/overlay";
 import { completionPattern, exactPattern, literalPatternPrefix, qualifiedName } from "./model";
+import { useTableNamespace } from "./naming";
 
 const GLOB_HELP = "Glob / wildcard: * matches any number of characters; ? matches one character. Matching starts at the beginning of the qualified name. Click to enable regex.";
 const REGEX_HELP = "Regex is enabled. The expression matches the entire qualified name. Use .* for any characters and . for one character. Click to use glob / wildcard.";
@@ -15,6 +16,7 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
   onChange: (value: string) => void; onModeChange: (mode: PatternMode) => void;
 }) {
   const catalog = useTableCatalog();
+  const namespace = useTableNamespace();
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState(false);
@@ -67,7 +69,7 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
       aria-label={label} aria-autocomplete="list" aria-expanded={open} aria-controls={`${id}-suggestions`}
       aria-activedescendant={open && active >= 0 ? `${id}-suggestion-${active}` : undefined}
       aria-invalid={invalid} required={required}
-      placeholder={required ? "schema.table or schema.*" : "Optional pattern"}
+      placeholder={required ? `${namespace}.table or ${namespace}.*` : "Optional pattern"}
       value={value} disabled={disabled} onFocus={() => setFocused(true)}
       onInput={event => { setFocused(true); onChange(event.currentTarget.value); }}
       onKeyDown={event => {
