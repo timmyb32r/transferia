@@ -155,7 +155,6 @@ macro_rules! deser_bulk {
         }
     }};
 }
-pub(super) use deser_bulk;
 
 macro_rules! deser_bulk_async {
     ($builder:expr, $reader:expr, $rows:expr, $nulls:expr, $buf:expr, $type:ty) => {{
@@ -430,10 +429,18 @@ impl ClickHouseArrowDeserializer for Type {
             // Dates and DateTimes (all fixed size)
             B::Date(b) => { deser_bulk!(raw; b, reader, rows, nulls, rbuffer, u16 => i32) },
             B::DateTime(b) => { deser_bulk!(raw; b, reader, rows, nulls, rbuffer, u32 => i64) },
-            B::DateTimeS(b) => { deser_bulk!(b, reader, rows, nulls, rbuffer, i64) },
-            B::DateTimeMs(b) => { deser_bulk!(b, reader, rows, nulls, rbuffer, i64) },
-            B::DateTimeMu(b) => { deser_bulk!(b, reader, rows, nulls, rbuffer, i64) },
-            B::DateTimeNano(b) => { deser_bulk!(b, reader, rows, nulls, rbuffer, i64) }}
+            B::DateTimeS(b) => {
+                primitive::deserialize_datetime64!(b, self, reader, rows, nulls, rbuffer)
+            },
+            B::DateTimeMs(b) => {
+                primitive::deserialize_datetime64!(b, self, reader, rows, nulls, rbuffer)
+            },
+            B::DateTimeMu(b) => {
+                primitive::deserialize_datetime64!(b, self, reader, rows, nulls, rbuffer)
+            },
+            B::DateTimeNano(b) => {
+                primitive::deserialize_datetime64!(b, self, reader, rows, nulls, rbuffer)
+            }}
             _ => {()});
 
         // Variable length or special handling
@@ -476,15 +483,12 @@ impl ClickHouseArrowDeserializer for Type {
                 let Type::Enum8(pairs) = self else {
                     return Err(Error::UnexpectedType(self.clone()));
                 };
+                b.validate_pairs(pairs)?;
+                enums::validate_nulls(rows, nulls)?;
                 for i in 0..rows {
                     let idx = primitive!(Int8 => reader);
                     if nulls.is_empty() || nulls[i] == 0 {
-                        // Find index in pairs
-                        b.append_value(&pairs.iter().find(|(_, key)| *key == idx).ok_or(
-                            Error::ArrowDeserialize(format!(
-                                "Invalid Enum16 index: {idx} not found in pairs"
-                            ))
-                        )?.0);
+                        b.append_code(i32::from(idx))?;
                     } else {
                         b.append_null();
                     }
@@ -494,15 +498,12 @@ impl ClickHouseArrowDeserializer for Type {
                 let Type::Enum16(pairs) = self else {
                     return Err(Error::UnexpectedType(self.clone()));
                 };
+                b.validate_pairs(pairs)?;
+                enums::validate_nulls(rows, nulls)?;
                 for i in 0..rows {
                     let idx = primitive!(Int16 => reader);
                     if nulls.is_empty() || nulls[i] == 0 {
-                        // Find index in pairs
-                        b.append_value(&pairs.iter().find(|(_, key)| *key == idx).ok_or(
-                            Error::ArrowDeserialize(format!(
-                                "Invalid Enum16 index: {idx} not found in pairs"
-                            ))
-                        )?.0);
+                        b.append_code(i32::from(idx))?;
                     } else {
                         b.append_null();
                     }
@@ -576,8 +577,8 @@ impl ClickHouseArrowDeserializer for Type {
                     // Fixed sized binary, Int256, UInt256, UUID, Ipv4, etc
                     B::FixedSizeBinary(b) => { Arc::new(b.finish()) as ArrayRef },
                     // Enums
-                    B::Enum8(b) => { Arc::new(b.finish()) as ArrayRef },
-                    B::Enum16(b) => { Arc::new(b.finish()) as ArrayRef }
+                    B::Enum8(b) => { b.finish()? },
+                    B::Enum16(b) => { b.finish()? }
                     // Rest are handled above
                 }
                 // Should not be possible. TODO: Somehow enforce exhaustive

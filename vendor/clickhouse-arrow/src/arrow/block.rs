@@ -26,6 +26,10 @@ use crate::prelude::*;
 use crate::serialize::ClickHouseNativeSerializer;
 use crate::{ArrowOptions, Result, Type};
 
+#[cfg(test)]
+#[path = "tests/source_type_metadata.rs"]
+mod source_type_metadata_tests;
+
 /// Implementation of `ProtocolData` for Arrow `RecordBatch`es.
 ///
 /// This implementation serializes a `RecordBatch` to a `ClickHouse` native block, including block
@@ -229,7 +233,12 @@ impl ProtocolData<RecordBatch, ArrowDeserializerState> for RecordBatch {
             // Verify the resulting type against the arrow type, otherwise the builders will fail
             let type_hint =
                 super::types::normalize_type(&internal_type, &arrow_type).unwrap_or(internal_type);
-            let field = Field::new(name, arrow_type, is_nullable);
+            let mut field = Field::new(name, arrow_type, is_nullable);
+            if options.source_type_metadata {
+                field = field.with_metadata(std::collections::HashMap::from([
+                    ("clickhouse.type".to_owned(), type_name),
+                ]));
+            }
 
             if debug_arrow() {
                 trace!(?field, ?type_hint, ?options, "deserializing column {i}");
@@ -294,15 +303,21 @@ impl ProtocolData<RecordBatch, ArrowDeserializerState> for RecordBatch {
 
         for i in 0..columns {
             let name = reader.try_get_string()?;
-            let name = String::from_utf8_lossy(&name);
+            let name = std::str::from_utf8(&name)?;
             let type_name = reader.try_get_string()?;
-            let internal_type = Type::from_str(String::from_utf8_lossy(&type_name).as_ref())?;
+            let type_name = std::str::from_utf8(&type_name)?;
+            let internal_type = Type::from_str(type_name)?;
             let (arrow_type, is_nullable) = internal_type.arrow_type(Some(options))?;
 
             // Verify the resulting type against the arrow type, otherwise the builders will fail
             let type_hint =
                 super::types::normalize_type(&internal_type, &arrow_type).unwrap_or(internal_type);
-            let field = Field::new(name.as_ref(), arrow_type, is_nullable);
+            let mut field = Field::new(name, arrow_type, is_nullable);
+            if options.source_type_metadata {
+                field = field.with_metadata(std::collections::HashMap::from([
+                    ("clickhouse.type".to_owned(), type_name.to_owned()),
+                ]));
+            }
 
             if debug_arrow() {
                 trace!(?field, ?type_hint, ?options, "deserializing column {i}");

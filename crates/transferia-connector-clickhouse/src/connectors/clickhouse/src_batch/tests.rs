@@ -12,8 +12,10 @@ use crate::metrics::MetricsRegistry;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::SystemColumnKind;
 
-use super::connector::source_arrow_type;
+use super::types::source_arrow_type;
 use super::*;
+
+mod source_types;
 
 #[test]
 fn source_type_errors_identify_table_column_and_exact_declaration() {
@@ -22,7 +24,7 @@ fn source_type_errors_identify_table_column_and_exact_declaration() {
         name: "events".into(),
     };
     for declaration in ["NotAClickHouseType", "Nullable("] {
-        let error = connector::source_column_type(&table, "status", declaration).unwrap_err();
+        let error = connector::source_column_type(&table, "status", declaration, config::UnsupportedTypePolicy::Fail).unwrap_err();
         // Display alone must retain the cause too: some consumers render only
         // the top-level message instead of the full anyhow chain.
         let message = error.to_string();
@@ -93,33 +95,33 @@ fn table_form_has_no_manual_primary_key() {
 #[test]
 fn source_preserves_date_and_second_timestamp_types() -> anyhow::Result<()> {
     assert_eq!(
-        source_arrow_type(&"Date".parse()?, "Date")?,
+        source_arrow_type(&"Date".parse()?, "Date")?.0,
         DataType::Date32
     );
     assert_eq!(
-        source_arrow_type(&"Date32".parse()?, "Date32")?,
+        source_arrow_type(&"Date32".parse()?, "Date32")?.0,
         DataType::Date32
     );
     assert_eq!(
-        source_arrow_type(&"DateTime64(0)".parse()?, "DateTime64(0)")?,
+        source_arrow_type(&"DateTime64(0)".parse()?, "DateTime64(0)")?.0,
         DataType::Timestamp(TimeUnit::Second, None),
     );
     assert_eq!(
-        source_arrow_type(&"DateTime64(0, 'UTC')".parse()?, "DateTime64(0, 'UTC')",)?,
+        source_arrow_type(&"DateTime64(0, 'UTC')".parse()?, "DateTime64(0, 'UTC')",)?.0,
         DataType::Timestamp(TimeUnit::Second, Some(Arc::from("UTC"))),
     );
     assert_eq!(
         source_arrow_type(
             &"Nullable(DateTime64(0))".parse()?,
             "Nullable(DateTime64(0))",
-        )?,
+        )?.0,
         DataType::Timestamp(TimeUnit::Second, None),
     );
     assert_eq!(
         source_arrow_type(
             &"Nullable(DateTime('Europe/Moscow'))".parse()?,
             "Nullable(DateTime('Europe/Moscow'))",
-        )?,
+        )?.0,
         DataType::Timestamp(TimeUnit::Second, Some(Arc::from("Europe/Moscow")),),
     );
     Ok(())

@@ -137,6 +137,10 @@ pub(crate) fn schema_conversion(
 pub(crate) fn normalize_type(type_: &Type, arrow_type: &DataType) -> Option<Type> {
     let nullable = type_.is_nullable();
     let type_ = match (type_.strip_null(), arrow_type) {
+        (geo @ (Type::Point | Type::Ring | Type::Polygon | Type::MultiPolygon), _) => {
+            let normalized = normalize_geo_type(geo).ok()?;
+            Some(normalize_type(&normalized, arrow_type).unwrap_or(normalized))
+        }
         (Type::String, DataType::Binary | DataType::BinaryView | DataType::LargeBinary) => {
             Some(Type::Binary)
         }
@@ -190,6 +194,20 @@ pub(crate) fn normalize_type(type_: &Type, arrow_type: &DataType) -> Option<Type
             }
 
             deferred_vec.map(Type::Tuple)
+        }
+        (Type::Map(key, value), DataType::Map(entries, _)) => {
+            let DataType::Struct(fields) = entries.data_type() else { return None };
+            if fields.len() != 2 { return None; }
+            let normalized_key = normalize_type(key, fields[0].data_type());
+            let normalized_value = normalize_type(value, fields[1].data_type());
+            if normalized_key.is_none() && normalized_value.is_none() {
+                None
+            } else {
+                Some(Type::Map(
+                    Box::new(normalized_key.unwrap_or_else(|| key.as_ref().clone())),
+                    Box::new(normalized_value.unwrap_or_else(|| value.as_ref().clone())),
+                ))
+            }
         }
         _ => return None,
     };
@@ -468,9 +486,8 @@ pub fn ch_to_arrow_type(ch_type: &Type, options: Option<ArrowOptions>) -> Result
                 Box::new(ch_to_arrow_type(inner_type, options)?.0),
             )
         }
-        Type::Enum8(_) => DataType::Dictionary(Box::new(DataType::Int8), Box::new(DataType::Utf8)),
-        Type::Enum16(_) => {
-            DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8))
+        Type::Enum8(_) | Type::Enum16(_) => {
+            DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8))
         }
         Type::Point | Type::Ring | Type::Polygon | Type::MultiPolygon => {
             // Normalize Geo types first - Infallible due to type check
@@ -483,6 +500,10 @@ pub fn ch_to_arrow_type(ch_type: &Type, options: Option<ArrowOptions>) -> Result
 
     Ok((arrow_type, is_null))
 }
+
+#[cfg(test)]
+#[path = "tests/nested_type_normalization.rs"]
+mod nested_type_normalization_tests;
 
 #[cfg(test)]
 mod tests {

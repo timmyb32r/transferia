@@ -16,6 +16,21 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("paints matched-list arrows as complete vector silhouettes without stitched borders", () => {
+    const icon = styles.split(".table-matches-height-icon {")[1]?.split("}")[0] ?? "";
+    const restore = styles.split(".table-matches-height-icon-restore {")[1]?.split("}")[0] ?? "";
+    expect(icon).toContain("background: currentColor;");
+    expect(icon).toContain("visibility: inherit;");
+    for (const rule of [icon, restore]) {
+      expect(rule).toMatch(/clip-path: path\(\s*"M[^"\n]+"\s*\);/);
+      expect(rule).not.toMatch(/gradient\(|^\s*(?:border(?:-[a-z]+)*|transform)\s*:/m);
+    }
+    // One continuous outline for Show all, two detached arrowheads/stems for
+    // Restore height. Browser crops verify the gap and rasterized silhouette.
+    expect(icon.match(/M\d/g)).toHaveLength(1);
+    expect(restore.match(/M\d/g)).toHaveLength(2);
+    expect(styles).not.toMatch(/\.table-matches-height-icon(?:-restore)?::(?:before|after)/);
+  });
   it("lets matched lists hand scrolling to the page when fully expanded or at either edge", () => {
     // Both per-rule and aggregate lists use this scroll container. Keeping
     // containment here traps wheel/touch scrolling even after Show all fits it.

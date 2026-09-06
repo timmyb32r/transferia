@@ -138,119 +138,116 @@ impl ClickHouseNativeDeserializer for Type {
 // String => Type Deserialization
 // ---
 
-trait EnumValueType: FromStr + std::fmt::Debug {}
-impl EnumValueType for i8 {}
-impl EnumValueType for i16 {}
-
-macro_rules! parse_enum_options {
-    ($opt_str:expr, $num_type:ty) => {{
-        fn inner_parse(input: &str) -> Result<Vec<(String, $num_type)>> {
-            if !input.starts_with('(') || !input.ends_with(')') {
-                return Err(Error::TypeParseError(
-                    "Enum arguments must be enclosed in parentheses".to_string(),
-                ));
-            }
-
-            let input = input[1..input.len() - 1].trim();
-            if input.is_empty() {
-                return Ok(Vec::new());
-            }
-
-            let mut options = Vec::new();
-            let mut name = String::new();
-            let mut value = String::new();
-            let mut state = EnumParseState::ExpectQuote;
-            let mut escaped = false;
-
-            for ch in input.chars() {
-                match state {
-                    EnumParseState::ExpectQuote => {
-                        if ch == '\'' {
-                            state = EnumParseState::InName;
-                        } else if !ch.is_whitespace() {
-                            return Err(Error::TypeParseError(format!(
-                                "Expected single quote at start of variant name, found '{}'",
-                                ch
-                            )));
-                        }
-                    }
-                    EnumParseState::InName => {
-                        if escaped {
-                            name.push(ch);
-                            escaped = false;
-                        } else if ch == '\\' {
-                            escaped = true;
-                        } else if ch == '\'' {
-                            state = EnumParseState::ExpectEqual;
-                        } else {
-                            name.push(ch);
-                        }
-                    }
-                    EnumParseState::ExpectEqual => {
-                        if ch == '=' {
-                            state = EnumParseState::InValue;
-                        } else if !ch.is_whitespace() {
-                            return Err(Error::TypeParseError(format!(
-                                "Expected '=' after variant name, found '{}'",
-                                ch
-                            )));
-                        }
-                    }
-                    EnumParseState::InValue => {
-                        if ch == ',' {
-                            let parsed_value = value.parse::<$num_type>().map_err(|e| {
-                                Error::TypeParseError(format!("Invalid enum value '{value}': {e}"))
-                            })?;
-                            options.push((name, parsed_value));
-                            name = String::new();
-                            value = String::new();
-                            state = EnumParseState::ExpectQuote;
-                        } else if !ch.is_whitespace() {
-                            value.push(ch);
-                        }
-                    }
-                }
-            }
-
-            match state {
-                EnumParseState::InValue if !value.is_empty() => {
-                    let parsed_value = value.parse::<$num_type>().map_err(|e| {
-                        Error::TypeParseError(format!("Invalid enum value '{value}': {e}"))
-                    })?;
-                    options.push((name, parsed_value));
-                }
-                EnumParseState::ExpectQuote if !input.is_empty() => {
-                    return Err(Error::TypeParseError(
-                        "Expected enum variant, found end of input".to_string(),
-                    ));
-                }
-                EnumParseState::InName | EnumParseState::ExpectEqual => {
-                    return Err(Error::TypeParseError(
-                        "Incomplete enum variant at end of input".to_string(),
-                    ));
-                }
-                _ => {}
-            }
-
-            if input.ends_with(',') {
-                return Err(Error::TypeParseError("Trailing comma in enum variants".to_string()));
-            }
-
-            Ok(options)
+fn parse_enum_options<N: FromStr + Ord>(input: &str) -> Result<Vec<(String, N)>> {
+    let mut remaining = input.strip_prefix('(').and_then(|s| s.strip_suffix(')'))
+        .ok_or_else(|| Error::TypeParseError(
+            "Enum arguments must be enclosed in parentheses".into(),
+        ))?
+        .trim();
+    let mut options = Vec::new();
+    while !remaining.is_empty() {
+        let (name, rest) = parse_enum_label(remaining)?;
+        let rest = rest.trim_start().strip_prefix('=').ok_or_else(|| {
+            Error::TypeParseError("Expected '=' after enum variant name".into())
+        })?;
+        let (value, tail) = rest.split_once(',').map_or((rest, None), |(v, t)| (v, Some(t)));
+        let value = value.trim();
+        let code = value.parse::<N>().map_err(|_| {
+            Error::TypeParseError(format!("Invalid enum value '{value}'"))
+        })?;
+        options.push((name, code));
+        remaining = tail.map(str::trim).unwrap_or("");
+        if tail.is_some() && remaining.is_empty() {
+            return Err(Error::TypeParseError("Trailing comma in enum variants".into()));
         }
-
-        fn assert_numeric_type<T: EnumValueType>() {}
-        assert_numeric_type::<$num_type>();
-        inner_parse($opt_str)
-    }};
+    }
+    validate_enum_options(&options)?;
+    Ok(options)
 }
 
-#[derive(PartialEq)]
-enum EnumParseState {
-    ExpectQuote,
-    InName,
-    ExpectEqual,
-    InValue,
+pub(super) fn validate_enum_options<N: Ord>(options: &[(String, N)]) -> Result<()> {
+    let mut names = std::collections::BTreeSet::new();
+    let mut codes = std::collections::BTreeSet::new();
+    for (name, code) in options {
+        if !names.insert(name) {
+            return Err(Error::TypeParseError("Duplicate enum variant name".into()));
+        }
+        if !codes.insert(code) {
+            return Err(Error::TypeParseError("Duplicate enum numeric code".into()));
+        }
+    }
+    Ok(())
+}
+
+/// Enum names use ClickHouse SQL string escapes, including byte-valued hex
+/// escapes. Decode into bytes first; invalid UTF-8 must fail, never be replaced.
+fn parse_enum_label(input: &str) -> Result<(String, &str)> {
+    parse_quoted_text(input, b'\'')
+}
+
+pub(super) fn parse_quoted_identifier(input: &str) -> Result<(String, &str)> {
+    let quote = input.as_bytes().first().copied().filter(|quote| matches!(quote, b'`' | b'"'))
+        .ok_or_else(|| Error::TypeParseError("Expected quoted identifier".into()))?;
+    parse_quoted_text(input, quote)
+}
+
+fn parse_quoted_text(input: &str, quote: u8) -> Result<(String, &str)> {
+    let bytes = input.as_bytes();
+    if bytes.first() != Some(&quote) {
+        return Err(Error::TypeParseError("Expected quoted name".into()));
+    }
+    let mut decoded = Vec::new();
+    let mut position = 1;
+    while position < bytes.len() {
+        let byte = bytes[position];
+        position += 1;
+        match byte {
+            byte if byte == quote && bytes.get(position) == Some(&quote) => {
+                decoded.push(quote);
+                position += 1;
+            }
+            byte if byte == quote => {
+                let name = String::from_utf8(decoded).map_err(|_| {
+                    Error::TypeParseError("Quoted name is not valid UTF-8".into())
+                })?;
+                return Ok((name, &input[position..]));
+            }
+            b'\\' => {
+                let escaped = *bytes.get(position).ok_or_else(|| {
+                    Error::TypeParseError("Incomplete escape in quoted name".into())
+                })?;
+                position += 1;
+                match escaped {
+                    b'x' => {
+                        let hex = bytes.get(position..position + 2).ok_or_else(|| {
+                            Error::TypeParseError("Quoted hex escape requires two hex digits".into())
+                        })?;
+                        let digit = |byte: u8| (byte as char).to_digit(16).map(|v| v as u8);
+                        let value = digit(hex[0]).zip(digit(hex[1])).map(|(h, l)| h * 16 + l)
+                            .ok_or_else(|| Error::TypeParseError(
+                                "Quoted hex escape requires two hex digits".into(),
+                            ))?;
+                        decoded.push(value);
+                        position += 2;
+                    }
+                    b'N' => {}
+                    b'a' => decoded.push(7),
+                    b'b' => decoded.push(8),
+                    b'e' => decoded.push(27),
+                    b'f' => decoded.push(12),
+                    b'n' => decoded.push(b'\n'),
+                    b'r' => decoded.push(b'\r'),
+                    b't' => decoded.push(b'\t'),
+                    b'v' => decoded.push(11),
+                    b'0' => decoded.push(0),
+                    b'\\' | b'\'' | b'"' | b'`' | b'/' | b'=' | 0..=31 => decoded.push(escaped),
+                    _ => decoded.extend_from_slice(&[b'\\', escaped]),
+                }
+            }
+            _ => decoded.push(byte),
+        }
+    }
+    Err(Error::TypeParseError("Unclosed quoted name".into()))
 }
 
 impl FromStr for Type {
@@ -276,14 +273,9 @@ impl FromStr for Type {
                     }
                     let p: usize = parse_precision(args[0])?;
                     let s: usize = parse_scale(args[1])?;
-                    if s == 0
-                        || (p <= 9 && s > 9)
-                        || (p <= 18 && s > 18)
-                        || (p <= 38 && s > 38)
-                        || (p <= 76 && s > 76)
-                    {
+                    if !(1..=76).contains(&p) || s > p {
                         return Err(Error::TypeParseError(format!(
-                            "Invalid scale {s} for precision {p}"
+                            "Decimal({p}, {s}) requires precision 1..=76 and scale 0..=precision"
                         )));
                     }
                     if p <= 9 {
@@ -292,12 +284,8 @@ impl FromStr for Type {
                         Type::Decimal64(s)
                     } else if p <= 38 {
                         Type::Decimal128(s)
-                    } else if p <= 76 {
-                        Type::Decimal256(s)
                     } else {
-                        return Err(Error::TypeParseError(
-                            "bad decimal spec, cannot exceed 76 precision".to_string(),
-                        ));
+                        Type::Decimal256(s)
                     }
                 }
                 "Decimal32" => {
@@ -308,9 +296,9 @@ impl FromStr for Type {
                         )));
                     }
                     let s: usize = parse_scale(args[0])?;
-                    if s == 0 || s > 9 {
+                    if s > 9 {
                         return Err(Error::TypeParseError(format!(
-                            "Invalid scale {s} for Decimal32, must be 1..=9"
+                            "Invalid scale {s} for Decimal32, must be 0..=9"
                         )));
                     }
                     Type::Decimal32(s)
@@ -323,9 +311,9 @@ impl FromStr for Type {
                         )));
                     }
                     let s: usize = parse_scale(args[0])?;
-                    if s == 0 || s > 18 {
+                    if s > 18 {
                         return Err(Error::TypeParseError(format!(
-                            "Invalid scale {s} for Decimal64, must be 1..=18"
+                            "Invalid scale {s} for Decimal64, must be 0..=18"
                         )));
                     }
                     Type::Decimal64(s)
@@ -338,9 +326,9 @@ impl FromStr for Type {
                         )));
                     }
                     let s: usize = parse_scale(args[0])?;
-                    if s == 0 || s > 38 {
+                    if s > 38 {
                         return Err(Error::TypeParseError(format!(
-                            "Invalid scale {s} for Decimal128, must be 1..=38"
+                            "Invalid scale {s} for Decimal128, must be 0..=38"
                         )));
                     }
                     Type::Decimal128(s)
@@ -353,9 +341,9 @@ impl FromStr for Type {
                         )));
                     }
                     let s: usize = parse_scale(args[0])?;
-                    if s == 0 || s > 76 {
+                    if s > 76 {
                         return Err(Error::TypeParseError(format!(
-                            "Invalid scale {s} for Decimal256, must be 1..=76"
+                            "Invalid scale {s} for Decimal256, must be 0..=76"
                         )));
                     }
                     Type::Decimal256(s)
@@ -368,9 +356,9 @@ impl FromStr for Type {
                         )));
                     }
                     let s: usize = parse_scale(args[0])?;
-                    if s == 0 {
+                    if s == 0 || i32::try_from(s).is_err() {
                         return Err(Error::TypeParseError(
-                            "FixedString size must be greater than 0".to_string(),
+                            "FixedString size must fit a positive Arrow i32 width".to_string(),
                         ));
                     }
                     Type::FixedSizedString(s)
@@ -407,6 +395,11 @@ impl FromStr for Type {
                         )));
                     }
                     let precision = parse_precision(args[0])?;
+                    if precision > 9 {
+                        return Err(Error::TypeParseError(format!(
+                            "DateTime64 precision must be 0..=9, received {precision}"
+                        )));
+                    }
                     let tz = if count == 2 {
                         let tz_str = args[1];
                         if !tz_str.starts_with('\'') || !tz_str.ends_with('\'') {
@@ -424,8 +417,8 @@ impl FromStr for Type {
                     };
                     Type::DateTime64(precision, tz)
                 }
-                "Enum8" => Type::Enum8(parse_enum_options!(following, i8)?),
-                "Enum16" => Type::Enum16(parse_enum_options!(following, i16)?),
+                "Enum8" => Type::Enum8(parse_enum_options::<i8>(following)?),
+                "Enum16" => Type::Enum16(parse_enum_options::<i16>(following)?),
                 "LowCardinality" => {
                     let (args, count) = parse_fixed_args::<1>(following)?;
                     if count != 1 {
@@ -540,22 +533,21 @@ fn eat_identifier(input: &str) -> (&str, &str) {
 ///
 /// Important: We must not strip parts of types that contain internal spaces, like
 /// `Map(String, Int32)` where the space after the comma is part of the type itself.
-/// A field name is always a simple identifier (no parentheses) followed by a space.
+/// Quoted identifiers may contain spaces, delimiters and escaped quotes.
 fn strip_tuple_field_name(arg: &str) -> &str {
     let arg = arg.trim();
-    if let Some(space_idx) = arg.find(' ') {
-        let before_space = &arg[..space_idx];
-        // If the part before the space contains '(', it's a type with arguments,
-        // not a field name. E.g., "Map(String, Int32)" - the space is inside the type.
-        if before_space.contains('(') {
-            return arg;
-        }
-        let rest = arg[space_idx..].trim_start();
-        if rest.chars().next().is_some_and(char::is_alphabetic) {
-            return rest;
-        }
-    }
-    arg
+    let rest = if arg.starts_with(['`', '"']) {
+        let Ok((_, rest)) = parse_quoted_identifier(arg) else { return arg };
+        rest
+    } else {
+        let (name, rest) = eat_identifier(arg);
+        if name.is_empty() { return arg; }
+        rest
+    };
+    // A malformed identifier/type boundary must not turn into a valid anonymous type.
+    if !rest.starts_with(char::is_whitespace) { return arg; }
+    let rest = rest.trim();
+    if Type::from_str(rest).is_ok() { rest } else { arg }
 }
 
 /// Parse arguments into a fixed-size array for types with a known number of args
@@ -598,14 +590,14 @@ fn parse_args_iter(input: &str) -> Result<impl Iterator<Item = Result<&str, Erro
         return Err(Error::TypeParseError("Trailing comma in argument list".to_string()));
     }
 
-    Ok(ArgsIterator { input, last_start: 0, in_parens: 0, in_quotes: false, done: false })
+    Ok(ArgsIterator { input, last_start: 0, in_parens: 0, quote: None, done: false })
 }
 
 struct ArgsIterator<'a> {
     input:      &'a str,
     last_start: usize,
     in_parens:  usize,
-    in_quotes:  bool,
+    quote:      Option<char>,
     done:       bool,
 }
 
@@ -620,28 +612,41 @@ impl<'a> Iterator for ArgsIterator<'a> {
 
         let start = self.last_start;
         let mut i = start;
-        let chars = self.input[start..].char_indices();
+        let mut chars = self.input[start..].char_indices().peekable();
         let mut escaped = false;
 
-        for (offset, c) in chars {
+        while let Some((offset, c)) = chars.next() {
             i = start + offset;
-            if self.in_quotes {
+            if let Some(quote) = self.quote {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
                 if c == '\\' {
                     escaped = true;
                     continue;
                 }
-                if c == '\'' && !escaped {
-                    self.in_quotes = false;
+                if c == quote {
+                    if chars.peek().is_some_and(|(_, next)| *next == quote) {
+                        let _ = chars.next();
+                    } else {
+                        self.quote = None;
+                    }
                 }
-                escaped = false;
                 continue;
             }
             match c {
-                '\'' if !escaped => {
-                    self.in_quotes = true;
+                '\'' | '"' | '`' => {
+                    self.quote = Some(c);
                 }
                 '(' => self.in_parens += 1,
-                ')' => self.in_parens -= 1,
+                ')' => {
+                    let Some(depth) = self.in_parens.checked_sub(1) else {
+                        self.done = true;
+                        return Some(Err(Error::TypeParseError("Mismatched parentheses".into())));
+                    };
+                    self.in_parens = depth;
+                }
                 ',' if self.in_parens == 0 => {
                     let slice = self.input[self.last_start..i].trim();
                     if slice.is_empty() {
@@ -657,7 +662,7 @@ impl<'a> Iterator for ArgsIterator<'a> {
             escaped = false;
         }
 
-        if self.in_parens != 0 {
+        if self.in_parens != 0 || self.quote.is_some() {
             self.done = true;
             return Some(Err(Error::TypeParseError("Mismatched parentheses".to_string())));
         }
@@ -681,6 +686,10 @@ impl<'a> Iterator for ArgsIterator<'a> {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "tests/parser_losslessness.rs"]
+mod losslessness_tests;
 
 #[cfg(test)]
 mod tests {
@@ -763,7 +772,7 @@ mod tests {
         assert_eq!(Type::from_str("Decimal(38, 6)").unwrap(), Type::Decimal128(6));
         assert_eq!(Type::from_str("Decimal(76, 8)").unwrap(), Type::Decimal256(8));
 
-        assert!(Type::from_str("Decimal32(0)").is_err()); // Invalid scale
+        assert_eq!(Type::from_str("Decimal32(0)").unwrap(), Type::Decimal32(0));
         assert!(Type::from_str("Decimal(77, 8)").is_err()); // Precision too large
         assert!(Type::from_str("Decimal(9)").is_err()); // Missing scale
     }

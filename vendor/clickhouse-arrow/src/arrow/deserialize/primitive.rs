@@ -12,7 +12,7 @@
 //! input stream. It respects the `ClickHouse` null mask convention (`1`=null, `0`=non-null)
 //! and includes default values for nulls (e.g., `0` for numeric types, zeroed buffers for
 //! decimals). The implementation aligns with ClickHouse’s native format, using little-endian
-//! for most numeric types and big-endian with byte reversal for `Decimal256`.
+//! for numeric types, including `Decimal256`.
 use std::sync::Arc;
 
 use arrow::array::*;
@@ -77,7 +77,6 @@ macro_rules! primitive {
         {
             let mut buf = [0u8; 32];
             $reader.try_copy_to_slice(&mut buf)?;
-            buf.reverse();
             i256::from_le_bytes(buf)
         }
     }};
@@ -117,12 +116,75 @@ macro_rules! primitive_async {
         {
             let mut buf = [0u8; 32];
             let _ = $reader.read_exact(&mut buf).await?;
-            buf.reverse();
             i256::from_le_bytes(buf)
         }
     }};
 }
 pub(super) use primitive_async;
+
+/// ClickHouse stores ticks in units of 10^-precision seconds. Arrow only has
+/// second/millisecond/microsecond/nanosecond units, so intermediate precisions
+/// need exact multiplication before being put into the corresponding builder.
+pub(super) fn append_datetime64_ticks<T: ArrowPrimitiveType<Native = i64>>(
+    builder: &mut PrimitiveBuilder<T>,
+    type_hint: &Type,
+    bytes: &[u8],
+    nulls: &[u8],
+) -> Result<()> {
+    let Type::DateTime64(precision, _) = type_hint.strip_null() else {
+        return Err(Error::UnexpectedType(type_hint.clone()));
+    };
+    let multiplier = match precision {
+        0 | 3 | 6 | 9 => 1,
+        1 | 4 | 7 => 100,
+        2 | 5 | 8 => 10,
+        _ => return Err(Error::ArrowDeserialize(format!(
+            "DateTime64 precision must be 0-9, received {precision}"
+        ))),
+    };
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    // Preserve the bulk-copy fast path when the units already agree.
+    if multiplier == 1 && nulls.is_empty() && cfg!(target_endian = "little") {
+        builder.append_slice(bytemuck::cast_slice(bytes));
+        return Ok(());
+    }
+    for (row, bytes) in bytes.chunks_exact(8).enumerate() {
+        if !nulls.is_empty() && nulls[row] != 0 {
+            builder.append_null();
+            continue;
+        }
+        let ticks = i64::from_le_bytes(bytes.try_into().expect("eight-byte timestamp"));
+        let scaled = ticks.checked_mul(multiplier).ok_or_else(|| {
+            Error::ArrowDeserialize(format!(
+                "DateTime64({precision}) at row {row}: overflow converting ticks to Arrow timestamp units"
+            ))
+        })?;
+        builder.append_value(scaled);
+    }
+    Ok(())
+}
+
+macro_rules! deserialize_datetime64 {
+    ($builder:expr, $type_hint:expr, $reader:expr, $rows:expr, $nulls:expr, $buffer:expr) => {{
+        let bytes = $crate::arrow::deserialize::primitive::primitive_bulk!(
+            $reader, $rows, $buffer, i64
+        );
+        $crate::arrow::deserialize::primitive::append_datetime64_ticks(
+            $builder, $type_hint, &$buffer[..bytes], $nulls
+        )?;
+    }};
+    (tokio; $builder:expr, $type_hint:expr, $reader:expr, $rows:expr, $nulls:expr, $buffer:expr) => {{
+        let bytes = $crate::arrow::deserialize::primitive::primitive_bulk!(
+            tokio; $reader, $rows, $buffer, i64
+        );
+        $crate::arrow::deserialize::primitive::append_datetime64_ticks(
+            $builder, $type_hint, &$buffer[..bytes], $nulls
+        )?;
+    }};
+}
+pub(super) use deserialize_datetime64;
 
 /// Deserializes a `ClickHouse` primitive type into an Arrow array.
 ///
@@ -133,7 +195,7 @@ pub(super) use primitive_async;
 /// (`Decimal32`, `Decimal64`, `Decimal128`, `Decimal256`). Handles nullability via the provided
 /// null mask (`1`=null, `0`=non-null), producing default values (e.g., `0` for numeric types,
 /// zeroed buffers for decimals) for nulls. Aligns with `ClickHouse`’s native format, using
-/// little-endian for most numeric types and big-endian with byte reversal for `Decimal256`.
+/// little-endian for numeric types, including `Decimal256`.
 ///
 /// # Arguments
 /// - `type_hint`: The `ClickHouse` type to deserialize (e.g., `Int32`, `DateTime`).
@@ -176,7 +238,7 @@ pub(super) use primitive_async;
 /// assert_eq!(array.as_ref(), expected.as_ref());
 /// ```
 pub(crate) async fn deserialize_async<R: ClickHouseRead>(
-    _: &Type,
+    type_hint: &Type,
     builder: &mut TypedBuilder,
     reader: &mut R,
     rows: usize,
@@ -215,11 +277,17 @@ pub(crate) async fn deserialize_async<R: ClickHouseRead>(
         B::DateTime(b) => {
             super::deser_bulk_async!(raw; b, reader, rows, null_mask, rbuffer, u32 => i64)
         },
-        B::DateTimeS(b) => { super::deser_bulk_async!(b, reader, rows, null_mask, rbuffer, i64) },
-        B::DateTimeMs(b) => { super::deser_bulk_async!(b, reader, rows, null_mask, rbuffer, i64) },
-        B::DateTimeMu(b) => { super::deser_bulk_async!(b, reader, rows, null_mask, rbuffer, i64) },
+        B::DateTimeS(b) => {
+            deserialize_datetime64!(tokio; b, type_hint, reader, rows, null_mask, rbuffer)
+        },
+        B::DateTimeMs(b) => {
+            deserialize_datetime64!(tokio; b, type_hint, reader, rows, null_mask, rbuffer)
+        },
+        B::DateTimeMu(b) => {
+            deserialize_datetime64!(tokio; b, type_hint, reader, rows, null_mask, rbuffer)
+        },
         B::DateTimeNano(b) => {
-            super::deser_bulk_async!(b, reader, rows, null_mask, rbuffer, i64)
+            deserialize_datetime64!(tokio; b, type_hint, reader, rows, null_mask, rbuffer)
         }}
         _ => {()});
 
@@ -266,6 +334,10 @@ pub(crate) async fn deserialize_async<R: ClickHouseRead>(
         "Unexpected builder type for primitive".into()))
     }))
 }
+
+#[cfg(test)]
+#[path = "tests/primitive_losslessness.rs"]
+mod losslessness_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1257,17 +1329,10 @@ mod tests {
         let type_hint = Type::Decimal256(10); // Scale 10 (within precision 76)
         let rows = 2;
         let null_mask = vec![];
-        let input = vec![
-            // Decimal256: [100, 200] (big-endian, reversed to little-endian)
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 100, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 200, //
-        ];
+        let input = [i256::from(100), i256::from(200)]
+            .into_iter()
+            .flat_map(i256::to_le_bytes)
+            .collect::<Vec<_>>();
         let mut reader = Cursor::new(input);
 
         // Create a TypedBuilder for Decimal256
@@ -1292,31 +1357,10 @@ mod tests {
         let type_hint = Type::Nullable(Box::new(Type::Decimal256(10)));
         let rows = 3;
         let null_mask = vec![0, 1, 0]; // [not null, null, not null]
-        let input = vec![
-            // Decimal256: [100, 200] (big-endian, reversed to little-endian)
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 100, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 200, //
-            // Decimal256: [100, 0, 300] (big-endian, reversed to little-endian)
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 100, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 0, //
-            0, 0, 0, 0, 0, 0, 0, 44, //
-            1,
-        ];
+        let input = [i256::from(100), i256::from(0), i256::from(300)]
+            .into_iter()
+            .flat_map(i256::to_le_bytes)
+            .collect::<Vec<_>>();
         let mut reader = Cursor::new(input);
 
         // Create a TypedBuilder for Nullable(Decimal256)
@@ -1329,7 +1373,7 @@ mod tests {
                 .expect("Failed to deserialize Nullable(Decimal256)");
         let array = result.as_any().downcast_ref::<Decimal256Array>().unwrap();
         let expected =
-            Decimal256Array::from(vec![Some(i256::from(100)), None, Some(i256::from(100))])
+            Decimal256Array::from(vec![Some(i256::from(100)), None, Some(i256::from(300))])
                 .with_precision_and_scale(76, 10)
                 .unwrap();
         assert_eq!(array, &expected);

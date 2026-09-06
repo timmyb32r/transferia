@@ -86,6 +86,14 @@ pub enum Type {
 }
 
 impl Type {
+    /// Decode a ClickHouse backtick- or double-quoted identifier and return its remainder.
+    ///
+    /// # Errors
+    /// Returns an error for malformed quoting/escapes or an identifier that is not UTF-8.
+    pub fn parse_quoted_identifier(input: &str) -> Result<(String, &str)> {
+        deserialize::parse_quoted_identifier(input)
+    }
+
     /// # Errors
     ///
     /// Errors if the type is not an array
@@ -255,7 +263,7 @@ impl Display for Type {
                 if !items.is_empty() {
                     let last_index = items.len() - 1;
                     for (i, (name, value)) in items.iter().enumerate() {
-                        write!(f, "'{}' = {value}", name.replace('\'', "''"))?;
+                        write!(f, "'{}' = {value}", name.replace('\\', "\\\\").replace('\'', "''"))?;
                         if i < last_index {
                             write!(f, ",")?;
                         }
@@ -268,7 +276,7 @@ impl Display for Type {
                 if !items.is_empty() {
                     let last_index = items.len() - 1;
                     for (i, (name, value)) in items.iter().enumerate() {
-                        write!(f, "'{}' = {value}", name.replace('\'', "''"))?;
+                        write!(f, "'{}' = {value}", name.replace('\\', "\\\\").replace('\'', "''"))?;
                         if i < last_index {
                             write!(f, ",")?;
                         }
@@ -575,39 +583,53 @@ impl Type {
     pub(crate) fn validate(&self) -> Result<()> {
         match self {
             Type::Decimal32(scale) => {
-                if *scale == 0 || *scale > 9 {
+                if *scale > 9 {
                     return Err(Error::TypeParseError(format!(
-                        "scale out of bounds for Decimal32({}) must be in range (1..=9)",
+                        "scale out of bounds for Decimal32({}) must be in range (0..=9)",
                         *scale
                     )));
                 }
             }
 
             Type::Decimal128(scale) => {
-                if *scale == 0 || *scale > 38 {
+                if *scale > 38 {
                     return Err(Error::TypeParseError(format!(
-                        "scale out of bounds for Decimal128({}) must be in range (1..=38)",
+                        "scale out of bounds for Decimal128({}) must be in range (0..=38)",
                         *scale
                     )));
                 }
             }
             Type::Decimal256(scale) => {
-                if *scale == 0 || *scale > 76 {
+                if *scale > 76 {
                     return Err(Error::TypeParseError(format!(
-                        "scale out of bounds for Decimal256({}) must be in range (1..=76)",
+                        "scale out of bounds for Decimal256({}) must be in range (0..=76)",
                         *scale
                     )));
                 }
             }
-            Type::DateTime64(precision, _) | Type::Decimal64(precision) => {
-                if *precision == 0 || *precision > 18 {
+            Type::Decimal64(scale) => {
+                if *scale > 18 {
                     return Err(Error::TypeParseError(format!(
-                        "precision out of bounds for Decimal64/DateTime64({}) must be in range \
-                         (1..=18)",
-                        *precision
+                        "scale out of bounds for Decimal64({scale}) must be in range (0..=18)"
                     )));
                 }
             }
+            Type::DateTime64(precision, _) => {
+                if *precision > 9 {
+                    return Err(Error::TypeParseError(format!(
+                        "DateTime64 precision must be 0..=9, received {precision}"
+                    )));
+                }
+            }
+            Type::FixedSizedString(size) | Type::FixedSizedBinary(size) => {
+                if *size == 0 || i32::try_from(*size).is_err() {
+                    return Err(Error::TypeParseError(
+                        "FixedString size must fit a positive Arrow i32 width".into(),
+                    ));
+                }
+            }
+            Type::Enum8(options) => deserialize::validate_enum_options(options)?,
+            Type::Enum16(options) => deserialize::validate_enum_options(options)?,
             Type::LowCardinality(inner) => match inner.strip_null() {
                 Type::String
                 | Type::FixedSizedString(_)

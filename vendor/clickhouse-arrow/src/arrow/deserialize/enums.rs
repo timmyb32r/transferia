@@ -2,7 +2,7 @@
 //! `DictionaryArray`.
 //!
 //! This module provides a function to deserialize `ClickHouse`’s native format for `Enum8` and
-//! `Enum16` types into an Arrow `DictionaryArray` with integer keys (`Int8` or `Int16`) and
+//! `Enum16` types into an Arrow `DictionaryArray` with integer keys (`Int32`) and
 //! string values.
 //!
 //! The `deserialize` function reads raw indices (`i8` for `Enum8`, `i16` for `Enum16`,
@@ -12,8 +12,8 @@
 //!
 //! # Examples
 //! ```rust,ignore
-//! use arrow::array::{ArrayRef, DictionaryArray, Int8Array, StringArray};
-//! use arrow::datatypes::Int8Type;
+//! use arrow::array::{ArrayRef, DictionaryArray, Int32Array, StringArray};
+//! use arrow::datatypes::Int32Type;
 //! use clickhouse_arrow::types::{Type, enums::deserialize, DeserializerState};
 //! use std::sync::Arc;
 //! use tokio::io::Cursor;
@@ -27,16 +27,14 @@
 //!     let array = deserialize(&Type::Enum8(pairs), &mut reader, 3, &[])
 //!         .await
 //!         .unwrap();
-//!     let keys = Arc::new(Int8Array::from(vec![0, 1, 0])) as ArrayRef; // Normalized keys
+//!     let keys = Arc::new(Int32Array::from(vec![0, 1, 0])) as ArrayRef; // Normalized keys
 //!     let values = Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef;
 //!     let expected =
-//!         Arc::new(DictionaryArray::<Int8Type>::try_new(keys, values).unwrap()) as ArrayRef;
+//!         Arc::new(DictionaryArray::<Int32Type>::try_new(keys, values).unwrap()) as ArrayRef;
 //!     assert_eq!(array.as_ref(), expected.as_ref());
 //! }
 //! ```
-use std::sync::Arc;
-
-use arrow::array::*;
+use arrow::array::ArrayRef;
 use tokio::io::AsyncReadExt;
 
 use crate::arrow::builder::TypedBuilder;
@@ -45,11 +43,9 @@ use crate::{Error, Result, Type};
 
 /// Deserializes a `ClickHouse` `Enum8` or `Enum16` type into an Arrow `DictionaryArray`.
 ///
-/// The implementation iterates over the `pairs` vector for index lookup, optimized for small enum
-/// sizes (typically <100 elements), avoiding `HashMap` allocations and ensuring cache-friendly
-/// access. The output `DictionaryArray` contains string values, with original index mappings
-/// preserved in the `Type::Enum` metadata for serialization or schema queries. For example, an
-/// input of `[1, 2, 1]` for `Enum8` with `pairs = [("a", 1), ("b", 2)]` produces a
+/// A bounded dense lookup maps signed ClickHouse codes to declaration-order dictionary keys.
+/// The original labels remain in declaration order, including labels absent from a block.
+/// An input of `[1, 2, 1]` for `Enum8` with `pairs = [("a", 1), ("b", 2)]` produces a
 /// `DictionaryArray` with keys `[0, 1, 0]` and values `["a", "b"]`, representing `["a", "b", "a"]`.
 ///
 /// # Arguments
@@ -72,12 +68,8 @@ use crate::{Error, Result, Type};
 /// - Returns `Io` if reading from the reader fails.
 ///
 /// # Performance
-/// The implementation is optimized for high-throughput deserialization:
-/// - Uses a single `Vec<Option<i8>>` or `Vec<Option<i16>>` allocation for keys, sized to `rows`.
-/// - Iterates over `pairs` (small, typically <100 elements) for index lookup, cache-friendly and
-///   fast.
-/// - Avoids `HashMap` or deduplication overhead, minimizing allocations and memory fragmentation.
-/// - Constructs the `StringArray` for values directly from `pairs`, with minimal copying.
+/// A lookup allocated once per typed builder gives constant-time decoding for every code.
+/// The key buffer is reused between blocks; the complete string dictionary is shared.
 pub(super) async fn deserialize_async<R: ClickHouseRead>(
     type_hint: &Type,
     builder: &mut TypedBuilder,
@@ -85,44 +77,37 @@ pub(super) async fn deserialize_async<R: ClickHouseRead>(
     rows: usize,
     nulls: &[u8],
 ) -> Result<ArrayRef> {
+    validate_nulls(rows, nulls)?;
     super::deser!(() => builder => {
         TypedBuilder::Enum8(b) => {{
             let Type::Enum8(pairs) = type_hint else {
                 return Err(Error::UnexpectedType(type_hint.clone()));
             };
+            b.validate_pairs(pairs)?;
             for i in 0..rows {
                 let idx = super::primitive::primitive_async!(Int8 => reader);
                 if nulls.is_empty() || nulls[i] == 0 {
-                    // Find index in pairs
-                    b.append_value(&pairs.iter().find(|(_, key)| *key == idx).ok_or(
-                        Error::ArrowDeserialize(format!(
-                            "Invalid Enum8 index: {idx} not found in pairs"
-                        ))
-                    )?.0);
+                    b.append_code(i32::from(idx))?;
                 } else {
                     b.append_null();
                 }
             }
-            Ok(Arc::new(b.finish()) as ArrayRef)
+            b.finish()
         }},
         TypedBuilder::Enum16(b) => {{
             let Type::Enum16(pairs) = type_hint else {
                 return Err(Error::UnexpectedType(type_hint.clone()));
             };
+            b.validate_pairs(pairs)?;
             for i in 0..rows {
                 let idx = super::primitive::primitive_async!(Int16 => reader);
                 if nulls.is_empty() || nulls[i] == 0 {
-                    // Find index in pairs
-                    b.append_value(&pairs.iter().find(|(_, key)| *key == idx).ok_or(
-                        Error::ArrowDeserialize(format!(
-                            "Invalid Enum16 index: {idx} not found in pairs"
-                        ))
-                    )?.0);
+                    b.append_code(i32::from(idx))?;
                 } else {
                     b.append_null();
                 }
             }
-            Ok(Arc::new(b.finish()) as ArrayRef)
+            b.finish()
         }}
     }
     _ => { Err(Error::ArrowDeserialize(format!(
@@ -130,13 +115,24 @@ pub(super) async fn deserialize_async<R: ClickHouseRead>(
     )))})
 }
 
+pub(super) fn validate_nulls(rows: usize, nulls: &[u8]) -> Result<()> {
+    if !nulls.is_empty() && nulls.len() != rows {
+        return Err(Error::ArrowDeserialize("Enum null mask length differs from row count".into()));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "tests/enums_regression.rs"]
+mod regression_tests;
+
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
     use std::sync::Arc;
 
-    use arrow::array::{DictionaryArray, Int8Array, Int16Array, StringArray};
-    use arrow::datatypes::{Int8Type, Int16Type};
+    use arrow::array::{DictionaryArray, Int32Array, StringArray};
+    use arrow::datatypes::Int32Type;
 
     use super::*;
 
@@ -151,14 +147,14 @@ mod tests {
 
         let type_ = Type::Enum8(pairs);
         let data_type = arrow::datatypes::DataType::Dictionary(
-            Box::new(arrow::datatypes::DataType::Int8),
+            Box::new(arrow::datatypes::DataType::Int32),
             Box::new(arrow::datatypes::DataType::Utf8),
         );
         let mut builder = TypedBuilder::try_new(&type_, &data_type).unwrap();
         let array = deserialize_async(&type_, &mut builder, &mut reader, 3, &[]).await.unwrap();
         let values = Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef;
         let expected = Arc::new(
-            DictionaryArray::<Int8Type>::try_new(Int8Array::from(vec![0, 1, 0]), values).unwrap(),
+            DictionaryArray::<Int32Type>::try_new(Int32Array::from(vec![0, 1, 0]), values).unwrap(),
         ) as ArrayRef;
         assert_eq!(array.as_ref(), expected.as_ref());
     }
@@ -171,14 +167,14 @@ mod tests {
 
         let type_ = Type::Enum16(pairs);
         let data_type = arrow::datatypes::DataType::Dictionary(
-            Box::new(arrow::datatypes::DataType::Int16),
+            Box::new(arrow::datatypes::DataType::Int32),
             Box::new(arrow::datatypes::DataType::Utf8),
         );
         let mut builder = TypedBuilder::try_new(&type_, &data_type).unwrap();
         let array = deserialize_async(&type_, &mut builder, &mut reader, 3, &[]).await.unwrap();
         let values = Arc::new(StringArray::from(vec!["x", "y"])) as ArrayRef;
         let expected = Arc::new(
-            DictionaryArray::<Int16Type>::try_new(Int16Array::from(vec![0, 1, 0]), values).unwrap(),
+            DictionaryArray::<Int32Type>::try_new(Int32Array::from(vec![0, 1, 0]), values).unwrap(),
         ) as ArrayRef;
         assert_eq!(array.as_ref(), expected.as_ref());
     }
@@ -192,15 +188,15 @@ mod tests {
 
         let type_ = Type::Enum8(pairs);
         let data_type = arrow::datatypes::DataType::Dictionary(
-            Box::new(arrow::datatypes::DataType::Int8),
+            Box::new(arrow::datatypes::DataType::Int32),
             Box::new(arrow::datatypes::DataType::Utf8),
         );
         let mut builder = TypedBuilder::try_new(&type_, &data_type).unwrap();
         let array = deserialize_async(&type_, &mut builder, &mut reader, 3, &nulls).await.unwrap();
         let values = Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef;
         let expected = Arc::new(
-            DictionaryArray::<Int8Type>::try_new(
-                Int8Array::from(vec![Some(0), None, Some(0)]),
+            DictionaryArray::<Int32Type>::try_new(
+                Int32Array::from(vec![Some(0), None, Some(0)]),
                 values,
             )
             .unwrap(),
@@ -216,14 +212,14 @@ mod tests {
 
         let type_ = Type::Enum8(pairs);
         let data_type = arrow::datatypes::DataType::Dictionary(
-            Box::new(arrow::datatypes::DataType::Int8),
+            Box::new(arrow::datatypes::DataType::Int32),
             Box::new(arrow::datatypes::DataType::Utf8),
         );
         let mut builder = TypedBuilder::try_new(&type_, &data_type).unwrap();
         let array = deserialize_async(&type_, &mut builder, &mut reader, 0, &[]).await.unwrap();
         let values = Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef;
         let expected = Arc::new(
-            DictionaryArray::<Int8Type>::try_new(Int8Array::from(Vec::<i8>::new()), values)
+            DictionaryArray::<Int32Type>::try_new(Int32Array::from(Vec::<i32>::new()), values)
                 .unwrap(),
         ) as ArrayRef;
         assert_eq!(array.as_ref(), expected.as_ref());
@@ -237,7 +233,7 @@ mod tests {
 
         let type_ = Type::Enum8(pairs);
         let data_type = arrow::datatypes::DataType::Dictionary(
-            Box::new(arrow::datatypes::DataType::Int8),
+            Box::new(arrow::datatypes::DataType::Int32),
             Box::new(arrow::datatypes::DataType::Utf8),
         );
         let mut builder = TypedBuilder::try_new(&type_, &data_type).unwrap();

@@ -5181,32 +5181,24 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   white-space: nowrap;
 }
 .table-matches-height-icon {
-  position: relative;
   visibility: inherit;
   flex: 0 0 14px;
   width: 14px;
   min-width: 14px;
   height: 14px;
-  background: linear-gradient(currentColor, currentColor) center / 1.5px 12px no-repeat;
+  background: currentColor;
+  /* One filled 14px vector avoids seams between separately rasterized shafts
+     and rotated borders. The outline has a uniform 1.5px weight and round ends. */
+  clip-path: path(
+    "M7.53 1.47a.75.75 0 0 0-1.06 0L3.47 4.47a.75.75 0 0 0 1.06 1.06L6.25 3.81v6.38L4.53 8.47a.75.75 0 0 0-1.06 1.06l3 3a.75.75 0 0 0 1.06 0l3-3a.75.75 0 0 0-1.06-1.06l-1.72 1.72V3.81l1.72 1.72a.75.75 0 0 0 1.06-1.06Z"
+  );
 }
-.table-matches-height-icon::before,
-.table-matches-height-icon::after {
-  content: "";
-  position: absolute;
-  left: 4.5px;
-  width: 5px;
-  height: 5px;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-}
-.table-matches-height-icon::before { top: 2px; transform: rotate(225deg); }
-.table-matches-height-icon::after { bottom: 2px; transform: rotate(45deg); }
 .table-matches-height-icon-restore {
-  background-image: linear-gradient(currentColor 6px, transparent 6px 8px, currentColor 8px);
-  background-size: 1.5px 14px;
+  /* Mirrored inward arrows leave a 3.5px clear gap between their rounded tips. */
+  clip-path: path(
+    "M6.25 1.25a.75.75 0 0 1 1.5 0v1.44L9.47.97a.75.75 0 0 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3A.75.75 0 0 1 4.53.97l1.72 1.72ZM6.25 12.75a.75.75 0 0 0 1.5 0v-1.44l1.72 1.72a.75.75 0 0 0 1.06-1.06l-3-3a.75.75 0 0 0-1.06 0l-3 3a.75.75 0 0 0 1.06 1.06l1.72-1.72Z"
+  );
 }
-.table-matches-height-icon-restore::before { top: 0; transform: rotate(45deg); }
-.table-matches-height-icon-restore::after { bottom: 0; transform: rotate(225deg); }
 .table-matches-chevron {
   width: 6px;
   height: 6px;

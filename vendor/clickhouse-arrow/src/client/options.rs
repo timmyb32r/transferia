@@ -287,6 +287,8 @@ pub struct ArrowOptions {
     pub strict_schema:                bool,
     pub disable_strict_schema_ddl:    bool,
     pub nullable_array_default_empty: bool,
+    /// Retain exact native type declarations in Arrow field metadata.
+    pub source_type_metadata:         bool,
 }
 
 impl Default for ArrowOptions {
@@ -341,6 +343,7 @@ impl ArrowOptions {
             strict_schema:                false,
             disable_strict_schema_ddl:    false,
             nullable_array_default_empty: true,
+            source_type_metadata:         false,
         }
     }
 
@@ -370,7 +373,14 @@ impl ArrowOptions {
             strict_schema:                true,
             disable_strict_schema_ddl:    false,
             nullable_array_default_empty: false,
+            source_type_metadata:         false,
         }
+    }
+
+    /// Include the native declaration under `clickhouse.type` when decoding fields.
+    pub const fn with_source_type_metadata(mut self, enabled: bool) -> Self {
+        self.source_type_metadata = enabled;
+        self
     }
 
     /// Converts the options to strict mode for schema creation, unless disabled.

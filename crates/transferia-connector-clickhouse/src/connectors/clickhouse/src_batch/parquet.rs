@@ -15,9 +15,9 @@ use transferia_connector_support::outbound_http::{NetworkPolicy, OutboundHttpCli
 
 use super::config::{ClickHouseParquetCompression, ClickHouseSourceConfig};
 use super::connector::DiscoveredTable;
-use super::reader::SnapshotStream;
+use super::reader::{EnumTransport, SnapshotStream};
+use super::types::is_string_conversion;
 use crate::connectors::address::host_port;
-use crate::connectors::clickhouse::sink::client::quote_identifier;
 use crate::metrics::SourceCounters;
 use transferia_core::data::system_columns::SystemColumnKind;
 
@@ -108,15 +108,27 @@ impl ParquetTransport {
         let bytes = self
             .download(table, Arc::clone(&counters), &cancellation)
             .await?;
-        let expected_schema = parquet_input_schema(table);
+        let expected_schema = parquet_input_schema(table)?;
+        let table_name = format!("{}.{}", table.config.database, table.config.name);
         let metadata = tokio::task::spawn_blocking({
             let bytes = bytes.clone();
             move || {
-                ArrowReaderMetadata::load(
+                let inferred = ArrowReaderMetadata::load(
                     &bytes,
-                    ArrowReaderOptions::new().with_schema(expected_schema),
+                    ArrowReaderOptions::new().with_skip_arrow_metadata(true),
                 )
-                .context("cannot decode ClickHouse Parquet metadata")
+                .context("cannot decode ClickHouse Parquet metadata")?;
+                // A supplied Arrow schema is a conversion hint: it can reinterpret
+                // plain integers as timestamps. Validate the unhinted wire schema
+                // first, then preserve the requested dictionary representation.
+                let schema = validate_parquet_input_schema(inferred.schema(), &expected_schema)
+                    .map_err(|error| anyhow::anyhow!(
+                        "ClickHouse Parquet table '{table_name}' schema drifted: {error:#}",
+                    ))?;
+                ArrowReaderMetadata::try_new(
+                    Arc::clone(inferred.metadata()),
+                    ArrowReaderOptions::new().with_schema(schema),
+                ).context("cannot construct ClickHouse Parquet schema decoder")
             }
         })
         .await
@@ -209,11 +221,7 @@ impl ParquetTransport {
             .append_pair("output_format_parquet_string_as_string", "0")
             .append_pair("output_format_parquet_write_page_index", "0")
             .append_pair("output_format_parquet_write_bloom_filter", "0");
-        let query = format!(
-            "SELECT * FROM {}.{} FORMAT Parquet",
-            quote_identifier(&table.config.database),
-            quote_identifier(&table.config.name)
-        );
+        let query = format!("{} FORMAT Parquet", super::connector::snapshot_query(table));
         let wait_started = Instant::now();
         let response = tokio::select! {
             biased;
@@ -304,33 +312,120 @@ fn decode_row_group(
     })
 }
 
-fn parquet_input_schema(table: &DiscoveredTable) -> Arc<Schema> {
-    Arc::new(Schema::new(
+fn parquet_input_schema(table: &DiscoveredTable) -> anyhow::Result<Arc<Schema>> {
+    Ok(Arc::new(Schema::new(
         table
             .schema
             .columns
             .iter()
             .enumerate()
             .map(|(index, column)| {
-                let data_type = table
-                    .physical_system_columns
-                    .iter()
-                    .find(|system| system.index == index && system.kind == SystemColumnKind::Topic)
-                    .map_or_else(|| column.data_type.clone(), |_| DataType::Binary);
-                let data_type = match data_type {
-                    DataType::Timestamp(unit, _) => DataType::Timestamp(
-                        match unit {
-                            arrow::datatypes::TimeUnit::Second => {
-                                arrow::datatypes::TimeUnit::Millisecond
-                            }
-                            unit => unit,
-                        },
-                        Some(Arc::from("UTC")),
-                    ),
-                    data_type => data_type,
+                let data_type = if is_string_conversion(column) || table.physical_system_columns
+                    .iter().any(|system| system.index == index && system.kind == SystemColumnKind::Topic)
+                {
+                    DataType::Binary
+                } else {
+                    EnumTransport::for_column(column)
+                        .and_then(|plan| plan.parquet_type(&column.data_type))
+                        .with_context(|| format!(
+                            "ClickHouse Parquet source table '{}.{}' column '{}' has an invalid transport schema",
+                            table.config.database, table.config.name, column.name,
+                        ))?
                 };
-                Field::new(&column.name, data_type, column.nullable)
+                Ok(Field::new(&column.name, parquet_input_type(&data_type), column.nullable)
+                    .with_metadata(column.arrow_metadata()))
             })
-            .collect::<Vec<_>>(),
-    ))
+            .collect::<anyhow::Result<Vec<_>>>()?,
+    )))
+}
+
+pub(super) fn parquet_input_type(data_type: &DataType) -> DataType {
+    let field = |field: &Arc<Field>| Arc::new(
+        field.as_ref().clone().with_data_type(parquet_input_type(field.data_type())),
+    );
+    match data_type {
+        DataType::Timestamp(unit, _) => DataType::Timestamp(
+            match unit {
+                arrow::datatypes::TimeUnit::Second => arrow::datatypes::TimeUnit::Millisecond,
+                unit => *unit,
+            },
+            Some(Arc::from("UTC")),
+        ),
+        DataType::List(item) => DataType::List(field(item)),
+        DataType::LargeList(item) => DataType::LargeList(field(item)),
+        DataType::FixedSizeList(item, length) => DataType::FixedSizeList(field(item), *length),
+        DataType::Struct(fields) => DataType::Struct(fields.iter().map(field).collect()),
+        DataType::Map(entries, sorted) => DataType::Map(field(entries), *sorted),
+        DataType::Dictionary(key, value) => {
+            DataType::Dictionary(key.clone(), Box::new(parquet_input_type(value)))
+        }
+        data_type => data_type.clone(),
+    }
+}
+
+pub(super) fn validate_parquet_input_schema(
+    actual: &Schema,
+    expected: &Schema,
+) -> anyhow::Result<Arc<Schema>> {
+    anyhow::ensure!(actual.fields().len() == expected.fields().len(),
+        "ClickHouse Parquet schema drifted: discovered {} columns, query returned {}",
+        expected.fields().len(), actual.fields().len(),
+    );
+    let fields = actual.fields().iter().zip(expected.fields()).map(|(actual, expected)| {
+        parquet_input_field(actual, expected, expected.name(), false)
+    }).collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(Arc::new(Schema::new(fields)))
+}
+
+fn parquet_input_field(
+    actual: &Field,
+    expected: &Field,
+    path: &str,
+    structural_name: bool,
+) -> anyhow::Result<Arc<Field>> {
+    anyhow::ensure!(
+        (structural_name || actual.name() == expected.name())
+            && actual.is_nullable() == expected.is_nullable(),
+        "ClickHouse Parquet column '{path}' schema drifted: discovered '{} nullable={}', query returned '{} nullable={}'",
+        expected.name(), expected.is_nullable(), actual.name(), actual.is_nullable(),
+    );
+    let data_type = parquet_input_hint(actual.data_type(), expected.data_type(), path)?;
+    Ok(Arc::new(expected.clone().with_name(actual.name()).with_data_type(data_type)))
+}
+
+fn parquet_input_hint(actual: &DataType, expected: &DataType, path: &str) -> anyhow::Result<DataType> {
+    if actual == expected {
+        return Ok(expected.clone());
+    }
+    if let DataType::Dictionary(key, value) = expected {
+        let actual = match actual {
+            DataType::Dictionary(_, value) => value.as_ref(),
+            actual => actual,
+        };
+        return Ok(DataType::Dictionary(key.clone(), Box::new(parquet_input_hint(actual, value, path)?)));
+    }
+    Ok(match (actual, expected) {
+        (DataType::List(actual), DataType::List(expected)) => {
+            DataType::List(parquet_input_field(actual, expected, &format!("{path}.{}", expected.name()), true)?)
+        }
+        (DataType::LargeList(actual), DataType::LargeList(expected)) => {
+            DataType::LargeList(parquet_input_field(actual, expected, &format!("{path}.{}", expected.name()), true)?)
+        }
+        (DataType::FixedSizeList(actual, actual_length), DataType::FixedSizeList(expected, expected_length))
+            if actual_length == expected_length => {
+                DataType::FixedSizeList(parquet_input_field(actual, expected, &format!("{path}.{}", expected.name()), true)?, *expected_length)
+            }
+        (DataType::Struct(actual), DataType::Struct(expected)) if actual.len() == expected.len() => {
+            DataType::Struct(actual.iter().zip(expected).map(|(actual, expected)| {
+                parquet_input_field(actual, expected, &format!("{path}.{}", expected.name()), false)
+            }).collect::<anyhow::Result<Vec<_>>>()?.into())
+        }
+        (DataType::Map(actual, actual_sorted), DataType::Map(expected, expected_sorted))
+            if actual_sorted == expected_sorted => {
+                DataType::Map(parquet_input_field(actual, expected, &format!("{path}.{}", expected.name()), true)?, *expected_sorted)
+            }
+        _ => anyhow::bail!(
+            "ClickHouse Parquet column '{path}' schema drifted: discovered {expected:?}, query returned {actual:?}",
+        ),
+    })
 }

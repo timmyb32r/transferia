@@ -109,8 +109,8 @@ pub(crate) enum TypedBuilder {
     FixedSizeBinary(FixedSizeBinaryBuilder),
 
     // Dictionary types for enums
-    Enum8(StringDictionaryBuilder<Int8Type>),
-    Enum16(StringDictionaryBuilder<Int16Type>),
+    Enum8(EnumBuilder),
+    Enum16(EnumBuilder),
 
     // List types
     List(TypedListBuilder),
@@ -122,6 +122,88 @@ pub(crate) enum TypedBuilder {
     // Complex types
     Map((Box<TypedBuilder>, Box<TypedBuilder>)),
     Tuple(Vec<TypedBuilder>),
+}
+
+/// Signed ClickHouse enum codes address declaration-order dictionary ordinals, not Arrow keys.
+pub(crate) struct EnumBuilder {
+    keys: Int32Builder,
+    values: ArrayRef,
+    first_code: i32,
+    ordinals: Vec<i32>,
+}
+
+impl EnumBuilder {
+    fn try_new<T: Copy + Into<i32>>(pairs: &[(String, T)], data_type: &DataType) -> Result<Self> {
+        if !matches!(data_type, DataType::Dictionary(key, value)
+            if key.as_ref() == &DataType::Int32 && value.as_ref() == &DataType::Utf8) {
+            return Err(Error::ArrowDeserialize(
+                "Enums require Dictionary(Int32, Utf8) to preserve their full cardinality".into(),
+            ));
+        }
+        let first_code = pairs.iter().map(|(_, code)| Into::<i32>::into(*code)).min().unwrap_or(0);
+        let last_code = pairs.iter().map(|(_, code)| Into::<i32>::into(*code)).max().unwrap_or(-1);
+        let span = last_code.checked_sub(first_code).and_then(|span| span.checked_add(1))
+            .and_then(|span| usize::try_from(span).ok()).ok_or_else(|| {
+                Error::ArrowDeserialize("Enum code range exceeds addressable memory".into())
+            })?;
+        // At most 256/65536 slots: the source enum code type bounds this lookup table.
+        let mut ordinals = vec![-1; span];
+        for (ordinal, (_, code)) in pairs.iter().enumerate() {
+            let slot = usize::try_from(Into::<i32>::into(*code) - first_code).map_err(|_| {
+                Error::ArrowDeserialize("Enum code is outside its declared range".into())
+            })?;
+            if ordinals[slot] != -1 {
+                return Err(Error::ArrowDeserialize(format!("Duplicate enum code: {}", Into::<i32>::into(*code))));
+            }
+            ordinals[slot] = i32::try_from(ordinal).map_err(|_| {
+                Error::ArrowDeserialize("Enum cardinality exceeds Int32 dictionary keys".into())
+            })?;
+        }
+        let _value_bytes = pairs.iter().try_fold(0_usize, |total, (label, _)| total.checked_add(label.len()))
+            .and_then(|total| i32::try_from(total).ok()).ok_or_else(|| {
+                Error::ArrowDeserialize("Enum label bytes exceed Arrow Utf8 offsets".into())
+            })?;
+        let values = Arc::new(StringArray::from_iter_values(pairs.iter().map(|(label, _)| label.as_str())));
+        Ok(Self {
+            keys: Int32Builder::with_capacity(CLICKHOUSE_DEFAULT_CHUNK_ROWS),
+            values,
+            first_code,
+            ordinals,
+        })
+    }
+
+    fn ordinal(&self, code: i32) -> Option<i32> {
+        code.checked_sub(self.first_code)
+            .and_then(|offset| usize::try_from(offset).ok())
+            .and_then(|offset| self.ordinals.get(offset)).copied().filter(|ordinal| *ordinal >= 0)
+    }
+
+    pub(super) fn validate_pairs<T: Copy + Into<i32>>(&self, pairs: &[(String, T)]) -> Result<()> {
+        let values = self.values.as_any().downcast_ref::<StringArray>().ok_or_else(|| {
+            Error::ArrowDeserialize("Enum dictionary values must be Utf8".into())
+        })?;
+        if values.len() != pairs.len() || pairs.iter().enumerate().any(|(ordinal, (label, code))| {
+            values.value(ordinal) != label || self.ordinal(Into::<i32>::into(*code)) != i32::try_from(ordinal).ok()
+        }) {
+            return Err(Error::ArrowDeserialize("Enum definition changed between blocks".into()));
+        }
+        Ok(())
+    }
+
+    pub(super) fn append_code(&mut self, code: i32) -> Result<()> {
+        let ordinal = self.ordinal(code)
+            .ok_or_else(|| Error::ArrowDeserialize(format!("Invalid enum code: {code} not found in pairs")))?;
+        self.keys.append_value(ordinal);
+        Ok(())
+    }
+
+    pub(super) fn append_null(&mut self) {
+        self.keys.append_null();
+    }
+
+    pub(super) fn finish(&mut self) -> Result<ArrayRef> {
+        Ok(Arc::new(DictionaryArray::<Int32Type>::try_new(self.keys.finish(), Arc::clone(&self.values))?))
+    }
 }
 
 impl TypedBuilder {
@@ -276,14 +358,8 @@ impl TypedBuilder {
                 FixedSizeBinaryBuilder::with_capacity(ROWS, 32)
             ),
             // Enums
-            Type::Enum8(p) => (
-                Enum8,
-                StringDictionaryBuilder::<Int8Type>::with_capacity(ROWS, p.len(), ROWS * p.len() * 4)
-            ),
-            Type::Enum16(p) => (
-                Enum16,
-                StringDictionaryBuilder::<Int16Type>::with_capacity(ROWS, p.len(), ROWS * p.len() * 4)
-            ),
+            Type::Enum8(p) => (Enum8, EnumBuilder::try_new(p, data_type)?),
+            Type::Enum16(p) => (Enum16, EnumBuilder::try_new(p, data_type)?),
         }))
     }
 }
@@ -461,11 +537,11 @@ mod tests {
         let test_cases = vec![
             (
                 Type::Enum8(enum8_values),
-                DataType::Dictionary(Box::new(DataType::Int8), Box::new(DataType::Utf8)),
+                DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
             ),
             (
                 Type::Enum16(enum16_values),
-                DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8)),
+                DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
             ),
         ];
 

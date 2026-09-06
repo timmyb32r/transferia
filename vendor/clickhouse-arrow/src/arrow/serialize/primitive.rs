@@ -648,18 +648,15 @@ write_primitive_values!(write_decimal128_values, scalar i128::default(), write_i
     (Decimal128Array, |v: i128| Ok::<_, Error>(v)) // Up to 38 digits
 ]);
 write_primitive_values!(write_decimal256_values, array [u8; 32], write_all, [
-    (Decimal256Array, |v: i256| Ok::<_, Error>({
-        let bytes = v.to_le_bytes(); // i256 provides 32 bytes in little-endian
-        swap_endian_256(bytes) // Convert to ClickHouse's big-endian
-    })),
+    (Decimal256Array, |v: i256| Ok::<_, Error>(v.to_le_bytes())),
     (Decimal128Array, |v: i128| Ok::<_, Error>({
         let mut bytes = [0u8; 32];
         let i128_bytes = v.to_le_bytes(); // 16 bytes
         bytes[..16].copy_from_slice(&i128_bytes);
         if v < 0 {
             bytes[16..].fill(0xFF);
-        } // Sign-extend
-        swap_endian_256(bytes)
+        } // Sign-extend, retaining ClickHouse Native's little-endian wire order.
+        bytes
     }))
 ]);
 
@@ -690,18 +687,15 @@ put_primitive_values!(put_decimal128_values, scalar i128::default(), put_i128_le
     (Decimal128Array, |v: i128| Ok::<_, Error>(v)) // Up to 38 digits
 ]);
 put_primitive_values!(put_decimal256_values, array [u8; 32], put_slice, [
-    (Decimal256Array, |v: i256| Ok::<_, Error>({
-        let bytes = v.to_le_bytes(); // i256 provides 32 bytes in little-endian
-        swap_endian_256(bytes) // Convert to ClickHouse's big-endian
-    })),
+    (Decimal256Array, |v: i256| Ok::<_, Error>(v.to_le_bytes())),
     (Decimal128Array, |v: i128| Ok::<_, Error>({
         let mut bytes = [0u8; 32];
         let i128_bytes = v.to_le_bytes(); // 16 bytes
         bytes[..16].copy_from_slice(&i128_bytes);
         if v < 0 {
             bytes[16..].fill(0xFF);
-        } // Sign-extend
-        swap_endian_256(bytes)
+        } // Sign-extend, retaining ClickHouse Native's little-endian wire order.
+        bytes
     }))
 ]);
 
@@ -938,11 +932,15 @@ put_float_values!(put_f64_values, f64, put_u64_le, [Float64Array, Float32Array, 
 
 /// Swaps the endianness of a 256-bit (32-byte) array.
 ///
-/// Converts between little-endian and big-endian for `Int256`, `UInt256`, and `Decimal256`.
+/// Converts between little-endian and big-endian for `Int256` and `UInt256`.
 fn swap_endian_256(mut input: [u8; 32]) -> [u8; 32] {
     input.reverse();
     input
 }
+
+#[cfg(test)]
+#[path = "tests/decimal256_losslessness.rs"]
+mod decimal256_losslessness_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1577,10 +1575,7 @@ mod tests {
         serialize_async(&Type::Decimal256(0), &mut writer, &column, field.data_type())
             .await
             .unwrap();
-        let expected = vec![
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            1, 226, 64, // 123456 (big-endian)
-        ];
+        let expected = i256::from(123_456).to_le_bytes();
         assert_eq!(writer, expected);
     }
 
@@ -1594,10 +1589,7 @@ mod tests {
         serialize_async(&Type::Decimal256(0), &mut writer, &column, field.data_type())
             .await
             .unwrap();
-        let expected = vec![
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            1, 226, 64, // 123456
-        ];
+        let expected = i256::from(123_456).to_le_bytes();
         assert_eq!(writer, expected);
     }
 
@@ -2482,10 +2474,7 @@ mod tests_sync {
         let field = Field::new("decimal", DataType::Decimal256(76, 0), false);
         let mut writer = MockWriter::new();
         serialize(&Type::Decimal256(0), &mut writer, &column, field.data_type()).unwrap();
-        let expected = vec![
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            1, 226, 64, // 123456 (big-endian)
-        ];
+        let expected = i256::from(123_456).to_le_bytes();
         assert_eq!(writer, expected);
     }
 
@@ -2497,10 +2486,7 @@ mod tests_sync {
         let field = Field::new("decimal", DataType::Decimal128(38, 0), false);
         let mut writer = MockWriter::new();
         serialize(&Type::Decimal256(0), &mut writer, &column, field.data_type()).unwrap();
-        let expected = vec![
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            1, 226, 64, // 123456
-        ];
+        let expected = i256::from(123_456).to_le_bytes();
         assert_eq!(writer, expected);
     }
 

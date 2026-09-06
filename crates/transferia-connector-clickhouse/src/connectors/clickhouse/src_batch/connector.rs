@@ -1,15 +1,14 @@
 use std::collections::{HashMap, HashSet};
-use std::str::FromStr as _;
 use std::sync::{Arc, Mutex};
 
 use arrow::array::{Array as _, StringArray};
 use arrow::compute::cast;
-use arrow::datatypes::{DataType, TimeUnit};
-use clickhouse_arrow::{ClientBuilder, Type};
+use arrow::datatypes::DataType;
+use clickhouse_arrow::ClientBuilder;
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt as _;
 
-use super::config::{ClickHouseSnapshotReader, ClickHouseSourceConfig, TableConfig};
+use super::config::{ClickHouseSnapshotReader, ClickHouseSourceConfig, TableConfig, UnsupportedTypePolicy};
 use super::parquet::{ParquetReadSettings, ParquetTransport};
 use super::reader::ClickHouseSource;
 use super::reader::SnapshotStream;
@@ -98,6 +97,7 @@ impl ClickHouseSourceConnector {
                     .with_username(config.username.as_str())
                     .with_password(config.password.as_str())
                     .with_compression(native_compression.into())
+                    .with_arrow_options(clickhouse_arrow::ArrowOptions::strict().with_source_type_metadata(true))
                     .with_setting("max_block_size", batch_rows)
                     // ClickHouse otherwise targets roughly 1 MiB result blocks. That
                     // produces many small Arrow batches for wide rows and forces the
@@ -197,6 +197,7 @@ impl ClickHouseSourceConnector {
                                 database: table.namespace,
                                 name: table.name,
                             },
+                            self.config.unsupported_types,
                         )
                         .await?,
                     );
@@ -323,7 +324,7 @@ impl SourceConnector for ClickHouseSourceConnector {
                     cancellation.clone(),
                 )
             } else {
-                let query = snapshot_query(&table.config);
+                let query = snapshot_query(&table);
                 let stream = tokio::select! { biased; () = cancellation.cancelled() => anyhow::bail!("ClickHouse read cancelled"), stream = self.client.query_stream(&query) => stream.map_err(|error| anyhow::anyhow!("ClickHouse snapshot query failed: {error}"))? };
                 Box::pin(stream.map(|result| result.map_err(anyhow::Error::from)))
             };
@@ -334,7 +335,7 @@ impl SourceConnector for ClickHouseSourceConnector {
                 self.config.batch_rows,
                 self.config.request_timeout(),
                 counters,
-            )) as Box<dyn Source>)
+            )?) as Box<dyn Source>)
         })
     }
 
@@ -354,12 +355,28 @@ impl SourceConnector for ClickHouseSourceConnector {
     }
 }
 
-fn snapshot_query(table: &TableConfig) -> String {
-    format!(
-        "SELECT * FROM {}.{}",
-        quote_identifier(&table.database),
-        quote_identifier(&table.name)
-    )
+pub(super) fn snapshot_query(table: &DiscoveredTable) -> String {
+    // Qualified input references avoid ClickHouse's global SELECT-alias substitution.
+    let reference = |column: &SchemaColumn| format!("source.{}", quote_identifier(&column.name));
+    let projection = table.schema.columns.iter().map(|column| {
+        let value = if super::types::is_string_conversion(column) {
+            format!("CAST(toString({}) AS {})", reference(column),
+                if column.nullable { "Nullable(String)" } else { "String" })
+        } else { reference(column) };
+        format!("{value} AS {}", quote_identifier(&column.name))
+    }).collect::<Vec<_>>().join(", ");
+    // Constant type guards also protect Parquet and explicit string conversions, whose
+    // output type alone cannot reveal a change to the original ClickHouse declaration.
+    let guards = table.schema.columns.iter().filter_map(|column| {
+        super::types::source_declaration(column).map(|declaration| format!(
+            "throwIf(toTypeName({}) != {}, {}) = 0", reference(column),
+            quote_string_literal(&declaration),
+            quote_string_literal(&format!("ClickHouse source schema drifted at {}.{} column {} (expected {})", table.config.database, table.config.name, column.name, declaration)),
+        ))
+    }).collect::<Vec<_>>();
+    let condition = if guards.is_empty() { String::new() } else { format!(" WHERE {}", guards.join(" AND ")) };
+    format!("SELECT {projection} FROM {}.{} AS source{condition}",
+        quote_identifier(&table.config.database), quote_identifier(&table.config.name))
 }
 
 async fn list_tables(
@@ -454,6 +471,7 @@ async fn list_tables(
 async fn discover_table(
     client: &ReconnectingClient,
     table: TableConfig,
+    unsupported_types: UnsupportedTypePolicy,
 ) -> anyhow::Result<DiscoveredTable> {
     let query = format!("SELECT name, type, default_kind FROM system.columns WHERE database = {} AND table = {} ORDER BY position", quote_string_literal(&table.database), quote_string_literal(&table.name));
     let batches = client.query_all(&query).await.map_err(|error| {
@@ -505,11 +523,16 @@ async fn discover_table(
             );
             anyhow::ensure!(default_values.value(row).is_empty(), "ClickHouse source column '{}.{}.{name}' is generated ({}) and cannot be snapshotted through SELECT *", table.database, table.name, default_values.value(row));
             let declared_type = type_values.value(row);
-            let (clickhouse_type, data_type) = source_column_type(&table, name, declared_type)?;
+            let mut column = source_column_type(&table, name, declared_type, unsupported_types)?;
+            if super::types::is_string_conversion(&column) {
+                tracing::info!(database = %table.database, table = %table.name, column = name,
+                    conversion = "to_string", "ClickHouse source column uses explicit text conversion");
+            }
+            let data_type = column.data_type.clone();
             let data_type = match system_column_kind(name) {
                 Some(kind) => {
                     anyhow::ensure!(
-                        !clickhouse_type.is_nullable(),
+                        !column.nullable && !super::types::is_string_conversion(&column),
                         "ClickHouse source system column '{}.{}.{name}' must be non-nullable",
                         table.database,
                         table.name,
@@ -527,11 +550,8 @@ async fn discover_table(
                 }
                 None => data_type,
             };
-            columns.push(SchemaColumn::new(
-                name.to_owned(),
-                data_type,
-                clickhouse_type.is_nullable(),
-            ));
+            column.data_type = data_type;
+            columns.push(column);
         }
     }
     anyhow::ensure!(
@@ -589,11 +609,42 @@ async fn discover_table(
         "ClickHouse source table disappeared during key discovery"
     );
     let physical_system_columns = classify_system_columns(&schema)?;
-    Ok(DiscoveredTable {
+    let discovered = DiscoveredTable {
         config: table,
         schema,
         physical_system_columns,
-    })
+    };
+    validate_projection(client, &discovered).await?;
+    Ok(discovered)
+}
+
+async fn validate_projection(client: &ReconnectingClient, table: &DiscoveredTable) -> anyhow::Result<()> {
+    let query = format!("DESCRIBE ({})", snapshot_query(table));
+    let batches = transferia_connector_support::external_request::observe_external_request(
+        "clickhouse", "describe_snapshot", client.query_all(&query),
+    ).await.map_err(|error| anyhow::anyhow!(
+        "ClickHouse source table {}.{}: snapshot projection validation failed (including explicit to_string conversions): {error}",
+        quote_identifier(&table.config.database), quote_identifier(&table.config.name),
+    ))?;
+    let mut index = 0;
+    for batch in batches {
+        anyhow::ensure!(batch.num_columns() >= 2, "ClickHouse DESCRIBE returned no column types");
+        let names = cast(batch.column(0), &DataType::Utf8)?;
+        let types = cast(batch.column(1), &DataType::Utf8)?;
+        let names = names.as_any().downcast_ref::<StringArray>().ok_or_else(|| anyhow::anyhow!("DESCRIBE names must be strings"))?;
+        let types = types.as_any().downcast_ref::<StringArray>().ok_or_else(|| anyhow::anyhow!("DESCRIBE types must be strings"))?;
+        for row in 0..batch.num_rows() {
+            let expected = table.schema.columns.get(index).ok_or_else(|| anyhow::anyhow!("ClickHouse snapshot projection gained a column"))?;
+            anyhow::ensure!(!names.is_null(row) && !types.is_null(row) && names.value(row) == expected.name,
+                "ClickHouse snapshot projection column {} changed", expected.name);
+            let field = arrow::datatypes::Field::new(&expected.name, expected.data_type.clone(), expected.nullable)
+                .with_metadata(HashMap::from([("clickhouse.type".to_owned(), types.value(row).to_owned())]));
+            super::types::validate_wire_type(&field, expected)?;
+            index += 1;
+        }
+    }
+    anyhow::ensure!(index == table.schema.columns.len(), "ClickHouse snapshot projection lost columns");
+    Ok(())
 }
 
 pub(super) fn apply_discovered_primary_key(
@@ -731,73 +782,11 @@ pub(super) fn source_column_type(
     table: &TableConfig,
     column: &str,
     declared_type: &str,
-) -> anyhow::Result<(Type, DataType)> {
-    let decode = || -> anyhow::Result<(Type, DataType)> {
-        let parsed = Type::from_str(declared_type)?;
-        let data_type = source_arrow_type(&parsed, declared_type)?;
-        Ok((parsed, data_type))
-    };
-    decode().map_err(|error| anyhow::anyhow!(
-        "ClickHouse source table {}.{}, column {}, type {}: cannot decode the source type: {error:#}",
+    policy: UnsupportedTypePolicy,
+) -> anyhow::Result<SchemaColumn> {
+    super::types::source_column(column, declared_type, policy).map_err(|error| anyhow::anyhow!(
+        "ClickHouse source table {}.{}, column {}, type {}: {error:#}",
         quote_identifier(&table.database), quote_identifier(&table.name),
         quote_identifier(column), declared_type,
     ))
-}
-
-pub(super) fn source_arrow_type(
-    clickhouse_type: &Type,
-    declared_type: &str,
-) -> anyhow::Result<DataType> {
-    Ok(match clickhouse_type.strip_null() {
-        Type::Int8 => DataType::Int8,
-        Type::Int16 => DataType::Int16,
-        Type::Int32 => DataType::Int32,
-        Type::Int64 => DataType::Int64,
-        Type::UInt8 => DataType::UInt8,
-        Type::UInt16 => DataType::UInt16,
-        Type::UInt32 => DataType::UInt32,
-        Type::UInt64 => DataType::UInt64,
-        Type::Float32 => DataType::Float32,
-        Type::Float64 => DataType::Float64,
-        Type::String => DataType::Binary,
-        Type::Date | Type::Date32 => DataType::Date32,
-        Type::DateTime(timezone) => DataType::Timestamp(
-            TimeUnit::Second,
-            declared_timestamp_timezone(declared_type, timezone.name()),
-        ),
-        Type::DateTime64(precision, timezone) => DataType::Timestamp(
-            match precision {
-                0 => TimeUnit::Second,
-                1..=3 => TimeUnit::Millisecond,
-                4..=6 => TimeUnit::Microsecond,
-                7..=9 => TimeUnit::Nanosecond,
-                _ => anyhow::bail!("unsupported ClickHouse DateTime64 precision {precision}"),
-            },
-            declared_timestamp_timezone(declared_type, timezone.name()),
-        ),
-        other => anyhow::bail!("unsupported ClickHouse source type {other}"),
-    })
-}
-
-fn declared_timestamp_timezone(declared_type: &str, timezone: &str) -> Option<Arc<str>> {
-    let mut declaration = declared_type.trim();
-    while let Some(inner) = declaration
-        .strip_prefix("Nullable(")
-        .and_then(|value| value.strip_suffix(')'))
-    {
-        declaration = inner.trim();
-    }
-    let explicit = if declaration == "DateTime" {
-        false
-    } else if declaration.starts_with("DateTime(") {
-        true
-    } else if let Some(arguments) = declaration
-        .strip_prefix("DateTime64(")
-        .and_then(|value| value.strip_suffix(')'))
-    {
-        arguments.contains(',')
-    } else {
-        false
-    };
-    explicit.then(|| Arc::from(timezone))
 }

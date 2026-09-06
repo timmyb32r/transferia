@@ -79,7 +79,6 @@ use crate::{Error, Result, Type};
 /// assert_eq!(indices, &Int32Array::from(vec![0, 1, 0]));
 /// assert_eq!(values, &StringArray::from(vec!["a", "b"]));
 /// ```
-#[expect(clippy::cast_possible_truncation)]
 pub(crate) async fn deserialize_async<R: ClickHouseRead>(
     inner: &Type,
     builder: &mut TypedBuilder,
@@ -89,8 +88,6 @@ pub(crate) async fn deserialize_async<R: ClickHouseRead>(
     nulls: &[u8],
     rbuffer: &mut Vec<u8>,
 ) -> Result<ArrayRef> {
-    type Lckb = LowCardinalityKeyBuilder;
-
     let DataType::Dictionary(_, value_type) = data_type else {
         return Err(Error::ArrowDeserialize(format!("Unexpected dict value type: {data_type:?}")));
     };
@@ -111,25 +108,33 @@ pub(crate) async fn deserialize_async<R: ClickHouseRead>(
     let needs_update_dictionary = (flags & NEED_UPDATE_DICTIONARY_BIT) != 0;
 
     // Determine index type
-    let indexed_type = match flags & 0xff {
-        TUINT8 => Type::UInt8,
-        TUINT16 => Type::UInt16,
-        TUINT32 => Type::UInt32,
-        TUINT64 => Type::UInt64,
+    let key_width = match flags & 0xff {
+        TUINT8 => 1,
+        TUINT16 => 2,
+        TUINT32 => 4,
+        TUINT64 => 8,
         x => {
             return Err(Error::DeserializeError(format!("LowCardinality: bad index type: {x}")));
         }
     };
 
-    let dict_size = reader.read_u64_le().await? as usize;
+    let dict_size = usize::try_from(reader.read_u64_le().await?).map_err(|_| {
+        Error::DeserializeError("LowCardinality: dictionary size exceeds addressable memory".into())
+    })?;
 
     // Deserialize global dictionary or additional keys
     let dictionary = if needs_global_dictionary || needs_update_dictionary || has_additional_keys {
         // If the inner type is nullable, then the first value deserialized will be a "default"
         // value. Use the null mask to enforce this. The serializer does not write a null
         let null_mask = if inner.is_nullable() {
-            let mut mask = vec![0_u8; dict_size];
-            mask[0] = 1;
+            let mut mask = Vec::new();
+            mask.try_reserve_exact(dict_size).map_err(|_| {
+                Error::DeserializeError("LowCardinality: cannot allocate dictionary null mask".into())
+            })?;
+            mask.resize(dict_size, 0_u8);
+            if let Some(first) = mask.first_mut() {
+                *first = 1;
+            }
             mask
         } else {
             vec![]
@@ -153,53 +158,18 @@ pub(crate) async fn deserialize_async<R: ClickHouseRead>(
     };
 
     // Read number of rows in this chunk
-    let num_rows = reader.read_u64_le().await? as usize;
+    let num_rows = usize::try_from(reader.read_u64_le().await?).map_err(|_| {
+        Error::DeserializeError("LowCardinality: row count exceeds addressable memory".into())
+    })?;
     if num_rows != rows {
         return Err(Error::DeserializeError(format!(
             "LowCardinality must be read in full. Expect {rows} rows, got {num_rows}"
         )));
     }
 
-    macro_rules! deser_key {
-        (($sz:ty, $m:ident) => [$(($osz:ty, $o:ident)),* $(,)?]) => {
-            match keys {
-                Lckb::$m(b) => {
-                    super::deser_bulk_async!(b, reader, rows, nulls, rbuffer, $sz);
-                    Ok(Arc::new(DictionaryArray::new(b.finish(), dictionary)))
-                },
-                $(
-                    Lckb::$o(b) => {
-                        super::deser_bulk_async!(raw; b, reader, rows, nulls, rbuffer, $sz => $osz);
-                        Ok(Arc::new(DictionaryArray::new(b.finish(), dictionary)))
-                    },
-                )*
-                Lckb::Int8(b) => {
-                    super::deser_bulk_async!(raw; b, reader, rows, nulls, rbuffer, $sz => i8);
-                    Ok(Arc::new(DictionaryArray::new(b.finish(), dictionary)))
-                },
-                Lckb::Int16(b) => {
-                    super::deser_bulk_async!(raw; b, reader, rows, nulls, rbuffer, $sz => i16);
-                    Ok(Arc::new(DictionaryArray::new(b.finish(), dictionary)))
-                },
-                Lckb::Int32(b) => {
-                    super::deser_bulk_async!(raw; b, reader, rows, nulls, rbuffer, $sz => i32);
-                    Ok(Arc::new(DictionaryArray::new(b.finish(), dictionary)))
-                },
-                Lckb::Int64(b) => {
-                    super::deser_bulk_async!(raw; b, reader, rows, nulls, rbuffer, $sz => i64);
-                    Ok(Arc::new(DictionaryArray::new(b.finish(), dictionary)))
-                },
-            }
-        }
-    }
-
-    match indexed_type {
-        Type::UInt8 => deser_key!((u8, UInt8) => [(u16, UInt16), (u32, UInt32), (u64, UInt64)]),
-        Type::UInt16 => deser_key!((u16, UInt16) => [(u8, UInt8), (u32, UInt32), (u64, UInt64)]),
-        Type::UInt32 => deser_key!((u32, UInt32) => [(u8, UInt8), (u16, UInt16), (u64, UInt64)]),
-        Type::UInt64 => deser_key!((u64, UInt64) => [(u8, UInt8), (u16, UInt16), (u32, UInt32)]),
-        _ => Err(Error::DeserializeError(format!("LowCardinality: index type {indexed_type:?}"))),
-    }
+    prepare_key_buffer(rows, key_width, nulls, rbuffer)?;
+    let _ = reader.read_exact(rbuffer).await?;
+    decode_dictionary_keys(keys, dictionary, rbuffer, key_width, nulls)
 }
 
 #[allow(dead_code)] // TODO: remove once synchronous Arrow path is fully retired
@@ -212,8 +182,6 @@ pub(crate) fn deserialize<R: ClickHouseBytesRead>(
     nulls: &[u8],
     rbuffer: &mut Vec<u8>,
 ) -> Result<ArrayRef> {
-    type Lckb = LowCardinalityKeyBuilder;
-
     let DataType::Dictionary(_, value_type) = data_type else {
         return Err(Error::ArrowDeserialize(format!("LowCardinality: data type {data_type:?}")));
     };
@@ -227,26 +195,33 @@ pub(crate) fn deserialize<R: ClickHouseBytesRead>(
     let needs_update_dictionary = (flags & NEED_UPDATE_DICTIONARY_BIT) != 0;
 
     // Determine index type
-    let indexed_type = match flags & 0xff {
-        TUINT8 => Type::UInt8,
-        TUINT16 => Type::UInt16,
-        TUINT32 => Type::UInt32,
-        TUINT64 => Type::UInt64,
+    let key_width = match flags & 0xff {
+        TUINT8 => 1,
+        TUINT16 => 2,
+        TUINT32 => 4,
+        TUINT64 => 8,
         x => {
             return Err(Error::ArrowDeserialize(format!("LowCardinality: bad index type: {x}")));
         }
     };
 
-    #[expect(clippy::cast_possible_truncation)]
-    let dict_size = reader.try_get_u64_le()? as usize;
+    let dict_size = usize::try_from(reader.try_get_u64_le()?).map_err(|_| {
+        Error::DeserializeError("LowCardinality: dictionary size exceeds addressable memory".into())
+    })?;
 
     // Deserialize global dictionary or additional keys
     let dictionary = if needs_global_dictionary || needs_update_dictionary || has_additional_keys {
         // If the inner type is nullable, then the first value deserialized will be a "default"
         // value. Use the null mask to enforce this. The serializer does not write a null
         let null_mask = if inner_type.is_nullable() {
-            let mut mask = vec![0_u8; dict_size];
-            mask[0] = 1;
+            let mut mask = Vec::new();
+            mask.try_reserve_exact(dict_size).map_err(|_| {
+                Error::DeserializeError("LowCardinality: cannot allocate dictionary null mask".into())
+            })?;
+            mask.resize(dict_size, 0_u8);
+            if let Some(first) = mask.first_mut() {
+                *first = 1;
+            }
             mask
         } else {
             vec![]
@@ -267,55 +242,112 @@ pub(crate) fn deserialize<R: ClickHouseBytesRead>(
     };
 
     // Read number of rows in this chunk
-    #[expect(clippy::cast_possible_truncation)]
-    let num_rows = reader.try_get_u64_le()? as usize;
+    let num_rows = usize::try_from(reader.try_get_u64_le()?).map_err(|_| {
+        Error::DeserializeError("LowCardinality: row count exceeds addressable memory".into())
+    })?;
     if num_rows != rows {
         return Err(Error::DeserializeError(format!(
             "LowCardinality must be read in full. Expect {rows} rows, got {num_rows}"
         )));
     }
 
-    macro_rules! deser_key {
-        (($sz:ty, $m:ident) => [$(($osz:ty, $o:ident)),* $(,)?]) => {
-            match keys {
-                Lckb::$m(b) => {
-                    super::deser_bulk!(b, reader, rows, nulls, rbuffer, $sz);
-                    Ok(Arc::new(DictionaryArray::new(b.finish(), dictionary)))
-                },
-                $(
-                    Lckb::$o(b) => {
-                        super::deser_bulk!(raw; b, reader, rows, nulls, rbuffer, $sz => $osz);
-                        Ok(Arc::new(DictionaryArray::new(b.finish(), dictionary)))
-                    },
-                )*
-                Lckb::Int8(b) => {
-                    super::deser_bulk!(raw; b, reader, rows, nulls, rbuffer, $sz => i8);
-                    Ok(Arc::new(DictionaryArray::new(b.finish(), dictionary)))
-                },
-                Lckb::Int16(b) => {
-                    super::deser_bulk!(raw; b, reader, rows, nulls, rbuffer, $sz => i16);
-                    Ok(Arc::new(DictionaryArray::new(b.finish(), dictionary)))
-                },
-                Lckb::Int32(b) => {
-                    super::deser_bulk!(raw; b, reader, rows, nulls, rbuffer, $sz => i32);
-                    Ok(Arc::new(DictionaryArray::new(b.finish(), dictionary)))
-                },
-                Lckb::Int64(b) => {
-                    super::deser_bulk!(raw; b, reader, rows, nulls, rbuffer, $sz => i64);
-                    Ok(Arc::new(DictionaryArray::new(b.finish(), dictionary)))
-                },
-            }
-        }
-    }
+    prepare_key_buffer(rows, key_width, nulls, rbuffer)?;
+    reader.try_copy_to_slice(rbuffer)?;
+    decode_dictionary_keys(keys, dictionary, rbuffer, key_width, nulls)
+}
 
-    match indexed_type {
-        Type::UInt8 => deser_key!((u8, UInt8) => [(u16, UInt16), (u32, UInt32), (u64, UInt64)]),
-        Type::UInt16 => deser_key!((u16, UInt16) => [(u8, UInt8), (u32, UInt32), (u64, UInt64)]),
-        Type::UInt32 => deser_key!((u32, UInt32) => [(u8, UInt8), (u16, UInt16), (u64, UInt64)]),
-        Type::UInt64 => deser_key!((u64, UInt64) => [(u8, UInt8), (u16, UInt16), (u32, UInt32)]),
-        _ => Err(Error::DeserializeError(format!("LowCardinality: index type {indexed_type:?}"))),
+fn prepare_key_buffer(
+    rows: usize,
+    key_width: usize,
+    nulls: &[u8],
+    buffer: &mut Vec<u8>,
+) -> Result<()> {
+    if !nulls.is_empty() && nulls.len() != rows {
+        return Err(Error::DeserializeError(
+            "LowCardinality: null mask length differs from row count".into(),
+        ));
+    }
+    let bytes = rows.checked_mul(key_width).ok_or_else(|| {
+        Error::DeserializeError("LowCardinality: key byte count exceeds addressable memory".into())
+    })?;
+    buffer.try_reserve(bytes.saturating_sub(buffer.len())).map_err(|_| {
+        Error::DeserializeError("LowCardinality: cannot allocate key buffer".into())
+    })?;
+    buffer.resize(bytes, 0);
+    Ok(())
+}
+
+fn decode_dictionary_keys(
+    keys: &mut LowCardinalityKeyBuilder,
+    dictionary: ArrayRef,
+    bytes: &[u8],
+    key_width: usize,
+    nulls: &[u8],
+) -> Result<ArrayRef> {
+    macro_rules! finish {
+        ($key:ty, $builder:expr) => {
+            match key_width {
+                1 => finish_dictionary::<$key, 1>($builder, dictionary, bytes, nulls),
+                2 => finish_dictionary::<$key, 2>($builder, dictionary, bytes, nulls),
+                4 => finish_dictionary::<$key, 4>($builder, dictionary, bytes, nulls),
+                8 => finish_dictionary::<$key, 8>($builder, dictionary, bytes, nulls),
+                _ => Err(Error::DeserializeError("LowCardinality: invalid key width".into())),
+            }
+        };
+    }
+    match keys {
+        LowCardinalityKeyBuilder::UInt8(builder) => finish!(UInt8Type, builder),
+        LowCardinalityKeyBuilder::UInt16(builder) => finish!(UInt16Type, builder),
+        LowCardinalityKeyBuilder::UInt32(builder) => finish!(UInt32Type, builder),
+        LowCardinalityKeyBuilder::UInt64(builder) => finish!(UInt64Type, builder),
+        LowCardinalityKeyBuilder::Int8(builder) => finish!(Int8Type, builder),
+        LowCardinalityKeyBuilder::Int16(builder) => finish!(Int16Type, builder),
+        LowCardinalityKeyBuilder::Int32(builder) => finish!(Int32Type, builder),
+        LowCardinalityKeyBuilder::Int64(builder) => finish!(Int64Type, builder),
     }
 }
+
+fn finish_dictionary<K: ArrowDictionaryKeyType, const WIDTH: usize>(
+    keys: &mut PrimitiveBuilder<K>,
+    dictionary: ArrayRef,
+    bytes: &[u8],
+    nulls: &[u8],
+) -> Result<ArrayRef>
+where
+    K::Native: TryFrom<u64>,
+{
+    for (row, chunk) in bytes.chunks_exact(WIDTH).enumerate() {
+        if !nulls.is_empty() && nulls[row] != 0 {
+            // An outer nullable mask makes the wire key a placeholder, not a dictionary reference.
+            keys.append_null();
+            continue;
+        }
+        let mut raw = [0_u8; 8];
+        raw[..WIDTH].copy_from_slice(chunk);
+        let index = u64::from_le_bytes(raw);
+        let dictionary_index = usize::try_from(index).map_err(|_| {
+            Error::DeserializeError(format!("LowCardinality: key {index} at row {row} is not addressable"))
+        })?;
+        if dictionary_index >= dictionary.len() {
+            return Err(Error::DeserializeError(format!(
+                "LowCardinality: key {index} at row {row} is outside dictionary of {} values",
+                dictionary.len()
+            )));
+        }
+        let key = K::Native::try_from(index).map_err(|_| {
+            Error::DeserializeError(format!(
+                "LowCardinality: key {index} at row {row} cannot be represented by {}",
+                K::DATA_TYPE
+            ))
+        })?;
+        keys.append_value(key);
+    }
+    Ok(Arc::new(DictionaryArray::<K>::try_new(keys.finish(), dictionary)?))
+}
+
+#[cfg(test)]
+#[path = "tests/low_cardinality_regression.rs"]
+mod regression_tests;
 
 #[cfg(test)]
 mod tests {
