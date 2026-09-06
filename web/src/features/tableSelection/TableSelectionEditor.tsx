@@ -69,25 +69,27 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
   const issue = current?.error || current?.result?.issues.map(selectionIssue).join(" ");
   const status = !catalog ? "Check connection to choose tables."
     : issue || (incomplete ? "Enter a table name or pattern." : "");
-  const help = `${HELP} All tables selects every accessible table in the discovered catalog. Preview uses the last successful connection check; startup checks the catalog again.${fixed ? " Table patterns are resolved at delivery startup. Tables created later are not added automatically." : ""}`;
+  const includeHelp = `Include is required. Preview uses the last successful connection check; startup checks the catalog again.${fixed ? " Table patterns are resolved at delivery startup. Tables created later are not added automatically." : ""}`;
   return <section class="table-selection-editor">
     <div class="table-selection-toolbar">
     <SegmentedControl label="Tables to transfer" value={selection.type} disabled={disabled || !catalog}
       options={[{ value: "selected", label: "Selected tables" }, { value: "all", label: "All tables" }]}
       onChange={type => { setExpanded(false); setExpandedRules([]); change(drafts.current[type]); }} />
-      <span class="help" tabIndex={0} title={help} aria-label="About table selection" aria-describedby={`${id}-help`}>
-        <span aria-hidden="true">?</span>
-        <span id={`${id}-help`} role="tooltip" class="visually-hidden">{help}</span>
-      </span>
     </div>
     {rules.map((rule, index) => {
       const invalid = current?.result?.issues.some(issue => issue.kind === "empty_match" && issue.card === index);
+      const showMatches = expandedRules.includes(index) || hasPattern(rule.include, rule.include_mode ?? "glob")
+        || hasPattern(rule.exclude ?? "", rule.exclude_mode ?? "glob");
+      const rowIssue = current?.result?.issues.some(issue => issue.kind === "no_rules"
+        || (issue.kind === "empty_match" ? issue.card === index : issue.first_card === index || issue.second_card === index));
+      const exactFound = !showMatches && rule.include.trim().length > 0
+        && current?.result?.cards[index]?.selected.length === 1 && !rowIssue;
       const field = (kind: "include" | "exclude") => {
         const mode = rule[`${kind}_mode`] ?? "glob";
         const text = rule[kind] ?? "";
         const controlId = `${id}-${index}-${kind}`;
         return <FormField label={kind === "include" ? "Include" : "Exclude"} optional={kind === "exclude"} controlId={controlId}
-          description={`${HELP} ${kind === "exclude" ? "Exclude applies only to this row." : "Include is required."}`}>
+          description={`${HELP} ${kind === "exclude" ? "Exclude applies only to this row." : includeHelp}`}>
           <TablePatternInput id={controlId} label={`${kind === "include" ? "Include" : "Exclude"} rule ${index + 1}`}
             value={text} mode={mode} disabled={disabled || !catalog} required={kind === "include"}
             invalid={kind === "include" && !!invalid} onChange={value => update(index, { [kind]: value })}
@@ -102,14 +104,15 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
             <TrashIcon />
           </Button>
         </div>
-        <div class="table-rule-result">
-          {(expandedRules.includes(index) || hasPattern(rule.include, rule.include_mode ?? "glob") || hasPattern(rule.exclude ?? "", rule.exclude_mode ?? "glob")) &&
+        <div class="table-rule-result" aria-live="polite" aria-atomic="true">
+          {showMatches &&
             <Button class="matched-toggle" aria-label={`Matched tables for rule ${index + 1}`}
               aria-expanded={expandedRules.includes(index)} aria-controls={`${id}-rule-${index}-matches`} disabled={!current?.result}
               onClick={() => setExpandedRules(expandedRules.includes(index) ? expandedRules.filter(item => item !== index) : [...expandedRules, index])}>
               <span class="table-matches-chevron" aria-hidden="true" />
               Matched tables <span class="table-match-count">{current?.result ? current.result.cards[index]?.selected.length ?? 0 : "—"}</span>
             </Button>}
+          {exactFound && <span class="table-rule-found"><span aria-hidden="true">✓</span>Table found</span>}
         </div>
         {expandedRules.includes(index) && <div id={`${id}-rule-${index}-matches`} class="table-rule-matches" aria-label={`Matches for rule ${index + 1}`} aria-busy={!current?.result}>
           {!current?.result ? <div>Waiting for a valid table selection…</div>
@@ -124,7 +127,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
       <Button class="matched-toggle" aria-expanded={expanded} aria-controls={`${id}-matches`}
         disabled={!current?.result} onClick={() => setExpanded(!expanded)}>
         <span class="table-matches-chevron" aria-hidden="true" />
-        Matched tables <span class="table-match-count">{current?.result ? matches.length : "—"}</span>
+        All matched tables <span class="table-match-count">{current?.result ? matches.length : "—"}</span>
       </Button>
       <span class={`table-selection-status${issue ? " has-error" : ""}`} role="status" title={status || undefined}
         aria-busy={!!catalog && !incomplete && !current}>{status}</span>

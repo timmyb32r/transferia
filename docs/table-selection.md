@@ -61,11 +61,13 @@ apply Include/Exclude rules. The editor
 remembers inactive drafts while mounted; only the active variant is serialized
 and validated. Backend schemas reject fields belonging to an inactive variant.
 
-The bottom Matched tables disclosure shows the combined final selection across
+The bottom All matched tables disclosure shows the combined final selection across
 all rules, or the entire accessible catalog in All tables mode. Clicking expands
-the full list inside a bounded scroll viewport. This explicit expansion may move
-later rows; asynchronous changes keep that viewport and the result/status regions
-stable. Per-pattern previews remain available beside the corresponding rule.
+the full list inside a scroll viewport, initially 140 px high. Every Matched tables
+list, including per-rule previews, can be enlarged vertically by dragging its
+bottom-right corner. Its width stays aligned with the form. Explicit expansion
+and resizing may move later rows; asynchronous updates preserve the chosen height
+while the list stays open and keep the result/status regions stable.
 
 ```yaml
 tables:

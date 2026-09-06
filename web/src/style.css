@@ -4977,7 +4977,6 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   min-width: 0;
   margin-bottom: 8px;
 }
-.table-selection-toolbar > .help { flex: 0 0 15px; }
 .table-rule-row {
   display: grid;
   gap: 0;
@@ -5015,6 +5014,16 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .table-suggestions { z-index: 400; overscroll-behavior: contain; }
 .table-suggestions .select-option { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .table-rule-result { height: 24px; }
+.table-rule-found {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 100%;
+  padding: 0 4px;
+  color: var(--success-text);
+  font-size: 11px;
+  white-space: nowrap;
+}
 .table-selection-editor .table-rule-result .matched-toggle { height: 24px; font-size: 11px; }
 .table-selection-footer {
   display: flex;
@@ -5092,6 +5101,8 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .table-selection-status.has-error { color: var(--red); }
 .table-rule-matches {
   height: 140px;
+  min-height: 140px;
+  resize: vertical;
   overflow: auto;
   overscroll-behavior: contain;
   border: 1px solid var(--line);
