@@ -2,6 +2,43 @@ use super::super::{config::UnsupportedTypePolicy, types};
 use arrow::datatypes::{DataType, Field};
 
 #[test]
+fn column_kind_readable_defaults_do_not_block_source_discovery() {
+    let table = super::super::config::TableConfig {
+        database: "_system".into(),
+        name: "audit_log".into(),
+    };
+    for kind in ["", "DEFAULT", "MATERIALIZED", "ALIAS"] {
+        super::super::connector::validate_source_column_kind(&table, "databases", kind)
+            .unwrap();
+    }
+}
+
+#[test]
+fn column_kind_ephemeral_fails_with_specific_table_and_column_context() {
+    let table = super::super::config::TableConfig {
+        database: "analytics".into(),
+        name: "events".into(),
+    };
+    let error = super::super::connector::validate_source_column_kind(
+        &table, "input_only", "EPHEMERAL",
+    ).unwrap_err().to_string();
+    for expected in ["analytics", "events", "input_only", "EPHEMERAL", "cannot be read"] {
+        assert!(error.contains(expected), "{error}");
+    }
+    assert!(!error.contains("SELECT *"), "{error}");
+}
+
+#[test]
+fn column_kind_unknown_fails_closed() {
+    let table = super::super::config::TableConfig {
+        database: "analytics".into(), name: "events".into(),
+    };
+    assert!(super::super::connector::validate_source_column_kind(
+        &table, "value", "FUTURE_KIND",
+    ).is_err());
+}
+
+#[test]
 fn reported_information_schema_enum_is_supported_without_conversion() {
     let declaration = "Enum8('NO' = 0, 'YES' = 1)";
     let column = types::source_column("is_updatable", declaration, UnsupportedTypePolicy::Fail).unwrap();

@@ -521,7 +521,7 @@ async fn discover_table(
                 table.database,
                 table.name
             );
-            anyhow::ensure!(default_values.value(row).is_empty(), "ClickHouse source column '{}.{}.{name}' is generated ({}) and cannot be snapshotted through SELECT *", table.database, table.name, default_values.value(row));
+            validate_source_column_kind(&table, name, default_values.value(row))?;
             let declared_type = type_values.value(row);
             let mut column = source_column_type(&table, name, declared_type, unsupported_types)?;
             if super::types::is_string_conversion(&column) {
@@ -616,6 +616,30 @@ async fn discover_table(
     };
     validate_projection(client, &discovered).await?;
     Ok(discovered)
+}
+
+pub(super) fn validate_source_column_kind(
+    table: &TableConfig,
+    column: &str,
+    kind: &str,
+) -> anyhow::Result<()> {
+    // Snapshot queries name columns explicitly, so readable computed columns
+    // must not be rejected merely because SELECT * would omit some of them.
+    match kind {
+        "" | "DEFAULT" | "MATERIALIZED" | "ALIAS" => Ok(()),
+        "EPHEMERAL" => anyhow::bail!(
+            "ClickHouse source column {}.{}.{} is EPHEMERAL (input-only) and cannot be read by SELECT",
+            quote_identifier(&table.database),
+            quote_identifier(&table.name),
+            quote_identifier(column),
+        ),
+        _ => anyhow::bail!(
+            "ClickHouse source column {}.{}.{} has unsupported column kind {kind:?}",
+            quote_identifier(&table.database),
+            quote_identifier(&table.name),
+            quote_identifier(column),
+        ),
+    }
 }
 
 async fn validate_projection(client: &ReconnectingClient, table: &DiscoveredTable) -> anyhow::Result<()> {

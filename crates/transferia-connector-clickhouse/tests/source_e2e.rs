@@ -112,6 +112,60 @@ async fn read_type_snapshot(connector: &ClickHouseSourceConnector) -> anyhow::Re
 }
 
 #[tokio::test]
+async fn readable_generated_columns_work_with_both_source_readers() -> anyhow::Result<()> {
+    let (_container, host, native_port, http_port) = type_fixture().await?;
+    let http = reqwest::Client::new();
+    let url = format!("http://{host}:{http_port}");
+    execute_fixture_query(&http, &url,
+        "CREATE TABLE generated_events (id Int64, databases Array(String) DEFAULT ['db1'], computed Int64 MATERIALIZED id * 2, displayed Int64 ALIAS computed + 1) ENGINE=MergeTree ORDER BY id",
+    ).await?;
+    execute_fixture_query(&http, &url, "INSERT INTO generated_events (id) VALUES (1)").await?;
+    execute_fixture_query(&http, &url,
+        "INSERT INTO generated_events (id, databases) VALUES (2, ['explicit', 'db2'])",
+    ).await?;
+    for reader in ["native", "parquet"] {
+        let connector = type_connector(&host, native_port, http_port, reader, "generated_events", "")?;
+        let discovery = discover_types(&connector).await?;
+        assert_eq!(discovery.datasets[0].stored_schema.columns.len(), 4, "{reader}");
+        let batch = read_type_snapshot(&connector).await?;
+        let ids = batch.column_by_name("id").unwrap().as_any().downcast_ref::<Int64Array>().unwrap();
+        let computed = batch.column_by_name("computed").unwrap().as_any().downcast_ref::<Int64Array>().unwrap();
+        let displayed = batch.column_by_name("displayed").unwrap().as_any().downcast_ref::<Int64Array>().unwrap();
+        let databases = batch.column_by_name("databases").unwrap().as_any().downcast_ref::<ListArray>().unwrap();
+        let mut seen = BTreeSet::new();
+        for row in 0..batch.num_rows() {
+            let id = ids.value(row);
+            assert!(seen.insert(id), "duplicate id in {reader}");
+            assert_eq!(computed.value(row), id * 2, "{reader}");
+            assert_eq!(displayed.value(row), id * 2 + 1, "{reader}");
+            let values = databases.value(row);
+            let values = values.as_any().downcast_ref::<BinaryArray>().unwrap();
+            let expected: Vec<&[u8]> = if id == 1 { vec![b"db1"] } else { vec![b"explicit", b"db2"] };
+            assert_eq!(values.iter().collect::<Vec<_>>(), expected.into_iter().map(Some).collect::<Vec<_>>(), "{reader}");
+        }
+        assert_eq!(seen, BTreeSet::from([1, 2]), "{reader}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn ephemeral_columns_are_rejected_before_snapshot_for_both_readers() -> anyhow::Result<()> {
+    let (_container, host, native_port, http_port) = type_fixture().await?;
+    let http = reqwest::Client::new();
+    execute_fixture_query(&http, &format!("http://{host}:{http_port}"),
+        "CREATE TABLE ephemeral_events (id Int64, input_only String EPHEMERAL, stored String DEFAULT input_only) ENGINE=MergeTree ORDER BY id",
+    ).await?;
+    for reader in ["native", "parquet"] {
+        let connector = type_connector(&host, native_port, http_port, reader, "ephemeral_events", "")?;
+        let error = discover_types(&connector).await.unwrap_err().to_string();
+        for expected in ["ephemeral_events", "input_only", "EPHEMERAL", "cannot be read"] {
+            assert!(error.contains(expected), "{reader}: {error}");
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn both_source_readers_preserve_full_enum_and_nested_numeric_types() -> anyhow::Result<()> {
     let (_container, host, native_port, http_port) = type_fixture().await?;
     let http = reqwest::Client::new();
