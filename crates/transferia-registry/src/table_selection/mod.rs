@@ -135,13 +135,59 @@ pub struct TableClassification {
     pub issues: Vec<SelectionIssue>,
 }
 
-struct CompiledRule {
+pub struct CompiledTableRule {
     include: Regex,
     exclude: Option<Regex>,
 }
 
+impl TableRule {
+    pub fn compile(&self) -> Result<CompiledTableRule, PatternError> {
+        self.compile_at(0)
+    }
+
+    fn compile_at(&self, card: usize) -> Result<CompiledTableRule, PatternError> {
+        let compile = |text: &str, field, mode| {
+            compile_pattern(text, mode).map_err(|reason| PatternError {
+                card,
+                field,
+                reason,
+            })
+        };
+        Ok(CompiledTableRule {
+            include: compile(&self.include, PatternField::Include, self.include_mode)?,
+            exclude: self
+                .exclude
+                .as_deref()
+                .filter(|text| !text.is_empty())
+                .map(|text| compile(text, PatternField::Exclude, self.exclude_mode))
+                .transpose()?,
+        })
+    }
+}
+
+impl CompiledTableRule {
+    /// Match the current input identity. No catalog-wide empty-match or
+    /// cross-step conflict policy applies to a sequential transform step.
+    #[must_use]
+    pub fn matches(&self, namespace: Option<&str>, name: &str) -> bool {
+        let qualified = match namespace {
+            Some(namespace) => TableIdentity {
+                namespace: namespace.into(),
+                name: name.into(),
+            }
+            .qualified_name(),
+            None => name.replace('\\', "\\\\").replace('.', "\\."),
+        };
+        self.include.is_match(&qualified)
+            && !self
+                .exclude
+                .as_ref()
+                .is_some_and(|exclude| exclude.is_match(&qualified))
+    }
+}
+
 pub struct CompiledSelection {
-    rules: Vec<CompiledRule>,
+    rules: Vec<CompiledTableRule>,
 }
 
 impl TableSelection {
@@ -167,24 +213,7 @@ impl TableSelection {
         let rules = source_rules
             .iter()
             .enumerate()
-            .map(|(card, rule)| {
-                let compile = |text: &str, field, mode| {
-                    compile_pattern(text, mode).map_err(|reason| PatternError {
-                        card,
-                        field,
-                        reason,
-                    })
-                };
-                Ok(CompiledRule {
-                    include: compile(&rule.include, PatternField::Include, rule.include_mode)?,
-                    exclude: rule
-                        .exclude
-                        .as_deref()
-                        .filter(|text| !text.is_empty())
-                        .map(|text| compile(text, PatternField::Exclude, rule.exclude_mode))
-                        .transpose()?,
-                })
-            })
+            .map(|(card, rule)| rule.compile_at(card))
             .collect::<Result<Vec<_>, PatternError>>()?;
         Ok(CompiledSelection { rules })
     }

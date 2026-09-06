@@ -62,10 +62,35 @@ pub struct MessagePreviewRequest {
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct SqlPlaygroundRequest {
-    pub sql: String,
+pub struct TransformPreviewRequest {
+    pub middlewares: Vec<Value>,
+    pub through_step: usize,
+    pub source: TransformPreviewSource,
+    pub table: TransformPreviewTable,
+    pub row_limit: usize,
+    pub max_sample_bytes: usize,
+    /// DataFusion tracked operator state and retained Arrow batches, not an
+    /// operating-system process memory limit. Scalar expressions may allocate
+    /// transient memory outside the tracked pool.
+    pub memory_limit_bytes: usize,
+    /// Overall cooperative deadline, including source resolution and sampling.
+    pub timeout_ms: usize,
+}
 
-    pub rows: Vec<Value>,
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TransformPreviewSource {
+    pub connector: String,
+    #[schemars(with = "BTreeMap<String, Value>", extend("x-typescript-type" = "JsonObject"))]
+    pub config: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TransformPreviewTable {
+    #[serde(default)]
+    pub namespace: Option<String>,
+    pub name: String,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
@@ -526,10 +551,32 @@ pub struct WorkerLogChunkView {
 
 #[derive(Clone, Debug, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct SqlPlaygroundResult {
-    pub columns: Vec<ColumnView>,
+pub struct TransformPreviewFrame {
+    pub table: TransformPreviewTable,
+    pub columns: Vec<TransformPreviewColumn>,
+    /// Display-only rows: non-null cells are exact Arrow-formatted strings.
+    /// Values remain native Arrow between transforms; this boundary never
+    /// narrows integers or decimals to JavaScript numbers.
+    pub rows: Vec<BTreeMap<String, Option<String>>>,
+}
 
-    pub rows: Vec<Value>,
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TransformPreviewColumn {
+    pub name: String,
+    pub arrow_type: String,
+    pub nullable: bool,
+    /// Exact metadata supplied by the sampled Arrow field. An absent key means
+    /// no claim is made about that constraint or logical extension.
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TransformPreviewResult {
+    pub before: TransformPreviewFrame,
+    pub after: TransformPreviewFrame,
+    pub applied: bool,
 }
 
 #[derive(Clone, Debug, JsonSchema, Serialize)]
@@ -608,8 +655,8 @@ struct ServerApiContract {
     table_selection_preview_response: transferia_registry::table_selection::SelectionPreview,
     message_preview_request: MessagePreviewRequest,
     message_preview_response: MessagePreviewResult,
-    sql_playground_request: SqlPlaygroundRequest,
-    sql_playground_response: SqlPlaygroundResult,
+    transform_preview_request: TransformPreviewRequest,
+    transform_preview_response: TransformPreviewResult,
     speedtest_estimate_request: SpeedtestEstimateRequest,
     speedtest_estimate_response: SpeedtestEstimateResult,
     speedtest_tune_request: SpeedtestTuneRequest,
@@ -655,6 +702,7 @@ pub fn fixture() -> anyhow::Result<Value> {
                 partitioned: false,
                 connection_check: true,
                 message_preview: false,
+                table_preview: false,
             }),
         }],
     };

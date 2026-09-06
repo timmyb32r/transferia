@@ -24,12 +24,10 @@ pub struct FilterConfig {
 /// Middleware that keeps only rows where the given string column equals `value`.
 ///
 /// NULL values never pass. Only `Utf8`/`LargeUtf8` supported.
-/// Column index and scalar arrays are cached after first use.
+/// Scalar arrays are cached; the column is resolved per input schema.
 pub struct FilterMiddleware {
     field: String,
     value: String,
-    /// Cached column index — resolved once from the first batch's schema.
-    col_idx: OnceLock<usize>,
     /// Cached scalar `StringArray` (Utf8).
     scalar_utf8: OnceLock<arrow::array::StringArray>,
     /// Cached scalar `LargeStringArray` (`LargeUtf8`).
@@ -44,7 +42,6 @@ impl FilterMiddleware {
         Ok(Self {
             field,
             value,
-            col_idx: OnceLock::new(),
             scalar_utf8: OnceLock::new(),
             scalar_large_utf8: OnceLock::new(),
         })
@@ -75,24 +72,12 @@ impl Middleware for FilterMiddleware {
 
     async fn process(&self, data: TableData) -> anyhow::Result<TableData> {
         let schema = data.batch.schema();
-        let col_idx = match self.col_idx.get() {
-            Some(&i) => i,
-            None => {
-                let i = schema.index_of(&self.field).map_err(|e| {
-                    tracing::error!(
-                        "FilterMiddleware: column '{}' not found in schema: {e}",
-                        self.field
-                    );
-                    anyhow::anyhow!(
-                        "FilterMiddleware: column '{}' not found in schema: {e}",
-                        self.field
-                    )
-                })?;
-                // set() races harmlessly — same value from same (field, schema) pair.
-                let _cached = self.col_idx.set(i);
-                i
-            }
-        };
+        let col_idx = schema.index_of(&self.field).map_err(|error| {
+            anyhow::anyhow!(
+                "FilterMiddleware: column '{}' not found in schema: {error}",
+                self.field
+            )
+        })?;
 
         let field_dt = schema.field(col_idx).data_type();
         let col = data.batch.column(col_idx);

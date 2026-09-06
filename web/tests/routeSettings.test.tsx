@@ -22,6 +22,19 @@ vi.mock("../src/features/variantDetails/VariantDetailsForms", () => ({
 afterEach(cleanup);
 
 const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
+it("places one transforms island directly below source and destination", () => {
+  const config = { delivery_type: "batch", source: { clickhouse: {} }, sink: { discard: {} }, middlewares: [] };
+  const view = render(<DeliveryConfiguration catalog={catalog}
+    editor={{ sessionId: "transforms-island", editing: true, localRevision: 0, name: "Test", description: "", config,
+      validation: { state: "draft" }, runtime: { state: "stopped" } }}
+    selection={selectedEndpoints(catalog, config, productionWidgetRegistry)} readOnly={false} requiredErrorScope="none"
+    onName={() => {}} onDescription={() => {}} onConfig={() => {}} onChooseEndpoint={() => {}} />);
+  const transforms = view.getAllByRole("region", { name: "Transforms" });
+  expect(transforms).toHaveLength(1);
+  const island = transforms[0]!.closest(".middleware-island");
+  expect(island?.previousElementSibling?.classList.contains("route-composition")).toBe(true);
+  expect(island?.nextElementSibling?.classList.contains("pipeline-section")).toBe(true);
+});
 it("shows destination-mode errors immediately even without a selected source", () => {
   const config = { delivery_type: "stream", sink: { ytsaurus: { tables: { type: "static_tables" } } } };
   const view = render(<DeliveryConfiguration catalog={catalog}

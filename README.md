@@ -339,6 +339,52 @@ strict Clippy, and the complete test/E2E suite.
 
 ## Configuration
 
+### Ordered transforms
+
+The **Transforms** island below source/destination edits the `middlewares`
+sequence. Each expandable strip contains exactly one action (`datafusion` SQL
+or `filter` string equality) and its own `tables` rule. Clone copies the whole
+step, including Include/Exclude; dragging the handle on the left changes its
+position. Settings and the optional per-step preview start collapsed.
+
+After a successful source connection check, Include/Exclude offer the same
+glob/regex suggestions as source table selection. **Available tables (N)**
+opens a searchable catalog of the delivery's selected source tables, with an
+exact-name copy action on each row. **Matched tables** below the fields shows
+the current step's matches after Exclude, without opening its data preview.
+
+Steps run top to bottom. Include/Exclude match the **current** table identity
+and each action sees the columns produced by preceding actions. Namespaced
+sources use `schema.table` (PostgreSQL) or `database.table` (MySQL/ClickHouse).
+Patterns use the same qualified-name escaping as source table selection; dots
+inside identifier components are distinct from the namespace separator.
+Glob is the default (`*` for any characters, `?` for one); the `.*` buttons
+enable full-name regex independently for Include and Exclude. Omitting `tables`
+applies a step to all tables; Include itself cannot be empty. Exclude only
+affects its own step. Overlapping steps are intentional and run in order;
+nonmatching tables pass through unchanged. Missing/incompatible columns fail
+validation for matching tables. DLQ batches bypass transforms.
+
+**Preview** loads a user-selected table from PostgreSQL, MySQL, or ClickHouse
+without launching a delivery or preparing a destination. It runs the actual
+Arrow middleware chain through the selected step and shows that step's input
+and output. Source types remain native between steps, including after a filter
+returns zero rows. Browser cells are display-only exact text accompanied by
+their Arrow types, not JSON numbers that could round wide integers/decimals.
+
+Preview samples table rows, not replication events. Generated transport/CDC
+metadata is unavailable and is never fabricated. The editable defaults are
+20 source rows, 16 MiB source-sample bytes, 256 MiB tracked SQL memory and a
+30-second deadline. Exceeding a limit fails preview, rather than silently
+truncating values. The SQL budget covers tracked engine allocations and retained
+results; it is not a hard process-RSS limit. The deadline cancels asynchronous
+work, not synchronous scalar CPU execution. These controls are not isolation
+for hostile SQL. Source drivers may decode one transport packet/block before
+the sample-byte guard can inspect it; their configured transport limits still
+apply.
+
+### Logbroker
+
 `logbroker` uses the official low-level Rust YDB gRPC crate and the Topic API
 `StreamRead` protocol. Partition assignment, rebalancing, and auto-partitioning
 are owned by the protocol. Each topic may optionally restrict the partitions it

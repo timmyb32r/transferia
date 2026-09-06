@@ -18,7 +18,7 @@ use super::api_contract::{
     ApiErrorBody, ApiErrorCode, ApiErrorView, ConfigRequest, ConfigResponse,
     ConnectionCheckRequest, CreateDraftRequest, DeliverySummary, HealthResponse,
     MessagePreviewRequest, RevisionRequest, SpeedtestEstimateRequest, SpeedtestTuneRequest,
-    SqlPlaygroundRequest, StopRequest, UpdateDraftRequest, WorkerLogReadQuery, YamlRequest,
+    TransformPreviewRequest, StopRequest, UpdateDraftRequest, WorkerLogReadQuery, YamlRequest,
     YamlResponse,
 };
 use super::assets::{
@@ -156,7 +156,7 @@ declare_api_handlers! {
     CHECK_CONNECTION => post(check_connection),
     TABLE_SELECTION_PREVIEW => post(table_selection_preview),
     PREVIEW_MESSAGE => post(preview_message),
-    SQL_PLAYGROUND => post(sql_playground),
+    PREVIEW_TRANSFORMS => post(preview_transforms),
     SPEEDTEST_ESTIMATE => post(speedtest_estimate),
     SPEEDTEST_TUNE => post(speedtest_tune),
     RENDER_YAML => post(render_yaml),
@@ -191,13 +191,15 @@ pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router
     .with_state(state)
 }
 
-async fn sql_playground(
+async fn preview_transforms(
     State(state): State<AppState>,
-    ApiJson(request): ApiJson<SqlPlaygroundRequest>,
+    ApiJson(request): ApiJson<TransformPreviewRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let cancellation = state.control_plane.request_cancellation();
+    let _cancel_on_drop = CancelOnDrop(cancellation.clone());
     let future = state
         .control_plane
-        .sql_playground(request.sql, request.rows);
+        .preview_transforms(request, cancellation);
     let result = future.await?;
     Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
 }

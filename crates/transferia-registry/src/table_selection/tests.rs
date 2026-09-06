@@ -1,6 +1,20 @@
 use super::*;
 
 #[test]
+fn standalone_step_rule_matches_current_names_without_catalog_conflicts() {
+    let rule = TableRule {
+        include: "public.reports_?".into(),
+        exclude: Some(r"public\.reports_0".into()),
+        include_mode: PatternMode::Glob,
+        exclude_mode: PatternMode::Regex,
+    }.compile().unwrap();
+    assert!(rule.matches(Some("public"), "reports_1"));
+    assert!(!rule.matches(Some("public"), "reports_0"));
+    assert!(!rule.matches(None, "public.reports_1"));
+    assert!(!rule.matches(Some("other"), "reports_1"));
+}
+
+#[test]
 fn all_tables_and_independent_pattern_modes_share_startup_and_admission_rules() {
     let catalog = [
         table("db", "reports_1"),

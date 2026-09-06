@@ -9,6 +9,7 @@ use serde_json::Value as JsonValue;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 use transferia_core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
+use transferia_core::TableData;
 use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_delivery_contracts::middleware::Middleware;
 use transferia_delivery_contracts::semantics::RecordSemantics;
@@ -17,7 +18,7 @@ use crate::tuning::{validate_tuning_parameters_against_schema, TuningParameter};
 use crate::ui_contract::{validate_endpoint_capabilities, validate_ui_dialect};
 use crate::{
     ConnectionCheckResult, ConnectorDefinition, DeliveryMode, EndpointDefinition, EndpointRole,
-    MiddlewareDefinition, SinkConnector, SourceConnector,
+    MiddlewareDefinition, SinkConnector, SourceConnector, TableIdentity,
 };
 
 type ConnectionChecker = Box<
@@ -43,34 +44,41 @@ type SourceSchemaPreviewer = Box<
         + Send
         + Sync,
 >;
+/// Explicit preview limits. Connectors enforce byte admission while reading;
+/// exceeding a limit fails the sample rather than silently truncating values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableSampleLimits {
+    /// Maximum rows requested by the sample query, never a post-read truncation.
+    pub row_limit: usize,
+    /// Source read and Arrow admission budget; exceeding it fails the request.
+    pub max_bytes: usize,
+    /// Server execution deadline. The request owner also applies its overall deadline.
+    pub timeout_ms: usize,
+}
+
+impl TableSampleLimits {
+    pub fn validate(self) -> anyhow::Result<()> {
+        anyhow::ensure!(self.row_limit > 0, "row_limit must be positive");
+        anyhow::ensure!(self.max_bytes > 0, "max_sample_bytes must be positive");
+        anyhow::ensure!(self.timeout_ms > 0, "timeout_ms must be positive");
+        Ok(())
+    }
+
+    pub fn check_bytes(self, bytes: usize) -> anyhow::Result<()> {
+        anyhow::ensure!(bytes <= self.max_bytes,
+            "source sample needs {bytes} bytes and exceeds max_sample_bytes ({} bytes); increase the sample byte budget or select fewer rows", self.max_bytes);
+        Ok(())
+    }
+}
+
+type SourceTableSampler = Box<
+    dyn Fn(Value, TableIdentity, TableSampleLimits, CancellationToken)
+        -> Pin<Box<dyn Future<Output = anyhow::Result<TableData>> + Send>>
+        + Send + Sync,
+>;
 type SourceFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SourceConnector>> + Send + Sync>;
 type SinkFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SinkConnector>> + Send + Sync>;
 type MiddlewareFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn Middleware>> + Send + Sync>;
-type MiddlewarePreviewer = Box<
-    dyn Fn(
-            Value,
-            Vec<JsonValue>,
-        ) -> Pin<Box<dyn Future<Output = anyhow::Result<MiddlewarePreview>> + Send>>
-        + Send
-        + Sync,
->;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MiddlewarePreviewColumn {
-    pub name: String,
-
-    pub arrow_type: String,
-
-    pub nullable: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MiddlewarePreview {
-    pub columns: Vec<MiddlewarePreviewColumn>,
-
-    pub rows: Vec<JsonValue>,
-}
-
 pub struct SourcePreview {
     pub payload: Vec<u8>,
 
@@ -130,6 +138,7 @@ pub struct ComponentRegistration {
     sink_checker: Option<ConnectionChecker>,
     source_previewer: Option<SourcePreviewer>,
     source_schema_previewer: Option<SourceSchemaPreviewer>,
+    source_table_sampler: Option<SourceTableSampler>,
     source_tuning_parameters: Vec<TuningParameter>,
     sink_tuning_parameters: Vec<TuningParameter>,
 }
@@ -138,7 +147,6 @@ pub struct MiddlewareRegistration {
     key: &'static str,
     definition: MiddlewareDefinition,
     factory: MiddlewareFactory,
-    previewer: Option<MiddlewarePreviewer>,
 }
 
 impl MiddlewareRegistration {
@@ -171,7 +179,6 @@ impl MiddlewareRegistration {
                 title,
                 schema,
                 initial,
-                playground: false,
             },
             factory: Box::new(move |raw| {
                 let config = serde_yaml::from_value(raw).map_err(|error| {
@@ -179,37 +186,9 @@ impl MiddlewareRegistration {
                 })?;
                 factory(config)
             }),
-            previewer: None,
         })
     }
 
-    pub fn new_with_preview<C, F, I, P, Fut>(
-        key: &'static str,
-        title: &'static str,
-        initial: I,
-        factory: F,
-        previewer: P,
-    ) -> anyhow::Result<Self>
-    where
-        C: DeserializeOwned + JsonSchema + Send + 'static,
-        F: Fn(C) -> anyhow::Result<Box<dyn Middleware>> + Send + Sync + 'static,
-        I: FnOnce() -> JsonValue,
-        P: Fn(C, Vec<JsonValue>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = anyhow::Result<MiddlewarePreview>> + Send + 'static,
-    {
-        let mut registration = Self::new::<C, _, _>(key, title, initial, factory)?;
-        registration.definition.playground = true;
-        registration.previewer = Some(Box::new(move |raw, rows| {
-            let decoded = serde_yaml::from_value(raw);
-            match decoded {
-                Ok(config) => Box::pin(previewer(config, rows)),
-                Err(error) => Box::pin(async move {
-                    Err(anyhow::anyhow!("invalid middleware configuration: {error}"))
-                }),
-            }
-        }));
-        Ok(registration)
-    }
 }
 
 impl ComponentRegistration {
@@ -224,6 +203,7 @@ impl ComponentRegistration {
             sink_checker: None,
             source_previewer: None,
             source_schema_previewer: None,
+            source_table_sampler: None,
             source_tuning_parameters: Vec::new(),
             sink_tuning_parameters: Vec::new(),
         }
@@ -259,6 +239,24 @@ impl ComponentRegistration {
     {
         self.source_schema_previewer = Some(Box::new(move |raw, request, cancellation| {
             Box::pin(previewer(raw, request, cancellation))
+        }));
+        self
+    }
+
+    /// Bounded, read-only native rows for interactive previews. This capability
+    /// must not start delivery workers or allocate replication resources.
+    #[must_use]
+    pub fn source_table_sampler<C, F, Fut>(mut self, sampler: F) -> Self
+    where
+        C: DeserializeOwned + Send + 'static,
+        F: Fn(C, TableIdentity, TableSampleLimits, CancellationToken) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = anyhow::Result<TableData>> + Send + 'static,
+    {
+        self.source_table_sampler = Some(Box::new(move |raw, table, limits, cancellation| {
+            match serde_yaml::from_value(raw) {
+                Ok(config) => Box::pin(sampler(config, table, limits, cancellation)),
+                Err(_) => Box::pin(async { anyhow::bail!("invalid source sample configuration") }),
+            }
         }));
         self
     }
@@ -560,6 +558,11 @@ impl RegistryBuilder {
             registration.key
         );
         anyhow::ensure!(
+            registration.source_table_sampler.is_none() || registration.source.is_some(),
+            "component '{}' registers native table sampling without a source",
+            registration.key
+        );
+        anyhow::ensure!(
             registration.sink_checker.is_none() || registration.sink.is_some(),
             "component '{}' registers a sink connection check without a sink",
             registration.key
@@ -611,11 +614,13 @@ impl RegistryBuilder {
         let mut sink_checkers = BTreeMap::new();
         let mut source_previewers = BTreeMap::new();
         let mut source_schema_previewers = BTreeMap::new();
+        let mut source_table_samplers = BTreeMap::new();
         let mut tuning_parameters = BTreeMap::new();
         for registration in self.registrations {
             let source = registration.source.map(|(mut definition, factory)| {
                 definition.connection_check = registration.source_checker.is_some();
                 definition.message_preview = registration.source_previewer.is_some();
+                definition.table_preview = registration.source_table_sampler.is_some();
                 sources.insert(registration.key, factory);
                 definition
             });
@@ -635,6 +640,9 @@ impl RegistryBuilder {
             }
             if let Some(previewer) = registration.source_schema_previewer {
                 source_schema_previewers.insert(registration.key, previewer);
+            }
+            if let Some(sampler) = registration.source_table_sampler {
+                source_table_samplers.insert(registration.key, sampler);
             }
             if !registration.source_tuning_parameters.is_empty() {
                 tuning_parameters.insert(
@@ -657,13 +665,9 @@ impl RegistryBuilder {
         }
         let mut middleware_definitions = Vec::with_capacity(self.middleware_registrations.len());
         let mut middlewares = BTreeMap::new();
-        let mut middleware_previewers = BTreeMap::new();
         for registration in self.middleware_registrations {
             middleware_definitions.push(registration.definition);
             middlewares.insert(registration.key, registration.factory);
-            if let Some(previewer) = registration.previewer {
-                middleware_previewers.insert(registration.key, previewer);
-            }
         }
         Registry {
             definitions,
@@ -673,10 +677,10 @@ impl RegistryBuilder {
             sink_checkers,
             source_previewers,
             source_schema_previewers,
+            source_table_samplers,
             tuning_parameters,
             middleware_definitions,
             middlewares,
-            middleware_previewers,
         }
     }
 }
@@ -695,10 +699,10 @@ pub struct Registry {
     sink_checkers: BTreeMap<&'static str, ConnectionChecker>,
     source_previewers: BTreeMap<&'static str, SourcePreviewer>,
     source_schema_previewers: BTreeMap<&'static str, SourceSchemaPreviewer>,
+    source_table_samplers: BTreeMap<&'static str, SourceTableSampler>,
     tuning_parameters: BTreeMap<(&'static str, EndpointRole), Vec<TuningParameter>>,
     middleware_definitions: Vec<MiddlewareDefinition>,
     middlewares: BTreeMap<&'static str, MiddlewareFactory>,
-    middleware_previewers: BTreeMap<&'static str, MiddlewarePreviewer>,
 }
 
 impl Registry {
@@ -788,18 +792,6 @@ impl Registry {
             .ok_or_else(|| anyhow::anyhow!("unknown middleware '{kind}'"))?(raw)
     }
 
-    pub async fn preview_middleware(
-        &self,
-        kind: &str,
-        raw: Value,
-        rows: Vec<JsonValue>,
-    ) -> anyhow::Result<MiddlewarePreview> {
-        let previewer = self.middleware_previewers.get(kind).ok_or_else(|| {
-            anyhow::anyhow!("middleware '{kind}' does not support interactive preview")
-        })?;
-        previewer(raw, rows).await
-    }
-
     pub async fn check_connection(
         &self,
         kind: &str,
@@ -839,6 +831,31 @@ impl Registry {
             anyhow::anyhow!("{kind} source does not support partial schema preview")
         })?;
         previewer(raw, request, cancellation).await
+    }
+
+    pub async fn sample_source_table(
+        &self,
+        kind: &str,
+        raw: Value,
+        table: TableIdentity,
+        limits: TableSampleLimits,
+        cancellation: CancellationToken,
+    ) -> anyhow::Result<TableData> {
+        limits.validate()?;
+        anyhow::ensure!(!table.namespace.is_empty() && !table.name.is_empty(), "source sample requires a qualified table identity");
+        let sampler = self.source_table_samplers.get(kind)
+            .ok_or_else(|| anyhow::anyhow!("{kind} source does not support native table sampling"))?;
+        let result = tokio::select! {
+            biased;
+            () = cancellation.cancelled() => anyhow::bail!("source table sample cancelled"),
+            result = sampler(raw, table.clone(), limits, cancellation.clone()) => result?,
+        };
+        anyhow::ensure!(result.namespace.as_deref() == Some(table.namespace.as_str()) && result.table.as_ref() == table.name,
+            "source sample returned a different table identity");
+        anyhow::ensure!(result.batch.num_rows() <= limits.row_limit,
+            "source sample exceeded the requested row_limit");
+        limits.check_bytes(result.batch.get_array_memory_size())?;
+        Ok(result)
     }
 }
 
@@ -895,5 +912,6 @@ fn endpoint_definition<C: JsonSchema>(
         partitioned,
         connection_check: false,
         message_preview: false,
+        table_preview: false,
     })
 }

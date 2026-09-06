@@ -9,8 +9,8 @@ import type {
   MessagePreviewRequest,
   MessagePreviewResult,
   DiscoveryResult,
-  SqlPlaygroundRequest,
-  SqlPlaygroundResult,
+  TransformPreviewRequest,
+  TransformPreviewResult,
   SpeedtestEstimateRequest,
   SpeedtestEstimateResult,
   SpeedtestTuneRequest,
@@ -42,10 +42,10 @@ export interface ControlPlanePort {
     request: MessagePreviewRequest,
     signal?: AbortSignal,
   ): Promise<MessagePreviewResult>;
-  sqlPlayground(
-    request: SqlPlaygroundRequest,
+  previewTransforms(
+    request: TransformPreviewRequest,
     signal?: AbortSignal,
-  ): Promise<SqlPlaygroundResult>;
+  ): Promise<TransformPreviewResult>;
   speedtestEstimate(
     request: SpeedtestEstimateRequest,
     signal?: AbortSignal,

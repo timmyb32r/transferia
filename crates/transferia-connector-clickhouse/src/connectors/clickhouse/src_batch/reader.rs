@@ -153,7 +153,7 @@ impl ClickHouseSource {
                 false,
                 batch,
                 system_columns,
-            )],
+            ).with_namespace(Arc::from(self.table.config.database.as_str()))],
             source_rows: rows as u64,
             commit_marker: Some(CommitMarker::new(self.offset)),
             memory: Vec::new(),
@@ -237,7 +237,6 @@ fn validate_snapshot_schema(batch: &RecordBatch, table: &DiscoveredTable) -> any
     Ok(())
 }
 
-#[cfg(test)]
 pub(super) fn normalize_snapshot_schema(
     batch: &RecordBatch,
     table: &DiscoveredTable,

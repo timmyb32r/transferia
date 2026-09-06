@@ -122,6 +122,8 @@ struct ConnInner {
     active_since: Instant,
     /// Connection is already disconnected.
     pub(crate) disconnected: bool,
+    /// Close the socket on drop instead of spawning a pending-result drain.
+    force_close_on_drop: bool,
     /// One-time connection-level infile handler.
     infile_handler:
         Option<Pin<Box<dyn Future<Output = crate::Result<InfileData>> + Send + Sync + 'static>>>,
@@ -173,6 +175,7 @@ impl ConnInner {
             auth_plugin: AuthPlugin::MysqlNativePassword,
             auth_switched: false,
             disconnected: false,
+            force_close_on_drop: false,
             server_key: None,
             infile_handler: None,
             reset_upon_returning_to_a_pool: false,
@@ -1022,9 +1025,23 @@ impl Conn {
 
     /// Returns a future that resolves to [`Conn`].
     pub fn new<T: Into<Opts>>(opts: T) -> crate::BoxFuture<'static, Conn> {
-        let opts = opts.into();
+        Self::new_with_drop_policy(opts.into(), false)
+    }
+
+    /// Connects a short-lived request whose cancellation must close its socket.
+    ///
+    /// Unlike `new`, dropping this connection (or its acquisition future) never
+    /// spawns a task to drain unread rows or roll back a transaction. Socket
+    /// closure is local cancellation, not a guarantee that the server stops its
+    /// query immediately; callers must also configure server execution limits.
+    pub fn new_cancel_safe<T: Into<Opts>>(opts: T) -> crate::BoxFuture<'static, Conn> {
+        Self::new_with_drop_policy(opts.into(), true)
+    }
+
+    fn new_with_drop_policy(opts: Opts, force_close_on_drop: bool) -> crate::BoxFuture<'static, Conn> {
         async move {
             let mut conn = Conn::empty(opts.clone());
+            conn.inner.force_close_on_drop = force_close_on_drop;
 
             let stream = if let Some(_path) = opts.socket() {
                 #[cfg(unix)]
@@ -1068,7 +1085,7 @@ impl Conn {
             let opts = self.inner.opts.clone();
             if opts.socket().is_none() {
                 let opts = OptsBuilder::from_opts(opts).socket(Some(&**socket));
-                if let Ok(conn) = Conn::new(opts).await {
+                if let Ok(conn) = Conn::new_with_drop_policy(opts.into(), self.inner.force_close_on_drop).await {
                     let old_conn = std::mem::replace(self, conn);
                     // tidy up the old connection
                     old_conn.close_conn().await?;

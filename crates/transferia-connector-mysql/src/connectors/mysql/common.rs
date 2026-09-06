@@ -109,7 +109,7 @@ impl MySqlConnectionConfig {
 }
 
 pub async fn connect(config: &MySqlConnectionConfig) -> anyhow::Result<Conn> {
-    connect_with_packet_limit(config, None).await
+    connect_with_packet_limit(config, None, false).await
 }
 
 pub async fn connect_with_max_allowed_packet(
@@ -117,7 +117,15 @@ pub async fn connect_with_max_allowed_packet(
     max_allowed_packet: usize,
 ) -> anyhow::Result<Conn> {
     validate_mysql_client_packet_limit(max_allowed_packet)?;
-    connect_with_packet_limit(config, Some(max_allowed_packet)).await
+    connect_with_packet_limit(config, Some(max_allowed_packet), false).await
+}
+
+pub(crate) async fn connect_sample_with_max_allowed_packet(
+    config: &MySqlConnectionConfig,
+    max_allowed_packet: usize,
+) -> anyhow::Result<Conn> {
+    validate_mysql_client_packet_limit(max_allowed_packet)?;
+    connect_with_packet_limit(config, Some(max_allowed_packet), true).await
 }
 
 pub fn validate_mysql_client_packet_limit(max_allowed_packet: usize) -> anyhow::Result<()> {
@@ -129,9 +137,14 @@ pub fn validate_mysql_client_packet_limit(max_allowed_packet: usize) -> anyhow::
     Ok(())
 }
 
+#[cfg(test)]
+#[path = "tests/common.rs"]
+mod tests;
+
 async fn connect_with_packet_limit(
     config: &MySqlConnectionConfig,
     max_allowed_packet: Option<usize>,
+    close_on_cancel: bool,
 ) -> anyhow::Result<Conn> {
     config.validate()?;
     let mut builder = OptsBuilder::default()
@@ -152,7 +165,11 @@ async fn connect_with_packet_limit(
         }
         builder = builder.ssl_opts(Some(ssl));
     }
-    Ok(Conn::new(builder).await?)
+    Ok(if close_on_cancel {
+        Conn::new_cancel_safe(builder).await?
+    } else {
+        Conn::new(builder).await?
+    })
 }
 
 pub async fn check_connection(config: &MySqlConnectionConfig) -> anyhow::Result<()> {

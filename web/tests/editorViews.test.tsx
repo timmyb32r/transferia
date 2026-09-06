@@ -38,7 +38,7 @@ const endpoint: EndpointDefinition = {
   record_semantics: ["append_only"],
   partitioned: false,
   connection_check: true,
-  message_preview: false,
+  message_preview: false, table_preview: false,
 };
 
 afterEach(() => {
@@ -338,7 +338,7 @@ describe("endpoint connection check", () => {
       record_semantics: ["append_only"],
       partitioned: true,
       connection_check: false,
-      message_preview: true,
+      message_preview: true, table_preview: false,
     };
     vi.spyOn(api, "previewMessage").mockResolvedValue({
       text_preview: "{}",

@@ -160,6 +160,7 @@ export type EndpointDefinition = {
   partitioned: boolean;
   record_semantics: Array<RecordSemantics>;
   schema: JsonSchema;
+  table_preview: boolean;
 };
 
 export type EndpointRole = "source" | "sink";
@@ -419,16 +420,6 @@ export type SpeedtestTuningTrialView = {
   rows_per_second: number;
 };
 
-export type SqlPlaygroundRequest = {
-  rows: Array<JsonValue>;
-  sql: string;
-};
-
-export type SqlPlaygroundResult = {
-  columns: Array<ColumnView>;
-  rows: Array<JsonValue>;
-};
-
 export type StopRequest = {
   expected_record_version: string;
   expected_revision: number;
@@ -464,6 +455,50 @@ export type TableSelectionPreviewRequest = {
 export type TextLimit = {
   max_utf8_bytes?: number;
   syntax: NameSyntax;
+};
+
+export type TransformPreviewColumn = {
+  arrow_type: string;
+  metadata: {
+    [key: string]: string;
+  };
+  name: string;
+  nullable: boolean;
+};
+
+export type TransformPreviewFrame = {
+  columns: Array<TransformPreviewColumn>;
+  rows: Array<{
+    [key: string]: string | null;
+  }>;
+  table: TransformPreviewTable;
+};
+
+export type TransformPreviewRequest = {
+  max_sample_bytes: number;
+  memory_limit_bytes: number;
+  middlewares: Array<JsonValue>;
+  row_limit: number;
+  source: TransformPreviewSource;
+  table: TransformPreviewTable;
+  through_step: number;
+  timeout_ms: number;
+};
+
+export type TransformPreviewResult = {
+  after: TransformPreviewFrame;
+  applied: boolean;
+  before: TransformPreviewFrame;
+};
+
+export type TransformPreviewSource = {
+  config: JsonObject;
+  connector: string;
+};
+
+export type TransformPreviewTable = {
+  name: string;
+  namespace?: string | null;
 };
 
 export type UiCatalog = {
@@ -551,11 +586,11 @@ export interface ApiContract {
   speedtest_estimate_response: SpeedtestEstimateResult;
   speedtest_tune_request: SpeedtestTuneRequest;
   speedtest_tune_response: SpeedtestTuneResult;
-  sql_playground_request: SqlPlaygroundRequest;
-  sql_playground_response: SqlPlaygroundResult;
   stop_request: StopRequest;
   table_selection_preview_request: TableSelectionPreviewRequest;
   table_selection_preview_response: SelectionPreview;
+  transform_preview_request: TransformPreviewRequest;
+  transform_preview_response: TransformPreviewResult;
   update_draft_request: UpdateDraftRequest;
   validation_response: ValidationCommandResult;
   worker_log_read_query: WorkerLogReadQuery;
@@ -610,12 +645,12 @@ export const API_ROUTES = {
     query: null,
     response: "message_preview_response",
   },
-  sql_playground: {
+  preview_transforms: {
     method: "POST",
-    path: "/api/v1/playground/sql",
-    body: "sql_playground_request",
+    path: "/api/v1/transforms/preview",
+    body: "transform_preview_request",
     query: null,
-    response: "sql_playground_response",
+    response: "transform_preview_response",
   },
   speedtest_estimate: {
     method: "POST",
@@ -739,7 +774,7 @@ export interface ApiRouteContract {
   options: ApiContract["dynamic_options_response"];
   check_connection: ApiContract["connection_check_response"];
   preview_message: ApiContract["message_preview_response"];
-  sql_playground: ApiContract["sql_playground_response"];
+  preview_transforms: ApiContract["transform_preview_response"];
   speedtest_estimate: ApiContract["speedtest_estimate_response"];
   speedtest_tune: ApiContract["speedtest_tune_response"];
   render_yaml: ApiContract["yaml_response"];
@@ -763,7 +798,7 @@ export interface ApiRouteBody {
   options: ApiContract["dynamic_options_request"];
   check_connection: ApiContract["connection_check_request"];
   preview_message: ApiContract["message_preview_request"];
-  sql_playground: ApiContract["sql_playground_request"];
+  preview_transforms: ApiContract["transform_preview_request"];
   speedtest_estimate: ApiContract["speedtest_estimate_request"];
   speedtest_tune: ApiContract["speedtest_tune_request"];
   render_yaml: ApiContract["config_request"];
@@ -787,7 +822,7 @@ export interface ApiRouteQuery {
   options: undefined;
   check_connection: undefined;
   preview_message: undefined;
-  sql_playground: undefined;
+  preview_transforms: undefined;
   speedtest_estimate: undefined;
   speedtest_tune: undefined;
   render_yaml: undefined;
@@ -811,7 +846,7 @@ export interface ApiRouteParameters {
   options: { key: string };
   check_connection: Record<string, never>;
   preview_message: Record<string, never>;
-  sql_playground: Record<string, never>;
+  preview_transforms: Record<string, never>;
   speedtest_estimate: Record<string, never>;
   speedtest_tune: Record<string, never>;
   render_yaml: Record<string, never>;

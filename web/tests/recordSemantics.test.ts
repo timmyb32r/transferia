@@ -31,7 +31,7 @@ const queueSource: EndpointDefinition = {
   record_semantics: ["append_only", "changelog"],
   partitioned: false,
   connection_check: false,
-  message_preview: false,
+  message_preview: false, table_preview: false,
 };
 
 describe("record semantic selection", () => {

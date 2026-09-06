@@ -73,13 +73,13 @@ routes![
         "message_preview_response"
     ),
     (
-        SQL_PLAYGROUND,
-        "sql_playground",
+        PREVIEW_TRANSFORMS,
+        "preview_transforms",
         "POST",
-        "/api/v1/playground/sql",
-        Some("sql_playground_request"),
+        "/api/v1/transforms/preview",
+        Some("transform_preview_request"),
         None,
-        "sql_playground_response"
+        "transform_preview_response"
     ),
     (
         SPEEDTEST_ESTIMATE,

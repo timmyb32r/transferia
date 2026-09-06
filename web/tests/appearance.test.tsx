@@ -33,7 +33,7 @@ const endpoint = (
   record_semantics,
   partitioned: false,
   connection_check: false,
-  message_preview: false,
+  message_preview: false, table_preview: false,
 });
 
 const CATALOG: UiCatalog = {

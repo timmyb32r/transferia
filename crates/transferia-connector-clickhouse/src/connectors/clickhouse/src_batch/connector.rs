@@ -467,7 +467,7 @@ async fn list_tables(
     Ok(readable)
 }
 
-async fn discover_table(
+pub(super) async fn discover_table(
     client: &ReconnectingClient,
     table: TableConfig,
     unsupported_types: UnsupportedTypePolicy,

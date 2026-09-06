@@ -1,5 +1,12 @@
 use std::sync::Arc;
 
+#[test]
+fn table_sample_limit_is_applied_to_the_native_projection() {
+    assert_eq!(super::sample::sample_query("SELECT `id` FROM `db`.`events`", 7).unwrap(),
+        "SELECT `id` FROM `db`.`events` LIMIT 7");
+    assert!(super::sample::sample_query("SELECT `id` FROM `db`.`events`", 0).is_err());
+}
+
 use arrow::array::{
     Array, ArrayRef, BinaryArray, Int64Array, TimestampMillisecondArray, TimestampSecondArray,
     UInt64Array,

@@ -48,12 +48,12 @@
     "response": "message_preview_response"
   },
   {
-    "body": "sql_playground_request",
+    "body": "transform_preview_request",
     "method": "POST",
-    "name": "sql_playground",
-    "path": "/api/v1/playground/sql",
+    "name": "preview_transforms",
+    "path": "/api/v1/transforms/preview",
     "query": null,
-    "response": "sql_playground_response"
+    "response": "transform_preview_response"
   },
   {
     "body": "speedtest_estimate_request",

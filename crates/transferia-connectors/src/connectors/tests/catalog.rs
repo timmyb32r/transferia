@@ -387,8 +387,8 @@ fn middleware_catalog_registers_light_and_heavy_components_once() -> anyhow::Res
             .collect::<Vec<_>>(),
         ["filter", "datafusion"]
     );
-    assert!(!definitions[0].playground);
-    assert!(definitions[1].playground);
+    assert!(definitions[0].schema.pointer("/properties/field").is_some());
+    assert!(definitions[0].schema.pointer("/properties/value").is_some());
     assert!(definitions[1].schema.pointer("/properties/sql").is_some());
     assert!(catalog
         .build_middleware(

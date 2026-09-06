@@ -1109,6 +1109,7 @@ impl JsonParser {
         let batch = RecordBatch::try_new(Arc::new(dlq_schema(&self.dlq_system_columns)), arrays)?;
 
         Ok(TableData {
+            namespace: None,
             batch,
             table: Arc::clone(&self.dlq_table),
             is_dlq: true,
@@ -1643,6 +1644,7 @@ impl JsonParser {
         )?;
 
         let valid_batch = TableData {
+            namespace: None,
             batch,
             table: Arc::clone(&self.table),
             is_dlq: false,

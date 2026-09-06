@@ -7,6 +7,7 @@ use arrow::record_batch::RecordBatch;
 use super::DataFusionMiddleware;
 use transferia_core::{DatasetSchema, SchemaColumn, SystemColumns, TableData};
 use transferia_delivery_contracts::middleware::Middleware;
+use transferia_delivery_contracts::middleware::MiddlewarePreviewContext;
 
 fn input() -> anyhow::Result<TableData> {
     let schema = Arc::new(Schema::new(vec![
@@ -77,5 +78,30 @@ async fn sql_rejects_ddl_and_unknown_input_columns() -> anyhow::Result<()> {
             .await
             .is_err()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn preview_hash_aggregate_uses_the_configured_execution_memory_pool() -> anyhow::Result<()> {
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)])),
+        vec![Arc::new(Int64Array::from_iter_values(0..10_000))],
+    )?;
+    let memory_limit_bytes = batch.get_array_memory_size() + 1024;
+    let input = TableData::new(Arc::from("events"), false, batch, SystemColumns::default());
+    let middleware = DataFusionMiddleware::new("SELECT id, COUNT(*) AS n FROM input GROUP BY id".into())?;
+    let error = middleware.preview(input, MiddlewarePreviewContext { memory_limit_bytes }).await.err()
+        .expect("aggregation must not allocate outside the configured memory pool");
+    let diagnostic = format!("{error:#}");
+    assert!(diagnostic.contains("Resources exhausted") && diagnostic.contains("SpillPool"), "{diagnostic}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn schema_planning_does_not_execute_failing_data_expressions() -> anyhow::Result<()> {
+    let middleware = DataFusionMiddleware::new("SELECT id / 0 AS ratio FROM input".into())?;
+    let frame = middleware.plan(input()?.batch, datafusion::execution::context::SessionContext::new()).await?;
+    assert_eq!(frame.schema().as_arrow().field(0).name(), "ratio");
+    assert!(frame.collect().await.is_err(), "executing this expression must fail; planning must not execute it");
     Ok(())
 }

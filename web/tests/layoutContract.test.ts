@@ -16,6 +16,17 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("keeps transform strip controls fixed while preview status and result change", () => {
+    const output = styles.split(".transform-preview-output {")[1]?.split("}")[0];
+    expect(output).toContain("height: 240px;");
+    expect(output).toContain("overflow: auto;");
+    const status = styles.split(".transform-preview-status {")[1]?.split("}")[0];
+    expect(status).toContain("height: 2.8em;");
+    expect(status).toContain("overflow: auto;");
+    const strip = styles.split(".middleware-strip-heading {")[1]?.split("}")[0];
+    expect(strip).toContain("min-width: 0;");
+    expect(strip).toContain("minmax(0, 1fr)");
+  });
   it("paints matched-list arrows as complete vector silhouettes without stitched borders", () => {
     const icon = styles.split(".table-matches-height-icon {")[1]?.split("}")[0] ?? "";
     const restore = styles.split(".table-matches-height-icon-restore {")[1]?.split("}")[0] ?? "";

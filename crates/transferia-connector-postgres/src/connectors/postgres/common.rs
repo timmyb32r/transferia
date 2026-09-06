@@ -106,7 +106,39 @@ impl PostgresConnectionConfig {
     }
 }
 
+/// A request-scoped connection: dropping a cancelled preview must terminate its
+/// driver, not leave a detached task draining a query nobody can consume.
+pub(crate) struct SampleConnection {
+    client: tokio_postgres::Client,
+    driver: tokio::task::JoinHandle<()>,
+}
+
+impl std::ops::Deref for SampleConnection {
+    type Target = tokio_postgres::Client;
+
+    fn deref(&self) -> &Self::Target {
+        &self.client
+    }
+}
+
+impl Drop for SampleConnection {
+    fn drop(&mut self) {
+        self.driver.abort();
+    }
+}
+
+pub(crate) async fn connect_sample(config: &PostgresConnectionConfig) -> anyhow::Result<SampleConnection> {
+    let (client, driver) = connect_with_driver(config).await?;
+    Ok(SampleConnection { client, driver })
+}
+
 pub async fn connect(config: &PostgresConnectionConfig) -> anyhow::Result<tokio_postgres::Client> {
+    let (client, _driver) = connect_with_driver(config).await?;
+    Ok(client)
+}
+
+async fn connect_with_driver(config: &PostgresConnectionConfig)
+    -> anyhow::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>)> {
     let mut connection_config = tokio_postgres::Config::new();
     connection_config
         .host(&config.host)
@@ -114,14 +146,14 @@ pub async fn connect(config: &PostgresConnectionConfig) -> anyhow::Result<tokio_
         .dbname(&config.database)
         .user(&config.username)
         .password(&config.password);
-    let client = if config.trusted_plaintext {
+    let connection = if config.trusted_plaintext {
         let (client, connection) = connection_config.connect(tokio_postgres::NoTls).await?;
-        tokio::spawn(async move {
+        let driver = tokio::spawn(async move {
             if let Err(error) = connection.await {
                 tracing::error!("PostgreSQL connection failed: {error}");
             }
         });
-        client
+        (client, driver)
     } else {
         drop(rustls::crypto::aws_lc_rs::default_provider().install_default());
         let mut roots = rustls::RootCertStore::empty();
@@ -142,14 +174,14 @@ pub async fn connect(config: &PostgresConnectionConfig) -> anyhow::Result<tokio_
         let (client, connection) = connection_config
             .connect(tokio_postgres_rustls::MakeRustlsConnect::new(tls))
             .await?;
-        tokio::spawn(async move {
+        let driver = tokio::spawn(async move {
             if let Err(error) = connection.await {
                 tracing::error!("PostgreSQL TLS connection failed: {error}");
             }
         });
-        client
+        (client, driver)
     };
-    Ok(client)
+    Ok(connection)
 }
 
 /// Enumerate persistent tables the authenticated role can read, including system schemas.

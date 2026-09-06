@@ -1,6 +1,7 @@
 mod config;
 mod connector;
 mod reader;
+mod sample;
 
 pub(crate) const MYSQL_CANONICAL_SNAPSHOT_SQL_MODE: &str =
     "SET SESSION sql_mode = TRIM(BOTH ',' FROM REPLACE(CONCAT(',', @@SESSION.sql_mode, ','), ',PAD_CHAR_TO_FULL_LENGTH,', ','))";
@@ -18,6 +19,7 @@ pub(crate) use connector::{
     MYSQL_SOURCE_METADATA_COLUMNS,
 };
 pub(crate) use reader::optional_value_column_array;
+pub(crate) use sample::sample_table;
 
 #[cfg(test)]
 mod tests;

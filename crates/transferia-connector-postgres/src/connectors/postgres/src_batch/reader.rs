@@ -265,7 +265,7 @@ impl Source for PostgresSource {
                     false,
                     batch,
                     routing_system_columns(system_start, system_kinds),
-                )],
+                ).with_namespace(Arc::from(self.table.schema.as_str()))],
                 source_rows,
                 commit_marker: Some(CommitMarker::new(self.offset)),
                 memory: Vec::new(),
@@ -508,7 +508,7 @@ fn snapshot_metadata_arrays(snapshot: SnapshotMetadata<'_>, len: usize) -> Vec<A
     ]
 }
 
-fn column_array(
+pub(super) fn column_array(
     rows: &[RawCopyRow],
     index: usize,
     data_type: &tokio_postgres::types::Type,

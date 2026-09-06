@@ -45,6 +45,7 @@ impl ParserSession for BenchmarkDiscardSession {
         let batch = RecordBatch::new_empty(Arc::new(Schema::empty()));
         Ok((
             TableData {
+                namespace: None,
                 table: Arc::clone(&self.table),
                 is_dlq: false,
                 batch,

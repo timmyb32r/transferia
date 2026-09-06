@@ -30,6 +30,48 @@ use transferia_registry::{SourceBuildContext, SourceConnector as _, SourceDiscov
 const IMAGE: &str = "clickhouse/clickhouse-server";
 const TAG: &str = "25.8.28.1";
 
+#[tokio::test]
+async fn native_table_preview_is_bounded_lossless_with_quoted_names() -> anyhow::Result<()> {
+    let (_container, host, native_port, http_port) = type_fixture().await?;
+    let http = reqwest::Client::new();
+    let url = format!("http://{host}:{http_port}/");
+    execute_fixture_query(&http, &url, "CREATE TABLE default.`events\\`quoted` (id Int64, amount Decimal(38,4), at DateTime64(6,'UTC'), payload String, status Enum8('open'=1,'closed'=2)) ENGINE=Memory").await?;
+    execute_fixture_query(&http, &url, "INSERT INTO default.`events\\`quoted` SELECT 9007199254740993, toDecimal128('12345678901234567890.1234',4), toDateTime64('2024-01-01 00:00:00.123456',6,'UTC'), unhex('00FF'), 'open' FROM numbers(3)").await?;
+    execute_fixture_query(&http, &url, "CREATE USER sample_reader IDENTIFIED WITH plaintext_password BY 'read-only-test'").await?;
+    execute_fixture_query(&http, &url, "GRANT SELECT ON default.`events\\`quoted` TO sample_reader").await?;
+    let mut builder = transferia_registry::RegistryBuilder::new();
+    transferia_connector_clickhouse::register(&mut builder, &Arc::new(MetricsRegistry::new()))?;
+    let registry = builder.build();
+    let config = serde_yaml::to_value(serde_json::json!({
+        "hosts": [host], "port":native_port, "http_port":http_port, "username":"sample_reader", "password":"read-only-test",
+        "trusted_plaintext":true, "tables":{"type":"all"}
+    }))?;
+    let sample = registry.sample_source_table("clickhouse", config.clone(), transferia_registry::TableIdentity {
+        namespace:"default".into(), name:"events`quoted".into(),
+    }, transferia_registry::TableSampleLimits { row_limit: 1, max_bytes: 16 * 1024 * 1024, timeout_ms: 30_000 }, CancellationToken::new()).await?;
+    assert_eq!(sample.namespace.as_deref(), Some("default"));
+    assert_eq!(sample.table.as_ref(), "events`quoted");
+    assert_eq!(sample.batch.num_rows(), 1);
+    assert_eq!(sample.batch.num_columns(), 5);
+    assert_eq!(sample.batch.column(0).as_any().downcast_ref::<Int64Array>().unwrap().value(0), 9_007_199_254_740_993);
+    assert_eq!(sample.batch.column(1).as_any().downcast_ref::<arrow::array::Decimal128Array>().unwrap().value(0), 123_456_789_012_345_678_901_234);
+    assert_eq!(sample.batch.column(2).as_any().downcast_ref::<TimestampMicrosecondArray>().unwrap().value(0), 1_704_067_200_123_456);
+    assert_eq!(sample.batch.column(3).as_any().downcast_ref::<BinaryArray>().unwrap().value(0), &[0,255]);
+    assert_eq!(sample.batch.column(4).data_type(), &DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)));
+    let statuses = arrow::compute::cast(sample.batch.column(4), &DataType::Utf8)?;
+    assert_eq!(statuses.as_any().downcast_ref::<StringArray>().unwrap().value(0), "open");
+    let count = http.post(&url).body("SELECT count(*) FROM default.`events\\`quoted`").send().await?.error_for_status()?.text().await?;
+    assert_eq!(count.trim(), "3");
+    execute_fixture_query(&http, &url, "CREATE TABLE default.wide_sample (payload String) ENGINE=Memory").await?;
+    execute_fixture_query(&http, &url, "INSERT INTO default.wide_sample VALUES (repeat('a',65536))").await?;
+    execute_fixture_query(&http, &url, "GRANT SELECT ON default.wide_sample TO sample_reader").await?;
+    let error = registry.sample_source_table("clickhouse", config, transferia_registry::TableIdentity {
+        namespace: "default".into(), name: "wide_sample".into(),
+    }, transferia_registry::TableSampleLimits { row_limit: 1, max_bytes: 4096, timeout_ms: 30_000 }, CancellationToken::new()).await.unwrap_err();
+    assert!(format!("{error:#}").contains("max_sample_bytes"), "{error:#}");
+    Ok(())
+}
+
 fn reachable_host(host: &impl ToString) -> String {
     let host = host.to_string();
     if host == "localhost" {

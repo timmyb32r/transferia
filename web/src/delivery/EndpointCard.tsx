@@ -17,6 +17,7 @@ import { compiledSchema, endpointValue, isObject } from "./editorConfig";
 import { MessagePreviewDialog } from "./MessagePreviewDialog";
 import { tableConnectionIdentity, useEndpointActions } from "./useEndpointActions";
 import { ConnectionCheck, TableConnectionStatus, tableSettingsReady } from "./ConnectionCheck";
+import type { VerifiedTableCatalog } from "../features/middleware/useTransformCatalog";
 
 export function EndpointCard(props: {
   title: string;
@@ -31,6 +32,7 @@ export function EndpointCard(props: {
   onChoose: (role: "source" | "sink", key: string) => void;
   onConfig: (config: JsonObject) => void;
   onTableConnection?: ((identity: string | undefined) => void) | undefined;
+  onTableCatalog?: ((catalog: VerifiedTableCatalog | undefined) => void) | undefined;
 }) {
   const showSettings = props.showSettings ?? true;
   const api = useControlPlane();
@@ -65,6 +67,10 @@ export function EndpointCard(props: {
   useEffect(() => {
     props.onTableConnection?.(checkedTableIdentity);
   }, [checkedTableIdentity, props.onTableConnection]);
+  useEffect(() => {
+    props.onTableCatalog?.(checkedTableIdentity !== undefined && checkedTables !== undefined
+      ? { identity: checkedTableIdentity, tables: checkedTables } : undefined);
+  }, [checkedTableIdentity, checkedTables, props.onTableCatalog]);
   const previewResult =
     props.selectedKey === "s3" && preview.result
       ? {

@@ -349,7 +349,7 @@ describe("App request orchestration", () => {
             record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
-            message_preview: false,
+            message_preview: false, table_preview: false,
           },
         },
         {
@@ -368,7 +368,7 @@ describe("App request orchestration", () => {
             record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
-            message_preview: false,
+            message_preview: false, table_preview: false,
           },
         },
       ],
@@ -509,7 +509,7 @@ describe("App request orchestration", () => {
             record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
-            message_preview: false,
+            message_preview: false, table_preview: false,
           },
         },
         {
@@ -526,7 +526,7 @@ describe("App request orchestration", () => {
             record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
-            message_preview: false,
+            message_preview: false, table_preview: false,
           },
         },
       ],
@@ -594,7 +594,7 @@ describe("App request orchestration", () => {
             record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
-            message_preview: false,
+            message_preview: false, table_preview: false,
           },
         },
         {
@@ -607,7 +607,7 @@ describe("App request orchestration", () => {
             record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
-            message_preview: false,
+            message_preview: false, table_preview: false,
           },
         },
       ],
@@ -752,7 +752,7 @@ describe("App request orchestration", () => {
             record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
-            message_preview: false,
+            message_preview: false, table_preview: false,
           },
         },
         {
@@ -765,7 +765,7 @@ describe("App request orchestration", () => {
             record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
-            message_preview: false,
+            message_preview: false, table_preview: false,
           },
         },
       ],
@@ -998,7 +998,7 @@ describe("App request orchestration", () => {
             record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
-            message_preview: false,
+            message_preview: false, table_preview: false,
           },
         },
         {
@@ -1011,7 +1011,7 @@ describe("App request orchestration", () => {
             record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
-            message_preview: false,
+            message_preview: false, table_preview: false,
           },
         },
       ],
@@ -1400,7 +1400,7 @@ describe("App request orchestration", () => {
             record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
-            message_preview: false,
+            message_preview: false, table_preview: false,
           },
         },
         {
@@ -1413,7 +1413,7 @@ describe("App request orchestration", () => {
             record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
-            message_preview: false,
+            message_preview: false, table_preview: false,
           },
         },
       ],
@@ -1489,7 +1489,7 @@ function endpoint(
     record_semantics: recordSemantics,
     partitioned: false,
     connection_check: false,
-    message_preview: false,
+    message_preview: false, table_preview: false,
   };
 }
 
@@ -1543,7 +1543,7 @@ function conditionalReplicationSource(): NonNullable<
     record_semantics: ["append_only", "changelog"],
     partitioned: false,
     connection_check: false,
-    message_preview: false,
+    message_preview: false, table_preview: false,
   };
 }
 

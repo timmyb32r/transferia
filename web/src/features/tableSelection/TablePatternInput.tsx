@@ -10,9 +10,10 @@ import { useTableNamespace } from "./naming";
 const GLOB_HELP = "Glob / wildcard: * matches any number of characters; ? matches one character. Matching starts at the beginning of the qualified name. Click to enable regex.";
 const REGEX_HELP = "Regex is enabled. The expression matches the entire qualified name. Use .* for any characters and . for one character. Click to use glob / wildcard.";
 
-export function TablePatternInput({ id, label, value, mode, disabled, required, invalid, onChange, onModeChange }: {
+export function TablePatternInput({ id, label, value, mode, disabled, required, invalid, onChange, onModeChange, placeholder }: {
   id: string; label: string; value: string; mode: PatternMode; disabled: boolean;
   required: boolean; invalid: boolean;
+  placeholder?: string;
   onChange: (value: string) => void; onModeChange: (mode: PatternMode) => void;
 }) {
   const catalog = useTableCatalog();
@@ -25,7 +26,7 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
   const key = JSON.stringify([value, mode]);
   const tables = catalog?.tables;
   const preview = catalog?.preview;
-  const open = focused && value.length > 0 && !disabled;
+  const open = focused && value.length > 0 && !disabled && tables !== undefined && preview !== undefined;
   const current = result?.key === key && result.tables === tables ? result.matches : undefined;
   const suggestions = current?.slice(0, 30) ?? [];
   useAnchoredOverlay({ open, root, trigger: input, onClose: () => setFocused(false) });
@@ -58,18 +59,18 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
   return <div class="table-pattern-input" ref={root} onBlur={event => {
     if (!root.current?.contains(event.relatedTarget as Node | null)) setFocused(false);
   }} onKeyDown={event => {
-    if (event.key !== "Escape") return;
+    if (event.key !== "Escape" || !catalog) return;
     event.preventDefault();
     event.stopPropagation();
     input.current?.focus({ preventScroll: true });
     setFocused(false);
     setActive(-1);
   }}>
-    <AutofillResistantInput inputRef={input} type="text" id={id} role="combobox"
-      aria-label={label} aria-autocomplete="list" aria-expanded={open} aria-controls={`${id}-suggestions`}
+    <AutofillResistantInput inputRef={input} type="text" id={id} role={catalog ? "combobox" : undefined}
+      aria-label={label} aria-autocomplete={catalog ? "list" : undefined} aria-expanded={catalog ? open : undefined} aria-controls={catalog ? `${id}-suggestions` : undefined}
       aria-activedescendant={open && active >= 0 ? `${id}-suggestion-${active}` : undefined}
       aria-invalid={invalid} required={required}
-      placeholder={required ? `${namespace}.table or ${namespace}.*` : "Optional pattern"}
+      placeholder={placeholder ?? (required ? `${namespace}.table or ${namespace}.*` : "Optional pattern")}
       value={value} disabled={disabled} onFocus={() => setFocused(true)}
       onInput={event => { setFocused(true); onChange(event.currentTarget.value); }}
       onKeyDown={event => {
@@ -89,7 +90,7 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
           event.currentTarget.blur();
         }
       }} />
-    <Button shape="icon" class="regex-toggle" aria-label={`${label.toLowerCase().replace(" rule", " regex rule")}`}
+    <Button shape="icon" class="regex-toggle" aria-label={label.includes(" rule") ? label.toLowerCase().replace(" rule", " regex rule") : `${label} regex`}
       aria-pressed={mode === "regex"} title={mode === "regex" ? REGEX_HELP : GLOB_HELP}
       disabled={disabled} onClick={() => onModeChange(mode === "regex" ? "glob" : "regex")}>.*</Button>
     {open && <div class="select-menu select-menu-floating table-suggestions"

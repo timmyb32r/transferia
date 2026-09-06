@@ -102,20 +102,18 @@ describe("control-plane API", () => {
     });
   });
 
-  it("runs SQL playground samples through the typed API contract", async () => {
+  it("previews the ordered transform chain through the typed API contract", async () => {
+    const before = {
+      table: { name: "events", namespace: "public" },
+      columns: [{ name: "id", arrow_type: "Int64", nullable: false, metadata: {} }],
+      rows: [{ id: "3" }],
+    };
     const request = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          columns: [
-            {
-              name: "id",
-              arrow_type: "Int64",
-              nullable: false,
-              primary_key: false,
-              low_cardinality: false,
-            },
-          ],
-          rows: [{ id: 6 }],
+          before,
+          after: { ...before, rows: [{ id: "6" }] },
+          applied: true,
         }),
         { status: 200 },
       ),
@@ -123,13 +121,19 @@ describe("control-plane API", () => {
     vi.stubGlobal("fetch", request);
 
     await expect(
-      api.sqlPlayground({
-        sql: "SELECT id * 2 AS id FROM input",
-        rows: [{ id: 3 }],
+      api.previewTransforms({
+        middlewares: [{ datafusion: { sql: "SELECT id * 2 AS id FROM input" } }],
+        through_step: 0,
+        table: { name: "events", namespace: "public" },
+        source: { connector: "postgres", config: {} },
+        row_limit: 20,
+        max_sample_bytes: 16 * 1024 * 1024,
+        memory_limit_bytes: 256 * 1024 * 1024,
+        timeout_ms: 30_000,
       }),
-    ).resolves.toMatchObject({ rows: [{ id: 6 }] });
+    ).resolves.toMatchObject({ after: { rows: [{ id: "6" }] }, applied: true });
     expect(request).toHaveBeenCalledWith(
-      "/api/v1/playground/sql",
+      "/api/v1/transforms/preview",
       expect.objectContaining({ method: "POST" }),
     );
   });

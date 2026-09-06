@@ -17,7 +17,7 @@ const endpoint = (title: string): EndpointDefinition => ({
   record_semantics: ["append_only"],
   partitioned: false,
   connection_check: false,
-  message_preview: false,
+  message_preview: false, table_preview: false,
 });
 
 const CATALOG: UiCatalog = {

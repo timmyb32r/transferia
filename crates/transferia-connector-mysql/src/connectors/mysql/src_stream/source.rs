@@ -1897,7 +1897,7 @@ fn changes_to_table_data(
         false,
         batch,
         SystemColumns::new(system_columns),
-    ))
+    ).with_namespace(Arc::from(table.config.database.as_str())))
 }
 
 fn changed_columns_mask(

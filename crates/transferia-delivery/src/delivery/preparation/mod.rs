@@ -290,11 +290,7 @@ async fn build_pipeline_plan(
         "source delivery discovery returned a system-column projection different from the requested policy"
     );
 
-    let middlewares = config
-        .middlewares
-        .iter()
-        .map(|middleware| catalog.build_middleware(middleware.kind()?, middleware.raw()?.clone()))
-        .collect::<anyhow::Result<Vec<_>>>()?;
+    let middlewares = crate::middleware::build_middlewares(&catalog, &config.middlewares)?;
     let mut discovery = validate_middlewares(&middlewares, discovery).await?;
     discovery
         .performance_advice
@@ -376,8 +372,8 @@ pub(crate) async fn validate_middlewares(
     {
         found_main = true;
         for (index, middleware) in middlewares.iter().enumerate() {
-            main.stored_schema = middleware
-                .output_schema(&main.stored_schema)
+            *main = middleware
+                .output_dataset(main)
                 .await
                 .with_context(|| {
                     format!(

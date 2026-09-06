@@ -144,6 +144,8 @@ fn normalized_cdc_batch_marks_and_indexes_the_operation_column() {
         .collect::<Vec<_>>();
     let commit_timestamp_micros = events[0].commit_timestamp_micros;
     let data = events_to_table_data(&table, "postgres", &events).unwrap();
+    assert_eq!(data.namespace.as_deref(), Some("public"));
+    assert_eq!(data.table.as_ref(), "accounts");
 
     let operation = data
         .system_columns

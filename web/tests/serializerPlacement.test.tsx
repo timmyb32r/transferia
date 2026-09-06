@@ -9,7 +9,7 @@ afterEach(cleanup);
 
 it.each(["kafka", "logbroker"])("keeps %s serializer settings inside the endpoint", (key) => {
   const endpoint: EndpointDefinition = {
-    connection_check: false, message_preview: false, partitioned: false,
+    connection_check: false, message_preview: false, table_preview: false, partitioned: false,
     delivery_modes: ["stream"], record_semantics: ["append_only"], initial: {},
     schema: {
       type: "object", required: ["serializer"], properties: {

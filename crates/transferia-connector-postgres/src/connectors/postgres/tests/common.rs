@@ -87,6 +87,46 @@ fn backend_message(tag: u8, body: &[u8]) -> Vec<u8> {
     message
 }
 
+#[tokio::test]
+async fn cancelled_table_sample_closes_pending_driver_without_draining() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (pending_tx, pending_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let length = socket.read_u32().await.unwrap();
+        let mut startup = vec![0; usize::try_from(length - 4).unwrap()];
+        socket.read_exact(&mut startup).await.unwrap();
+        socket.write_all(&[
+            backend_message(b'R', &0_i32.to_be_bytes()),
+            backend_message(b'Z', b"I"),
+        ].concat()).await.unwrap();
+        assert_eq!(socket.read_u8().await.unwrap(), b'Q');
+        let length = socket.read_u32().await.unwrap();
+        let mut query = vec![0; usize::try_from(length - 4).unwrap()];
+        socket.read_exact(&mut query).await.unwrap();
+        pending_tx.send(()).unwrap();
+        // The peer intentionally never finishes this query. Cancellation must
+        // close the driver rather than leave a task waiting for its response.
+        let mut byte = [0];
+        tokio::time::timeout(std::time::Duration::from_secs(1), socket.read(&mut byte))
+            .await.expect("cancelled sample left its PostgreSQL driver draining")
+            .unwrap()
+    });
+    let task = tokio::spawn(async move {
+        let connection = super::connect_sample(&super::PostgresConnectionConfig {
+            host: address.ip().to_string(), port: address.port(), database: "sample".into(),
+            username: "reader".into(), password: String::new(), trusted_plaintext: true,
+            tls_ca_file: None,
+        }).await.unwrap();
+        connection.simple_query("SELECT pg_sleep(60)").await.unwrap();
+    });
+    pending_rx.await.unwrap();
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    assert_eq!(server.await.unwrap(), 0);
+}
+
 // A transaction pooler cannot preserve a named statement after ReadyForQuery.
 // Assert the actual production client sends Parse/Bind/Describe/Execute before
 // its first Sync, rather than mocking list_tables or merely inspecting SQL text.

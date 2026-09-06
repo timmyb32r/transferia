@@ -431,25 +431,34 @@ async fn speedtest_tune_never_echoes_full_endpoint_configuration() -> anyhow::Re
     Ok(())
 }
 
-#[tokio::test]
-async fn sql_playground_executes_the_runtime_datafusion_transform() -> anyhow::Result<()> {
+async fn transform_preview_response(request: serde_json::Value) -> anyhow::Result<(StatusCode, serde_json::Value)> {
     let (app, root) = test_router().await?;
-    let response = app
-        .oneshot(
-            Request::post("/api/v1/playground/sql")
-                .header(CONTENT_TYPE, "application/json")
-                .body(Body::from(
-                    r#"{"sql":"SELECT id * 2 AS id FROM input WHERE id > 1","rows":[{"id":1},{"id":3}]}"#,
-                ))?,
-        )
-        .await?;
-    assert_eq!(response.status(), StatusCode::OK);
-    let body: serde_json::Value =
-        serde_json::from_slice(&to_bytes(response.into_body(), 16 * 1024).await?)?;
-    assert_eq!(body["columns"][0]["name"], "id");
-    assert_eq!(body["columns"][0]["arrow_type"], "Int64");
-    assert_eq!(body["rows"], serde_json::json!([{ "id": 6 }]));
+    let response = app.oneshot(
+        Request::post("/api/v1/transforms/preview")
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_vec(&request)?))?,
+    ).await?;
+    let status = response.status();
+    let body = serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
     tokio::fs::remove_dir_all(root).await?;
+    Ok((status, body))
+}
+
+#[tokio::test]
+async fn transform_preview_rejects_invalid_steps_and_limits_before_source_io() -> anyhow::Result<()> {
+    for (patch, message) in [
+        (serde_json::json!({"through_step":1}), "step"),
+        (serde_json::json!({"middlewares":[{"filter":{},"datafusion":{}}]}), "exactly one"),
+        (serde_json::json!({"middlewares":[{"tables":{"include":""},"datafusion":{"sql":"SELECT * FROM input"}}]}), "Include"),
+        (serde_json::json!({"row_limit":0}), "row_limit"),
+        (serde_json::json!({"table":{"name":"events"}}), "namespace"),
+    ] {
+        let mut request = serde_json::json!({"middlewares":[{"datafusion":{"sql":"SELECT * FROM input"}}], "through_step":0,"table":{"namespace":"public","name":"events"},"source":{"connector":"postgres","config":{}},"row_limit":20,"max_sample_bytes":16777216,"memory_limit_bytes":268435456,"timeout_ms":30000});
+        request.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
+        let (status, body) = transform_preview_response(request).await?;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        assert!(body["error"]["message"].as_str().unwrap().contains(message), "{body}");
+    }
     Ok(())
 }
 

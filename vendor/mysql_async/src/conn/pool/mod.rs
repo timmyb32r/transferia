@@ -363,6 +363,10 @@ impl Pool {
 impl Drop for Conn {
     fn drop(&mut self) {
         self.inner.infile_handler = None;
+        if self.inner.force_close_on_drop {
+            self.inner.disconnected = true;
+            self.inner.stream = None;
+        }
 
         if std::thread::panicking() {
             // Try to decrease the number of existing connections.

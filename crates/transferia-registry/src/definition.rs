@@ -44,6 +44,9 @@ pub struct EndpointDefinition {
     pub connection_check: bool,
 
     pub message_preview: bool,
+
+    /// Read-only, bounded Arrow rows from an explicitly chosen source table.
+    pub table_preview: bool,
 }
 
 #[derive(Clone, Debug, JsonSchema, Serialize)]
@@ -81,5 +84,4 @@ pub struct MiddlewareDefinition {
     )]
     pub initial: JsonValue,
 
-    pub playground: bool,
 }

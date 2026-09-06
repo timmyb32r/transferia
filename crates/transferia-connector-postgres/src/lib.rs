@@ -60,6 +60,7 @@ pub fn register(
                 }
                 Ok(result)
             })
+            .source_table_sampler::<postgres::source::PostgresSourceConfig, _, _>(postgres::src_batch::sample_table)
             .sink::<postgres::sink::PostgresSinkConfig, _, _>(
                 || {
                     serde_json::json!({

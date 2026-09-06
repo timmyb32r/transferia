@@ -27,7 +27,9 @@
                 "capabilities": {
                   "component": "transformer",
                   "key": "filter",
-                  "properties": []
+                  "properties": [
+                    "playground"
+                  ]
                 }
               },
               "type": "object",
@@ -48,6 +50,43 @@
                   "required": [
                     "field",
                     "value"
+                  ]
+                },
+                "tables": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "title": "TableRule",
+                  "type": "object",
+                  "properties": {
+                    "include": {
+                      "type": "string"
+                    },
+                    "exclude": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "include_mode": {
+                      "type": "string",
+                      "enum": [
+                        "glob",
+                        "regex"
+                      ],
+                      "default": "glob"
+                    },
+                    "exclude_mode": {
+                      "type": "string",
+                      "enum": [
+                        "glob",
+                        "regex"
+                      ],
+                      "default": "glob"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "include"
                   ]
                 }
               },
@@ -86,6 +125,43 @@
                   "additionalProperties": false,
                   "required": [
                     "sql"
+                  ]
+                },
+                "tables": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "title": "TableRule",
+                  "type": "object",
+                  "properties": {
+                    "include": {
+                      "type": "string"
+                    },
+                    "exclude": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "include_mode": {
+                      "type": "string",
+                      "enum": [
+                        "glob",
+                        "regex"
+                      ],
+                      "default": "glob"
+                    },
+                    "exclude_mode": {
+                      "type": "string",
+                      "enum": [
+                        "glob",
+                        "regex"
+                      ],
+                      "default": "glob"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "include"
                   ]
                 }
               },
@@ -1528,7 +1604,8 @@
         ],
         "partitioned": true,
         "connection_check": true,
-        "message_preview": true
+        "message_preview": true,
+        "table_preview": false
       },
       "sink": {
         "schema": {
@@ -2114,7 +2191,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       }
     },
     {
@@ -3539,7 +3617,8 @@
         ],
         "partitioned": true,
         "connection_check": true,
-        "message_preview": true
+        "message_preview": true,
+        "table_preview": false
       },
       "sink": {
         "schema": {
@@ -4227,7 +4306,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       }
     },
     {
@@ -4589,7 +4669,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": true
       },
       "sink": {
         "schema": {
@@ -4702,7 +4783,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       }
     },
     {
@@ -4970,7 +5052,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       },
       "sink": {
         "schema": {
@@ -5235,7 +5318,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       }
     },
     {
@@ -5616,7 +5700,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": true
       },
       "sink": {
         "schema": {
@@ -5737,7 +5822,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       }
     },
     {
@@ -6103,7 +6189,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": true
       },
       "sink": {
         "schema": {
@@ -6376,7 +6463,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       }
     },
     {
@@ -7029,7 +7117,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": true
+        "message_preview": true,
+        "table_preview": false
       },
       "sink": {
         "schema": {
@@ -7514,7 +7603,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       }
     },
     {
@@ -8134,7 +8224,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       },
       "sink": {
         "schema": {
@@ -8739,7 +8830,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       }
     },
     {
@@ -9090,7 +9182,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       },
       "sink": {
         "schema": {
@@ -9292,7 +9385,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       }
     },
     {
@@ -9848,7 +9942,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       },
       "sink": {
         "schema": {
@@ -10579,7 +10674,8 @@
         ],
         "partitioned": false,
         "connection_check": true,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       }
     },
     {
@@ -10775,7 +10871,8 @@
         ],
         "partitioned": false,
         "connection_check": false,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       }
     },
     {
@@ -10796,7 +10893,8 @@
         ],
         "partitioned": false,
         "connection_check": false,
-        "message_preview": false
+        "message_preview": false,
+        "table_preview": false
       }
     }
   ]

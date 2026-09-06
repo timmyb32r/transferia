@@ -46,7 +46,7 @@ pub fn build_ui_catalog_with(transferia: &Transferia) -> anyhow::Result<UiCatalo
     ))?;
     let mut common_schema = serde_json::to_value(schema_for!(CommonConfigSchema))?;
     common_schema["properties"]["middlewares"]["items"] =
-        middleware_schema(registry.middleware_definitions());
+        middleware_schema(registry.middleware_definitions())?;
     Ok(UiCatalog {
         common_schema,
         initial: serde_json::json!({
@@ -64,8 +64,16 @@ pub fn build_ui_catalog_with(transferia: &Transferia) -> anyhow::Result<UiCatalo
     })
 }
 
-fn middleware_schema(definitions: &[MiddlewareDefinition]) -> Value {
-    serde_json::json!({
+fn middleware_schema(definitions: &[MiddlewareDefinition]) -> anyhow::Result<Value> {
+    // The scope is embedded below an action variant, so local references from
+    // an independent schema root must be inlined before composition.
+    let tables = serde_json::to_value(
+        schemars::generate::SchemaSettings::default()
+            .with(|settings| settings.inline_subschemas = true)
+            .into_generator()
+            .into_root_schema_for::<transferia_registry::table_selection::TableRule>(),
+    )?;
+    Ok(serde_json::json!({
         "oneOf": definitions
             .iter()
             .map(|definition| serde_json::json!({
@@ -74,16 +82,16 @@ fn middleware_schema(definitions: &[MiddlewareDefinition]) -> Value {
                     "capabilities": {
                         "component": "transformer",
                         "key": definition.key,
-                        "properties": if definition.playground { vec!["playground"] } else { Vec::<&str>::new() }
+                        "properties": ["playground"]
                     }
                 },
                 "type": "object",
-                "properties": { definition.key: definition.schema },
+                "properties": { definition.key: definition.schema, "tables": tables },
                 "required": [definition.key],
                 "additionalProperties": false
             }))
             .collect::<Vec<_>>()
-    })
+    }))
 }
 
 #[cfg(test)]

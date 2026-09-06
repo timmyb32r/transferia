@@ -11,6 +11,8 @@ use crate::data::system_columns::SystemColumns;
 /// (`"my_table"` or `"my_table_dlq"`) — there is no `dlq_flag` indirection.
 #[derive(Debug, Clone)]
 pub struct TableData {
+    /// Current database/schema identity. Never inferred by splitting `table`.
+    pub namespace: Option<Arc<str>>,
     /// Resolved target table: `"my_table"` or `"my_table_dlq"`.
     pub table: Arc<str>,
     /// Informational flag for tracing / short-circuit decisions.
@@ -30,11 +32,18 @@ impl TableData {
         system_columns: SystemColumns,
     ) -> Self {
         Self {
+            namespace: None,
             table,
             is_dlq,
             batch,
             system_columns,
         }
+    }
+
+    #[must_use]
+    pub fn with_namespace(mut self, namespace: Arc<str>) -> Self {
+        self.namespace = Some(namespace);
+        self
     }
 }
 

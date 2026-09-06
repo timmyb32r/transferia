@@ -22,6 +22,8 @@ pub(super) struct CopyOutReader {
     decoder: CopyDecoder,
 
     stream_finished: bool,
+    byte_limit: Option<usize>,
+    received_bytes: usize,
 }
 
 impl CopyOutReader {
@@ -30,7 +32,18 @@ impl CopyOutReader {
             stream: Box::pin(stream),
             decoder: CopyDecoder::new(format, columns),
             stream_finished: false,
+            byte_limit: None,
+            received_bytes: 0,
         }
+    }
+
+    pub(super) fn with_byte_limit(mut self, max_bytes: usize) -> Self {
+        self.byte_limit = Some(max_bytes);
+        self
+    }
+
+    pub(super) fn received_bytes(&self) -> usize {
+        self.received_bytes
     }
 
     pub(super) async fn next_row(
@@ -46,6 +59,14 @@ impl CopyOutReader {
             match self.stream.as_mut().next().await {
                 Some(Ok(chunk)) => {
                     counters.add_network_decoded_bytes(chunk.len() as u64);
+                    if let Some(limit) = self.byte_limit {
+                        self.received_bytes = self.received_bytes.checked_add(chunk.len())
+                            .ok_or_else(|| DataPlaneFailure::fatal(anyhow::anyhow!("PostgreSQL sample byte accounting overflow")))?;
+                        if self.received_bytes > limit {
+                            return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
+                                "PostgreSQL source sample exceeds max_sample_bytes ({limit} bytes)")));
+                        }
+                    }
                     self.decoder.push(&chunk).map_err(DataPlaneFailure::fatal)?;
                 }
                 Some(Err(error)) => return Err(DataPlaneFailure::retryable(error.into())),

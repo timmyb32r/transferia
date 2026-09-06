@@ -678,7 +678,7 @@ impl Source for MySqlSource {
                             ]
                         },
                     ),
-                )],
+                ).with_namespace(Arc::from(self.table.database.as_str()))],
                 source_rows,
                 commit_marker: Some(CommitMarker::new(self.offset)),
                 memory: vec![memory, self.output_schema_memory.clone()],

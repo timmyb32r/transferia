@@ -2,6 +2,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[test]
+fn table_sample_select_quotes_identifiers_and_limits_rows_in_database() {
+    let table = transferia_registry::TableIdentity { namespace: "some\"schema".into(), name: "events\"; DROP TABLE x; --".into() };
+    assert_eq!(super::sample::sample_query(&table, "\"id\"", 7).unwrap(),
+        "SELECT \"id\" FROM \"some\"\"schema\".\"events\"\"; DROP TABLE x; --\" LIMIT 7");
+    assert!(super::sample::sample_query(&table, "\"id\"", 0).is_err());
+}
+
 use super::copy_out::{CopyDecoder, DecodeState};
 use super::reader::{
     decode_date, decode_i8, decode_timestamp, decode_timestamptz, discovered_schema_matches,

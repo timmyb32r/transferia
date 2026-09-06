@@ -573,6 +573,10 @@
           "additionalProperties": true,
           "type": "object",
           "x-typescript-type": "JsonSchema"
+        },
+        "table_preview": {
+          "description": "Read-only, bounded Arrow rows from an explicitly chosen source table.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -582,7 +586,8 @@
         "record_semantics",
         "partitioned",
         "connection_check",
-        "message_preview"
+        "message_preview",
+        "table_preview"
       ],
       "type": "object"
     },
@@ -1638,43 +1643,6 @@
       ],
       "type": "object"
     },
-    "SqlPlaygroundRequest": {
-      "additionalProperties": false,
-      "properties": {
-        "rows": {
-          "items": true,
-          "type": "array"
-        },
-        "sql": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "sql",
-        "rows"
-      ],
-      "type": "object"
-    },
-    "SqlPlaygroundResult": {
-      "additionalProperties": false,
-      "properties": {
-        "columns": {
-          "items": {
-            "$ref": "#/$defs/ColumnView"
-          },
-          "type": "array"
-        },
-        "rows": {
-          "items": true,
-          "type": "array"
-        }
-      },
-      "required": [
-        "columns",
-        "rows"
-      ],
-      "type": "object"
-    },
     "StopRequest": {
       "additionalProperties": false,
       "properties": {
@@ -1815,6 +1783,177 @@
       },
       "required": [
         "syntax"
+      ],
+      "type": "object"
+    },
+    "TransformPreviewColumn": {
+      "additionalProperties": false,
+      "properties": {
+        "arrow_type": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Exact metadata supplied by the sampled Arrow field. An absent key means\nno claim is made about that constraint or logical extension.",
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nullable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "arrow_type",
+        "nullable",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    "TransformPreviewFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/TransformPreviewColumn"
+          },
+          "type": "array"
+        },
+        "rows": {
+          "description": "Display-only rows: non-null cells are exact Arrow-formatted strings.\nValues remain native Arrow between transforms; this boundary never\nnarrows integers or decimals to JavaScript numbers.",
+          "items": {
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "table": {
+          "$ref": "#/$defs/TransformPreviewTable"
+        }
+      },
+      "required": [
+        "table",
+        "columns",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "TransformPreviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "max_sample_bytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "memory_limit_bytes": {
+          "description": "DataFusion tracked operator state and retained Arrow batches, not an\noperating-system process memory limit. Scalar expressions may allocate\ntransient memory outside the tracked pool.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "middlewares": {
+          "items": true,
+          "type": "array"
+        },
+        "row_limit": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source": {
+          "$ref": "#/$defs/TransformPreviewSource"
+        },
+        "table": {
+          "$ref": "#/$defs/TransformPreviewTable"
+        },
+        "through_step": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "timeout_ms": {
+          "description": "Overall cooperative deadline, including source resolution and sampling.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "middlewares",
+        "through_step",
+        "source",
+        "table",
+        "row_limit",
+        "max_sample_bytes",
+        "memory_limit_bytes",
+        "timeout_ms"
+      ],
+      "type": "object"
+    },
+    "TransformPreviewResult": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "$ref": "#/$defs/TransformPreviewFrame"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "before": {
+          "$ref": "#/$defs/TransformPreviewFrame"
+        }
+      },
+      "required": [
+        "before",
+        "after",
+        "applied"
+      ],
+      "type": "object"
+    },
+    "TransformPreviewSource": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonObject"
+        },
+        "connector": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connector",
+        "config"
+      ],
+      "type": "object"
+    },
+    "TransformPreviewTable": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
       ],
       "type": "object"
     },
@@ -2142,12 +2281,6 @@
     "speedtest_tune_response": {
       "$ref": "#/$defs/SpeedtestTuneResult"
     },
-    "sql_playground_request": {
-      "$ref": "#/$defs/SqlPlaygroundRequest"
-    },
-    "sql_playground_response": {
-      "$ref": "#/$defs/SqlPlaygroundResult"
-    },
     "stop_request": {
       "$ref": "#/$defs/StopRequest"
     },
@@ -2156,6 +2289,12 @@
     },
     "table_selection_preview_response": {
       "$ref": "#/$defs/SelectionPreview"
+    },
+    "transform_preview_request": {
+      "$ref": "#/$defs/TransformPreviewRequest"
+    },
+    "transform_preview_response": {
+      "$ref": "#/$defs/TransformPreviewResult"
     },
     "update_draft_request": {
       "$ref": "#/$defs/UpdateDraftRequest"
@@ -2193,8 +2332,8 @@
     "table_selection_preview_response",
     "message_preview_request",
     "message_preview_response",
-    "sql_playground_request",
-    "sql_playground_response",
+    "transform_preview_request",
+    "transform_preview_response",
     "speedtest_estimate_request",
     "speedtest_estimate_response",
     "speedtest_tune_request",

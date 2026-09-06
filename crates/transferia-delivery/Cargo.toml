@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 arrow.workspace = true
 bytes.workspace = true
 chrono.workspace = true
@@ -25,7 +26,6 @@ transferia-pipeline = { path = "../transferia-pipeline" }
 transferia-registry = { path = "../transferia-registry" }
 
 [dev-dependencies]
-async-trait.workspace = true
 transferia-test-support = { path = "../transferia-test-support" }
 
 [lints]

@@ -11,8 +11,8 @@ mod ui_contract;
 pub use definition::{ConnectorDefinition, DeliveryMode, EndpointDefinition, MiddlewareDefinition};
 pub use registry::Composition;
 pub use registry::{
-    ComponentRegistration, MiddlewarePreview, MiddlewarePreviewColumn, MiddlewareRegistration,
-    Registry, RegistryBuilder, SourcePreview, SourcePreviewMetadata, SourcePreviewMetadataItem,
+    ComponentRegistration, MiddlewareRegistration,
+    Registry, RegistryBuilder, SourcePreview, SourcePreviewMetadata, SourcePreviewMetadataItem, TableSampleLimits,
 };
 pub use traits::{
     validate_speedtest_build_context, validate_speedtest_discovery, validate_speedtest_prepare,

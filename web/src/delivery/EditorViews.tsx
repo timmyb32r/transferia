@@ -33,7 +33,7 @@ export function CommonSettings({
   const widgets = useWidgetRegistry();
   const compiled = compiledSchema(schema, widgets);
   if (compiled.kind !== "object") return null;
-  const excluded = new Set(["delivery_type"]);
+  const excluded = new Set(["delivery_type", "middlewares"]);
   let properties = Object.fromEntries(
     Object.entries(compiled.properties).filter(([name]) => !excluded.has(name)),
   );

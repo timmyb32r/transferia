@@ -20,5 +20,8 @@ thiserror.workspace = true
 transferia-core = { path = "../transferia-core" }
 transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
 
+[dev-dependencies]
+arrow.workspace = true
+
 [lints]
 workspace = true

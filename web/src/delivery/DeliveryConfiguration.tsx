@@ -19,8 +19,12 @@ import type {
 import { AutofillResistantInput } from "../ui/AutofillResistantField";
 import { TopField } from "../ui/FormField";
 import { SelectControl } from "../ui/SelectControl";
+import { MiddlewareEditor } from "../features/middleware/MiddlewareEditor";
+import { TableNamingProvider } from "../features/tableSelection/naming";
+import { useState } from "preact/hooks";
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
-import { SourceSampleProvider } from "../features/middleware/SourceSampleContext";
+import { TableCatalogContext } from "../schema/tableCatalog";
+import { useTransformCatalog, type VerifiedTableCatalog } from "../features/middleware/useTransformCatalog";
 import {
   DELIVERY_TYPES,
   type DeliveryType,
@@ -51,8 +55,9 @@ export function DeliveryConfiguration({
   onChooseEndpoint: (role: "source" | "sink", key: string) => void;
   onTableConnection?: ((identity: string | undefined) => void) | undefined;
 }) {
-  const api = useControlPlane();
   const widgets = useWidgetRegistry();
+  const api = useControlPlane();
+  const [checkedTables, setCheckedTables] = useState<VerifiedTableCatalog>();
   const deliveryTypeSelected = stringValue(editor.config.delivery_type) !== "";
   const routeSelectionComplete =
     deliveryTypeSelected &&
@@ -61,29 +66,11 @@ export function DeliveryConfiguration({
   const allSourceConnectors = orderedEndpointConnectors(catalog, "source");
   const routeSettingsAvailable = routeSelectionComplete && selection?.routeError === undefined;
   const allSinkConnectors = orderedEndpointConnectors(catalog, "sink");
-  const sourceSampleLoader =
-    selection?.error === undefined && selection?.source !== undefined
-      ? async () => {
-          const sourceConfig = endpointValue(
-            editor.config,
-            "source",
-            selection.sourceKey,
-          );
-          const result = await api.previewMessage({
-            connector: selection.sourceKey,
-            config: isObject(sourceConfig) ? sourceConfig : {},
-            max_bytes: 10 * 1024 * 1024,
-          });
-          const detection = result.detections.find(
-            (candidate) => candidate.sample_rows.length > 0,
-          );
-          if (detection === undefined)
-            throw new Error("No configured parser could produce sample rows");
-          return detection.sample_rows;
-        }
-      : undefined;
+  const sourceConfig = selection ? endpointValue(editor.config, "source", selection.sourceKey) : undefined;
+  const previewSource = selection?.source?.table_preview && isObject(sourceConfig)
+    ? { connector: selection.sourceKey, config: sourceConfig } : undefined;
+  const transformCatalog = useTransformCatalog(previewSource, checkedTables, api);
   return (
-    <SourceSampleProvider loader={sourceSampleLoader}>
       <div
         class="editor-view"
         role="tabpanel"
@@ -155,6 +142,7 @@ export function DeliveryConfiguration({
           <EndpointCard
             title="Source"
             onTableConnection={onTableConnection}
+            onTableCatalog={setCheckedTables}
             role="source"
             selectedKey={selection?.sourceKey ?? ""}
             connectors={allSourceConnectors}
@@ -212,6 +200,14 @@ export function DeliveryConfiguration({
               />
             )}
         </section>
+        {routeSettingsAvailable && <section class="middleware-island">
+          <TableNamingProvider connector={selection?.sourceKey ?? ""}>
+            <TableCatalogContext.Provider value={transformCatalog}>
+            <MiddlewareEditor value={editor.config.middlewares ?? []} disabled={readOnly} source={previewSource}
+              onChange={middlewares => onConfig({ ...editor.config, middlewares })} />
+            </TableCatalogContext.Provider>
+          </TableNamingProvider>
+        </section>}
         {routeSettingsAvailable && (
           <section class="pipeline-section">
             <h2>Pipeline settings</h2>
@@ -226,7 +222,6 @@ export function DeliveryConfiguration({
           </section>
         )}
       </div>
-    </SourceSampleProvider>
   );
 }
 

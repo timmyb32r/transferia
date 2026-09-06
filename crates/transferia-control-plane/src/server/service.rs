@@ -34,7 +34,8 @@ pub use transferia_server_contracts::api::{
     MessagePreviewMetadataItem, MessagePreviewResult, SpeedtestColumnProfileView,
     SpeedtestDatasetProfileView, SpeedtestEstimateResult, SpeedtestMeasurementView,
     SpeedtestProfileView, SpeedtestTuneResult, SpeedtestTuningBudgetView,
-    SpeedtestTuningResultView, SpeedtestTuningTrialView, SqlPlaygroundResult,
+    SpeedtestTuningResultView, SpeedtestTuningTrialView, TransformPreviewFrame,
+    TransformPreviewRequest, TransformPreviewResult, TransformPreviewTable, TransformPreviewColumn,
     ValidationCommandResult, WorkerLogChunkView, WorkerLogView, WorkerLogsResult,
 };
 use transferia_server_contracts::{DeliveryRecord, RuntimeState, ValidationState};
@@ -644,41 +645,117 @@ impl ControlPlane {
         Ok(Value::Object(materialized))
     }
 
-    pub async fn sql_playground(
+    pub async fn preview_transforms(
         &self,
-        sql: String,
-        rows: Vec<serde_json::Value>,
-    ) -> Result<SqlPlaygroundResult, ServiceError> {
+        request: TransformPreviewRequest,
+        cancellation: CancellationToken,
+    ) -> Result<TransformPreviewResult, ServiceError> {
+        Self::preview_transforms_with(&self.transferia, request, cancellation).await
+    }
+
+    async fn preview_transforms_with(
+        composition: &dyn Composition,
+        request: TransformPreviewRequest,
+        cancellation: CancellationToken,
+    ) -> Result<TransformPreviewResult, ServiceError> {
+        for (name, valid) in [
+            ("max_sample_bytes", request.max_sample_bytes > 0),
+            ("memory_limit_bytes", request.memory_limit_bytes > 0),
+            ("timeout_ms", request.timeout_ms > 0),
+        ] {
+            if !valid {
+                return Err(ServiceError::Validation(format!("preview {name} must be positive")));
+            }
+        }
+        let timeout = Duration::from_millis(u64::try_from(request.timeout_ms)
+            .map_err(|_| ServiceError::Validation("preview timeout_ms is too large".into()))?);
+        let deadline = tokio::time::Instant::now().checked_add(timeout)
+            .ok_or_else(|| ServiceError::Validation("preview timeout_ms is too large".into()))?;
+        let preview_cancellation = cancellation.child_token();
+        let _cancel_on_drop = preview_cancellation.clone().drop_guard();
+        tokio::select! {
+            biased;
+            () = cancellation.cancelled() => Err(ServiceError::Validation("transform preview cancelled".into())),
+            result = tokio::time::timeout_at(deadline, Self::preview_transforms_bounded(composition, request, preview_cancellation)) => {
+                result.map_err(|_| ServiceError::Validation("transform preview exceeded configured timeout_ms".into()))?
+            }
+        }
+    }
+
+    async fn preview_transforms_bounded(
+        composition: &dyn Composition,
+        request: TransformPreviewRequest,
+        cancellation: CancellationToken,
+    ) -> Result<TransformPreviewResult, ServiceError> {
+        use transferia_delivery::middleware::{build_middlewares, MiddlewareEntry};
+        use transferia_delivery::middleware::preview::preview_chain;
+
+        if request.row_limit == 0 {
+            return Err(ServiceError::Validation("preview row_limit must be positive".into()));
+        }
+        if request.through_step >= request.middlewares.len() {
+            return Err(ServiceError::Validation("preview step index is out of range".into()));
+        }
+        let namespace = request.table.namespace.as_ref().filter(|value| !value.is_empty())
+            .ok_or_else(|| ServiceError::Validation("source preview requires an explicit table namespace".into()))?;
+        if request.table.name.is_empty() {
+            return Err(ServiceError::Validation("source preview requires a table name".into()));
+        }
+        let entries = request.middlewares.into_iter().take(request.through_step + 1).enumerate().map(|(index, value)| {
+            serde_json::from_value::<MiddlewareEntry>(value)
+                .map_err(|error| ServiceError::Validation(format!("transform step {}: {error}", index + 1)))
+        }).collect::<Result<Vec<_>, _>>()?;
         let metrics = Arc::new(transferia_connectors::metrics::MetricsRegistry::new());
-        let registry = self
-            .transferia
+        let registry = composition
             .build_registry(&metrics)
             .map_err(ServiceError::Internal)?;
-        let preview = registry
-            .preview_middleware(
-                "datafusion",
-                serde_yaml::to_value(serde_json::json!({ "sql": sql }))
-                    .map_err(anyhow::Error::from)
-                    .map_err(ServiceError::Internal)?,
-                rows,
+        let middlewares = build_middlewares(&registry, &entries)
+            .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+        let raw = serde_yaml::to_value(request.source.config)
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let resolved = composition.resolve_many(
+            &request.source.connector, EndpointRole::Source, raw, cancellation.clone(),
+        ).await.map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+        let table = transferia_registry::TableIdentity {
+            namespace: namespace.clone(),
+            name: request.table.name.clone(),
+        };
+        let mut sample = None;
+        let mut last_error = None;
+        for endpoint in resolved {
+            let attempt = registry.sample_source_table(
+                &request.source.connector, endpoint, table.clone(), transferia_registry::TableSampleLimits {
+                    row_limit: request.row_limit,
+                    max_bytes: request.max_sample_bytes,
+                    timeout_ms: request.timeout_ms,
+                }, cancellation.clone(),
+            );
+            let result = tokio::select! {
+                biased;
+                () = cancellation.cancelled() => return Err(ServiceError::Validation("transform preview cancelled".into())),
+                result = attempt => result,
+            };
+            match result {
+                Ok(data) => { sample = Some(data); break; }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        let sample = sample.ok_or_else(|| ServiceError::Validation(match last_error {
+            Some(error) => format!("source table sample failed: {error:#}"),
+            None => "source resolution returned no endpoints".into(),
+        }))?;
+        let preview = preview_chain(
+                &middlewares, sample, request.through_step,
+                transferia_delivery_contracts::middleware::MiddlewarePreviewContext {
+                    memory_limit_bytes: request.memory_limit_bytes,
+                }, cancellation,
             )
             .await
-            .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let columns = preview
-            .columns
-            .into_iter()
-            .map(|column| ColumnView {
-                name: column.name,
-                arrow_type: column.arrow_type,
-                nullable: column.nullable,
-                primary_key: false,
-                low_cardinality: false,
-                max_length: None,
-            })
-            .collect();
-        Ok(SqlPlaygroundResult {
-            columns,
-            rows: preview.rows,
+            .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+        Ok(TransformPreviewResult {
+            before: transform_preview_frame(&preview.before)?,
+            after: transform_preview_frame(&preview.after)?,
+            applied: preview.applied,
         })
     }
 
@@ -2249,6 +2326,25 @@ fn source_discovery_result(
             object_key: None,
         },
     }
+}
+
+fn transform_preview_frame(data: &transferia_core::TableData) -> Result<TransformPreviewFrame, ServiceError> {
+    let rows = transferia_delivery::middleware::preview::display_rows(data)
+        .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+    let columns = data.batch.schema().fields().iter().map(|field| TransformPreviewColumn {
+        name: field.name().clone(),
+        arrow_type: format!("{:?}", field.data_type()),
+        nullable: field.is_nullable(),
+        metadata: field.metadata().iter().map(|(key, value)| (key.clone(), value.clone())).collect(),
+    }).collect();
+    Ok(TransformPreviewFrame {
+        table: TransformPreviewTable {
+            namespace: data.namespace.as_ref().map(ToString::to_string),
+            name: data.table.to_string(),
+        },
+        columns,
+        rows,
+    })
 }
 
 fn column_view(column: &transferia_core::data::schema::SchemaColumn) -> ColumnView {

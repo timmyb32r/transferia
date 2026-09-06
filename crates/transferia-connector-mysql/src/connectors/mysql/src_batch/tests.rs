@@ -1,5 +1,19 @@
 use std::mem::size_of;
 
+#[test]
+fn table_sample_select_quotes_identifiers_and_limits_rows_in_database() {
+    let table = transferia_registry::TableIdentity { namespace: "some`database".into(), name: "events`; DROP TABLE x; --".into() };
+    assert_eq!(super::sample::sample_query(&table, "`id`", 7).unwrap(),
+        "SELECT `id` FROM `some``database`.`events``; DROP TABLE x; --` LIMIT 7");
+    assert!(super::sample::sample_query(&table, "`id`", 0).is_err());
+}
+
+#[test]
+fn table_sample_deadline_uses_each_server_dialects_explicit_units() {
+    assert_eq!(super::sample::timeout_statement("8.4.6", 1250), "SET SESSION max_execution_time = 1250");
+    assert_eq!(super::sample::timeout_statement("11.8.3-MariaDB", 1250), "SET SESSION max_statement_time = 1.250");
+}
+
 use arrow::array::{Array, Int32Array, Int64Array, StringArray};
 use arrow::datatypes::DataType;
 use mysql_async::{DriverError, Value};

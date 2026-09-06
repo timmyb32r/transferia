@@ -6432,6 +6432,7 @@ name = "transferia-control-plane"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrow",
  "async-trait",
  "axum",
  "base64 0.22.1",
@@ -6453,6 +6454,8 @@ dependencies = [
  "transferia-core",
  "transferia-delivery",
  "transferia-delivery-contracts",
+ "transferia-middleware-datafusion",
+ "transferia-middleware-filter",
  "transferia-registry",
  "transferia-runtime",
  "transferia-server-contracts",
@@ -6523,6 +6526,7 @@ dependencies = [
  "arrow",
  "async-trait",
  "datafusion",
+ "futures-util",
  "schemars 1.2.2",
  "serde",
  "serde_json",
@@ -6570,6 +6574,7 @@ name = "transferia-registry"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrow",
  "futures-util",
  "jsonschema",
  "murmur3",

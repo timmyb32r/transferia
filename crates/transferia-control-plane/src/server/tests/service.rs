@@ -6,6 +6,9 @@ use async_trait::async_trait;
 use super::*;
 use transferia_runtime::WorkerInfo;
 
+#[path = "transform_preview.rs"]
+mod transform_preview;
+
 #[test]
 fn connection_check_reports_local_egress_denial_as_network_access_error() {
     let error = anyhow::Error::new(std::io::Error::from(std::io::ErrorKind::PermissionDenied));

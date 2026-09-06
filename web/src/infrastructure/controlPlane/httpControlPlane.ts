@@ -13,7 +13,7 @@ import type {
   MessagePreviewRequest,
   OptionsRequest,
   RevisionRequest,
-  SqlPlaygroundRequest,
+  TransformPreviewRequest,
   SpeedtestEstimateRequest,
   SpeedtestTuneRequest,
   StopRequest,
@@ -158,9 +158,9 @@ export const httpControlPlane: ControlPlanePort = {
         ...(signal === undefined ? {} : { signal }),
       },
     ),
-  sqlPlayground: (body: SqlPlaygroundRequest, signal?: AbortSignal) =>
+  previewTransforms: (body: TransformPreviewRequest, signal?: AbortSignal) =>
     routeRequest(
-      "sql_playground",
+      "preview_transforms",
       {},
       {
         body,
