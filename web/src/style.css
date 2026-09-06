@@ -5155,22 +5155,58 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .table-match-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table-match-count { color: var(--muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 :root .table-matches-height-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
+  display: inline-grid;
+  place-items: center;
   flex: 0 0 auto;
   margin-left: auto;
   height: 22px;
   padding: 0 7px;
   font-size: 11px;
+  line-height: 1;
   border-color: var(--line-strong);
   color: var(--blue);
-  background: var(--control);
+  background: transparent;
 }
+:root .table-matches-height-toggle:hover:not(:disabled) { background: var(--surface-hover); }
 :root .table-matches-height-toggle:disabled { color: var(--disabled-text); }
-.table-matches-height-label { display: grid; }
-.table-matches-height-label > span { grid-area: 1 / 1; white-space: nowrap; }
+.table-matches-height-toggle,
+.table-matches-height-toggle * { scrollbar-gutter: auto; }
+/* Overlay complete pairs: the wider state reserves space, while either visible
+   icon + label stays centered as one unit. No resizing or moving hit targets. */
+.table-matches-height-content {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.table-matches-height-icon {
+  position: relative;
+  visibility: inherit;
+  flex: 0 0 14px;
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  background: linear-gradient(currentColor, currentColor) center / 1.5px 12px no-repeat;
+}
+.table-matches-height-icon::before,
+.table-matches-height-icon::after {
+  content: "";
+  position: absolute;
+  left: 4.5px;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+}
+.table-matches-height-icon::before { top: 2px; transform: rotate(225deg); }
+.table-matches-height-icon::after { bottom: 2px; transform: rotate(45deg); }
+.table-matches-height-icon-restore {
+  background-image: linear-gradient(currentColor 6px, transparent 6px 8px, currentColor 8px);
+  background-size: 1.5px 14px;
+}
+.table-matches-height-icon-restore::before { top: 0; transform: rotate(45deg); }
+.table-matches-height-icon-restore::after { bottom: 0; transform: rotate(225deg); }
 .table-matches-chevron {
   width: 6px;
   height: 6px;
@@ -5232,7 +5268,8 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   min-height: 140px;
   resize: none;
   overflow: auto;
-  overscroll-behavior: contain;
+  /* Let the page scroll at list boundaries, including a fitted Show all list. */
+  overscroll-behavior: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--surface-soft);

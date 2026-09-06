@@ -16,6 +16,16 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("lets matched lists hand scrolling to the page when fully expanded or at either edge", () => {
+    // Both per-rule and aggregate lists use this scroll container. Keeping
+    // containment here traps wheel/touch scrolling even after Show all fits it.
+    const list = styles.split(".table-rule-matches {")[1]?.split("}")[0];
+    expect(list).toContain("overflow: auto;");
+    expect(list).toContain("overscroll-behavior: auto;");
+    expect(list).not.toMatch(/overscroll-behavior(?:-[xy])?:\s*(?:contain|none)/);
+    expect(list).toContain("height: 140px;");
+    expect(list).toContain("resize: none;");
+  });
   it("reserves required connection feedback slots across idle, pending, success and failure", () => {
     for (const selector of [".connection-check-required .connection-check-result", ".connection-dependent-status"]) {
       const rule = styles.split(`${selector} {`)[1]?.split("}")[0];

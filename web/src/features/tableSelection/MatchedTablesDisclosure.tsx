@@ -47,13 +47,15 @@ export function MatchedTablesDisclosure({ id, label, regionLabel = label, toggle
       {open && <Button class="table-matches-height-toggle" aria-controls={id} aria-expanded={full}
         title={full ? "Restore the previous list height." : "Show all matched tables without an internal scrollbar."}
         disabled={!tables && !full} onClick={toggleHeight}>
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-          stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d={full ? "M8 1v5M5 3l3 3 3-3M8 15v-5M5 13l3-3 3 3" : "M8 2v12M5 5l3-3 3 3M5 11l3 3 3-3"} />
-        </svg>
-        <span class="table-matches-height-label">
-          <span aria-hidden={full} style={{ visibility: full ? "hidden" : "visible" }}>Show all</span>
-          <span aria-hidden={!full} style={{ visibility: full ? "visible" : "hidden" }}>Restore height</span>
+        <span class="table-matches-height-content" aria-hidden={full}
+          style={{ visibility: full ? "hidden" : "visible" }}>
+          <span class="ui-icon table-matches-height-icon" aria-hidden="true" />
+          <span>Show all</span>
+        </span>
+        <span class="table-matches-height-content" aria-hidden={!full}
+          style={{ visibility: full ? "visible" : "hidden" }}>
+          <span class="ui-icon table-matches-height-icon table-matches-height-icon-restore" aria-hidden="true" />
+          <span>Restore height</span>
         </span>
       </Button>}
     </div>

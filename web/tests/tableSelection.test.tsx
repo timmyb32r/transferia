@@ -157,10 +157,17 @@ it("expands the complete matched list only on request into a bounded inline view
   expect(css).toMatch(/\.table-rule-matches\s*\{[^}]*min-height: 140px;[^}]*resize: none;/);
   expect(css).toMatch(/\.table-selection-footer\s*\{[^}]*height: var\(--control-height\);/);
   // Right anchoring isolates the action from changing match counts. Both
-  // labels retain their grid footprint, so toggling height cannot move it.
+  // complete icon/label pairs retain their grid footprint, so toggling height
+  // cannot move the button or leave the shorter visible pair off-center.
   expect(css).toMatch(/\.table-matches-height-toggle\s*\{[^}]*flex: 0 0 auto;[^}]*margin-left: auto;[^}]*height: 22px;/);
-  expect(css).toMatch(/\.table-matches-height-label\s*\{[^}]*display: grid;/);
-  expect(css).toMatch(/\.table-matches-height-label > span\s*\{[^}]*grid-area: 1 \/ 1;[^}]*white-space: nowrap;/);
+  expect(css).toMatch(/\.table-matches-height-toggle\s*\{[^}]*display: inline-grid;[^}]*place-items: center;/);
+  expect(css).toMatch(/\.table-matches-height-content\s*\{[^}]*grid-area: 1 \/ 1;[^}]*display: inline-flex;[^}]*align-items: center;[^}]*white-space: nowrap;/);
+  expect(css).toMatch(/\.table-matches-height-toggle,\s*\.table-matches-height-toggle \*\s*\{[^}]*scrollbar-gutter: auto;/);
+  expect(css).toMatch(/\.table-matches-height-icon\s*\{[^}]*flex: 0 0 14px;[^}]*width: 14px;[^}]*min-width: 14px;[^}]*height: 14px;/);
+  // Shared icons explicitly opt into visibility; this overlay must instead
+  // inherit its hidden pair's state or both arrows will be painted at once.
+  expect(css).toMatch(/\.table-matches-height-icon\s*\{[^}]*visibility: inherit;/);
+  expect(css).toMatch(/\.table-matches-height-toggle:hover:not\(:disabled\)\s*\{[^}]*background: var\(--surface-hover\);/);
   expect(css).toMatch(/\.segmented-control\s*\{[^}]*grid-auto-columns: minmax\(max-content, 1fr\);/);
   expect(css).toMatch(/\.segmented-control > button\s*\{[^}]*min-width: max-content;/);
   expect(css).toMatch(/\.regex-toggle\s*\{[^}]*height: calc\(var\(--control-height\) - 8px\);/);
@@ -261,9 +268,16 @@ it.each(["rule", "selected-total", "all-total"] as const)(
     expect(heightToggle.parentElement).toBe(header);
     expect(heightToggle.getAttribute("aria-controls")).toBe(region.id);
     expect(heightToggle.getAttribute("title")).toMatch(/all|expand|fit/i);
-    const labels = heightToggle.querySelectorAll<HTMLElement>(".table-matches-height-label > span");
+    const labels = heightToggle.querySelectorAll<HTMLElement>(".table-matches-height-content");
     expect([...labels].map(label => label.textContent)).toEqual(["Show all", "Restore height"]);
     expect([...labels].map(label => label.style.visibility)).toEqual(["visible", "hidden"]);
+    expect(heightToggle.querySelector("svg")).toBeNull();
+    for (const label of labels) {
+      const icon = label.querySelector(".ui-icon.table-matches-height-icon");
+      expect(icon?.getAttribute("aria-hidden")).toBe("true");
+      expect(icon?.parentElement).toBe(label);
+    }
+    expect([...labels].map(label => label.getAttribute("aria-hidden"))).toEqual(["false", "true"]);
     expect(region.style.height).toBe("");
     heightToggle.focus();
 
@@ -272,6 +286,7 @@ it.each(["rule", "selected-total", "all-total"] as const)(
     expect(region.style.height).toBe("682px");
     expect(view.getByRole("button", { name: "Restore height", exact: true })).toBe(heightToggle);
     expect([...labels].map(label => label.style.visibility)).toEqual(["hidden", "visible"]);
+    expect([...labels].map(label => label.getAttribute("aria-hidden"))).toEqual(["true", "false"]);
     expect(document.activeElement).toBe(heightToggle);
     expect(view.getByRole("button", {
       name: kind === "rule" ? "Matched tables for rule 1" : "All matched tables 40",
