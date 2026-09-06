@@ -16,6 +16,20 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("keeps the destination at content height while Source can stretch into its continuation", () => {
+    expect(styles).not.toContain(".route-composition > .endpoint-card {\n  align-self: stretch;");
+    expect(styles).toContain(".route-composition > .endpoint-card-source {\n  align-self: stretch;");
+  });
+  it("contains long schema names and types and anchors tabs inside the fixed inspector", () => {
+    const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
+    expect(rule(".schema-inspector")).toContain("height: min(560px, calc(100dvh - 48px));");
+    expect(rule(".schema-inspector")).toContain("overflow: hidden;");
+    expect(rule(".schema-inspector-content")).toContain("min-height: 0;");
+    expect(rule(".schema-inspector-table")).toContain("overflow: auto;");
+    expect(rule(".schema-inspector-row > *")).toContain("overflow-wrap: anywhere;");
+    expect(rule(".schema-inspector-row > *")).toContain("min-width: 0;");
+    expect(rule(".schema-inspector-type-tabs")).toContain("grid-template-columns: repeat(2, minmax(0, 1fr));");
+  });
   it("puts source tables below both endpoints and compacts repeated rules without asynchronous movement", () => {
     expect(styles).toContain('"tables tables tables"');
     expect(styles).toContain(".source-tables-card { grid-area: tables;");

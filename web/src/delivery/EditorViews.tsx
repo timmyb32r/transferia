@@ -182,7 +182,7 @@ export function DataSchemaInspector({
     () => new Set(),
   );
   const [position, setPosition] = useState(() => ({
-    x: Math.max(0, window.innerWidth - 404),
+    x: Math.max(0, window.innerWidth - 544),
     y: 24,
   }));
   const drag = useRef<{ pointer: number; dx: number; dy: number }>();
@@ -249,7 +249,7 @@ export function DataSchemaInspector({
         }}
       >
         <strong>Final schema</strong>
-        <span>Drag to move</span>
+        <span class="schema-inspector-drag-hint">Drag to move</span>
         <span class="schema-inspector-progress-slot">
           {loading && (
             <span
@@ -281,7 +281,7 @@ export function DataSchemaInspector({
         (datasets.length === 0 ? (
           <p>No tables discovered.</p>
         ) : (
-          <>
+          <div class="schema-inspector-content">
             <SelectControl
               searchable
               value={selected?.name ?? ""}
@@ -292,7 +292,7 @@ export function DataSchemaInspector({
               }))}
               onChange={setSelectedTable}
             />
-            <div class="schema-inspector-type-tabs" role="tablist" aria-label="Column type view">
+            <div class="schema-inspector-type-tabs editor-view-tabs" role="tablist" aria-label="Column type view">
               <Button variant="plain"
                 role="tab"
                 aria-selected={typeView === "arrow"}
@@ -325,10 +325,10 @@ export function DataSchemaInspector({
                 class="schema-inspector-row schema-inspector-head"
                 role="row"
               >
-                <span>Column</span>
-                <span>{typeView === "arrow" ? "Arrow type" : "Destination type"}</span>
-                <span>PK</span>
-                <span>Not null</span>
+                <span role="columnheader">Column</span>
+                <span role="columnheader">{typeView === "arrow" ? "Arrow type" : "Destination type"}</span>
+                <span role="columnheader">PK</span>
+                <span role="columnheader">Not null</span>
               </div>
               {selected?.final_columns.map((column) => {
                 const key = columnKey(selected, column.name);
@@ -338,19 +338,19 @@ export function DataSchemaInspector({
                     role="row"
                     key={column.name}
                   >
-                    <strong>{column.name}</strong>
-                    <code>
+                    <strong role="rowheader" title={column.name}>{column.name}</strong>
+                    <code role="cell">
                       {typeView === "arrow"
                         ? column.arrow_type
                         : column.destination_type}
                     </code>
-                    <span>{column.primary_key ? "Yes" : "—"}</span>
-                    <span>{column.nullable ? "—" : "Yes"}</span>
+                    <span role="cell">{column.primary_key ? "Yes" : "—"}</span>
+                    <span role="cell">{column.nullable ? "—" : "Yes"}</span>
                   </div>
                 );
               })}
             </div>
-          </>
+          </div>
         ))}
     </aside>
   );

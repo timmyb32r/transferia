@@ -180,8 +180,35 @@ describe("data schema view", () => {
     });
 
     expect(inspector.style.transform).toBe("");
-    expect(inspector.style.left).toBe(`${window.innerWidth - 404}px`);
+    expect(inspector.style.left).toBe(`${window.innerWidth - 544}px`);
     expect(inspector.style.top).toBe("24px");
+  });
+
+  it("keeps full extension types in their own cells and shares tab positioning for disabled locks", () => {
+    const columnName = "an_especially_long_column_name_that_must_not_overlap_the_type";
+    const arrowType = "transferia.clickhouse.source_type(LowCardinality(Nullable(String)))";
+    const result: DiscoveryResult = {
+      source: "clickhouse", sink: "unselected", pipeline_count: 1, performance_advice: [],
+      sink_limits: { sink: "unselected", supported_arrow_types: [] },
+      datasets: [{ role: "Main", name: "CHARACTER_SETS", intermediate_columns: [], final_columns: [{
+        name: columnName, arrow_type: arrowType, destination_type: "String",
+        nullable: false, primary_key: false, low_cardinality: false,
+      }] }],
+    };
+    const view = render(<DataSchemaInspector result={result} onHide={() => undefined} />);
+    const tabs = view.getByRole("tablist", { name: "Column type view" });
+    expect(tabs.classList.contains("editor-view-tabs")).toBe(true);
+    expect(view.getByRole("tab", { name: "Destination types" }).hasAttribute("disabled")).toBe(true);
+    expect(view.getByRole("rowheader", { name: columnName }).title).toBe(columnName);
+    expect(view.getByRole("cell", { name: arrowType }).textContent).toBe(arrowType);
+    const header = view.container.querySelector(".schema-inspector-drag-handle");
+    const hide = view.getByRole("button", { name: "Hide schema inspector" });
+    const progress = view.container.querySelector(".schema-inspector-progress-slot");
+    view.rerender(<DataSchemaInspector result={result} loading onHide={() => undefined} />);
+    expect(view.container.querySelector(".schema-inspector-drag-handle")).toBe(header);
+    expect(view.getByRole("button", { name: "Hide schema inspector" })).toBe(hide);
+    expect(view.container.querySelector(".schema-inspector-progress-slot")).toBe(progress);
+    expect(view.getByRole("status", { name: "Updating schema" })).toBeTruthy();
   });
 
   it("collapses to its header and expands without losing the widget", () => {
@@ -295,7 +322,7 @@ describe("data schema view", () => {
 
     fireEvent.pointerDown(handle, {
       pointerId: 1,
-      clientX: window.innerWidth - 394,
+      clientX: window.innerWidth - 534,
       clientY: 34,
     });
     fireEvent.pointerMove(handle, { pointerId: 1, clientX: 0, clientY: 0 });

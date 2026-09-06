@@ -188,6 +188,12 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
 - Keep the page white and the three delivery islands slate gray, with white
   fields. Parser details continue the source island rather than introducing a
   fourth palette. Use consistent borders across these connected surfaces.
+- Destination keeps its content height; only Source stretches when needed to
+  meet its full-width continuation. Empty destinations must not inherit Source's height.
+- Final schema uses a fixed-size, resizable inspector with a stationary toolbar
+  and a separately scrolling schema table. Long column names and full type
+  descriptions wrap inside their own cells, never over PK / Not null. Its type
+  tabs share the editor tab style, including locally anchored disabled locks.
 - Selected tabs use a white surface, dark text, and a teal bottom indicator in
   both the editor and catalog. Available unselected tabs remain readable;
   disabled tabs use the common disabled treatment and lock indicator.

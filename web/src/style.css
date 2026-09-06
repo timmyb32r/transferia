@@ -1061,7 +1061,7 @@ h3 {
 .source-tables-card { grid-area: tables; container: form-space / inline-size; scroll-margin-top: 24px; }
 .source-tables-card > .connection-dependent-settings { border: 0; border-radius: 0; }
 .source-tables-card .connection-dependent-fields { padding: 0; }
-.route-composition > .endpoint-card {
+.route-composition > .endpoint-card-source {
   align-self: stretch;
 }
 .route-composition > .endpoint-card-source,
@@ -2800,26 +2800,29 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .schema-inspector {
   position: fixed;
   z-index: 60;
-  width: min(380px, calc(100vw - 48px));
-  min-width: 300px;
-  min-height: 120px;
-  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  container: schema-inspector-space / inline-size;
+  width: min(520px, calc(100vw - 48px));
+  height: min(560px, calc(100dvh - 48px));
+  min-width: min(340px, calc(100vw - 48px));
+  min-height: min(240px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
   max-width: 100vw;
-  overflow: scroll;
+  overflow: hidden;
   resize: both;
-  scrollbar-gutter: stable both-edges;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   background: var(--panel);
-  box-shadow: 0 16px 48px rgb(0 0 0 / 28%);
+  box-shadow: 0 16px 48px var(--shadow);
 }
 
 .schema-inspector-drag-handle {
-  position: sticky;
-  top: 0;
+  position: relative;
+  flex: 0 0 auto;
   z-index: 1;
   display: grid;
-  grid-template-columns: auto 1fr auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) 14px auto auto;
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
@@ -2857,50 +2860,53 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   color: var(--text-secondary);
   font-size: 12px;
 }
-
-.schema-inspector > .select-control {
-  margin: 12px;
+.schema-inspector-drag-hint { white-space: nowrap; }
+@container schema-inspector-space (max-width: 400px) {
+  .schema-inspector-drag-hint { visibility: hidden; }
 }
+.schema-inspector-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 10px;
+  padding: 12px;
+}
+.schema-inspector-content > .select { flex: 0 0 auto; }
 .schema-inspector-type-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0;
-}
-.schema-inspector-type-tabs button {
-  min-width: 0;
-  border-radius: 0;
-  color: var(--muted);
-}
-.schema-inspector-type-tabs button + button {
-  margin-left: -1px;
-}
-.schema-inspector-type-tabs button:first-child {
-  border-radius: var(--radius-control) 0 0 var(--radius-control);
-}
-.schema-inspector-type-tabs button:last-child {
-  border-radius: 0 var(--radius-control) var(--radius-control) 0;
-}
-.schema-inspector-type-tabs button.active {
-  position: relative;
-  z-index: 1;
-  border-color: var(--blue);
-  color: var(--blue);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  flex: 0 0 auto;
+  gap: 3px;
+  padding: 3px;
+  border-radius: var(--radius-control);
+  background: var(--panel2);
 }
 
 .schema-inspector-table {
   min-width: 0;
-  padding: 0 12px 12px;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
 }
 
 .schema-inspector-row {
   display: grid;
-  grid-template-columns: minmax(90px, 1.4fr) minmax(72px, 1fr) 24px 38px;
-  align-items: center;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 28px 46px;
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
   min-height: 38px;
   border-bottom: 1px solid var(--line);
-  font-size: 10px;
+  font-size: 11px;
+  line-height: 1.45;
 }
+.schema-inspector-row > * { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.schema-inspector-row > :nth-child(n + 3) { text-align: center; }
+.schema-inspector-row:nth-child(even) { background: var(--surface-soft); }
+.schema-inspector-row:last-child { border-bottom: 0; }
 
 .schema-inspector-row.schema-row-updated {
   animation: schema-row-updated 1s ease-out;
@@ -2918,6 +2924,10 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 }
 
 .schema-inspector-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel2);
   color: var(--text-secondary);
   font-size: 10px;
   text-transform: uppercase;
