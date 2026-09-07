@@ -49,7 +49,7 @@ export function TableRuleFields({ id, rule, labelSuffix, disabled, excludeExpand
   return <>
     <div class={`table-rule-patterns${excludeOpen ? " table-rule-with-exclude" : ""}${compact ? " table-rule-compact" : ""}${trailing ? "" : " table-rule-without-action"}`}>
       {field("include")}
-      {excludeOpen ? <div class="table-exclude-field">
+      {excludeOpen ? <div key="exclude" class="table-exclude-field">
         {field("exclude")}
         <Button variant="plain" class="table-exclude-hide" aria-label={`Hide Exclude for ${labelSuffix}`}
           title={rule.exclude ? "Clear Exclude to hide it" : "Hide empty Exclude"}
@@ -58,7 +58,7 @@ export function TableRuleFields({ id, rule, labelSuffix, disabled, excludeExpand
             focusField.current = `${id}-add-exclude`;
             onExcludeExpanded(false);
           }}>Hide</Button>
-      </div> : <Button id={`${id}-add-exclude`} variant="plain" class="table-exclude-add"
+      </div> : <Button key="exclude" id={`${id}-add-exclude`} variant="plain" class="table-exclude-add"
         aria-label={`Add Exclude for ${labelSuffix}`} aria-expanded="false" disabled={disabled}
         onClick={() => {
           focusField.current = `${id}-exclude`;

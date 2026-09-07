@@ -43,11 +43,19 @@ const POSTGRES_TAG: &str = "17.6-bookworm";
 async fn native_table_preview_is_bounded_lossless_and_read_only() -> anyhow::Result<()> {
     let postgres = GenericImage::new(POSTGRES_IMAGE, POSTGRES_TAG)
         .with_exposed_port(5_432.tcp())
-        .with_wait_for(WaitFor::message_on_stderr("database system is ready to accept connections"))
-        .with_env_var("POSTGRES_PASSWORD", "test").with_env_var("POSTGRES_DB", "transferia").start().await?;
+        .with_wait_for(WaitFor::message_on_stderr(
+            "database system is ready to accept connections",
+        ))
+        .with_env_var("POSTGRES_PASSWORD", "test")
+        .with_env_var("POSTGRES_DB", "transferia")
+        .start()
+        .await?;
     let host = reachable_host(&postgres.get_host().await?);
     let port = postgres.get_host_port_ipv4(5_432.tcp()).await?;
-    let client = connect_with_retry(&format!("host={host} port={port} user=postgres password=test dbname=transferia")).await?;
+    let client = connect_with_retry(&format!(
+        "host={host} port={port} user=postgres password=test dbname=transferia"
+    ))
+    .await?;
     client.batch_execute(r#"
         CREATE SCHEMA "sample""schema";
         CREATE TABLE "sample""schema"."events""quoted" (id bigint, at timestamptz(6), payload bytea);
@@ -73,45 +81,160 @@ async fn native_table_preview_is_bounded_lossless_and_read_only() -> anyhow::Res
         "host": host, "port": port, "database": "transferia", "username": "sample_reader", "password": "read-only-test",
         "trusted_plaintext": true, "tables": {"type":"all"}
     }))?;
-    let checked = registry.check_connection("postgres", transferia_registry::EndpointRole::Source, config.clone()).await?;
-    assert!(matches!(checked.status, transferia_registry::ConnectionCheckStatus::Verified));
-    assert!(checked.tables.is_none(), "Check connection must not enumerate tables");
+    let checked = registry
+        .check_connection(
+            "postgres",
+            transferia_registry::EndpointRole::Source,
+            config.clone(),
+        )
+        .await?;
+    assert!(matches!(
+        checked.status,
+        transferia_registry::ConnectionCheckStatus::Verified
+    ));
+    assert!(
+        checked.tables.is_none(),
+        "Check connection must not enumerate tables"
+    );
     let source = registry.build_source("postgres", config.clone())?;
-    let metadata = source.metadata_reader(transferia_delivery_contracts::DeliveryType::Batch)?
+    let metadata = source
+        .metadata_reader(transferia_delivery_contracts::DeliveryType::Batch)?
         .expect("database source supports metadata");
     let tables = metadata.list_tables(CancellationToken::new()).await?;
     assert!(tables.contains(&transferia_registry::TableIdentity {
-        namespace: "sample\"schema".into(), name: "events\"quoted".into(),
+        namespace: "sample\"schema".into(),
+        name: "events\"quoted".into(),
     }));
-    let sample = registry.sample_source_table("postgres", config.clone(), transferia_registry::TableIdentity {
-        namespace: "sample\"schema".into(), name: "events\"quoted".into(),
-    }, transferia_registry::TableSampleLimits { row_limit: 1, max_bytes: 1024 * 1024, timeout_ms: 30_000 }, CancellationToken::new()).await?;
+    let sample = registry
+        .sample_source_table(
+            "postgres",
+            config.clone(),
+            transferia_registry::TableIdentity {
+                namespace: "sample\"schema".into(),
+                name: "events\"quoted".into(),
+            },
+            transferia_registry::TableSampleLimits {
+                row_limit: 1,
+                max_bytes: 1024 * 1024,
+                timeout_ms: 30_000,
+            },
+            CancellationToken::new(),
+        )
+        .await?;
     assert_eq!(sample.namespace.as_deref(), Some("sample\"schema"));
     assert_eq!(sample.table.as_ref(), "events\"quoted");
     assert_eq!(sample.batch.num_rows(), 1);
     assert_eq!(sample.batch.num_columns(), 3);
-    assert_eq!(sample.batch.column(0).as_any().downcast_ref::<Int64Array>().unwrap().value(0), 9_007_199_254_740_993);
-    assert_eq!(sample.batch.column(1).as_any().downcast_ref::<TimestampMicrosecondArray>().unwrap().value(0), 1_704_067_200_123_456);
-    assert_eq!(sample.batch.column(2).as_any().downcast_ref::<BinaryArray>().unwrap().value(0), &[0, 255]);
-    assert_eq!(client.query_one("SELECT count(*) FROM pg_replication_slots", &[]).await?.get::<_, i64>(0), 0);
-    let error = registry.sample_source_table("postgres", config.clone(), transferia_registry::TableIdentity {
-        namespace: "sample\"schema".into(), name: "write_attempt".into(),
-    }, transferia_registry::TableSampleLimits { row_limit: 1, max_bytes: 1024 * 1024, timeout_ms: 30_000 }, CancellationToken::new()).await.unwrap_err();
+    assert_eq!(
+        sample
+            .batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        9_007_199_254_740_993
+    );
+    assert_eq!(
+        sample
+            .batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<TimestampMicrosecondArray>()
+            .unwrap()
+            .value(0),
+        1_704_067_200_123_456
+    );
+    assert_eq!(
+        sample
+            .batch
+            .column(2)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap()
+            .value(0),
+        &[0, 255]
+    );
+    assert_eq!(
+        client
+            .query_one("SELECT count(*) FROM pg_replication_slots", &[])
+            .await?
+            .get::<_, i64>(0),
+        0
+    );
+    let error = registry
+        .sample_source_table(
+            "postgres",
+            config.clone(),
+            transferia_registry::TableIdentity {
+                namespace: "sample\"schema".into(),
+                name: "write_attempt".into(),
+            },
+            transferia_registry::TableSampleLimits {
+                row_limit: 1,
+                max_bytes: 1024 * 1024,
+                timeout_ms: 30_000,
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
     assert!(format!("{error:#}").contains("read-only"), "{error:#}");
-    assert_eq!(client.query_one("SELECT count(*) FROM sample_audit", &[]).await?.get::<_, i64>(0), 0);
+    assert_eq!(
+        client
+            .query_one("SELECT count(*) FROM sample_audit", &[])
+            .await?
+            .get::<_, i64>(0),
+        0
+    );
     for format in ["binary", "text"] {
         let mut config = config.clone();
         config["copy_to_format"] = serde_yaml::Value::String(format.into());
-        let error = registry.sample_source_table("postgres", config, transferia_registry::TableIdentity {
-            namespace: "sample\"schema".into(), name: "wide_sample".into(),
-        }, transferia_registry::TableSampleLimits { row_limit: 1, max_bytes: 4096, timeout_ms: 30_000 }, CancellationToken::new()).await.unwrap_err();
-        assert!(format!("{error:#}").contains("max_sample_bytes"), "{format}: {error:#}");
+        let error = registry
+            .sample_source_table(
+                "postgres",
+                config,
+                transferia_registry::TableIdentity {
+                    namespace: "sample\"schema".into(),
+                    name: "wide_sample".into(),
+                },
+                transferia_registry::TableSampleLimits {
+                    row_limit: 1,
+                    max_bytes: 4096,
+                    timeout_ms: 30_000,
+                },
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{error:#}").contains("max_sample_bytes"),
+            "{format}: {error:#}"
+        );
     }
-    let error = tokio::time::timeout(Duration::from_secs(3), registry.sample_source_table("postgres", config,
-        transferia_registry::TableIdentity { namespace: "sample\"schema".into(), name: "slow_sample".into() },
-        transferia_registry::TableSampleLimits { row_limit: 1, max_bytes: 1024 * 1024, timeout_ms: 100 },
-        CancellationToken::new())).await?.unwrap_err();
-    assert!(format!("{error:#}").contains("statement timeout"), "{error:#}");
+    let error = tokio::time::timeout(
+        Duration::from_secs(3),
+        registry.sample_source_table(
+            "postgres",
+            config,
+            transferia_registry::TableIdentity {
+                namespace: "sample\"schema".into(),
+                name: "slow_sample".into(),
+            },
+            transferia_registry::TableSampleLimits {
+                row_limit: 1,
+                max_bytes: 1024 * 1024,
+                timeout_ms: 100,
+            },
+            CancellationToken::new(),
+        ),
+    )
+    .await?
+    .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("statement timeout"),
+        "{error:#}"
+    );
     tokio::time::timeout(Duration::from_secs(2), async {
         while client.query_one("SELECT count(*) FROM pg_stat_activity WHERE usename = 'sample_reader' AND state = 'active'", &[])
             .await?.get::<_, i64>(0) != 0 {

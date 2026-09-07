@@ -97,10 +97,16 @@ async fn cancelled_table_sample_closes_pending_driver_without_draining() {
         let length = socket.read_u32().await.unwrap();
         let mut startup = vec![0; usize::try_from(length - 4).unwrap()];
         socket.read_exact(&mut startup).await.unwrap();
-        socket.write_all(&[
-            backend_message(b'R', &0_i32.to_be_bytes()),
-            backend_message(b'Z', b"I"),
-        ].concat()).await.unwrap();
+        socket
+            .write_all(
+                &[
+                    backend_message(b'R', &0_i32.to_be_bytes()),
+                    backend_message(b'Z', b"I"),
+                ]
+                .concat(),
+            )
+            .await
+            .unwrap();
         assert_eq!(socket.read_u8().await.unwrap(), b'Q');
         let length = socket.read_u32().await.unwrap();
         let mut query = vec![0; usize::try_from(length - 4).unwrap()];
@@ -110,16 +116,26 @@ async fn cancelled_table_sample_closes_pending_driver_without_draining() {
         // close the driver rather than leave a task waiting for its response.
         let mut byte = [0];
         tokio::time::timeout(std::time::Duration::from_secs(1), socket.read(&mut byte))
-            .await.expect("cancelled sample left its PostgreSQL driver draining")
+            .await
+            .expect("cancelled sample left its PostgreSQL driver draining")
             .unwrap()
     });
     let task = tokio::spawn(async move {
         let connection = super::connect_sample(&super::PostgresConnectionConfig {
-            host: address.ip().to_string(), port: address.port(), database: "sample".into(),
-            username: "reader".into(), password: String::new(), trusted_plaintext: true,
+            host: address.ip().to_string(),
+            port: address.port(),
+            database: "sample".into(),
+            username: "reader".into(),
+            password: String::new(),
+            trusted_plaintext: true,
             tls_ca_file: None,
-        }).await.unwrap();
-        connection.simple_query("SELECT pg_sleep(60)").await.unwrap();
+        })
+        .await
+        .unwrap();
+        connection
+            .simple_query("SELECT pg_sleep(60)")
+            .await
+            .unwrap();
     });
     pending_rx.await.unwrap();
     task.abort();

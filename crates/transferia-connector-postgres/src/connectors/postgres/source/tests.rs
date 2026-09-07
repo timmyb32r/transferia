@@ -2,29 +2,63 @@ use std::sync::Arc;
 
 #[test]
 fn metadata_batch_keeps_native_types_and_explicit_pseudo_type_policy() -> anyhow::Result<()> {
-    use tokio_postgres::types::Type;
     use super::{metadata::catalog_type, UnsupportedTypePolicy};
-    for native in [Type::INT8, Type::TIMESTAMPTZ, Type::BYTEA, Type::NUMERIC, Type::INT4_ARRAY] {
+    use tokio_postgres::types::Type;
+    for native in [
+        Type::INT8,
+        Type::TIMESTAMPTZ,
+        Type::BYTEA,
+        Type::NUMERIC,
+        Type::INT4_ARRAY,
+    ] {
         let catalog = catalog_type(native.oid(), native.name().into(), "b", "pg_catalog".into())?;
-        assert_eq!(UnsupportedTypePolicy::Fail.arrow_type(&catalog)?, UnsupportedTypePolicy::Fail.arrow_type(&native)?);
+        assert_eq!(
+            UnsupportedTypePolicy::Fail.arrow_type(&catalog)?,
+            UnsupportedTypePolicy::Fail.arrow_type(&native)?
+        );
     }
     for kind in ["b", "e", "c", "r", "m"] {
-        assert_eq!(UnsupportedTypePolicy::Fail.arrow_type(&catalog_type(90000, "custom_type".into(), kind, "public".into())?)?, arrow::datatypes::DataType::Utf8);
+        assert_eq!(
+            UnsupportedTypePolicy::Fail.arrow_type(&catalog_type(
+                90000,
+                "custom_type".into(),
+                kind,
+                "public".into()
+            )?)?,
+            arrow::datatypes::DataType::Utf8
+        );
     }
-    let pseudo = catalog_type(Type::ANYARRAY.oid(), "anyarray".into(), "p", "pg_catalog".into())?;
+    let pseudo = catalog_type(
+        Type::ANYARRAY.oid(),
+        "anyarray".into(),
+        "p",
+        "pg_catalog".into(),
+    )?;
     assert!(UnsupportedTypePolicy::Fail.arrow_type(&pseudo).is_err());
-    assert_eq!(UnsupportedTypePolicy::ToString.arrow_type(&pseudo)?, arrow::datatypes::DataType::Utf8);
+    assert_eq!(
+        UnsupportedTypePolicy::ToString.arrow_type(&pseudo)?,
+        arrow::datatypes::DataType::Utf8
+    );
     assert!(catalog_type(90000, "unknown".into(), "?", "public".into()).is_err());
     assert!(super::metadata::CATALOG_QUERY.contains("WITH RECURSIVE"));
-    assert!(super::metadata::CATALOG_QUERY.contains("t.physical_oid = a.atttypid AND t.typbasetype = 0"));
+    assert!(super::metadata::CATALOG_QUERY
+        .contains("t.physical_oid = a.atttypid AND t.typbasetype = 0"));
     Ok(())
 }
 
 #[test]
 fn metadata_projection_batch_preserves_quoted_tables_without_combining_column_widths() {
-    let tables = (0..100).map(|index| (transferia_registry::TableIdentity {
-        namespace: "schema\"quoted".into(), name: format!("table{index}"),
-    }, "\"id\", \"value\"::text AS \"value\"".into())).collect::<Vec<_>>();
+    let tables = (0..100)
+        .map(|index| {
+            (
+                transferia_registry::TableIdentity {
+                    namespace: "schema\"quoted".into(),
+                    name: format!("table{index}"),
+                },
+                "\"id\", \"value\"::text AS \"value\"".into(),
+            )
+        })
+        .collect::<Vec<_>>();
     let query = super::metadata::projection_query(&tables);
     assert_eq!(query.matches("SELECT 1 FROM (SELECT").count(), 100);
     assert_eq!(query.matches(" UNION ALL ").count(), 99);
@@ -48,7 +82,10 @@ async fn validation_pins_pooler_backend_and_preserves_database_error() {
         let size = socket.read_u32().await.unwrap();
         let mut startup = vec![0; size as usize - 4];
         socket.read_exact(&mut startup).await.unwrap();
-        socket.write_all(&[message(b'R', &0_u32.to_be_bytes()), message(b'Z', b"I")].concat()).await.unwrap();
+        socket
+            .write_all(&[message(b'R', &0_u32.to_be_bytes()), message(b'Z', b"I")].concat())
+            .await
+            .unwrap();
         let mut began = false;
         loop {
             let tag = socket.read_u8().await.unwrap();
@@ -57,16 +94,21 @@ async fn validation_pins_pooler_backend_and_preserves_database_error() {
             socket.read_exact(&mut body).await.unwrap();
             if tag == b'Q' {
                 let sql = std::str::from_utf8(&body).unwrap();
-                if !began {
-                    assert!(sql.starts_with("BEGIN TRANSACTION"));
-                    assert!(sql.contains("READ ONLY"));
-                    began = true;
-                    socket.write_all(&[message(b'C', b"BEGIN\0"), message(b'Z', b"T")].concat()).await.unwrap();
-                } else {
+                if began {
                     assert_eq!(sql, "ROLLBACK\0");
-                    socket.write_all(&[message(b'C', b"ROLLBACK\0"), message(b'Z', b"I")].concat()).await.unwrap();
+                    socket
+                        .write_all(&[message(b'C', b"ROLLBACK\0"), message(b'Z', b"I")].concat())
+                        .await
+                        .unwrap();
                     break;
                 }
+                assert!(sql.starts_with("BEGIN TRANSACTION"));
+                assert!(sql.contains("READ ONLY"));
+                began = true;
+                socket
+                    .write_all(&[message(b'C', b"BEGIN\0"), message(b'Z', b"T")].concat())
+                    .await
+                    .unwrap();
             } else if tag == b'P' {
                 assert!(began, "metadata must not prepare outside a transaction");
                 socket.write_all(&message(b'E', b"SERROR\0C42501\0Mpermission denied for table private_table\0Dprivate details\0\0")).await.unwrap();
@@ -76,13 +118,30 @@ async fn validation_pins_pooler_backend_and_preserves_database_error() {
         }
     });
     let (client, connection) = tokio_postgres::connect(
-        &format!("host={} port={} user=reader sslmode=disable", address.ip(), address.port()),
+        &format!(
+            "host={} port={} user=reader sslmode=disable",
+            address.ip(),
+            address.port()
+        ),
         tokio_postgres::NoTls,
-    ).await.unwrap();
-    tokio::spawn(async move { drop(connection.await); });
-    let error = super::connector::discover_validation_tables(&client, &[TableConfig {
-        schema: "public".into(), name: "private_table".into(),
-    }], super::UnsupportedTypePolicy::Fail).await.err().expect("discovery must report the database failure").to_string();
+    )
+    .await
+    .unwrap();
+    tokio::spawn(async move {
+        drop(connection.await);
+    });
+    let error = super::connector::discover_validation_tables(
+        &client,
+        &[TableConfig {
+            schema: "public".into(),
+            name: "private_table".into(),
+        }],
+        super::UnsupportedTypePolicy::Fail,
+    )
+    .await
+    .err()
+    .expect("discovery must report the database failure")
+    .to_string();
     server.await.unwrap();
     assert!(error.contains("public.private_table"));
     assert!(error.contains("permission denied for table private_table (SQLSTATE 42501)"));
@@ -264,24 +323,50 @@ fn unsupported_type_default_is_to_string_for_batch_and_fail_for_replication() {
         "password": "test", "trusted_plaintext": true, "tables": {"type": "all"}
     });
     for explicit in [None, Some("fail"), Some("to_string")] {
-        for mode in [DeliveryType::Batch, DeliveryType::Stream, DeliveryType::BatchAndStream] {
+        for mode in [
+            DeliveryType::Batch,
+            DeliveryType::Stream,
+            DeliveryType::BatchAndStream,
+        ] {
             let mut value = base.clone();
-            if let Some(policy) = explicit { value["unsupported_types"] = serde_json::json!(policy); }
+            if let Some(policy) = explicit {
+                value["unsupported_types"] = serde_json::json!(policy);
+            }
             let config: PostgresSourceConfig = serde_json::from_value(value).unwrap();
             let result = config.unsupported_type_policy(mode);
             let unsupported = explicit == Some("to_string") && mode != DeliveryType::Batch;
             if unsupported {
-                assert!(result.unwrap_err().to_string().contains("supported only for batch"));
+                assert!(result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("supported only for batch"));
             } else {
                 let policy = result.unwrap();
                 let converts = mode == DeliveryType::Batch && explicit != Some("fail");
-                assert_eq!(policy, if converts { UnsupportedTypePolicy::ToString } else { UnsupportedTypePolicy::Fail });
+                assert_eq!(
+                    policy,
+                    if converts {
+                        UnsupportedTypePolicy::ToString
+                    } else {
+                        UnsupportedTypePolicy::Fail
+                    }
+                );
                 let arrow_type = policy.arrow_type(&tokio_postgres::types::Type::ANYARRAY);
-                if converts { assert_eq!(arrow_type.unwrap(), DataType::Utf8); }
-                else { assert!(arrow_type.is_err()); }
-                assert_eq!(policy.arrow_type(&tokio_postgres::types::Type::INT8).unwrap(), DataType::Int64);
+                if converts {
+                    assert_eq!(arrow_type.unwrap(), DataType::Utf8);
+                } else {
+                    assert!(arrow_type.is_err());
+                }
+                assert_eq!(
+                    policy
+                        .arrow_type(&tokio_postgres::types::Type::INT8)
+                        .unwrap(),
+                    DataType::Int64
+                );
             }
-            let connector = PostgresSourceConnector::from_config(config, Arc::new(MetricsRegistry::default())).unwrap();
+            let connector =
+                PostgresSourceConnector::from_config(config, Arc::new(MetricsRegistry::default()))
+                    .unwrap();
             assert_eq!(connector.metadata_reader(mode).is_err(), unsupported);
         }
     }
@@ -295,8 +380,14 @@ fn unsupported_type_default_is_to_string_for_batch_and_fail_for_replication() {
     assert_eq!(property["default"], "to_string");
     assert_eq!(property["$ref"], "#/$defs/UnsupportedTypePolicy");
     assert_eq!(property["x-ui"]["section"], "advanced");
-    assert_eq!(property["x-ui"]["delivery_types"], serde_json::json!(["batch"]));
-    assert_eq!(schema["$defs"]["UnsupportedTypePolicy"]["oneOf"][0]["const"], "to_string");
+    assert_eq!(
+        property["x-ui"]["delivery_types"],
+        serde_json::json!(["batch"])
+    );
+    assert_eq!(
+        schema["$defs"]["UnsupportedTypePolicy"]["oneOf"][0]["const"],
+        "to_string"
+    );
 }
 
 #[test]

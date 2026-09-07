@@ -8,8 +8,17 @@ fn metadata_batch_uses_one_parameterized_catalog_join_for_one_hundred_tables() {
     assert_eq!(query.matches("information_schema.TABLES AS t").count(), 1);
     assert!(query.contains("SELECT 99 AS request_index"));
     assert!(query.contains("ORDER BY r.request_index, c.ORDINAL_POSITION"));
-    for metadata in ["c.COLUMN_TYPE", "c.GENERATION_EXPRESSION", "c.NUMERIC_PRECISION", "c.NUMERIC_SCALE",
-        "c.CHARACTER_OCTET_LENGTH", "c.SRS_ID AS SRS_ID", "col.PAD_ATTRIBUTE AS COLLATION_PADDING", "s.SEQ_IN_INDEX", "s.SUB_PART"] {
+    for metadata in [
+        "c.COLUMN_TYPE",
+        "c.GENERATION_EXPRESSION",
+        "c.NUMERIC_PRECISION",
+        "c.NUMERIC_SCALE",
+        "c.CHARACTER_OCTET_LENGTH",
+        "c.SRS_ID AS SRS_ID",
+        "col.PAD_ATTRIBUTE AS COLLATION_PADDING",
+        "s.SEQ_IN_INDEX",
+        "s.SUB_PART",
+    ] {
         assert!(query.contains(metadata), "lost native metadata {metadata}");
     }
     let maria = super::metadata::catalog_query(2, false);
@@ -20,16 +29,27 @@ fn metadata_batch_uses_one_parameterized_catalog_join_for_one_hundred_tables() {
 
 #[test]
 fn table_sample_select_quotes_identifiers_and_limits_rows_in_database() {
-    let table = transferia_registry::TableIdentity { namespace: "some`database".into(), name: "events`; DROP TABLE x; --".into() };
-    assert_eq!(super::sample::sample_query(&table, "`id`", 7).unwrap(),
-        "SELECT `id` FROM `some``database`.`events``; DROP TABLE x; --` LIMIT 7");
+    let table = transferia_registry::TableIdentity {
+        namespace: "some`database".into(),
+        name: "events`; DROP TABLE x; --".into(),
+    };
+    assert_eq!(
+        super::sample::sample_query(&table, "`id`", 7).unwrap(),
+        "SELECT `id` FROM `some``database`.`events``; DROP TABLE x; --` LIMIT 7"
+    );
     assert!(super::sample::sample_query(&table, "`id`", 0).is_err());
 }
 
 #[test]
 fn table_sample_deadline_uses_each_server_dialects_explicit_units() {
-    assert_eq!(super::sample::timeout_statement("8.4.6", 1250), "SET SESSION max_execution_time = 1250");
-    assert_eq!(super::sample::timeout_statement("11.8.3-MariaDB", 1250), "SET SESSION max_statement_time = 1.250");
+    assert_eq!(
+        super::sample::timeout_statement("8.4.6", 1250),
+        "SET SESSION max_execution_time = 1250"
+    );
+    assert_eq!(
+        super::sample::timeout_statement("11.8.3-MariaDB", 1250),
+        "SET SESSION max_statement_time = 1.250"
+    );
 }
 
 use arrow::array::{Array, Int32Array, Int64Array, StringArray};
@@ -947,20 +967,43 @@ fn numeric_conversion_rejects_lossy_or_out_of_range_values() {
 #[test]
 fn cached_preview_rejects_changed_native_types_even_when_storage_is_the_same() {
     let make = |kind, declaration| super::connector::DiscoveredTable {
-        config: super::config::TableConfig { database: "db".into(), name: "events".into() },
+        config: super::config::TableConfig {
+            database: "db".into(),
+            name: "events".into(),
+        },
         schema: transferia_core::DatasetSchema::default(),
-        columns: vec![test_column("value", kind, declaration, None)], engine: "InnoDB".into(),
+        columns: vec![test_column("value", kind, declaration, None)],
+        engine: "InnoDB".into(),
     };
     for (old_kind, old, new_kind, new) in [
-        (MySqlColumnKind::EnumOrdinal, "enum('a','b')", MySqlColumnKind::EnumOrdinal, "enum('b','a')"),
-        (MySqlColumnKind::SetBits, "set('a','b')", MySqlColumnKind::SetBits, "set('b','a')"),
-        (MySqlColumnKind::Int32, "int", MySqlColumnKind::Utf8, "varchar(8)"),
+        (
+            MySqlColumnKind::EnumOrdinal,
+            "enum('a','b')",
+            MySqlColumnKind::EnumOrdinal,
+            "enum('b','a')",
+        ),
+        (
+            MySqlColumnKind::SetBits,
+            "set('a','b')",
+            MySqlColumnKind::SetBits,
+            "set('b','a')",
+        ),
+        (
+            MySqlColumnKind::Int32,
+            "int",
+            MySqlColumnKind::Utf8,
+            "varchar(8)",
+        ),
     ] {
         let cached = make(old_kind, old);
         assert!(super::sample::validate_cached_schema(&cached, &cached).is_ok());
-        let error = super::sample::validate_cached_schema(&cached, &make(new_kind, new)).unwrap_err();
+        let error =
+            super::sample::validate_cached_schema(&cached, &make(new_kind, new)).unwrap_err();
         assert!(error.to_string().contains("db.events"));
         assert!(error.to_string().contains("refresh metadata"));
-        assert_eq!(cached.columns[0].column_type, old, "validation must not rewrite the cached plan");
+        assert_eq!(
+            cached.columns[0].column_type, old,
+            "validation must not rewrite the cached plan"
+        );
     }
 }

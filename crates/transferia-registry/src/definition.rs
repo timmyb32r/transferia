@@ -18,6 +18,10 @@ pub enum DeliveryMode {
 
 #[derive(Clone, Debug, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Endpoint capabilities are independent flags, not mutually exclusive states"
+)]
 pub struct EndpointDefinition {
     #[schemars(
         with = "BTreeMap<String, JsonValue>",
@@ -83,5 +87,4 @@ pub struct MiddlewareDefinition {
         extend("x-typescript-type" = "JsonObject")
     )]
     pub initial: JsonValue,
-
 }

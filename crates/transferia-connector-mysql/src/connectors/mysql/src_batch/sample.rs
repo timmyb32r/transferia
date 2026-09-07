@@ -14,26 +14,49 @@ use transferia_registry::{TableIdentity, TableSampleLimits};
 
 use super::config::{MySqlReadProtocol, MySqlSourceConfig, TableConfig};
 use super::connector::{discover_table, ColumnPlan};
-use super::reader::{column_array, estimate_arrow_working_set_bytes, next_snapshot_rows_capacity,
-    retained_row_value_heap_bytes, retained_rows_heap_bytes, SnapshotRow};
+use super::reader::{
+    column_array, estimate_arrow_working_set_bytes, next_snapshot_rows_capacity,
+    retained_row_value_heap_bytes, retained_rows_heap_bytes, SnapshotRow,
+};
 use super::MYSQL_CANONICAL_SNAPSHOT_SQL_MODE;
-use crate::connectors::mysql::common::{connect_sample_with_max_allowed_packet, quote_identifier, validate_identifier, MYSQL_CLIENT_PACKET_MIN_BYTES};
+use crate::connectors::mysql::common::{
+    connect_sample_with_max_allowed_packet, quote_identifier, validate_identifier,
+    MYSQL_CLIENT_PACKET_MIN_BYTES,
+};
 
-pub(crate) async fn sample_table(config: MySqlSourceConfig, table: TableIdentity, limits: TableSampleLimits,
-    cancellation: CancellationToken) -> anyhow::Result<TableData> {
+pub async fn sample_table(
+    config: MySqlSourceConfig,
+    table: TableIdentity,
+    limits: TableSampleLimits,
+    cancellation: CancellationToken,
+) -> anyhow::Result<TableData> {
     sample_with_metadata(config, table, limits, cancellation, None).await
 }
 
-pub(super) async fn sample_with_metadata(config: MySqlSourceConfig, table: TableIdentity, limits: TableSampleLimits,
-    cancellation: CancellationToken, cached: Option<super::connector::DiscoveredTable>) -> anyhow::Result<TableData> {
+pub(super) async fn sample_with_metadata(
+    config: MySqlSourceConfig,
+    table: TableIdentity,
+    limits: TableSampleLimits,
+    cancellation: CancellationToken,
+    cached: Option<super::connector::DiscoveredTable>,
+) -> anyhow::Result<TableData> {
     limits.validate()?;
     let row_limit = limits.row_limit;
     config.connection.validate()?;
-    anyhow::ensure!(u32::try_from(limits.timeout_ms).is_ok(), "timeout_ms exceeds MySQL max_execution_time range");
+    anyhow::ensure!(
+        u32::try_from(limits.timeout_ms).is_ok(),
+        "timeout_ms exceeds MySQL max_execution_time range"
+    );
     sample_query(&table, "*", row_limit)?;
     let classification = config.tables.compile()?.classify(&table);
-    anyhow::ensure!(classification.selected_by.len() == 1 && classification.issues.is_empty(), "sample table must be selected by exactly one table rule");
-    anyhow::ensure!(config.includes_database(&table.namespace), "sample table is hidden by Hide system tables");
+    anyhow::ensure!(
+        classification.selected_by.len() == 1 && classification.issues.is_empty(),
+        "sample table must be selected by exactly one table rule"
+    );
+    anyhow::ensure!(
+        config.includes_database(&table.namespace),
+        "sample table is hidden by Hide system tables"
+    );
     tokio::select! {
         biased;
         () = cancellation.cancelled() => anyhow::bail!("MySQL table sample cancelled"),
@@ -99,13 +122,20 @@ pub(super) async fn sample_with_metadata(config: MySqlSourceConfig, table: Table
 
 pub(super) fn timeout_statement(server_version: &str, timeout_ms: usize) -> String {
     if server_version.contains("MariaDB") {
-        format!("SET SESSION max_statement_time = {}.{:03}", timeout_ms / 1000, timeout_ms % 1000)
+        format!(
+            "SET SESSION max_statement_time = {}.{:03}",
+            timeout_ms / 1000,
+            timeout_ms % 1000
+        )
     } else {
         format!("SET SESSION max_execution_time = {timeout_ms}")
     }
 }
 
-pub(super) fn validate_cached_schema(cached: &super::connector::DiscoveredTable, current: &super::connector::DiscoveredTable) -> anyhow::Result<()> {
+pub(super) fn validate_cached_schema(
+    cached: &super::connector::DiscoveredTable,
+    current: &super::connector::DiscoveredTable,
+) -> anyhow::Result<()> {
     // Compare native plans, not just Arrow storage: ENUM/SET ordinals and
     // character encodings can change while their Arrow storage stays identical.
     anyhow::ensure!(cached.config.database == current.config.database && cached.config.name == current.config.name
@@ -115,11 +145,20 @@ pub(super) fn validate_cached_schema(cached: &super::connector::DiscoveredTable,
     Ok(())
 }
 
-async fn collect_rows<P: Protocol>(mut result: QueryResult<'_, '_, P>, columns: &[ColumnPlan],
-    limits: TableSampleLimits) -> anyhow::Result<(Vec<SnapshotRow>, usize)> {
-    anyhow::ensure!(result.columns_ref().len() == columns.len()
-        && result.columns_ref().iter().zip(columns).all(|(actual, expected)| actual.name_str() == expected.name),
-        "MySQL sample schema changed after discovery");
+async fn collect_rows<P: Protocol>(
+    mut result: QueryResult<'_, '_, P>,
+    columns: &[ColumnPlan],
+    limits: TableSampleLimits,
+) -> anyhow::Result<(Vec<SnapshotRow>, usize)> {
+    anyhow::ensure!(
+        result.columns_ref().len() == columns.len()
+            && result
+                .columns_ref()
+                .iter()
+                .zip(columns)
+                .all(|(actual, expected)| actual.name_str() == expected.name),
+        "MySQL sample schema changed after discovery"
+    );
     let mut rows = Vec::new();
     let mut value_bytes = 0_usize;
     while let Some(row) = result.next().await.map_err(|error| {
@@ -144,9 +183,17 @@ async fn collect_rows<P: Protocol>(mut result: QueryResult<'_, '_, P>, columns: 
     Ok((rows, bytes))
 }
 
-pub(super) fn sample_query(table: &TableIdentity, projection: &str, row_limit: usize) -> anyhow::Result<String> {
+pub(super) fn sample_query(
+    table: &TableIdentity,
+    projection: &str,
+    row_limit: usize,
+) -> anyhow::Result<String> {
     anyhow::ensure!(row_limit > 0, "row_limit must be positive");
     validate_identifier("database", &table.namespace)?;
     validate_identifier("table", &table.name)?;
-    Ok(format!("SELECT {projection} FROM {}.{} LIMIT {row_limit}", quote_identifier(&table.namespace), quote_identifier(&table.name)))
+    Ok(format!(
+        "SELECT {projection} FROM {}.{} LIMIT {row_limit}",
+        quote_identifier(&table.namespace),
+        quote_identifier(&table.name)
+    ))
 }

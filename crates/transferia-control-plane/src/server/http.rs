@@ -18,7 +18,7 @@ use super::api_contract::{
     ApiErrorBody, ApiErrorCode, ApiErrorView, ConfigRequest, ConfigResponse,
     ConnectionCheckRequest, CreateDraftRequest, DeliverySummary, HealthResponse,
     MessagePreviewRequest, RevisionRequest, SpeedtestEstimateRequest, SpeedtestTuneRequest,
-    TransformPreviewRequest, StopRequest, UpdateDraftRequest, WorkerLogReadQuery, YamlRequest,
+    StopRequest, TransformPreviewRequest, UpdateDraftRequest, WorkerLogReadQuery, YamlRequest,
     YamlResponse,
 };
 use super::assets::{
@@ -393,35 +393,64 @@ async fn check_connection(
     Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
 }
 
-async fn connect_metadata(State(state): State<AppState>,
-    ApiJson(request): ApiJson<transferia_server_contracts::api::MetadataConnectRequest>) -> Result<impl IntoResponse, ApiError> {
+async fn connect_metadata(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<transferia_server_contracts::api::MetadataConnectRequest>,
+) -> Result<impl IntoResponse, ApiError> {
     let cancellation = state.control_plane.request_cancellation();
     let _guard = CancelOnDrop(cancellation.clone());
-    let result = state.control_plane.connect_metadata(request, cancellation).await?;
+    let result = state
+        .control_plane
+        .connect_metadata(request, cancellation)
+        .await?;
     Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
 }
 
-async fn metadata_status(State(state): State<AppState>, Path(id): Path<String>) -> Result<impl IntoResponse, ApiError> {
-    Ok(([(CACHE_CONTROL, "no-store")], Json(state.control_plane.metadata_status(&id).await?)))
+async fn metadata_status(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    Ok((
+        [(CACHE_CONTROL, "no-store")],
+        Json(state.control_plane.metadata_status(&id).await?),
+    ))
 }
 
-async fn release_metadata(State(state): State<AppState>, Path(id): Path<String>) -> Result<impl IntoResponse, ApiError> {
-    Ok(([(CACHE_CONTROL, "no-store")], Json(state.control_plane.release_metadata(&id).await?)))
+async fn release_metadata(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    Ok((
+        [(CACHE_CONTROL, "no-store")],
+        Json(state.control_plane.release_metadata(&id).await?),
+    ))
 }
 
-async fn load_metadata_schemas(State(state): State<AppState>, Path(id): Path<String>,
-    ApiJson(request): ApiJson<transferia_server_contracts::api::MetadataSchemasRequest>) -> Result<impl IntoResponse, ApiError> {
+async fn load_metadata_schemas(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    ApiJson(request): ApiJson<transferia_server_contracts::api::MetadataSchemasRequest>,
+) -> Result<impl IntoResponse, ApiError> {
     let cancellation = state.control_plane.request_cancellation();
     let _guard = CancelOnDrop(cancellation.clone());
-    let result = state.control_plane.load_metadata_schemas(&id, request, cancellation).await?;
+    let result = state
+        .control_plane
+        .load_metadata_schemas(&id, request, cancellation)
+        .await?;
     Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
 }
 
-async fn metadata_discovery(State(state): State<AppState>, Path(id): Path<String>,
-    ApiJson(request): ApiJson<transferia_server_contracts::api::MetadataDiscoveryRequest>) -> Result<impl IntoResponse, ApiError> {
+async fn metadata_discovery(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    ApiJson(request): ApiJson<transferia_server_contracts::api::MetadataDiscoveryRequest>,
+) -> Result<impl IntoResponse, ApiError> {
     let cancellation = state.control_plane.request_cancellation();
     let _guard = CancelOnDrop(cancellation.clone());
-    let result = state.control_plane.cached_source_discovery(&id, &request.config, cancellation).await?;
+    let result = state
+        .control_plane
+        .cached_source_discovery(&id, &request.config, cancellation)
+        .await?;
     Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
 }
 

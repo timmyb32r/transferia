@@ -40,8 +40,6 @@ transferia-server-ui = { path = "../transferia-server-ui" }
 
 [dev-dependencies]
 arrow.workspace = true
-transferia-middleware-datafusion = { path = "../transferia-middleware-datafusion" }
-transferia-middleware-filter = { path = "../transferia-middleware-filter" }
 transferia-connectors = { path = "../transferia-connectors" }
 
 [lints]

@@ -53,13 +53,18 @@ const REPLAY_IDENTITY: &str = "mysql-replication-e2e-revision-1";
 const TEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[tokio::test]
-async fn native_table_preview_is_bounded_lossless_without_binlog_or_write_grants() -> anyhow::Result<()> {
+async fn native_table_preview_is_bounded_lossless_without_binlog_or_write_grants(
+) -> anyhow::Result<()> {
     let fixture = MySqlFixture::mysql(MySqlServerMode::BinlogDisabled).await?;
     let mut connection = fixture.connection().await?;
     connection.query_drop("CREATE TABLE `events``quoted` (id BIGINT NOT NULL, amount DECIMAL(38,4), payload VARBINARY(2))").await?;
     connection.query_drop("INSERT INTO `events``quoted` VALUES (9007199254740993,12345678901234567890.1234,X'00FF'),(9007199254740993,12345678901234567890.1234,X'00FF'),(9007199254740993,12345678901234567890.1234,X'00FF')").await?;
-    connection.query_drop("CREATE USER 'sample_reader'@'%' IDENTIFIED BY 'read-only-test'").await?;
-    connection.query_drop("GRANT SELECT ON transferia.* TO 'sample_reader'@'%'").await?;
+    connection
+        .query_drop("CREATE USER 'sample_reader'@'%' IDENTIFIED BY 'read-only-test'")
+        .await?;
+    connection
+        .query_drop("GRANT SELECT ON transferia.* TO 'sample_reader'@'%'")
+        .await?;
     let mut builder = transferia_registry::RegistryBuilder::new();
     transferia_connector_mysql::register(&mut builder, &Arc::new(MetricsRegistry::new()))?;
     let registry = builder.build();
@@ -67,57 +72,197 @@ async fn native_table_preview_is_bounded_lossless_without_binlog_or_write_grants
         "host": fixture.admin.host, "port": fixture.admin.port, "database": DATABASE,
         "username":"sample_reader", "password":"read-only-test", "trusted_plaintext":true, "tables":{"type":"all"}
     }))?;
-    let checked = registry.check_connection("mysql", transferia_registry::EndpointRole::Source, config.clone()).await?;
-    assert!(matches!(checked.status, transferia_registry::ConnectionCheckStatus::Verified));
-    assert!(checked.tables.is_none(), "Check connection must not enumerate tables");
+    let checked = registry
+        .check_connection(
+            "mysql",
+            transferia_registry::EndpointRole::Source,
+            config.clone(),
+        )
+        .await?;
+    assert!(matches!(
+        checked.status,
+        transferia_registry::ConnectionCheckStatus::Verified
+    ));
+    assert!(
+        checked.tables.is_none(),
+        "Check connection must not enumerate tables"
+    );
     let source = registry.build_source("mysql", config.clone())?;
-    let metadata = source.metadata_reader(transferia_delivery_contracts::DeliveryType::Batch)?
+    let metadata = source
+        .metadata_reader(transferia_delivery_contracts::DeliveryType::Batch)?
         .expect("database source supports metadata");
     let tables = metadata.list_tables(CancellationToken::new()).await?;
     assert!(tables.contains(&transferia_registry::TableIdentity {
-        namespace: DATABASE.into(), name: "events`quoted".into(),
+        namespace: DATABASE.into(),
+        name: "events`quoted".into(),
     }));
-    let sample = registry.sample_source_table("mysql", config.clone(), transferia_registry::TableIdentity {
-        namespace: DATABASE.into(), name: "events`quoted".into(),
-    }, transferia_registry::TableSampleLimits { row_limit: 1, max_bytes: 1024 * 1024, timeout_ms: 30_000 }, CancellationToken::new()).await?;
+    let sample = registry
+        .sample_source_table(
+            "mysql",
+            config.clone(),
+            transferia_registry::TableIdentity {
+                namespace: DATABASE.into(),
+                name: "events`quoted".into(),
+            },
+            transferia_registry::TableSampleLimits {
+                row_limit: 1,
+                max_bytes: 1024 * 1024,
+                timeout_ms: 30_000,
+            },
+            CancellationToken::new(),
+        )
+        .await?;
     assert_eq!(sample.namespace.as_deref(), Some(DATABASE));
     assert_eq!(sample.table.as_ref(), "events`quoted");
     assert_eq!(sample.batch.num_rows(), 1);
     assert_eq!(sample.batch.num_columns(), 3);
-    assert_eq!(sample.batch.column(0).as_any().downcast_ref::<Int64Array>().unwrap().value(0), 9_007_199_254_740_993);
-    assert_eq!(sample.batch.column(1).as_any().downcast_ref::<StringArray>().unwrap().value(0), "12345678901234567890.1234");
-    assert!(sample.batch.schema().field(1).metadata().contains_key(META_ARROW_EXTENSION_NAME));
-    assert_eq!(sample.batch.column(2).as_any().downcast_ref::<BinaryArray>().unwrap().value(0), &[0, 255]);
-    assert_eq!(connection.query_first::<u64,_>("SELECT count(*) FROM `events``quoted`").await?, Some(3));
-    assert_eq!(connection.query_first::<u64,_>("SELECT @@log_bin").await?, Some(0));
-    connection.query_drop("CREATE DATABASE sample_other").await?;
-    connection.query_drop("CREATE TABLE sample_other.events (id BIGINT)").await?;
-    connection.query_drop("INSERT INTO sample_other.events VALUES (7)").await?;
-    connection.query_drop("GRANT SELECT ON sample_other.* TO 'sample_reader'@'%'").await?;
-    let other = registry.sample_source_table("mysql", config.clone(), transferia_registry::TableIdentity {
-        namespace: "sample_other".into(), name: "events".into(),
-    }, transferia_registry::TableSampleLimits { row_limit: 1, max_bytes: 1024 * 1024, timeout_ms: 30_000 }, CancellationToken::new()).await?;
+    assert_eq!(
+        sample
+            .batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        9_007_199_254_740_993
+    );
+    assert_eq!(
+        sample
+            .batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap()
+            .value(0),
+        "12345678901234567890.1234"
+    );
+    assert!(sample
+        .batch
+        .schema()
+        .field(1)
+        .metadata()
+        .contains_key(META_ARROW_EXTENSION_NAME));
+    assert_eq!(
+        sample
+            .batch
+            .column(2)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap()
+            .value(0),
+        &[0, 255]
+    );
+    assert_eq!(
+        connection
+            .query_first::<u64, _>("SELECT count(*) FROM `events``quoted`")
+            .await?,
+        Some(3)
+    );
+    assert_eq!(
+        connection.query_first::<u64, _>("SELECT @@log_bin").await?,
+        Some(0)
+    );
+    connection
+        .query_drop("CREATE DATABASE sample_other")
+        .await?;
+    connection
+        .query_drop("CREATE TABLE sample_other.events (id BIGINT)")
+        .await?;
+    connection
+        .query_drop("INSERT INTO sample_other.events VALUES (7)")
+        .await?;
+    connection
+        .query_drop("GRANT SELECT ON sample_other.* TO 'sample_reader'@'%'")
+        .await?;
+    let other = registry
+        .sample_source_table(
+            "mysql",
+            config.clone(),
+            transferia_registry::TableIdentity {
+                namespace: "sample_other".into(),
+                name: "events".into(),
+            },
+            transferia_registry::TableSampleLimits {
+                row_limit: 1,
+                max_bytes: 1024 * 1024,
+                timeout_ms: 30_000,
+            },
+            CancellationToken::new(),
+        )
+        .await?;
     assert_eq!(other.namespace.as_deref(), Some("sample_other"));
-    assert_eq!(other.batch.column(0).as_any().downcast_ref::<Int64Array>().unwrap().value(0), 7);
-    connection.query_drop("CREATE TABLE wide_sample (payload LONGBLOB)").await?;
-    connection.query_drop("INSERT INTO wide_sample VALUES (REPEAT('a',65536))").await?;
+    assert_eq!(
+        other
+            .batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        7
+    );
+    connection
+        .query_drop("CREATE TABLE wide_sample (payload LONGBLOB)")
+        .await?;
+    connection
+        .query_drop("INSERT INTO wide_sample VALUES (REPEAT('a',65536))")
+        .await?;
     for protocol in ["binary", "text"] {
         let mut config = config.clone();
         config["read_protocol"] = serde_yaml::Value::String(protocol.into());
-        let error = registry.sample_source_table("mysql", config, transferia_registry::TableIdentity {
-            namespace: DATABASE.into(), name: "wide_sample".into(),
-        }, transferia_registry::TableSampleLimits { row_limit: 1, max_bytes: 4096, timeout_ms: 30_000 }, CancellationToken::new()).await.unwrap_err();
-        assert!(format!("{error:#}").contains("max_sample_bytes"), "{protocol}: {error:#}");
+        let error = registry
+            .sample_source_table(
+                "mysql",
+                config,
+                transferia_registry::TableIdentity {
+                    namespace: DATABASE.into(),
+                    name: "wide_sample".into(),
+                },
+                transferia_registry::TableSampleLimits {
+                    row_limit: 1,
+                    max_bytes: 4096,
+                    timeout_ms: 30_000,
+                },
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{error:#}").contains("max_sample_bytes"),
+            "{protocol}: {error:#}"
+        );
     }
-    connection.query_drop("CREATE TABLE slow_sample (id BIGINT)").await?;
-    connection.query_drop("LOCK TABLES slow_sample WRITE").await?;
-    let error = tokio::time::timeout(Duration::from_secs(3), registry.sample_source_table("mysql", config,
-        transferia_registry::TableIdentity { namespace: DATABASE.into(), name: "slow_sample".into() },
-        transferia_registry::TableSampleLimits { row_limit: 1, max_bytes: 1024 * 1024, timeout_ms: 1000 },
-        CancellationToken::new())).await?.unwrap_err();
+    connection
+        .query_drop("CREATE TABLE slow_sample (id BIGINT)")
+        .await?;
+    connection
+        .query_drop("LOCK TABLES slow_sample WRITE")
+        .await?;
+    let error = tokio::time::timeout(
+        Duration::from_secs(3),
+        registry.sample_source_table(
+            "mysql",
+            config,
+            transferia_registry::TableIdentity {
+                namespace: DATABASE.into(),
+                name: "slow_sample".into(),
+            },
+            transferia_registry::TableSampleLimits {
+                row_limit: 1,
+                max_bytes: 1024 * 1024,
+                timeout_ms: 1000,
+            },
+            CancellationToken::new(),
+        ),
+    )
+    .await?
+    .unwrap_err();
     connection.query_drop("UNLOCK TABLES").await?;
-    assert!(matches!(error.downcast_ref::<mysql_async::Error>(), Some(mysql_async::Error::Server(error))
-        if matches!(error.code, 1205 | 3024)), "{error:#}");
+    assert!(
+        matches!(error.downcast_ref::<mysql_async::Error>(), Some(mysql_async::Error::Server(error))
+        if matches!(error.code, 1205 | 3024)),
+        "{error:#}"
+    );
     tokio::time::timeout(Duration::from_secs(2), async {
         while connection.query_first::<u64, _>("SELECT count(*) FROM information_schema.PROCESSLIST WHERE USER='sample_reader' AND COMMAND<>'Sleep'")
             .await? != Some(0) {

@@ -100,10 +100,12 @@ export function VariantDetailsForm({
   onChange,
   widget,
   cardClass,
+  contentClass,
   fieldLabelOverrides = {},
 }: SchemaFormProps & {
   widget: string;
   cardClass: string;
+  contentClass: (node: CompiledNode) => string;
 }) {
   const widgets = useWidgetRegistry();
   return (
@@ -116,6 +118,7 @@ export function VariantDetailsForm({
             disabled={disabled}
             widget={widget}
             cardClass={cardClass}
+            contentClass={contentClass}
             widgets={widgets}
             NodeEditor={NodeEditor}
             onChange={onChange}

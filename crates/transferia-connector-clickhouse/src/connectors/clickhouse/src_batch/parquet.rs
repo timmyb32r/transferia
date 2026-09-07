@@ -122,13 +122,16 @@ impl ParquetTransport {
                 // plain integers as timestamps. Validate the unhinted wire schema
                 // first, then preserve the requested dictionary representation.
                 let schema = validate_parquet_input_schema(inferred.schema(), &expected_schema)
-                    .map_err(|error| anyhow::anyhow!(
-                        "ClickHouse Parquet table '{table_name}' schema drifted: {error:#}",
-                    ))?;
+                    .map_err(|error| {
+                        anyhow::anyhow!(
+                            "ClickHouse Parquet table '{table_name}' schema drifted: {error:#}",
+                        )
+                    })?;
                 ArrowReaderMetadata::try_new(
                     Arc::clone(inferred.metadata()),
                     ArrowReaderOptions::new().with_schema(schema),
-                ).context("cannot construct ClickHouse Parquet schema decoder")
+                )
+                .context("cannot construct ClickHouse Parquet schema decoder")
             }
         })
         .await
@@ -340,9 +343,14 @@ fn parquet_input_schema(table: &DiscoveredTable) -> anyhow::Result<Arc<Schema>> 
 }
 
 pub(super) fn parquet_input_type(data_type: &DataType) -> DataType {
-    let field = |field: &Arc<Field>| Arc::new(
-        field.as_ref().clone().with_data_type(parquet_input_type(field.data_type())),
-    );
+    let field = |field: &Arc<Field>| {
+        Arc::new(
+            field
+                .as_ref()
+                .clone()
+                .with_data_type(parquet_input_type(field.data_type())),
+        )
+    };
     match data_type {
         DataType::Timestamp(unit, _) => DataType::Timestamp(
             match unit {
@@ -367,13 +375,18 @@ pub(super) fn validate_parquet_input_schema(
     actual: &Schema,
     expected: &Schema,
 ) -> anyhow::Result<Arc<Schema>> {
-    anyhow::ensure!(actual.fields().len() == expected.fields().len(),
+    anyhow::ensure!(
+        actual.fields().len() == expected.fields().len(),
         "ClickHouse Parquet schema drifted: discovered {} columns, query returned {}",
-        expected.fields().len(), actual.fields().len(),
+        expected.fields().len(),
+        actual.fields().len(),
     );
-    let fields = actual.fields().iter().zip(expected.fields()).map(|(actual, expected)| {
-        parquet_input_field(actual, expected, expected.name(), false)
-    }).collect::<anyhow::Result<Vec<_>>>()?;
+    let fields = actual
+        .fields()
+        .iter()
+        .zip(expected.fields())
+        .map(|(actual, expected)| parquet_input_field(actual, expected, expected.name(), false))
+        .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(Arc::new(Schema::new(fields)))
 }
 
@@ -390,10 +403,19 @@ fn parquet_input_field(
         expected.name(), expected.is_nullable(), actual.name(), actual.is_nullable(),
     );
     let data_type = parquet_input_hint(actual.data_type(), expected.data_type(), path)?;
-    Ok(Arc::new(expected.clone().with_name(actual.name()).with_data_type(data_type)))
+    Ok(Arc::new(
+        expected
+            .clone()
+            .with_name(actual.name())
+            .with_data_type(data_type),
+    ))
 }
 
-fn parquet_input_hint(actual: &DataType, expected: &DataType, path: &str) -> anyhow::Result<DataType> {
+fn parquet_input_hint(
+    actual: &DataType,
+    expected: &DataType,
+    path: &str,
+) -> anyhow::Result<DataType> {
     if actual == expected {
         return Ok(expected.clone());
     }
@@ -402,7 +424,10 @@ fn parquet_input_hint(actual: &DataType, expected: &DataType, path: &str) -> any
             DataType::Dictionary(_, value) => value.as_ref(),
             actual => actual,
         };
-        return Ok(DataType::Dictionary(key.clone(), Box::new(parquet_input_hint(actual, value, path)?)));
+        return Ok(DataType::Dictionary(
+            key.clone(),
+            Box::new(parquet_input_hint(actual, value, path)?),
+        ));
     }
     Ok(match (actual, expected) {
         (DataType::List(actual), DataType::List(expected)) => {

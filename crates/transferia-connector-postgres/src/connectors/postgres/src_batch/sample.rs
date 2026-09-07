@@ -13,27 +13,56 @@ use transferia_registry::{TableIdentity, TableSampleLimits};
 
 use super::copy_out::CopyOutReader;
 use super::reader::{column_array, source_select_projection, source_user_field};
-use crate::connectors::postgres::common::{connect_sample, postgres_to_arrow, quote_identifier, PostgresCopyFormat, MAX_IDENTIFIER_BYTES};
+use crate::connectors::postgres::common::{
+    connect_sample, postgres_to_arrow, quote_identifier, PostgresCopyFormat, MAX_IDENTIFIER_BYTES,
+};
 use crate::connectors::postgres::source::{discover_table, PostgresSourceConfig, TableConfig};
 use crate::metrics::SourceCounters;
 
-pub(crate) async fn sample_table(config: PostgresSourceConfig, table: TableIdentity, limits: TableSampleLimits,
-    cancellation: CancellationToken) -> anyhow::Result<TableData> {
-    sample_with_metadata(config, DeliveryType::Batch, table, limits, cancellation, None).await
+pub async fn sample_table(
+    config: PostgresSourceConfig,
+    table: TableIdentity,
+    limits: TableSampleLimits,
+    cancellation: CancellationToken,
+) -> anyhow::Result<TableData> {
+    sample_with_metadata(
+        config,
+        DeliveryType::Batch,
+        table,
+        limits,
+        cancellation,
+        None,
+    )
+    .await
 }
 
-pub(crate) async fn sample_with_metadata(config: PostgresSourceConfig, delivery_type: DeliveryType, table: TableIdentity, limits: TableSampleLimits,
-    cancellation: CancellationToken, cached: Option<crate::connectors::postgres::source::DiscoveredTable>) -> anyhow::Result<TableData> {
+pub(in crate::connectors::postgres) async fn sample_with_metadata(
+    config: PostgresSourceConfig,
+    delivery_type: DeliveryType,
+    table: TableIdentity,
+    limits: TableSampleLimits,
+    cancellation: CancellationToken,
+    cached: Option<crate::connectors::postgres::source::DiscoveredTable>,
+) -> anyhow::Result<TableData> {
     limits.validate()?;
     let unsupported_types = config.unsupported_type_policy(delivery_type)?;
     let row_limit = limits.row_limit;
     config.connection.validate()?;
-    anyhow::ensure!(i32::try_from(limits.timeout_ms).is_ok(), "timeout_ms exceeds PostgreSQL statement_timeout range");
+    anyhow::ensure!(
+        i32::try_from(limits.timeout_ms).is_ok(),
+        "timeout_ms exceeds PostgreSQL statement_timeout range"
+    );
     let query_identity = sample_query(&table, "*", row_limit)?;
     let classification = config.tables.compile()?.classify(&table);
-    anyhow::ensure!(classification.selected_by.len() == 1 && classification.issues.is_empty(), "sample table must be selected by exactly one table rule");
-    anyhow::ensure!(!config.hide_system_tables || (table.namespace != "information_schema" && !table.namespace.starts_with("pg_")),
-        "sample table is hidden by Hide system tables");
+    anyhow::ensure!(
+        classification.selected_by.len() == 1 && classification.issues.is_empty(),
+        "sample table must be selected by exactly one table rule"
+    );
+    anyhow::ensure!(
+        !config.hide_system_tables
+            || (table.namespace != "information_schema" && !table.namespace.starts_with("pg_")),
+        "sample table is hidden by Hide system tables"
+    );
     tokio::select! {
         biased;
         () = cancellation.cancelled() => anyhow::bail!("PostgreSQL table sample cancelled"),
@@ -98,17 +127,27 @@ pub(crate) async fn sample_with_metadata(config: PostgresSourceConfig, delivery_
     }
 }
 
-pub(super) fn sample_query(table: &TableIdentity, projection: &str, row_limit: usize) -> anyhow::Result<String> {
+pub(super) fn sample_query(
+    table: &TableIdentity,
+    projection: &str,
+    row_limit: usize,
+) -> anyhow::Result<String> {
     anyhow::ensure!(row_limit > 0, "row_limit must be positive");
     for name in [&table.namespace, &table.name] {
         anyhow::ensure!(!name.is_empty() && name.len() <= MAX_IDENTIFIER_BYTES && !name.contains('\0'),
             "sample schema and table names must be non-empty PostgreSQL identifiers without NUL and at most {MAX_IDENTIFIER_BYTES} bytes");
     }
-    Ok(format!("SELECT {projection} FROM {}.{} LIMIT {row_limit}", quote_identifier(&table.namespace), quote_identifier(&table.name)))
+    Ok(format!(
+        "SELECT {projection} FROM {}.{} LIMIT {row_limit}",
+        quote_identifier(&table.namespace),
+        quote_identifier(&table.name)
+    ))
 }
 
-pub(super) fn validate_cached_schema(cached: &crate::connectors::postgres::source::DiscoveredTable,
-    current: &crate::connectors::postgres::source::DiscoveredTable) -> anyhow::Result<()> {
+pub(super) fn validate_cached_schema(
+    cached: &crate::connectors::postgres::source::DiscoveredTable,
+    current: &crate::connectors::postgres::source::DiscoveredTable,
+) -> anyhow::Result<()> {
     // Physical OIDs are compared with physical OIDs. Query descriptors can
     // expose a domain's base type instead, so they are not interchangeable.
     anyhow::ensure!(cached.config.schema == current.config.schema && cached.config.name == current.config.name

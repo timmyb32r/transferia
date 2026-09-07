@@ -37,12 +37,12 @@ impl CopyOutReader {
         }
     }
 
-    pub(super) fn with_byte_limit(mut self, max_bytes: usize) -> Self {
+    pub(super) const fn with_byte_limit(mut self, max_bytes: usize) -> Self {
         self.byte_limit = Some(max_bytes);
         self
     }
 
-    pub(super) fn received_bytes(&self) -> usize {
+    pub(super) const fn received_bytes(&self) -> usize {
         self.received_bytes
     }
 
@@ -60,11 +60,18 @@ impl CopyOutReader {
                 Some(Ok(chunk)) => {
                     counters.add_network_decoded_bytes(chunk.len() as u64);
                     if let Some(limit) = self.byte_limit {
-                        self.received_bytes = self.received_bytes.checked_add(chunk.len())
-                            .ok_or_else(|| DataPlaneFailure::fatal(anyhow::anyhow!("PostgreSQL sample byte accounting overflow")))?;
+                        self.received_bytes = self
+                            .received_bytes
+                            .checked_add(chunk.len())
+                            .ok_or_else(|| {
+                                DataPlaneFailure::fatal(anyhow::anyhow!(
+                                    "PostgreSQL sample byte accounting overflow"
+                                ))
+                            })?;
                         if self.received_bytes > limit {
                             return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
-                                "PostgreSQL source sample exceeds max_sample_bytes ({limit} bytes)")));
+                                "PostgreSQL source sample exceeds max_sample_bytes ({limit} bytes)"
+                            )));
                         }
                     }
                     self.decoder.push(&chunk).map_err(DataPlaneFailure::fatal)?;

@@ -7,7 +7,9 @@ fn standalone_step_rule_matches_current_names_without_catalog_conflicts() {
         exclude: Some(r"public\.reports_0".into()),
         include_mode: PatternMode::Glob,
         exclude_mode: PatternMode::Regex,
-    }.compile().unwrap();
+    }
+    .compile()
+    .unwrap();
     assert!(rule.matches(Some("public"), "reports_1"));
     assert!(!rule.matches(Some("public"), "reports_0"));
     assert!(!rule.matches(None, "public.reports_1"));

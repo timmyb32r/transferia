@@ -22,7 +22,9 @@ pub fn register(
 ) -> anyhow::Result<()> {
     registry.register(
         ComponentRegistration::new("clickhouse", "ClickHouse")
-            .source_table_sampler::<clickhouse::src_batch::ClickHouseSourceConfig, _, _>(clickhouse::src_batch::sample_table)
+            .source_table_sampler::<clickhouse::src_batch::ClickHouseSourceConfig, _, _>(
+                clickhouse::src_batch::sample_table,
+            )
             .source::<clickhouse::src_batch::ClickHouseSourceConfig, _, _>(
                 vec![DeliveryMode::Batch],
                 false,

@@ -3,8 +3,8 @@ use serde::Deserialize;
 
 use crate::connectors::postgres::common::{PostgresConnectionConfig, PostgresCopyFormat};
 use crate::connectors::postgres::src_stream::PostgresReplicationConfig;
-use transferia_registry::table_selection::TableSelection;
 use transferia_delivery_contracts::DeliveryType;
+use transferia_registry::table_selection::TableSelection;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -62,7 +62,10 @@ pub enum UnsupportedTypePolicy {
 }
 
 impl UnsupportedTypePolicy {
-    pub(crate) fn arrow_type(self, data_type: &tokio_postgres::types::Type) -> anyhow::Result<arrow::datatypes::DataType> {
+    pub(crate) fn arrow_type(
+        self,
+        data_type: &tokio_postgres::types::Type,
+    ) -> anyhow::Result<arrow::datatypes::DataType> {
         match crate::connectors::postgres::common::postgres_to_arrow(data_type) {
             Ok(data_type) => Ok(data_type),
             Err(_) if self == Self::ToString => Ok(arrow::datatypes::DataType::Utf8),
@@ -81,13 +84,20 @@ pub struct TableConfig {
 }
 
 impl PostgresSourceConfig {
-    pub(crate) fn unsupported_type_policy(&self, delivery_type: DeliveryType) -> anyhow::Result<UnsupportedTypePolicy> {
-        let policy = self.unsupported_types.unwrap_or(match delivery_type {
-            DeliveryType::Batch => UnsupportedTypePolicy::default(),
-            DeliveryType::Stream | DeliveryType::BatchAndStream => UnsupportedTypePolicy::Fail,
-        });
-        anyhow::ensure!(delivery_type == DeliveryType::Batch || policy == UnsupportedTypePolicy::Fail,
-            "PostgreSQL unsupported_types=to_string is supported only for batch deliveries");
+    pub(crate) fn unsupported_type_policy(
+        &self,
+        delivery_type: DeliveryType,
+    ) -> anyhow::Result<UnsupportedTypePolicy> {
+        let policy = self
+            .unsupported_types
+            .unwrap_or_else(|| match delivery_type {
+                DeliveryType::Batch => UnsupportedTypePolicy::default(),
+                DeliveryType::Stream | DeliveryType::BatchAndStream => UnsupportedTypePolicy::Fail,
+            });
+        anyhow::ensure!(
+            delivery_type == DeliveryType::Batch || policy == UnsupportedTypePolicy::Fail,
+            "PostgreSQL unsupported_types=to_string is supported only for batch deliveries"
+        );
         Ok(policy)
     }
 
@@ -116,7 +126,9 @@ impl PostgresSourceConfig {
     }
 }
 
-fn deserialize_unsupported_types<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<UnsupportedTypePolicy>, D::Error> {
+fn deserialize_unsupported_types<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<UnsupportedTypePolicy>, D::Error> {
     UnsupportedTypePolicy::deserialize(deserializer).map(Some)
 }
 

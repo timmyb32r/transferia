@@ -145,6 +145,15 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   Tables and parser settings span the full route width below both endpoints,
   separated by the shared editor gap. There are no bridges, concave joins or
   stretched endpoint cards; absent sections leave no empty grid rows.
+- Island forms use **B — an invisible, left-aligned inner column**. All content
+  in Source, Destination, Tables and ordinary parser settings occupies 60% of the
+  island's content width, with a 320px readability floor capped by the available
+  width. Leave the right side empty; add no inner frame, background or centering.
+  Headers and actions share the same column. JSON and TSKV parser settings retain
+  100% width for their column editors, identified by parser capability metadata,
+  not display labels. Apply the width once at the island boundary, never again
+  to nested settings. Transforms and delivery identity are unchanged. The column
+  is a `form-space` container and never changes width on network/status updates.
 - Database sources have an ordinary `Check connection` action. It authenticates
   without enumerating tables, loading schemas or invalidating an existing catalog.
   Tables owns `Discover tables`, becoming `Refresh tables` after success. Reserve
@@ -178,11 +187,10 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   ClickHouse batches columns and keys but retains per-table projection checks.
   Decoder errors are table-local; a failed batch SQL request is reported for all
   tables in that request, never hidden by dropping a table or switching readers.
-- Keep the page white and the three delivery islands slate gray, with white
-  fields. Parser details continue the source island rather than introducing a
-  fourth palette. Use consistent borders across these connected surfaces.
-- Destination keeps its content height; only Source stretches when needed to
-  meet its full-width continuation. Empty destinations must not inherit Source's height.
+- Keep the page white and delivery islands slate gray, with white fields. Use
+  the same palette and borders for the separate Tables and parser islands.
+- Source and Destination keep their content height. Empty destinations must not
+  inherit Source's height.
 - Final schema uses a fixed-size, resizable inspector with a stationary toolbar
   and a separately scrolling schema table. Long column names and full type
   descriptions wrap inside their own cells, never over PK / Not null. Its type

@@ -34,8 +34,8 @@ pub use transferia_server_contracts::api::{
     MessagePreviewMetadataItem, MessagePreviewResult, SpeedtestColumnProfileView,
     SpeedtestDatasetProfileView, SpeedtestEstimateResult, SpeedtestMeasurementView,
     SpeedtestProfileView, SpeedtestTuneResult, SpeedtestTuningBudgetView,
-    SpeedtestTuningResultView, SpeedtestTuningTrialView, TransformPreviewFrame,
-    TransformPreviewRequest, TransformPreviewResult, TransformPreviewTable, TransformPreviewColumn,
+    SpeedtestTuningResultView, SpeedtestTuningTrialView, TransformPreviewColumn,
+    TransformPreviewFrame, TransformPreviewRequest, TransformPreviewResult, TransformPreviewTable,
     ValidationCommandResult, WorkerLogChunkView, WorkerLogView, WorkerLogsResult,
 };
 use transferia_server_contracts::{DeliveryRecord, RuntimeState, ValidationState};
@@ -655,8 +655,9 @@ impl ControlPlane {
         request: TransformPreviewRequest,
         cancellation: CancellationToken,
     ) -> Result<TransformPreviewResult, ServiceError> {
-        let id = request.metadata_id.as_deref().ok_or_else(|| ServiceError::Validation(
-            "Connect & load metadata in Source before running preview".to_owned()))?;
+        let id = request.metadata_id.as_deref().ok_or_else(|| {
+            ServiceError::Validation("Discover tables in Tables before running preview".to_owned())
+        })?;
         let metadata = self.metadata_session(id).await?;
         Self::preview_transforms_with(&self.transferia, request, cancellation, Some(metadata)).await
     }
@@ -673,12 +674,17 @@ impl ControlPlane {
             ("timeout_ms", request.timeout_ms > 0),
         ] {
             if !valid {
-                return Err(ServiceError::Validation(format!("preview {name} must be positive")));
+                return Err(ServiceError::Validation(format!(
+                    "preview {name} must be positive"
+                )));
             }
         }
-        let timeout = Duration::from_millis(u64::try_from(request.timeout_ms)
-            .map_err(|_| ServiceError::Validation("preview timeout_ms is too large".into()))?);
-        let deadline = tokio::time::Instant::now().checked_add(timeout)
+        let timeout = Duration::from_millis(
+            u64::try_from(request.timeout_ms)
+                .map_err(|_| ServiceError::Validation("preview timeout_ms is too large".into()))?,
+        );
+        let deadline = tokio::time::Instant::now()
+            .checked_add(timeout)
             .ok_or_else(|| ServiceError::Validation("preview timeout_ms is too large".into()))?;
         let preview_cancellation = cancellation.child_token();
         let _cancel_on_drop = preview_cancellation.clone().drop_guard();
@@ -697,24 +703,45 @@ impl ControlPlane {
         cancellation: CancellationToken,
         metadata: Option<Arc<metadata::MetadataSession>>,
     ) -> Result<TransformPreviewResult, ServiceError> {
-        use transferia_delivery::middleware::{build_middlewares, MiddlewareEntry};
         use transferia_delivery::middleware::preview::preview_chain;
+        use transferia_delivery::middleware::{build_middlewares, MiddlewareEntry};
 
         if request.row_limit == 0 {
-            return Err(ServiceError::Validation("preview row_limit must be positive".into()));
+            return Err(ServiceError::Validation(
+                "preview row_limit must be positive".into(),
+            ));
         }
         if request.through_step >= request.middlewares.len() {
-            return Err(ServiceError::Validation("preview step index is out of range".into()));
+            return Err(ServiceError::Validation(
+                "preview step index is out of range".into(),
+            ));
         }
-        let namespace = request.table.namespace.as_ref().filter(|value| !value.is_empty())
-            .ok_or_else(|| ServiceError::Validation("source preview requires an explicit table namespace".into()))?;
+        let namespace = request
+            .table
+            .namespace
+            .as_ref()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                ServiceError::Validation(
+                    "source preview requires an explicit table namespace".into(),
+                )
+            })?;
         if request.table.name.is_empty() {
-            return Err(ServiceError::Validation("source preview requires a table name".into()));
+            return Err(ServiceError::Validation(
+                "source preview requires a table name".into(),
+            ));
         }
-        let entries = request.middlewares.into_iter().take(request.through_step + 1).enumerate().map(|(index, value)| {
-            serde_json::from_value::<MiddlewareEntry>(value)
-                .map_err(|error| ServiceError::Validation(format!("transform step {}: {error}", index + 1)))
-        }).collect::<Result<Vec<_>, _>>()?;
+        let entries = request
+            .middlewares
+            .into_iter()
+            .take(request.through_step + 1)
+            .enumerate()
+            .map(|(index, value)| {
+                serde_json::from_value::<MiddlewareEntry>(value).map_err(|error| {
+                    ServiceError::Validation(format!("transform step {}: {error}", index + 1))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let metrics = Arc::new(transferia_connectors::metrics::MetricsRegistry::new());
         let registry = composition
             .build_registry(&metrics)
@@ -726,24 +753,44 @@ impl ControlPlane {
             name: request.table.name.clone(),
         };
         let sample = if let Some(metadata) = metadata {
-            metadata.sample(&request.source, table, transferia_registry::TableSampleLimits {
-                row_limit: request.row_limit, max_bytes: request.max_sample_bytes, timeout_ms: request.timeout_ms,
-            }, cancellation.clone()).await.map_err(|error| ServiceError::Validation(format!("{error:#}")))?
+            metadata
+                .sample(
+                    &request.source,
+                    table,
+                    transferia_registry::TableSampleLimits {
+                        row_limit: request.row_limit,
+                        max_bytes: request.max_sample_bytes,
+                        timeout_ms: request.timeout_ms,
+                    },
+                    cancellation.clone(),
+                )
+                .await
+                .map_err(|error| ServiceError::Validation(format!("{error:#}")))?
         } else {
             let raw = serde_yaml::to_value(request.source.config)
                 .map_err(|error| ServiceError::Validation(error.to_string()))?;
-            let resolved = composition.resolve_many(
-                &request.source.connector, EndpointRole::Source, raw, cancellation.clone(),
-            ).await.map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+            let resolved = composition
+                .resolve_many(
+                    &request.source.connector,
+                    EndpointRole::Source,
+                    raw,
+                    cancellation.clone(),
+                )
+                .await
+                .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
             let mut sample = None;
             let mut last_error = None;
             for endpoint in resolved {
                 let attempt = registry.sample_source_table(
-                    &request.source.connector, endpoint, table.clone(), transferia_registry::TableSampleLimits {
+                    &request.source.connector,
+                    endpoint,
+                    table.clone(),
+                    transferia_registry::TableSampleLimits {
                         row_limit: request.row_limit,
                         max_bytes: request.max_sample_bytes,
                         timeout_ms: request.timeout_ms,
-                    }, cancellation.clone(),
+                    },
+                    cancellation.clone(),
                 );
                 let result = tokio::select! {
                     biased;
@@ -751,24 +798,32 @@ impl ControlPlane {
                     result = attempt => result,
                 };
                 match result {
-                    Ok(data) => { sample = Some(data); break; }
+                    Ok(data) => {
+                        sample = Some(data);
+                        break;
+                    }
                     Err(error) => last_error = Some(error),
                 }
             }
-            let sample = sample.ok_or_else(|| ServiceError::Validation(match last_error {
-                Some(error) => format!("source table sample failed: {error:#}"),
-                None => "source resolution returned no endpoints".into(),
-            }))?;
+            let sample = sample.ok_or_else(|| {
+                ServiceError::Validation(last_error.map_or_else(
+                    || "source resolution returned no endpoints".into(),
+                    |error| format!("source table sample failed: {error:#}"),
+                ))
+            })?;
             sample
         };
         let preview = preview_chain(
-                &middlewares, sample, request.through_step,
-                transferia_delivery_contracts::middleware::MiddlewarePreviewContext {
-                    memory_limit_bytes: request.memory_limit_bytes,
-                }, cancellation,
-            )
-            .await
-            .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+            &middlewares,
+            sample,
+            request.through_step,
+            transferia_delivery_contracts::middleware::MiddlewarePreviewContext {
+                memory_limit_bytes: request.memory_limit_bytes,
+            },
+            cancellation,
+        )
+        .await
+        .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
         Ok(TransformPreviewResult {
             before: transform_preview_frame(&preview.before)?,
             after: transform_preview_frame(&preview.after)?,
@@ -868,7 +923,9 @@ impl ControlPlane {
         config: Value,
         cancellation: CancellationToken,
     ) -> Result<transferia_registry::ConnectionCheckResult, ServiceError> {
-        self.check_connection_resolved(connector, role, config, cancellation).await.map(|(check, _)| check)
+        self.check_connection_resolved(connector, role, config, cancellation)
+            .await
+            .map(|(check, _)| check)
     }
 
     async fn check_connection_resolved(
@@ -877,7 +934,13 @@ impl ControlPlane {
         role: EndpointRole,
         config: Value,
         cancellation: CancellationToken,
-    ) -> Result<(transferia_registry::ConnectionCheckResult, Vec<serde_yaml::Value>), ServiceError> {
+    ) -> Result<
+        (
+            transferia_registry::ConnectionCheckResult,
+            Vec<serde_yaml::Value>,
+        ),
+        ServiceError,
+    > {
         let total_started = std::time::Instant::now();
         let raw = serde_yaml::to_value(config)
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
@@ -1341,23 +1404,37 @@ impl ControlPlane {
             None => None,
         };
         let _metadata_validation = match &metadata {
-            Some(session) => Some(session.run(&cancellation, async {
-                Ok(Arc::clone(&session.validation_gate).lock_owned().await)
-            }).await?),
+            Some(session) => Some(
+                session
+                    .run(&cancellation, async {
+                        Ok(Arc::clone(&session.validation_gate).lock_owned().await)
+                    })
+                    .await?,
+            ),
             None => None,
         };
         let result = async {
             if let Some(session) = &metadata {
-                session.begin_validation(id, expected_revision, &snapshot.config).await?;
+                session
+                    .begin_validation(id, expected_revision, &snapshot.config)
+                    .await?;
             }
-            self.validate_preview(&snapshot.config, cancellation.clone(), metadata.clone()).await
-        }.await;
+            self.validate_preview(&snapshot.config, cancellation.clone(), metadata.clone())
+                .await
+        }
+        .await;
         if let Some(session) = &metadata {
-            session.finish_validation(id, expected_revision, result.is_ok()).await;
+            session
+                .finish_validation(id, expected_revision, result.is_ok())
+                .await;
         }
         let _mutation = self.mutation.lock().await;
-        if let Some(session) = &metadata { session.ensure_active()?; }
-        if cancellation.is_cancelled() { return Err(ServiceError::Conflict("Validation cancelled".to_owned())); }
+        if let Some(session) = &metadata {
+            session.ensure_active()?;
+        }
+        if cancellation.is_cancelled() {
+            return Err(ServiceError::Conflict("Validation cancelled".to_owned()));
+        }
         let mut current = self.store.get(id).await?;
         if current.revision != expected_revision
             || current.record_version != expected_record_version
@@ -2393,15 +2470,27 @@ fn source_discovery_result(
     }
 }
 
-fn transform_preview_frame(data: &transferia_core::TableData) -> Result<TransformPreviewFrame, ServiceError> {
+fn transform_preview_frame(
+    data: &transferia_core::TableData,
+) -> Result<TransformPreviewFrame, ServiceError> {
     let rows = transferia_delivery::middleware::preview::display_rows(data)
         .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
-    let columns = data.batch.schema().fields().iter().map(|field| TransformPreviewColumn {
-        name: field.name().clone(),
-        arrow_type: format!("{:?}", field.data_type()),
-        nullable: field.is_nullable(),
-        metadata: field.metadata().iter().map(|(key, value)| (key.clone(), value.clone())).collect(),
-    }).collect();
+    let columns = data
+        .batch
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| TransformPreviewColumn {
+            name: field.name().clone(),
+            arrow_type: format!("{:?}", field.data_type()),
+            nullable: field.is_nullable(),
+            metadata: field
+                .metadata()
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+        })
+        .collect();
     Ok(TransformPreviewFrame {
         table: TransformPreviewTable {
             namespace: data.namespace.as_ref().map(ToString::to_string),

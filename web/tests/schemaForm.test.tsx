@@ -1480,7 +1480,7 @@ describe("schema form", () => {
   it("renders parser selection in the endpoint and details separately", () => {
     const parserContainer: CompiledNode = {
       kind: "object",
-      xUi: { widget: "json_parser" },
+      xUi: { widget: "json_parser", capabilities: { component: "parser", key: "json_parser" } },
       required: new Set(["common", "json_parser"]),
       properties: {
         common: {
@@ -1576,6 +1576,7 @@ describe("schema form", () => {
       details.container.querySelector(".source-details-bridge"),
     ).toBeNull();
     expect(details.container.querySelector(".parser-details-card.card")).not.toBeNull();
+    expect(details.container.querySelector(".parser-details-card > .island-form-wide")).not.toBeNull();
 
     const incompleteValue = {
       parser: {

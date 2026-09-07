@@ -89,19 +89,33 @@ async fn preview_hash_aggregate_uses_the_configured_execution_memory_pool() -> a
     )?;
     let memory_limit_bytes = batch.get_array_memory_size() + 1024;
     let input = TableData::new(Arc::from("events"), false, batch, SystemColumns::default());
-    let middleware = DataFusionMiddleware::new("SELECT id, COUNT(*) AS n FROM input GROUP BY id".into())?;
-    let error = middleware.preview(input, MiddlewarePreviewContext { memory_limit_bytes }).await.err()
-        .expect("aggregation must not allocate outside the configured memory pool");
+    let middleware =
+        DataFusionMiddleware::new("SELECT id, COUNT(*) AS n FROM input GROUP BY id".into())?;
+    let error = middleware
+        .preview(input, MiddlewarePreviewContext { memory_limit_bytes })
+        .await
+        .expect_err("aggregation must not allocate outside the configured memory pool");
     let diagnostic = format!("{error:#}");
-    assert!(diagnostic.contains("Resources exhausted") && diagnostic.contains("SpillPool"), "{diagnostic}");
+    assert!(
+        diagnostic.contains("Resources exhausted") && diagnostic.contains("SpillPool"),
+        "{diagnostic}"
+    );
     Ok(())
 }
 
 #[tokio::test]
 async fn schema_planning_does_not_execute_failing_data_expressions() -> anyhow::Result<()> {
     let middleware = DataFusionMiddleware::new("SELECT id / 0 AS ratio FROM input".into())?;
-    let frame = middleware.plan(input()?.batch, datafusion::execution::context::SessionContext::new()).await?;
+    let frame = middleware
+        .plan(
+            input()?.batch,
+            datafusion::execution::context::SessionContext::new(),
+        )
+        .await?;
     assert_eq!(frame.schema().as_arrow().field(0).name(), "ratio");
-    assert!(frame.collect().await.is_err(), "executing this expression must fail; planning must not execute it");
+    assert!(
+        frame.collect().await.is_err(),
+        "executing this expression must fail; planning must not execute it"
+    );
     Ok(())
 }

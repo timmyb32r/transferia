@@ -1,29 +1,75 @@
 use std::sync::Arc;
 
 #[test]
-fn metadata_catalog_batch_preserves_native_columns_and_isolates_missing_or_bad_tables() -> anyhow::Result<()> {
+fn metadata_catalog_batch_preserves_native_columns_and_isolates_missing_or_bad_tables(
+) -> anyhow::Result<()> {
     use arrow::array::StringArray;
     use transferia_registry::TableIdentity;
-    let table = |name: &str| TableIdentity { namespace: "db".into(), name: name.into() };
+    let table = |name: &str| TableIdentity {
+        namespace: "db".into(),
+        name: name.into(),
+    };
     let batch = RecordBatch::try_from_iter([
-        ("database", Arc::new(StringArray::from(vec!["db", "db", "db"])) as ArrayRef),
-        ("table", Arc::new(StringArray::from(vec!["good", "good", "bad"])) as ArrayRef),
-        ("name", Arc::new(StringArray::from(vec!["entries.query_id", "state", "broken"])) as ArrayRef),
-        ("type", Arc::new(StringArray::from(vec!["UInt64", "Enum8('NO' = 0, 'YES' = 1)", "UnknownType"])) as ArrayRef),
-        ("default_kind", Arc::new(StringArray::from(vec!["DEFAULT", "", ""])) as ArrayRef),
-        ("primary_key", Arc::new(StringArray::from(vec!["", "", ""])) as ArrayRef),
-        ("sorting_key", Arc::new(StringArray::from(vec!["", "", ""])) as ArrayRef),
+        (
+            "database",
+            Arc::new(StringArray::from(vec!["db", "db", "db"])) as ArrayRef,
+        ),
+        (
+            "table",
+            Arc::new(StringArray::from(vec!["good", "good", "bad"])) as ArrayRef,
+        ),
+        (
+            "name",
+            Arc::new(StringArray::from(vec![
+                "entries.query_id",
+                "state",
+                "broken",
+            ])) as ArrayRef,
+        ),
+        (
+            "type",
+            Arc::new(StringArray::from(vec![
+                "UInt64",
+                "Enum8('NO' = 0, 'YES' = 1)",
+                "UnknownType",
+            ])) as ArrayRef,
+        ),
+        (
+            "default_kind",
+            Arc::new(StringArray::from(vec!["DEFAULT", "", ""])) as ArrayRef,
+        ),
+        (
+            "primary_key",
+            Arc::new(StringArray::from(vec!["", "", ""])) as ArrayRef,
+        ),
+        (
+            "sorting_key",
+            Arc::new(StringArray::from(vec!["", "", ""])) as ArrayRef,
+        ),
     ])?;
-    let mut result = super::metadata::decode_batch(&[table("good"), table("bad"), table("missing")],
-        vec![batch.slice(0, 1), batch.slice(1, 2)], config::UnsupportedTypePolicy::Fail)?;
+    let mut result = super::metadata::decode_batch(
+        &[table("good"), table("bad"), table("missing")],
+        vec![batch.slice(0, 1), batch.slice(1, 2)],
+        config::UnsupportedTypePolicy::Fail,
+    )?;
     let good = result.remove(&table("good")).unwrap()?;
     assert_eq!(good.schema.columns[0].name, "entries.query_id");
     assert_eq!(good.schema.columns[0].data_type, DataType::UInt64);
-    let expected = connector::source_column_type(&good.config, "state", "Enum8('NO' = 0, 'YES' = 1)", config::UnsupportedTypePolicy::Fail)?;
-    assert_eq!(good.schema.columns[1].arrow_metadata(), expected.arrow_metadata());
+    let expected = connector::source_column_type(
+        &good.config,
+        "state",
+        "Enum8('NO' = 0, 'YES' = 1)",
+        config::UnsupportedTypePolicy::Fail,
+    )?;
+    assert_eq!(
+        good.schema.columns[1].arrow_metadata(),
+        expected.arrow_metadata()
+    );
     assert!(result.remove(&table("bad")).unwrap().is_err());
     assert!(result.remove(&table("missing")).unwrap().is_err());
-    let tables = (0..100).map(|index| table(&format!("table{index}"))).collect::<Vec<_>>();
+    let tables = (0..100)
+        .map(|index| table(&format!("table{index}")))
+        .collect::<Vec<_>>();
     let query = super::metadata::catalog_query(&tables);
     assert_eq!(query.matches("FROM system.columns").count(), 1);
     assert_eq!(query.matches("JOIN system.tables").count(), 1);
@@ -34,8 +80,10 @@ fn metadata_catalog_batch_preserves_native_columns_and_isolates_missing_or_bad_t
 
 #[test]
 fn table_sample_limit_is_applied_to_the_native_projection() {
-    assert_eq!(super::sample::sample_query("SELECT `id` FROM `db`.`events`", 7).unwrap(),
-        "SELECT `id` FROM `db`.`events` LIMIT 7");
+    assert_eq!(
+        super::sample::sample_query("SELECT `id` FROM `db`.`events`", 7).unwrap(),
+        "SELECT `id` FROM `db`.`events` LIMIT 7"
+    );
     assert!(super::sample::sample_query("SELECT `id` FROM `db`.`events`", 0).is_err());
 }
 
@@ -63,7 +111,13 @@ fn source_type_errors_identify_table_column_and_exact_declaration() {
         name: "events".into(),
     };
     for declaration in ["NotAClickHouseType", "Nullable("] {
-        let error = connector::source_column_type(&table, "status", declaration, config::UnsupportedTypePolicy::Fail).unwrap_err();
+        let error = connector::source_column_type(
+            &table,
+            "status",
+            declaration,
+            config::UnsupportedTypePolicy::Fail,
+        )
+        .unwrap_err();
         // Display alone must retain the cause too: some consumers render only
         // the top-level message instead of the full anyhow chain.
         let message = error.to_string();
@@ -153,14 +207,16 @@ fn source_preserves_date_and_second_timestamp_types() -> anyhow::Result<()> {
         source_arrow_type(
             &"Nullable(DateTime64(0))".parse()?,
             "Nullable(DateTime64(0))",
-        )?.0,
+        )?
+        .0,
         DataType::Timestamp(TimeUnit::Second, None),
     );
     assert_eq!(
         source_arrow_type(
             &"Nullable(DateTime('Europe/Moscow'))".parse()?,
             "Nullable(DateTime('Europe/Moscow'))",
-        )?.0,
+        )?
+        .0,
         DataType::Timestamp(TimeUnit::Second, Some(Arc::from("Europe/Moscow")),),
     );
     Ok(())
@@ -216,6 +272,13 @@ fn metadata_key_selection_uses_primary_key_or_identical_sorting_key() {
             "(`id`, `version`)",
             vec!["id", "version"],
         ),
+        ("tuple(id)", "tuple(id)", vec!["id"]),
+        ("tuple(id)", "tuple(id, version)", vec!["id"]),
+        (
+            "tuple(`id`, `version`)",
+            "tuple(`id`, `version`)",
+            vec!["id", "version"],
+        ),
         ("tuple()", "tuple()", vec![]),
         ("", "", vec![]),
     ] {
@@ -234,10 +297,19 @@ fn metadata_key_selection_uses_primary_key_or_identical_sorting_key() {
             expected
         );
     }
-    for key in ["toYYYYMM(id)", "id, id", "tuple(id)"] {
+    // A tuple wrapper groups key columns; it must not admit computed or repeated keys.
+    for key in [
+        "toYYYYMM(id)",
+        "id, id",
+        "tuple(toYYYYMM(id))",
+        "tuple(id, id)",
+    ] {
         let mut schema =
             DatasetSchema::new(vec![SchemaColumn::new("id".into(), DataType::Int64, false)]);
-        assert!(connector::apply_discovered_primary_key(&mut schema, &table, key, key).is_err());
+        assert!(
+            connector::apply_discovered_primary_key(&mut schema, &table, key, key).is_err(),
+            "invalid source key was accepted: {key}"
+        );
     }
 }
 
@@ -532,10 +604,16 @@ fn snapshot_normalization_preserves_discovered_column_metadata() -> anyhow::Resu
 #[test]
 fn cached_preview_rejects_changed_enum_metadata_without_mutating_cached_schema() {
     let cached = connector::DiscoveredTable {
-        config: config::TableConfig { database: "db".into(), name: "events".into() },
+        config: config::TableConfig {
+            database: "db".into(),
+            name: "events".into(),
+        },
         schema: transferia_core::DatasetSchema::new(vec![transferia_core::SchemaColumn::new(
-            "value".into(), arrow::datatypes::DataType::Utf8, false)
-            .with_arrow_extension_metadata("clickhouse.enum", "Enum8('a'=1,'b'=2)")]),
+            "value".into(),
+            arrow::datatypes::DataType::Utf8,
+            false,
+        )
+        .with_arrow_extension_metadata("clickhouse.enum", "Enum8('a'=1,'b'=2)")]),
         physical_system_columns: transferia_core::SystemColumns::default(),
     };
     assert!(super::sample::validate_cached_schema(&cached, &cached).is_ok());
@@ -543,5 +621,8 @@ fn cached_preview_rejects_changed_enum_metadata_without_mutating_cached_schema()
     changed.schema.columns[0].arrow_extension_metadata = Some("Enum8('b'=1,'a'=2)".into());
     let error = super::sample::validate_cached_schema(&cached, &changed).unwrap_err();
     assert!(error.to_string().contains("db.events"));
-    assert_eq!(cached.schema.columns[0].arrow_extension_metadata.as_deref(), Some("Enum8('a'=1,'b'=2)"));
+    assert_eq!(
+        cached.schema.columns[0].arrow_extension_metadata.as_deref(),
+        Some("Enum8('a'=1,'b'=2)")
+    );
 }

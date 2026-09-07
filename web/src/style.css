@@ -1050,8 +1050,14 @@ h3 {
 }
 .endpoint-card-source { grid-area: source; }
 .endpoint-card-sink { grid-area: sink; }
+.island-form {
+  width: max(60%, min(100%, 320px));
+  min-width: 0;
+  container: form-space / inline-size;
+}
+.island-form-wide { width: 100%; }
 .source-tables-card { container: form-space / inline-size; scroll-margin-top: 24px; }
-.source-tables-card > .connection-dependent-settings { border: 0; border-radius: 0; }
+.source-tables-card > .island-form > .connection-dependent-settings { border: 0; border-radius: 0; }
 .source-tables-card .connection-dependent-fields { padding: 0; }
 /* Source, destination, tables and parser settings are independent islands. */
 :root[data-theme="light"] .identity-card,
@@ -1070,9 +1076,6 @@ h3 {
 .endpoint-card {
   min-width: 0;
   transition: width 0.25s ease;
-}
-.endpoint-card > .select {
-  width: min(100%, 420px);
 }
 .endpoint-fields {
   border-top: 1px solid var(--line-inner);
@@ -1265,7 +1268,9 @@ h3 {
    can still contain a narrow auth/format branch. Keep at least 240px for a
    normal control before spending width on a side-by-side label. */
 @container form-space (max-width: 520px) {
-  :root .form-row:not(.form-row-wide) {
+  :root .form-row:not(.form-row-wide),
+  :root .form-row-installation .nested-section .form-row:not(.form-row-wide),
+  :root .control-width-auth .nested-section .form-row:not(.form-row-wide) {
     grid-template-columns: minmax(0, 1fr);
     align-items: start;
     gap: 6px;
@@ -1821,7 +1826,7 @@ input[type="checkbox"]:disabled {
   grid-column: 1 / -1;
   grid-row: 2;
   min-width: 0;
-  width: 100%;
+  width: auto;
 }
 .form-row-installation .nested-section .form-row:not(.form-row-wide) {
   grid-template-columns: minmax(120px, 30%) minmax(0, 1fr);
@@ -1861,7 +1866,7 @@ input[type="checkbox"]:disabled {
 }
 .array-row {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 28px;
+  grid-template-columns: 22px minmax(0, 1fr) var(--control-height);
   align-items: start;
   gap: 6px;
   border-bottom: 1px solid var(--line-inner);

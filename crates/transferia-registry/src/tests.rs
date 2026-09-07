@@ -16,16 +16,38 @@ use transferia_delivery_contracts::DeliveryType;
 use super::*;
 
 fn sample_limits(row_limit: usize) -> TableSampleLimits {
-    TableSampleLimits { row_limit, max_bytes: 1024 * 1024, timeout_ms: 30_000 }
+    TableSampleLimits {
+        row_limit,
+        max_bytes: 1024 * 1024,
+        timeout_ms: 30_000,
+    }
 }
 
 #[test]
 fn typed_table_sample_byte_budget_is_explicit_and_fail_closed() {
-    let limits = TableSampleLimits { row_limit: 1, max_bytes: 32, timeout_ms: 30_000 };
+    let limits = TableSampleLimits {
+        row_limit: 1,
+        max_bytes: 32,
+        timeout_ms: 30_000,
+    };
     assert!(limits.check_bytes(32).is_ok());
-    assert!(limits.check_bytes(33).unwrap_err().to_string().contains("max_sample_bytes"));
-    assert!(TableSampleLimits { max_bytes: 0, ..limits }.validate().is_err());
-    assert!(TableSampleLimits { timeout_ms: 0, ..limits }.validate().is_err());
+    assert!(limits
+        .check_bytes(33)
+        .unwrap_err()
+        .to_string()
+        .contains("max_sample_bytes"));
+    assert!(TableSampleLimits {
+        max_bytes: 0,
+        ..limits
+    }
+    .validate()
+    .is_err());
+    assert!(TableSampleLimits {
+        timeout_ms: 0,
+        ..limits
+    }
+    .validate()
+    .is_err());
 }
 
 #[tokio::test]
@@ -33,14 +55,28 @@ async fn typed_table_sample_rejects_zero_limit_before_reading() -> anyhow::Resul
     let called = Arc::new(AtomicBool::new(false));
     let observed = Arc::clone(&called);
     let mut builder = RegistryBuilder::new();
-    builder.register(source_registration("sample")?.source_table_sampler::<TestSourceConfig, _, _>(
-        move |_, _, _, _| {
-            observed.store(true, Ordering::SeqCst);
-            async { anyhow::bail!("must not sample") }
-        },
-    ))?;
-    let error = builder.build().sample_source_table("sample", serde_yaml::from_str("enabled: true")?,
-        TableIdentity { namespace: "db".into(), name: "events".into() }, sample_limits(0), CancellationToken::new()).await.unwrap_err();
+    builder.register(
+        source_registration("sample")?.source_table_sampler::<TestSourceConfig, _, _>(
+            move |_, _, _, _| {
+                observed.store(true, Ordering::SeqCst);
+                async { anyhow::bail!("must not sample") }
+            },
+        ),
+    )?;
+    let error = builder
+        .build()
+        .sample_source_table(
+            "sample",
+            serde_yaml::from_str("enabled: true")?,
+            TableIdentity {
+                namespace: "db".into(),
+                name: "events".into(),
+            },
+            sample_limits(0),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
     assert!(error.to_string().contains("row_limit must be positive"));
     assert!(!called.load(Ordering::SeqCst));
     Ok(())
@@ -52,17 +88,45 @@ async fn typed_table_sample_rejects_oversized_native_output() -> anyhow::Result<
     use arrow::datatypes::{DataType, Field, Schema};
     use arrow::record_batch::RecordBatch;
     let mut builder = RegistryBuilder::new();
-    builder.register(source_registration("sample")?.source_table_sampler::<TestSourceConfig, _, _>(
-        |_, table, _, _| async move {
-            let batch = RecordBatch::try_new(Arc::new(Schema::new(vec![Field::new("payload", DataType::Utf8, false)])),
-                vec![Arc::new(StringArray::from(vec!["a".repeat(1024)]))])?;
-            Ok(transferia_core::TableData::new(Arc::from(table.name), false, batch,
-                transferia_core::data::system_columns::SystemColumns::default()).with_namespace(Arc::from(table.namespace)))
-        },
-    ))?;
-    let error = builder.build().sample_source_table("sample", serde_yaml::from_str("enabled: true")?,
-        TableIdentity { namespace: "db".into(), name: "events".into() },
-        TableSampleLimits { row_limit: 1, max_bytes: 256, timeout_ms: 30_000 }, CancellationToken::new()).await.unwrap_err();
+    builder.register(
+        source_registration("sample")?.source_table_sampler::<TestSourceConfig, _, _>(
+            |_, table, _, _| async move {
+                let batch = RecordBatch::try_new(
+                    Arc::new(Schema::new(vec![Field::new(
+                        "payload",
+                        DataType::Utf8,
+                        false,
+                    )])),
+                    vec![Arc::new(StringArray::from(vec!["a".repeat(1024)]))],
+                )?;
+                Ok(transferia_core::TableData::new(
+                    Arc::from(table.name),
+                    false,
+                    batch,
+                    transferia_core::data::system_columns::SystemColumns::default(),
+                )
+                .with_namespace(Arc::from(table.namespace)))
+            },
+        ),
+    )?;
+    let error = builder
+        .build()
+        .sample_source_table(
+            "sample",
+            serde_yaml::from_str("enabled: true")?,
+            TableIdentity {
+                namespace: "db".into(),
+                name: "events".into(),
+            },
+            TableSampleLimits {
+                row_limit: 1,
+                max_bytes: 256,
+                timeout_ms: 30_000,
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
     assert!(error.to_string().contains("max_sample_bytes"));
     Ok(())
 }
@@ -73,72 +137,171 @@ async fn typed_table_sample_preserves_arrow_values_and_namespace() -> anyhow::Re
     use arrow::datatypes::{DataType, Field, Schema};
     use arrow::record_batch::RecordBatch;
     let mut builder = RegistryBuilder::new();
-    builder.register(source_registration("sample")?.source_table_sampler::<TestSourceConfig, _, _>(
-        |config, table, limit, _| async move {
-            assert!(config.enabled);
-            assert_eq!(limit, sample_limits(2));
-            let batch = RecordBatch::try_new(Arc::new(Schema::new(vec![Field::new("amount", DataType::Decimal128(38, 4), false)])),
-                vec![Arc::new(Decimal128Array::from(vec![123_456_789_012_345_678_901_i128]).with_precision_and_scale(38, 4)?) as ArrayRef])?;
-            Ok(transferia_core::TableData::new(Arc::from(table.name), false, batch, transferia_core::data::system_columns::SystemColumns::default())
+    builder.register(
+        source_registration("sample")?.source_table_sampler::<TestSourceConfig, _, _>(
+            |config, table, limit, _| async move {
+                assert!(config.enabled);
+                assert_eq!(limit, sample_limits(2));
+                let batch = RecordBatch::try_new(
+                    Arc::new(Schema::new(vec![Field::new(
+                        "amount",
+                        DataType::Decimal128(38, 4),
+                        false,
+                    )])),
+                    vec![Arc::new(
+                        Decimal128Array::from(vec![123_456_789_012_345_678_901_i128])
+                            .with_precision_and_scale(38, 4)?,
+                    ) as ArrayRef],
+                )?;
+                Ok(transferia_core::TableData::new(
+                    Arc::from(table.name),
+                    false,
+                    batch,
+                    transferia_core::data::system_columns::SystemColumns::default(),
+                )
                 .with_namespace(Arc::from(table.namespace)))
-        },
-    ))?;
+            },
+        ),
+    )?;
     let registry = builder.build();
-    assert!(registry.definitions()[0].source.as_ref().unwrap().table_preview);
-    let sample = registry.sample_source_table("sample", serde_yaml::from_str("enabled: true")?,
-        TableIdentity { namespace: "db.with.dot".into(), name: "events".into() }, sample_limits(2), CancellationToken::new()).await?;
+    assert!(
+        registry.definitions()[0]
+            .source
+            .as_ref()
+            .unwrap()
+            .table_preview
+    );
+    let sample = registry
+        .sample_source_table(
+            "sample",
+            serde_yaml::from_str("enabled: true")?,
+            TableIdentity {
+                namespace: "db.with.dot".into(),
+                name: "events".into(),
+            },
+            sample_limits(2),
+            CancellationToken::new(),
+        )
+        .await?;
     assert_eq!(sample.namespace.as_deref(), Some("db.with.dot"));
-    assert_eq!(sample.batch.column(0).as_any().downcast_ref::<Decimal128Array>().unwrap().value(0), 123_456_789_012_345_678_901_i128);
+    assert_eq!(
+        sample
+            .batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Decimal128Array>()
+            .unwrap()
+            .value(0),
+        123_456_789_012_345_678_901_i128
+    );
     Ok(())
 }
 
 #[tokio::test]
 async fn typed_table_sample_cancellation_drops_pending_read() -> anyhow::Result<()> {
     let mut builder = RegistryBuilder::new();
-    builder.register(source_registration("sample")?.source_table_sampler::<TestSourceConfig, _, _>(
-        |_, _, _, _| std::future::pending::<anyhow::Result<transferia_core::TableData>>(),
-    ))?;
+    builder.register(
+        source_registration("sample")?.source_table_sampler::<TestSourceConfig, _, _>(
+            |_, _, _, _| std::future::pending::<anyhow::Result<transferia_core::TableData>>(),
+        ),
+    )?;
     let cancellation = CancellationToken::new();
     cancellation.cancel();
-    let error = builder.build().sample_source_table("sample", serde_yaml::from_str("enabled: true")?,
-        TableIdentity { namespace: "db".into(), name: "events".into() }, sample_limits(1), cancellation).await.unwrap_err();
+    let error = builder
+        .build()
+        .sample_source_table(
+            "sample",
+            serde_yaml::from_str("enabled: true")?,
+            TableIdentity {
+                namespace: "db".into(),
+                name: "events".into(),
+            },
+            sample_limits(1),
+            cancellation,
+        )
+        .await
+        .unwrap_err();
     assert!(error.to_string().contains("cancelled"));
     Ok(())
 }
 
 #[tokio::test]
-async fn typed_table_sample_rejects_a_connector_that_exceeds_the_explicit_limit() -> anyhow::Result<()> {
+async fn typed_table_sample_rejects_a_connector_that_exceeds_the_explicit_limit(
+) -> anyhow::Result<()> {
     use arrow::array::Int64Array;
     use arrow::datatypes::{DataType, Field, Schema};
     use arrow::record_batch::RecordBatch;
     let mut builder = RegistryBuilder::new();
-    builder.register(source_registration("sample")?.source_table_sampler::<TestSourceConfig, _, _>(
-        |_, table, _, _| async move {
-            let batch = RecordBatch::try_new(Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)])),
-                vec![Arc::new(Int64Array::from(vec![1_i64, 2]))])?;
-            Ok(transferia_core::TableData::new(Arc::from(table.name), false, batch, transferia_core::data::system_columns::SystemColumns::default())
+    builder.register(
+        source_registration("sample")?.source_table_sampler::<TestSourceConfig, _, _>(
+            |_, table, _, _| async move {
+                let batch = RecordBatch::try_new(
+                    Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)])),
+                    vec![Arc::new(Int64Array::from(vec![1_i64, 2]))],
+                )?;
+                Ok(transferia_core::TableData::new(
+                    Arc::from(table.name),
+                    false,
+                    batch,
+                    transferia_core::data::system_columns::SystemColumns::default(),
+                )
                 .with_namespace(Arc::from(table.namespace)))
-        },
-    ))?;
-    let error = builder.build().sample_source_table("sample", serde_yaml::from_str("enabled: true")?,
-        TableIdentity { namespace: "db".into(), name: "events".into() }, sample_limits(1), CancellationToken::new()).await.unwrap_err();
-    assert!(error.to_string().contains("exceeded the requested row_limit"));
+            },
+        ),
+    )?;
+    let error = builder
+        .build()
+        .sample_source_table(
+            "sample",
+            serde_yaml::from_str("enabled: true")?,
+            TableIdentity {
+                namespace: "db".into(),
+                name: "events".into(),
+            },
+            sample_limits(1),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("exceeded the requested row_limit"));
     Ok(())
 }
 
 #[tokio::test]
-async fn typed_table_sample_rejects_a_connector_returning_another_namespace() -> anyhow::Result<()> {
+async fn typed_table_sample_rejects_a_connector_returning_another_namespace() -> anyhow::Result<()>
+{
     use arrow::datatypes::Schema;
     use arrow::record_batch::RecordBatch;
     let mut builder = RegistryBuilder::new();
-    builder.register(source_registration("sample")?.source_table_sampler::<TestSourceConfig, _, _>(
-        |_, table, _, _| async move {
-            Ok(transferia_core::TableData::new(Arc::from(table.name), false, RecordBatch::new_empty(Arc::new(Schema::empty())),
-                transferia_core::data::system_columns::SystemColumns::default()).with_namespace(Arc::from("wrong")))
-        },
-    ))?;
-    let error = builder.build().sample_source_table("sample", serde_yaml::from_str("enabled: true")?,
-        TableIdentity { namespace: "db".into(), name: "events".into() }, sample_limits(1), CancellationToken::new()).await.unwrap_err();
+    builder.register(
+        source_registration("sample")?.source_table_sampler::<TestSourceConfig, _, _>(
+            |_, table, _, _| async move {
+                Ok(transferia_core::TableData::new(
+                    Arc::from(table.name),
+                    false,
+                    RecordBatch::new_empty(Arc::new(Schema::empty())),
+                    transferia_core::data::system_columns::SystemColumns::default(),
+                )
+                .with_namespace(Arc::from("wrong")))
+            },
+        ),
+    )?;
+    let error = builder
+        .build()
+        .sample_source_table(
+            "sample",
+            serde_yaml::from_str("enabled: true")?,
+            TableIdentity {
+                namespace: "db".into(),
+                name: "events".into(),
+            },
+            sample_limits(1),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
     assert!(error.to_string().contains("different table identity"));
     Ok(())
 }
@@ -375,19 +538,19 @@ fn middleware_registration(key: &'static str) -> anyhow::Result<MiddlewareRegist
         key,
         "Test middleware",
         || serde_json::json!({ "label": "initial" }),
-        |config| anyhow::bail!("test factory intentionally has no middleware for {}", config.label),
+        |config| {
+            anyhow::bail!(
+                "test factory intentionally has no middleware for {}",
+                config.label
+            )
+        },
     )
 }
 
 #[test]
-fn middleware_registration_owns_schema_and_decoder() -> anyhow::Result<()>
-{
+fn middleware_registration_owns_schema_and_decoder() -> anyhow::Result<()> {
     let mut builder = RegistryBuilder::new();
-    builder.register_middleware(MiddlewareRegistration::new::<
-        TestMiddlewareConfig,
-        _,
-        _,
-    >(
+    builder.register_middleware(MiddlewareRegistration::new::<TestMiddlewareConfig, _, _>(
         "transform",
         "Test middleware",
         || serde_json::json!({ "label": "initial" }),

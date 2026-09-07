@@ -11,6 +11,7 @@ export function VariantDetailsCard({
   disabled,
   widget,
   cardClass,
+  contentClass,
   widgets,
   NodeEditor,
   onChange,
@@ -20,6 +21,7 @@ export function VariantDetailsCard({
   disabled: boolean;
   widget: string;
   cardClass: string;
+  contentClass: (node: CompiledNode) => string;
   widgets: WidgetRegistry;
   NodeEditor: NodeEditorComponent;
   onChange: (value: JsonValue) => void;
@@ -48,15 +50,17 @@ export function VariantDetailsCard({
   return (
     <>
       <section class={cardClass} tabindex={-1}>
-        <div class="section-heading">
-          <h2>{selected.label} settings</h2>
+        <div class={contentClass(selected.node)}>
+          <div class="section-heading">
+            <h2>{selected.label} settings</h2>
+          </div>
+          <NodeEditor
+            node={selected.node}
+            value={draftValue(selected.node, variantValue)}
+            disabled={disabled}
+            onChange={(next) => onChange({ ...object, [name]: next })}
+          />
         </div>
-        <NodeEditor
-          node={selected.node}
-          value={draftValue(selected.node, variantValue)}
-          disabled={disabled}
-          onChange={(next) => onChange({ ...object, [name]: next })}
-        />
       </section>
     </>
   );

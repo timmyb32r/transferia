@@ -52,7 +52,7 @@ function Fixture() {
   const source = (config.source as JsonObject)[key] as JsonObject;
   const metadata = useSourceMetadata({ connector: key, config: source, mode: "batch", sessionKey: "fixture", validating: false });
   return <SourceMetadataContext.Provider value={metadata}>
-    <main class="route-composition" style={{ maxWidth: "1080px", padding: "24px", margin: "auto" }}>
+    <main class="route-composition" style={{ maxWidth: new URLSearchParams(location.search).has("wide") ? "1800px" : "1080px", padding: "24px", margin: "auto" }}>
       <EndpointCard title="Source" role="source" selectedKey={key} connectors={[connector]} endpoint={connector.source!}
         config={config} readOnly={false} showRequiredErrors={false} onChoose={() => {}} onConfig={setConfig} tablesHost={tablesHost} />
       <div class="route-arrow">→</div>

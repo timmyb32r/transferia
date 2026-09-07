@@ -22,7 +22,9 @@ pub fn register(
 ) -> anyhow::Result<()> {
     registry.register(
         ComponentRegistration::new("mysql", "MySQL")
-            .source_table_sampler::<mysql::src_batch::MySqlSourceConfig, _, _>(mysql::src_batch::sample_table)
+            .source_table_sampler::<mysql::src_batch::MySqlSourceConfig, _, _>(
+                mysql::src_batch::sample_table,
+            )
             .source::<mysql::src_batch::MySqlSourceConfig, _, _>(
                 vec![
                     DeliveryMode::Batch,

@@ -249,7 +249,10 @@ pub trait SourceConnector: Send + Sync {
 pub trait SourceMetadataReader: Send + Sync {
     /// Enumerate the full authenticated catalog only on explicit metadata discovery.
     /// Connection checks must not enumerate tables or create a schema cache.
-    fn list_tables(&self, cancellation: CancellationToken) -> BoxFuture<'_, anyhow::Result<Vec<TableIdentity>>>;
+    fn list_tables(
+        &self,
+        cancellation: CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<Vec<TableIdentity>>>;
 
     fn includes_table(&self, table: &TableIdentity, hide_system_tables: bool) -> bool;
 
@@ -281,7 +284,9 @@ pub trait SourceMetadataReader: Send + Sync {
         _limits: crate::TableSampleLimits,
         _cancellation: CancellationToken,
     ) -> BoxFuture<'_, anyhow::Result<transferia_core::TableData>> {
-        Box::pin(async { anyhow::bail!("Cached metadata row sampling is not supported by this source") })
+        Box::pin(async {
+            anyhow::bail!("Cached metadata row sampling is not supported by this source")
+        })
     }
 }
 

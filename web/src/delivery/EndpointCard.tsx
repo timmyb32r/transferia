@@ -119,119 +119,121 @@ export function EndpointCard(props: {
 
   return (
     <article class={`card endpoint-card endpoint-card-${props.role}`}>
-      <h2>{props.title}</h2>
-      <div
-        class={[
-          !props.readOnly && props.selectedKey === ""
-            ? "required-incomplete"
-            : "",
-          props.showRequiredErrors && props.selectedKey === ""
-            ? "required-missing"
-            : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-      >
-        <SelectControl
-          searchable
-          value={props.selectedKey}
-          disabled={props.readOnly}
-          placeholder="Not selected"
-          options={props.connectors.map((connector) => ({
-            value: connector.key,
-            label: connector.title,
-          }))}
-          onChange={(key) => props.onChoose(props.role, key)}
-        />
-      </div>
-      {props.endpoint && node && showSettings && (
-        <div class="endpoint-fields">
-          <TableNamingProvider connector={props.selectedKey}>
-          <SchemaForm
-            node={node}
-            value={value}
+      <div class="island-form">
+        <h2>{props.title}</h2>
+        <div
+          class={[
+            !props.readOnly && props.selectedKey === ""
+              ? "required-incomplete"
+              : "",
+            props.showRequiredErrors && props.selectedKey === ""
+              ? "required-missing"
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          <SelectControl
+            searchable
+            value={props.selectedKey}
             disabled={props.readOnly}
-            showRequiredErrors={props.showRequiredErrors}
-            {...(typeof props.config.delivery_type === "string"
-              ? { deliveryType: props.config.delivery_type }
-              : {})}
-            variantUi={{
-              selectionOnly: props.role === "source" ? ["parser"] : [],
-              actions:
-                props.role === "source" && props.endpoint.message_preview
-                  ? {
-                      parser: (
-                        <Button
-                          class="parser-preview-button"
-                          title="Preview one message"
-                          aria-label="Preview one message"
-                          disabled={props.readOnly || preview.loading}
-                          onClick={() => void previewMessage()}
-                        >
-                          Scan
-                        </Button>
-                      ),
-                    }
-                  : {},
-              onSelected: (widget) => {
-                if (widget === "parser") revealDetails(".parser-details-card");
-              },
-            }}
-            optionOverrides={check.options}
-            tableCatalog={tablesReady && visibleTables !== undefined
-              ? { tables: visibleTables, preview: api.previewTables,
-                metadata: discovery.state === "success" ? discovery.metadata : undefined,
-                metadataError: discovery.state === "success" ? discovery.metadataError : undefined } : undefined}
-            connectionFields={requiresTableDiscovery ? {
-              names: ["hide_system_tables", "tables", "new_tables"],
-              label: "Table settings",
-              disabled: !tablesReady,
-              renderGroup: group => {
-                const contents = <>
-                  <header class="table-selection-heading"><h2>Tables</h2>
-                    <AvailableTablesButton label="Available tables in source" title="Browse available source tables and schema status" showMetadata />
-                  </header>
-                  <TableDiscovery discovery={discovery} onDiscover={() => { void discoverTables(); }} />
-                  {group}
-                </>;
-                return props.tablesHost === undefined ? <section class="card source-tables-card">{contents}</section>
-                  : props.tablesHost ? createPortal(contents, props.tablesHost) : null;
-              },
-              renderField: (name, field) => name === "hide_system_tables" ? null : name !== "tables" ? field
-                : <div data-field-name="tables" key="tables"
-                  class={[!props.readOnly && tablesReady && tablesIncomplete ? "required-incomplete" : "",
-                    props.showRequiredErrors && tablesIncomplete ? "required-missing" : ""].filter(Boolean).join(" ")}>
-                  <TableSelectionEditor value={isObject(value) ? value.tables ?? null : null}
-                    showHeading={false}
-                    disabled={props.readOnly || !tablesReady} fixed={node.properties.tables?.xUi.table_membership === "fixed"}
-                    toolbar={node.properties.hide_system_tables && <span class="table-system-toggle">
-                      <label><AutofillResistantInput type="checkbox" checked={hideSystemTables} disabled={props.readOnly || !tablesReady}
-                        onChange={event => props.onConfig({ ...props.config, [props.role]: { [props.selectedKey]: {
-                          ...(isObject(value) ? value : {}), hide_system_tables: event.currentTarget.checked,
-                        } } })} />Hide system tables</label>
-                      <span class="help" tabIndex={0} title="Hide system tables from the available catalog and table selection."
-                        aria-label="About system table filtering">?</span>
-                    </span>}
-                    onChange={tables => props.onConfig({ ...props.config, [props.role]: { [props.selectedKey]: {
-                      ...(isObject(value) ? value : {}), tables,
-                    } } })} />
-                </div>,
-            } : undefined}
-            connectionAction={
-              props.endpoint.connection_check ? (
-                <ConnectionCheck check={check} onCheck={() => { void checkConnection(); }} />
-              ) : undefined
-            }
-            onChange={(next) =>
-              props.onConfig({
-                ...props.config,
-                [props.role]: { [props.selectedKey]: next },
-              })
-            }
+            placeholder="Not selected"
+            options={props.connectors.map((connector) => ({
+              value: connector.key,
+              label: connector.title,
+            }))}
+            onChange={(key) => props.onChoose(props.role, key)}
           />
-          </TableNamingProvider>
         </div>
-      )}
+        {props.endpoint && node && showSettings && (
+          <div class="endpoint-fields">
+            <TableNamingProvider connector={props.selectedKey}>
+            <SchemaForm
+              node={node}
+              value={value}
+              disabled={props.readOnly}
+              showRequiredErrors={props.showRequiredErrors}
+              {...(typeof props.config.delivery_type === "string"
+                ? { deliveryType: props.config.delivery_type }
+                : {})}
+              variantUi={{
+                selectionOnly: props.role === "source" ? ["parser"] : [],
+                actions:
+                  props.role === "source" && props.endpoint.message_preview
+                    ? {
+                        parser: (
+                          <Button
+                            class="parser-preview-button"
+                            title="Preview one message"
+                            aria-label="Preview one message"
+                            disabled={props.readOnly || preview.loading}
+                            onClick={() => void previewMessage()}
+                          >
+                            Scan
+                          </Button>
+                        ),
+                      }
+                    : {},
+                onSelected: (widget) => {
+                  if (widget === "parser") revealDetails(".parser-details-card");
+                },
+              }}
+              optionOverrides={check.options}
+              tableCatalog={tablesReady && visibleTables !== undefined
+                ? { tables: visibleTables, preview: api.previewTables,
+                  metadata: discovery.state === "success" ? discovery.metadata : undefined,
+                  metadataError: discovery.state === "success" ? discovery.metadataError : undefined } : undefined}
+              connectionFields={requiresTableDiscovery ? {
+                names: ["hide_system_tables", "tables", "new_tables"],
+                label: "Table settings",
+                disabled: !tablesReady,
+                renderGroup: group => {
+                  const contents = <div class={props.tablesHost === undefined ? "island-form island-form-wide" : "island-form"}>
+                    <header class="table-selection-heading"><h2>Tables</h2>
+                      <AvailableTablesButton label="Available tables in source" title="Browse available source tables and schema status" showMetadata />
+                    </header>
+                    <TableDiscovery discovery={discovery} onDiscover={() => { void discoverTables(); }} />
+                    {group}
+                  </div>;
+                  return props.tablesHost === undefined ? <section class="card source-tables-card">{contents}</section>
+                    : props.tablesHost ? createPortal(contents, props.tablesHost) : null;
+                },
+                renderField: (name, field) => name === "hide_system_tables" ? null : name !== "tables" ? field
+                  : <div data-field-name="tables" key="tables"
+                    class={[!props.readOnly && tablesReady && tablesIncomplete ? "required-incomplete" : "",
+                      props.showRequiredErrors && tablesIncomplete ? "required-missing" : ""].filter(Boolean).join(" ")}>
+                    <TableSelectionEditor value={isObject(value) ? value.tables ?? null : null}
+                      showHeading={false}
+                      disabled={props.readOnly || !tablesReady} fixed={node.properties.tables?.xUi.table_membership === "fixed"}
+                      toolbar={node.properties.hide_system_tables && <span class="table-system-toggle">
+                        <label><AutofillResistantInput type="checkbox" checked={hideSystemTables} disabled={props.readOnly || !tablesReady}
+                          onChange={event => props.onConfig({ ...props.config, [props.role]: { [props.selectedKey]: {
+                            ...(isObject(value) ? value : {}), hide_system_tables: event.currentTarget.checked,
+                          } } })} />Hide system tables</label>
+                        <span class="help" tabIndex={0} title="Hide system tables from the available catalog and table selection."
+                          aria-label="About system table filtering">?</span>
+                      </span>}
+                      onChange={tables => props.onConfig({ ...props.config, [props.role]: { [props.selectedKey]: {
+                        ...(isObject(value) ? value : {}), tables,
+                      } } })} />
+                  </div>,
+              } : undefined}
+              connectionAction={
+                props.endpoint.connection_check ? (
+                  <ConnectionCheck check={check} onCheck={() => { void checkConnection(); }} />
+                ) : undefined
+              }
+              onChange={(next) =>
+                props.onConfig({
+                  ...props.config,
+                  [props.role]: { [props.selectedKey]: next },
+                })
+              }
+            />
+            </TableNamingProvider>
+          </div>
+        )}
+      </div>
       {showSettings && preview.open && (
         <MessagePreviewDialog
           result={previewResult}

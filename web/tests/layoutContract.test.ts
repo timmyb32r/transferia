@@ -16,6 +16,27 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("uses a borderless left-aligned 60% island form without recursively narrowing nested settings", () => {
+    const column = styles.split(".island-form {")[1]?.split("}")[0];
+    expect(column).toContain("width: max(60%, min(100%, 320px));");
+    expect(column).toContain("min-width: 0;");
+    expect(column).toContain("container: form-space / inline-size;");
+    expect(column).not.toMatch(/(?:border|background|padding|margin|transition)\s*:/);
+    expect(styles.split(".island-form-wide {")[1]?.split("}")[0]).toContain("width: 100%;");
+    expect(styles).not.toMatch(/\.island-form\s+\.(?:schema-object|nested-section|field-control)[^{]*\{[^}]*width:\s*60%/);
+    // Network state must never change the inner column's width or alignment.
+    expect(styles).not.toMatch(/(?:loading|busy|success|error)[^{]*\.island-form\s*\{/);
+  });
+  it("keeps nested installation and array actions inside the narrowed form", () => {
+    const nested = styles.split("\n.form-row-installation > .field-control > .union-editor > .nested-section {")[1]?.split("}")[0];
+    expect(nested).toContain("width: auto;");
+    const array = styles.split(".array-row {")[1]?.split("}")[0];
+    expect(array).toContain("grid-template-columns: 22px minmax(0, 1fr) var(--control-height);");
+    const narrow = styles.split("@container form-space (max-width: 520px) {")[1]?.split("}")[0];
+    expect(narrow).toContain(":root .form-row-installation .nested-section .form-row:not(.form-row-wide)");
+    expect(narrow).toContain(":root .control-width-auth .nested-section .form-row:not(.form-row-wide)");
+    expect(narrow).toContain("grid-template-columns: minmax(0, 1fr);");
+  });
   it("keeps both endpoints at content height", () => {
     expect(styles.split(".route-composition {")[1]?.split("}")[0]).toContain("align-items: start;");
     expect(styles).not.toMatch(/\.endpoint-card(?:-source|-sink)?\s*\{[^}]*align-self: stretch;/);
@@ -49,7 +70,7 @@ describe("delivery layout contract", () => {
     expect(stacked).toMatch(/grid-template-areas:\s*"source"\s*"sink";/);
   });
   it("reserves source metadata and exact-match slots and keeps the picker within narrow forms", () => {
-    const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
+    const rule = (selector: string) => styles.split(`\n${selector} {`)[1]?.split("}")[0];
     expect(rule(":root .available-tables-metadata > .table-matches-height-toggle")).toContain("height: 48px; width: 248px;");
     expect(rule(":root .available-tables-failures")).toContain("width: 56px; height: 18px;");
     expect(rule(".available-tables-summary")).toContain("height: 14px;");
@@ -203,7 +224,7 @@ describe("delivery layout contract", () => {
       expect(rule).toContain("overflow: auto;");
       expect(rule).toContain("overflow-wrap: anywhere;");
     }
-    const fields = styles.split(".connection-dependent-fields {")[1]?.split("}")[0];
+    const fields = styles.split("\n.connection-dependent-fields {")[1]?.split("}")[0];
     expect(fields).toContain("min-width: 0;");
     expect(fields).toContain("grid-template-columns: minmax(0, 1fr);");
     expect(styles).toContain(".table-discovery {");
@@ -217,7 +238,9 @@ describe("delivery layout contract", () => {
   it("stacks form labels in narrow containers without squeezing controls", () => {
     expect(styles).toContain("container: form-space / inline-size;");
     expect(styles).toMatch(/@container form-space \(max-width: 520px\)/);
-    expect(styles).toMatch(/:root .form-row:not\(\.form-row-wide\)\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\)/s);
+    const narrow = styles.split("@container form-space (max-width: 520px) {")[1]?.split("}")[0];
+    expect(narrow).toContain(":root .form-row:not(.form-row-wide),");
+    expect(narrow).toContain("grid-template-columns: minmax(0, 1fr);");
     expect(styles).toContain("repeat(auto-fit, minmax(min(100%, 260px), 1fr))");
   });
   it("uses one cool neutral palette for the airy light editor and catalog", () => {

@@ -85,7 +85,12 @@ pub struct MetadataValidationProgress {
 
 #[derive(Clone, Copy, Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum MetadataValidationPhase { Schemas, Pipeline, Complete, Failed }
+pub enum MetadataValidationPhase {
+    Schemas,
+    Pipeline,
+    Complete,
+    Failed,
+}
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -133,7 +138,7 @@ pub struct TransformPreviewRequest {
     pub table: TransformPreviewTable,
     pub row_limit: usize,
     pub max_sample_bytes: usize,
-    /// DataFusion tracked operator state and retained Arrow batches, not an
+    /// `DataFusion` tracked operator state and retained Arrow batches, not an
     /// operating-system process memory limit. Scalar expressions may allocate
     /// transient memory outside the tracked pool.
     pub memory_limit_bytes: usize,

@@ -140,7 +140,9 @@ describe("ordered transform strips", () => {
     for (const index of [0, 1]) {
       if (index === 1) fireEvent.click(view.getByRole("button", { name: "Add transform" }));
       const strip = view.getAllByRole("article")[index]!;
-      const input = within(strip).getByRole("combobox", { name: label });
+      if (label === "Exclude" && index === 1)
+        fireEvent.click(within(strip).getByRole("button", { name: "Add Exclude for transform 2" }));
+      const input = within(strip).getByRole("combobox", { name: `${label} transform ${index + 1}` });
       fireEvent.input(input, { target: { value: "public.rep" } });
       const suggestion = await within(strip).findByRole("option", { name: "public.reports_daily" });
       fireEvent.click(suggestion);

@@ -3,15 +3,13 @@ use std::io::Cursor;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use anyhow::Context as _;
 use super::config::UnsupportedTypePolicy;
+use anyhow::Context as _;
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
 use super::config::{PostgresSourceConfig, TableConfig};
-use crate::connectors::postgres::common::{
-    connect, quote_identifier, validate_identifier,
-};
+use crate::connectors::postgres::common::{connect, quote_identifier, validate_identifier};
 use crate::connectors::postgres::src_batch::{ExportedSnapshot, PostgresSource};
 use crate::connectors::postgres::src_batch_and_stream::{
     AmbiguousReplicationSlotCreation, ReplicationSlotBootstrap, SnapshotStreamPreparation,
@@ -320,9 +318,13 @@ impl PostgresSourceConnector {
                     // Validation discovers metadata only. Readers create the shared
                     // snapshot at execution time and revalidate the schema in it.
                     let client = connect(&self.config.connection).await?;
-                    discover_validation_tables(&client, self.resolved_tables().await?, self.config.unsupported_type_policy(delivery_type)?)
-                        .await
-                        .map(Arc::new)
+                    discover_validation_tables(
+                        &client,
+                        self.resolved_tables().await?,
+                        self.config.unsupported_type_policy(delivery_type)?,
+                    )
+                    .await
+                    .map(Arc::new)
                 } else {
                     let client = connect(&self.config.connection).await?;
                     let tables =
@@ -720,14 +722,31 @@ async fn discover_tables(
 ) -> anyhow::Result<Vec<DiscoveredTable>> {
     let mut tables = Vec::with_capacity(configured.len());
     for table in configured {
-        tables.push(discover_table(client, table.clone(), policy).await.map_err(|error| {
-            let diagnostic = error.chain()
-                .find_map(|cause| cause.downcast_ref::<tokio_postgres::Error>())
-                .and_then(tokio_postgres::Error::as_db_error)
-                .map(|database| format!("{} (SQLSTATE {})", database.message(), database.code().code()))
-                .unwrap_or_else(|| format!("{error:#}"));
-            anyhow::anyhow!("PostgreSQL table '{}.{}' schema discovery failed: {diagnostic}", table.schema, table.name)
-        })?);
+        tables.push(
+            discover_table(client, table.clone(), policy)
+                .await
+                .map_err(|error| {
+                    let diagnostic = error
+                        .chain()
+                        .find_map(|cause| cause.downcast_ref::<tokio_postgres::Error>())
+                        .and_then(tokio_postgres::Error::as_db_error)
+                        .map_or_else(
+                            || format!("{error:#}"),
+                            |database| {
+                                format!(
+                                    "{} (SQLSTATE {})",
+                                    database.message(),
+                                    database.code().code()
+                                )
+                            },
+                        );
+                    anyhow::anyhow!(
+                        "PostgreSQL table '{}.{}' schema discovery failed: {diagnostic}",
+                        table.schema,
+                        table.name
+                    )
+                })?,
+        );
     }
     Ok(tables)
 }
@@ -898,8 +917,10 @@ struct PostgresMetadataState {
 }
 
 impl transferia_registry::SourceMetadataReader for PostgresMetadataReader {
-    fn list_tables(&self, cancellation: tokio_util::sync::CancellationToken)
-        -> BoxFuture<'_, anyhow::Result<Vec<transferia_registry::TableIdentity>>> {
+    fn list_tables(
+        &self,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<Vec<transferia_registry::TableIdentity>>> {
         Box::pin(async move {
             tokio::select! {
                 biased;
@@ -909,26 +930,49 @@ impl transferia_registry::SourceMetadataReader for PostgresMetadataReader {
         })
     }
 
-    fn sample_table(&self, table: transferia_registry::TableIdentity, limits: transferia_registry::TableSampleLimits,
-        cancellation: tokio_util::sync::CancellationToken) -> BoxFuture<'_, anyhow::Result<transferia_core::TableData>> {
+    fn sample_table(
+        &self,
+        table: transferia_registry::TableIdentity,
+        limits: transferia_registry::TableSampleLimits,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<transferia_core::TableData>> {
         Box::pin(async move {
             let cached = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata read cancelled"),
                 cached = self.state.lock() => cached,
             };
-            let discovered = cached.tables.get(&table).cloned()
+            let discovered = cached
+                .tables
+                .get(&table)
+                .cloned()
                 .ok_or_else(|| anyhow::anyhow!("Load this table's schema before preview"))?;
             drop(cached);
-            super::super::src_batch::sample_with_metadata(self.config.clone(), self.delivery_type, table, limits, cancellation, Some(discovered)).await
+            super::super::src_batch::sample_with_metadata(
+                self.config.clone(),
+                self.delivery_type,
+                table,
+                limits,
+                cancellation,
+                Some(discovered),
+            )
+            .await
         })
     }
     fn includes_table(&self, table: &transferia_registry::TableIdentity, hide: bool) -> bool {
         !hide || (table.namespace != "information_schema" && !table.namespace.starts_with("pg_"))
     }
 
-    fn load_tables(&self, tables: Vec<transferia_registry::TableIdentity>, cancellation: tokio_util::sync::CancellationToken)
-        -> BoxFuture<'_, anyhow::Result<std::collections::BTreeMap<transferia_registry::TableIdentity, Result<(), String>>>> {
+    fn load_tables(
+        &self,
+        tables: Vec<transferia_registry::TableIdentity>,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> BoxFuture<
+        '_,
+        anyhow::Result<
+            std::collections::BTreeMap<transferia_registry::TableIdentity, Result<(), String>>,
+        >,
+    > {
         Box::pin(async move {
             let mut state = tokio::select! {
                 biased;
@@ -936,10 +980,20 @@ impl transferia_registry::SourceMetadataReader for PostgresMetadataReader {
                 state = self.state.lock() => state,
             };
             let mut results = std::collections::BTreeMap::new();
-            let missing = tables.into_iter().filter(|table| {
-                if state.tables.contains_key(table) { results.insert(table.clone(), Ok(())); false } else { true }
-            }).collect::<Vec<_>>();
-            if missing.is_empty() { return Ok(results); }
+            let missing = tables
+                .into_iter()
+                .filter(|table| {
+                    if state.tables.contains_key(table) {
+                        results.insert(table.clone(), Ok(()));
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .collect::<Vec<_>>();
+            if missing.is_empty() {
+                return Ok(results);
+            }
             // A cancelled query drops its connection, never leaves an open
             // metadata transaction to contaminate the next request.
             let client = match state.client.take().filter(|client| !client.is_closed()) {
@@ -963,29 +1017,46 @@ impl transferia_registry::SourceMetadataReader for PostgresMetadataReader {
                     }
                     Ok(discovered)
                 });
-                results.insert(table.clone(), discovered.map(|discovered| { state.tables.insert(table, discovered); })
-                    .map_err(|error| format!("{error:#}")));
+                results.insert(
+                    table.clone(),
+                    discovered
+                        .map(|discovered| {
+                            state.tables.insert(table, discovered);
+                        })
+                        .map_err(|error| format!("{error:#}")),
+                );
             }
+            drop(state);
             Ok(results)
         })
     }
 
-    fn discovery(&self, selected: Vec<transferia_registry::TableIdentity>,
+    fn discovery(
+        &self,
+        selected: Vec<transferia_registry::TableIdentity>,
         request: transferia_core::delivery::DeliveryDiscoveryRequest,
-        cancellation: tokio_util::sync::CancellationToken) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
             let state = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata validation cancelled"),
                 state = self.state.lock() => state,
             };
-            let tables = selected.iter().map(|table| state.tables.get(table).cloned()
-                .ok_or_else(|| anyhow::anyhow!("Metadata is not loaded for {}", table.qualified_name())))
+            let tables = selected
+                .iter()
+                .map(|table| {
+                    state.tables.get(table).cloned().ok_or_else(|| {
+                        anyhow::anyhow!("Metadata is not loaded for {}", table.qualified_name())
+                    })
+                })
                 .collect::<anyhow::Result<Vec<_>>>()?;
             let replication = self.delivery_type != DeliveryType::Batch;
             if replication {
                 validate_replication_table_identities(&tables)?;
-                if let super::super::src_stream::ReplicationPlugin::Pgoutput { publication } = &self.config.replication.plugin {
+                if let super::super::src_stream::ReplicationPlugin::Pgoutput { publication } =
+                    &self.config.replication.plugin
+                {
                     tokio::select! {
                         () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata validation cancelled"),
                         result = async {
@@ -1001,13 +1072,17 @@ impl transferia_registry::SourceMetadataReader for PostgresMetadataReader {
 }
 
 impl SourceConnector for PostgresSourceConnector {
-    fn metadata_reader(&self, delivery_type: DeliveryType)
-        -> anyhow::Result<Option<Arc<dyn transferia_registry::SourceMetadataReader>>> {
+    fn metadata_reader(
+        &self,
+        delivery_type: DeliveryType,
+    ) -> anyhow::Result<Option<Arc<dyn transferia_registry::SourceMetadataReader>>> {
         self.bind_delivery_type(delivery_type)?;
         Ok(Some(Arc::new(PostgresMetadataReader {
-            config: self.config.clone(), delivery_type,
+            config: self.config.clone(),
+            delivery_type,
             state: tokio::sync::Mutex::new(PostgresMetadataState {
-                client: None, tables: std::collections::BTreeMap::new(),
+                client: None,
+                tables: std::collections::BTreeMap::new(),
             }),
         })))
     }
@@ -1440,8 +1515,7 @@ pub async fn discover_table(
     let statement = client.prepare(&query).await.with_context(|| {
         format!(
             "cannot inspect PostgreSQL table '{}.{}'",
-            table.schema,
-            table.name
+            table.schema, table.name
         )
     })?;
     anyhow::ensure!(
@@ -1451,10 +1525,16 @@ pub async fn discover_table(
         table.name
     );
     if policy == UnsupportedTypePolicy::ToString {
-        let projection = super::super::src_batch::source_select_projection(statement.columns(), policy)?;
-        client.prepare(&format!("SELECT {projection} FROM {}.{} LIMIT 0",
-            quote_identifier(&table.schema), quote_identifier(&table.name)))
-            .await.context("cannot prepare explicit PostgreSQL to_string projection")?;
+        let projection =
+            super::super::src_batch::source_select_projection(statement.columns(), policy)?;
+        client
+            .prepare(&format!(
+                "SELECT {projection} FROM {}.{} LIMIT 0",
+                quote_identifier(&table.schema),
+                quote_identifier(&table.name)
+            ))
+            .await
+            .context("cannot prepare explicit PostgreSQL to_string projection")?;
     }
     let nullability = client.query(
         "SELECT column_name, is_nullable = 'YES' FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
@@ -1512,7 +1592,9 @@ pub async fn discover_table(
             })?;
             Ok(SchemaColumn::new(
                 column.name().to_owned(),
-                policy.arrow_type(column.type_()).with_context(|| format!("column '{}' type '{}'", column.name(), column.type_()))?,
+                policy.arrow_type(column.type_()).with_context(|| {
+                    format!("column '{}' type '{}'", column.name(), column.type_())
+                })?,
                 nullable,
             )
             .with_constraints(physical.get::<_, bool>(2), false, None))
@@ -1535,11 +1617,26 @@ pub async fn discover_table(
     assemble_metadata_table(table, columns, type_oids, replica_identity, relation_oid)
 }
 
-pub(super) fn assemble_metadata_table(table: TableConfig, columns: Vec<SchemaColumn>, type_oids: Vec<u32>,
-    replica_identity: String, relation_oid: u32) -> anyhow::Result<DiscoveredTable> {
-    anyhow::ensure!(!columns.is_empty() && columns.len() == type_oids.len(), "PostgreSQL table '{}.{}' has incomplete column metadata", table.schema, table.name);
-    anyhow::ensure!(matches!(replica_identity.as_str(), "d" | "n" | "f" | "i"),
-        "PostgreSQL table '{}.{}' returned unsupported replica identity '{}'", table.schema, table.name, replica_identity);
+pub(super) fn assemble_metadata_table(
+    table: TableConfig,
+    columns: Vec<SchemaColumn>,
+    type_oids: Vec<u32>,
+    replica_identity: String,
+    relation_oid: u32,
+) -> anyhow::Result<DiscoveredTable> {
+    anyhow::ensure!(
+        !columns.is_empty() && columns.len() == type_oids.len(),
+        "PostgreSQL table '{}.{}' has incomplete column metadata",
+        table.schema,
+        table.name
+    );
+    anyhow::ensure!(
+        matches!(replica_identity.as_str(), "d" | "n" | "f" | "i"),
+        "PostgreSQL table '{}.{}' returned unsupported replica identity '{}'",
+        table.schema,
+        table.name,
+        replica_identity
+    );
     for index in 0..columns.len() {
         for reserved in [old_value_column_name(index), old_key_column_name(index)] {
             anyhow::ensure!(

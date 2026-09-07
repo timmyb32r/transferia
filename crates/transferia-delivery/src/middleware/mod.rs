@@ -75,7 +75,11 @@ struct ScopedMiddleware {
 
 #[async_trait::async_trait]
 impl Middleware for ScopedMiddleware {
-    async fn preview(&self, data: TableData, context: MiddlewarePreviewContext) -> anyhow::Result<TableData> {
+    async fn preview(
+        &self,
+        data: TableData,
+        context: MiddlewarePreviewContext,
+    ) -> anyhow::Result<TableData> {
         if !data.is_dlq && self.applies_to(data.namespace.as_deref(), &data.table) {
             self.action.preview(data, context).await
         } else {
@@ -90,7 +94,10 @@ impl Middleware for ScopedMiddleware {
         anyhow::bail!("scoped transform validation requires a dataset identity")
     }
 
-    async fn output_dataset(&self, dataset: &DiscoveredDataset) -> anyhow::Result<DiscoveredDataset> {
+    async fn output_dataset(
+        &self,
+        dataset: &DiscoveredDataset,
+    ) -> anyhow::Result<DiscoveredDataset> {
         if self.applies_to(dataset.namespace.as_deref(), &dataset.name) {
             self.action.output_dataset(dataset).await
         } else {

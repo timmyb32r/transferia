@@ -8,7 +8,9 @@ use clickhouse_arrow::ClientBuilder;
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt as _;
 
-use super::config::{ClickHouseSnapshotReader, ClickHouseSourceConfig, TableConfig, UnsupportedTypePolicy};
+use super::config::{
+    ClickHouseSnapshotReader, ClickHouseSourceConfig, TableConfig, UnsupportedTypePolicy,
+};
 use super::parquet::{ParquetReadSettings, ParquetTransport};
 use super::reader::ClickHouseSource;
 use super::reader::SnapshotStream;
@@ -47,12 +49,16 @@ pub(super) const SYSTEM_COLUMN_KINDS: [SystemColumnKind; 4] = [
 struct ClickHouseMetadataReader {
     client: Arc<ReconnectingClient>,
     config: ClickHouseSourceConfig,
-    tables: tokio::sync::Mutex<std::collections::BTreeMap<transferia_registry::TableIdentity, DiscoveredTable>>,
+    tables: tokio::sync::Mutex<
+        std::collections::BTreeMap<transferia_registry::TableIdentity, DiscoveredTable>,
+    >,
 }
 
 impl transferia_registry::SourceMetadataReader for ClickHouseMetadataReader {
-    fn list_tables(&self, cancellation: tokio_util::sync::CancellationToken)
-        -> BoxFuture<'_, anyhow::Result<Vec<transferia_registry::TableIdentity>>> {
+    fn list_tables(
+        &self,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<Vec<transferia_registry::TableIdentity>>> {
         Box::pin(async move {
             tokio::select! {
                 biased;
@@ -62,26 +68,47 @@ impl transferia_registry::SourceMetadataReader for ClickHouseMetadataReader {
         })
     }
 
-    fn sample_table(&self, table: transferia_registry::TableIdentity, limits: transferia_registry::TableSampleLimits,
-        cancellation: tokio_util::sync::CancellationToken) -> BoxFuture<'_, anyhow::Result<transferia_core::TableData>> {
+    fn sample_table(
+        &self,
+        table: transferia_registry::TableIdentity,
+        limits: transferia_registry::TableSampleLimits,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<transferia_core::TableData>> {
         Box::pin(async move {
             let cached = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("ClickHouse metadata read cancelled"),
                 cached = self.tables.lock() => cached,
             };
-            let discovered = cached.get(&table).cloned()
+            let discovered = cached
+                .get(&table)
+                .cloned()
                 .ok_or_else(|| anyhow::anyhow!("Load this table's schema before preview"))?;
             drop(cached);
-            super::sample::sample_with_metadata(self.config.clone(), table, limits, cancellation, Some(discovered)).await
+            super::sample::sample_with_metadata(
+                self.config.clone(),
+                table,
+                limits,
+                cancellation,
+                Some(discovered),
+            )
+            .await
         })
     }
     fn includes_table(&self, table: &transferia_registry::TableIdentity, hide: bool) -> bool {
         !hide || !super::config::is_system_database(&table.namespace)
     }
 
-    fn load_tables(&self, tables: Vec<transferia_registry::TableIdentity>, cancellation: tokio_util::sync::CancellationToken)
-        -> BoxFuture<'_, anyhow::Result<std::collections::BTreeMap<transferia_registry::TableIdentity, Result<(), String>>>> {
+    fn load_tables(
+        &self,
+        tables: Vec<transferia_registry::TableIdentity>,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> BoxFuture<
+        '_,
+        anyhow::Result<
+            std::collections::BTreeMap<transferia_registry::TableIdentity, Result<(), String>>,
+        >,
+    > {
         Box::pin(async move {
             let mut cached = tokio::select! {
                 biased;
@@ -89,34 +116,58 @@ impl transferia_registry::SourceMetadataReader for ClickHouseMetadataReader {
                 state = self.tables.lock() => state,
             };
             let mut results = std::collections::BTreeMap::new();
-            let missing = tables.into_iter().filter(|table| {
-                if cached.contains_key(table) { results.insert(table.clone(), Ok(())); false } else { true }
-            }).collect::<Vec<_>>();
-            if missing.is_empty() { return Ok(results); }
+            let missing = tables
+                .into_iter()
+                .filter(|table| {
+                    if cached.contains_key(table) {
+                        results.insert(table.clone(), Ok(()));
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .collect::<Vec<_>>();
+            if missing.is_empty() {
+                return Ok(results);
+            }
             let discovered = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("ClickHouse metadata loading cancelled"),
                 result = super::metadata::discover_tables(&self.client, &missing, self.config.unsupported_types) => result?,
             };
             for (table, discovered) in discovered {
-                results.insert(table.clone(), discovered.map(|discovered| { cached.insert(table, discovered); })
-                    .map_err(|error| format!("{error:#}")));
+                results.insert(
+                    table.clone(),
+                    discovered
+                        .map(|discovered| {
+                            cached.insert(table, discovered);
+                        })
+                        .map_err(|error| format!("{error:#}")),
+                );
             }
             Ok(results)
         })
     }
 
-    fn discovery(&self, selected: Vec<transferia_registry::TableIdentity>,
+    fn discovery(
+        &self,
+        selected: Vec<transferia_registry::TableIdentity>,
         request: transferia_core::delivery::DeliveryDiscoveryRequest,
-        cancellation: tokio_util::sync::CancellationToken) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
             let cached = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("ClickHouse metadata validation cancelled"),
                 state = self.tables.lock() => state,
             };
-            let tables = selected.iter().map(|table| cached.get(table).cloned()
-                .ok_or_else(|| anyhow::anyhow!("Metadata is not loaded for {}", table.qualified_name())))
+            let tables = selected
+                .iter()
+                .map(|table| {
+                    cached.get(table).cloned().ok_or_else(|| {
+                        anyhow::anyhow!("Metadata is not loaded for {}", table.qualified_name())
+                    })
+                })
                 .collect::<anyhow::Result<Vec<_>>>()?;
             build_metadata_discovery(&tables, request)
         })
@@ -175,7 +226,9 @@ impl ClickHouseSourceConnector {
                     .with_username(config.username.as_str())
                     .with_password(config.password.as_str())
                     .with_compression(native_compression.into())
-                    .with_arrow_options(clickhouse_arrow::ArrowOptions::strict().with_source_type_metadata(true))
+                    .with_arrow_options(
+                        clickhouse_arrow::ArrowOptions::strict().with_source_type_metadata(true),
+                    )
                     .with_setting("max_block_size", batch_rows)
                     // ClickHouse otherwise targets roughly 1 MiB result blocks. That
                     // produces many small Arrow batches for wide rows and forces the
@@ -309,11 +362,7 @@ fn build_metadata_discovery(
                 incoming
                     .columns
                     .extend(SYSTEM_COLUMN_KINDS.iter().map(|kind| {
-                        SchemaColumn::new(
-                            kind.default_name().to_owned(),
-                            kind.data_type(),
-                            false,
-                        )
+                        SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
                     }));
             }
             let stored_schema = if request.keep_system_columns {
@@ -349,10 +398,13 @@ fn build_metadata_discovery(
 }
 
 impl SourceConnector for ClickHouseSourceConnector {
-    fn metadata_reader(&self, _delivery_type: transferia_delivery_contracts::DeliveryType)
-        -> anyhow::Result<Option<Arc<dyn transferia_registry::SourceMetadataReader>>> {
+    fn metadata_reader(
+        &self,
+        _delivery_type: transferia_delivery_contracts::DeliveryType,
+    ) -> anyhow::Result<Option<Arc<dyn transferia_registry::SourceMetadataReader>>> {
         Ok(Some(Arc::new(ClickHouseMetadataReader {
-            client: Arc::clone(&self.client), config: self.config.clone(),
+            client: Arc::clone(&self.client),
+            config: self.config.clone(),
             tables: tokio::sync::Mutex::new(std::collections::BTreeMap::new()),
         })))
     }
@@ -445,25 +497,58 @@ impl SourceConnector for ClickHouseSourceConnector {
 pub(super) fn snapshot_query(table: &DiscoveredTable) -> String {
     // Qualified input references avoid ClickHouse's global SELECT-alias substitution.
     let reference = |column: &SchemaColumn| format!("source.{}", quote_identifier(&column.name));
-    let projection = table.schema.columns.iter().map(|column| {
-        let value = if super::types::is_string_conversion(column) {
-            format!("CAST(toString({}) AS {})", reference(column),
-                if column.nullable { "Nullable(String)" } else { "String" })
-        } else { reference(column) };
-        format!("{value} AS {}", quote_identifier(&column.name))
-    }).collect::<Vec<_>>().join(", ");
+    let projection = table
+        .schema
+        .columns
+        .iter()
+        .map(|column| {
+            let value = if super::types::is_string_conversion(column) {
+                format!(
+                    "CAST(toString({}) AS {})",
+                    reference(column),
+                    if column.nullable {
+                        "Nullable(String)"
+                    } else {
+                        "String"
+                    }
+                )
+            } else {
+                reference(column)
+            };
+            format!("{value} AS {}", quote_identifier(&column.name))
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     // Constant type guards also protect Parquet and explicit string conversions, whose
     // output type alone cannot reveal a change to the original ClickHouse declaration.
-    let guards = table.schema.columns.iter().filter_map(|column| {
-        super::types::source_declaration(column).map(|declaration| format!(
-            "throwIf(toTypeName({}) != {}, {}) = 0", reference(column),
-            quote_string_literal(&declaration),
-            quote_string_literal(&format!("ClickHouse source schema drifted at {}.{} column {} (expected {})", table.config.database, table.config.name, column.name, declaration)),
-        ))
-    }).collect::<Vec<_>>();
-    let condition = if guards.is_empty() { String::new() } else { format!(" WHERE {}", guards.join(" AND ")) };
-    format!("SELECT {projection} FROM {}.{} AS source{condition}",
-        quote_identifier(&table.config.database), quote_identifier(&table.config.name))
+    let guards = table
+        .schema
+        .columns
+        .iter()
+        .filter_map(|column| {
+            super::types::source_declaration(column).map(|declaration| {
+                format!(
+                    "throwIf(toTypeName({}) != {}, {}) = 0",
+                    reference(column),
+                    quote_string_literal(&declaration),
+                    quote_string_literal(&format!(
+                        "ClickHouse source schema drifted at {}.{} column {} (expected {})",
+                        table.config.database, table.config.name, column.name, declaration
+                    )),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    let condition = if guards.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", guards.join(" AND "))
+    };
+    format!(
+        "SELECT {projection} FROM {}.{} AS source{condition}",
+        quote_identifier(&table.config.database),
+        quote_identifier(&table.config.name)
+    )
 }
 
 async fn list_tables(
@@ -570,18 +655,24 @@ pub(super) async fn discover_table(
     })?;
     let key_query = format!(
         "SELECT primary_key, sorting_key FROM system.tables WHERE database = {} AND name = {}",
-        quote_string_literal(&table.database), quote_string_literal(&table.name),
+        quote_string_literal(&table.database),
+        quote_string_literal(&table.name),
     );
-    let key_batches = client.query_all(&key_query).await
+    let key_batches = client
+        .query_all(&key_query)
+        .await
         .map_err(|error| anyhow::anyhow!("cannot inspect ClickHouse source table key: {error}"))?;
     let discovered = decode_table(table, batches, key_batches, unsupported_types)?;
     validate_projection(client, &discovered).await?;
     Ok(discovered)
 }
 
-pub(super) fn decode_table(table: TableConfig, batches: Vec<arrow::record_batch::RecordBatch>,
-    key_batches: Vec<arrow::record_batch::RecordBatch>, unsupported_types: UnsupportedTypePolicy)
-    -> anyhow::Result<DiscoveredTable> {
+pub(super) fn decode_table(
+    table: TableConfig,
+    batches: Vec<arrow::record_batch::RecordBatch>,
+    key_batches: Vec<arrow::record_batch::RecordBatch>,
+    unsupported_types: UnsupportedTypePolicy,
+) -> anyhow::Result<DiscoveredTable> {
     let mut columns = Vec::new();
     let mut names = HashSet::new();
     for batch in batches {
@@ -733,7 +824,10 @@ pub(super) fn validate_source_column_kind(
     }
 }
 
-pub(super) async fn validate_projection(client: &ReconnectingClient, table: &DiscoveredTable) -> anyhow::Result<()> {
+pub(super) async fn validate_projection(
+    client: &ReconnectingClient,
+    table: &DiscoveredTable,
+) -> anyhow::Result<()> {
     let query = format!("DESCRIBE ({})", snapshot_query(table));
     let batches = transferia_connector_support::external_request::observe_external_request(
         "clickhouse", "describe_snapshot", client.query_all(&query),
@@ -743,22 +837,47 @@ pub(super) async fn validate_projection(client: &ReconnectingClient, table: &Dis
     ))?;
     let mut index = 0;
     for batch in batches {
-        anyhow::ensure!(batch.num_columns() >= 2, "ClickHouse DESCRIBE returned no column types");
+        anyhow::ensure!(
+            batch.num_columns() >= 2,
+            "ClickHouse DESCRIBE returned no column types"
+        );
         let names = cast(batch.column(0), &DataType::Utf8)?;
         let types = cast(batch.column(1), &DataType::Utf8)?;
-        let names = names.as_any().downcast_ref::<StringArray>().ok_or_else(|| anyhow::anyhow!("DESCRIBE names must be strings"))?;
-        let types = types.as_any().downcast_ref::<StringArray>().ok_or_else(|| anyhow::anyhow!("DESCRIBE types must be strings"))?;
+        let names = names
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| anyhow::anyhow!("DESCRIBE names must be strings"))?;
+        let types = types
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| anyhow::anyhow!("DESCRIBE types must be strings"))?;
         for row in 0..batch.num_rows() {
-            let expected = table.schema.columns.get(index).ok_or_else(|| anyhow::anyhow!("ClickHouse snapshot projection gained a column"))?;
-            anyhow::ensure!(!names.is_null(row) && !types.is_null(row) && names.value(row) == expected.name,
-                "ClickHouse snapshot projection column {} changed", expected.name);
-            let field = arrow::datatypes::Field::new(&expected.name, expected.data_type.clone(), expected.nullable)
-                .with_metadata(HashMap::from([("clickhouse.type".to_owned(), types.value(row).to_owned())]));
+            let expected =
+                table.schema.columns.get(index).ok_or_else(|| {
+                    anyhow::anyhow!("ClickHouse snapshot projection gained a column")
+                })?;
+            anyhow::ensure!(
+                !names.is_null(row) && !types.is_null(row) && names.value(row) == expected.name,
+                "ClickHouse snapshot projection column {} changed",
+                expected.name
+            );
+            let field = arrow::datatypes::Field::new(
+                &expected.name,
+                expected.data_type.clone(),
+                expected.nullable,
+            )
+            .with_metadata(HashMap::from([(
+                "clickhouse.type".to_owned(),
+                types.value(row).to_owned(),
+            )]));
             super::types::validate_wire_type(&field, expected)?;
             index += 1;
         }
     }
-    anyhow::ensure!(index == table.schema.columns.len(), "ClickHouse snapshot projection lost columns");
+    anyhow::ensure!(
+        index == table.schema.columns.len(),
+        "ClickHouse snapshot projection lost columns"
+    );
     Ok(())
 }
 
@@ -889,9 +1008,13 @@ pub(super) fn source_column_type(
     declared_type: &str,
     policy: UnsupportedTypePolicy,
 ) -> anyhow::Result<SchemaColumn> {
-    super::types::source_column(column, declared_type, policy).map_err(|error| anyhow::anyhow!(
-        "ClickHouse source table {}.{}, column {}, type {}: {error:#}",
-        quote_identifier(&table.database), quote_identifier(&table.name),
-        quote_identifier(column), declared_type,
-    ))
+    super::types::source_column(column, declared_type, policy).map_err(|error| {
+        anyhow::anyhow!(
+            "ClickHouse source table {}.{}, column {}, type {}: {error:#}",
+            quote_identifier(&table.database),
+            quote_identifier(&table.name),
+            quote_identifier(column),
+            declared_type,
+        )
+    })
 }

@@ -4,9 +4,14 @@ use std::time::Duration;
 
 #[test]
 fn table_sample_select_quotes_identifiers_and_limits_rows_in_database() {
-    let table = transferia_registry::TableIdentity { namespace: "some\"schema".into(), name: "events\"; DROP TABLE x; --".into() };
-    assert_eq!(super::sample::sample_query(&table, "\"id\"", 7).unwrap(),
-        "SELECT \"id\" FROM \"some\"\"schema\".\"events\"\"; DROP TABLE x; --\" LIMIT 7");
+    let table = transferia_registry::TableIdentity {
+        namespace: "some\"schema".into(),
+        name: "events\"; DROP TABLE x; --".into(),
+    };
+    assert_eq!(
+        super::sample::sample_query(&table, "\"id\"", 7).unwrap(),
+        "SELECT \"id\" FROM \"some\"\"schema\".\"events\"\"; DROP TABLE x; --\" LIMIT 7"
+    );
     assert!(super::sample::sample_query(&table, "\"id\"", 0).is_err());
 }
 
@@ -292,7 +297,12 @@ fn postgres_types_use_native_arrow_where_lossless_and_canonical_text_otherwise()
     ] {
         assert_eq!(postgres_to_arrow(&postgres).unwrap(), arrow);
         assert_eq!(
-            source_column_expression("mixed\"case", &postgres, crate::connectors::postgres::source::UnsupportedTypePolicy::Fail).unwrap(),
+            source_column_expression(
+                "mixed\"case",
+                &postgres,
+                crate::connectors::postgres::source::UnsupportedTypePolicy::Fail
+            )
+            .unwrap(),
             "\"mixed\"\"case\""
         );
     }
@@ -326,7 +336,12 @@ fn postgres_types_use_native_arrow_where_lossless_and_canonical_text_otherwise()
     ] {
         assert_eq!(postgres_to_arrow(&postgres).unwrap(), DataType::Utf8);
         assert_eq!(
-            source_column_expression("value", &postgres, crate::connectors::postgres::source::UnsupportedTypePolicy::Fail).unwrap(),
+            source_column_expression(
+                "value",
+                &postgres,
+                crate::connectors::postgres::source::UnsupportedTypePolicy::Fail
+            )
+            .unwrap(),
             "\"value\"::text AS \"value\""
         );
     }
@@ -426,7 +441,12 @@ fn user_defined_postgres_types_are_lossless_text_and_pseudo_types_fail_closed() 
         let data_type = Type::new("custom".to_owned(), 80_000, kind, "public".to_owned());
         assert_eq!(postgres_to_arrow(&data_type).unwrap(), DataType::Utf8);
         assert_eq!(
-            source_column_expression("value", &data_type, crate::connectors::postgres::source::UnsupportedTypePolicy::Fail).unwrap(),
+            source_column_expression(
+                "value",
+                &data_type,
+                crate::connectors::postgres::source::UnsupportedTypePolicy::Fail
+            )
+            .unwrap(),
             "\"value\"::text AS \"value\""
         );
     }
@@ -438,16 +458,39 @@ fn user_defined_postgres_types_are_lossless_text_and_pseudo_types_fail_closed() 
         "public".to_owned(),
     );
     assert!(postgres_to_arrow(&pseudo).is_err());
-    assert!(source_column_expression("value", &pseudo, crate::connectors::postgres::source::UnsupportedTypePolicy::Fail).is_err());
-    assert_eq!(source_column_expression("value", &pseudo, crate::connectors::postgres::source::UnsupportedTypePolicy::ToString).unwrap(), "\"value\"::text AS \"value\"");
+    assert!(source_column_expression(
+        "value",
+        &pseudo,
+        crate::connectors::postgres::source::UnsupportedTypePolicy::Fail
+    )
+    .is_err());
+    assert_eq!(
+        source_column_expression(
+            "value",
+            &pseudo,
+            crate::connectors::postgres::source::UnsupportedTypePolicy::ToString
+        )
+        .unwrap(),
+        "\"value\"::text AS \"value\""
+    );
 }
 #[test]
 fn cached_preview_compares_physical_metadata_without_confusing_domain_and_query_oids() {
     use crate::connectors::postgres::source::{DiscoveredTable, TableConfig};
     let cached = DiscoveredTable {
-        config: TableConfig { schema: "public".into(), name: "events".into() },
-        schema: transferia_core::DatasetSchema::new(vec![SchemaColumn::new("value".into(), DataType::Int32, false)]),
-        type_oids: vec![90001], relation_oid: 42, replica_identity_full: false, replica_identity: "d".into(),
+        config: TableConfig {
+            schema: "public".into(),
+            name: "events".into(),
+        },
+        schema: transferia_core::DatasetSchema::new(vec![SchemaColumn::new(
+            "value".into(),
+            DataType::Int32,
+            false,
+        )]),
+        type_oids: vec![90001],
+        relation_oid: 42,
+        replica_identity_full: false,
+        replica_identity: "d".into(),
     };
     assert!(super::sample::validate_cached_schema(&cached, &cached).is_ok());
     let mut changed = cached.clone();

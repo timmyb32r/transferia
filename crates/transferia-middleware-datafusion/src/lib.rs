@@ -58,23 +58,34 @@ impl DataFusionMiddleware {
             .context("plan DataFusion SQL")
     }
 
-    async fn execute(&self, batch: RecordBatch, memory_limit_bytes: Option<usize>) -> anyhow::Result<RecordBatch> {
-        let pool: Option<Arc<dyn MemoryPool>> = memory_limit_bytes.map(|limit| {
-            Arc::new(GreedyMemoryPool::new(limit)) as Arc<dyn MemoryPool>
-        });
-        let mut reservation = pool.as_ref().map(|pool| MemoryConsumer::new("preview input and output").register(pool));
+    async fn execute(
+        &self,
+        batch: RecordBatch,
+        memory_limit_bytes: Option<usize>,
+    ) -> anyhow::Result<RecordBatch> {
+        let pool: Option<Arc<dyn MemoryPool>> = memory_limit_bytes
+            .map(|limit| Arc::new(GreedyMemoryPool::new(limit)) as Arc<dyn MemoryPool>);
+        let mut reservation = pool
+            .as_ref()
+            .map(|pool| MemoryConsumer::new("preview input and output").register(pool));
         if let Some(reservation) = &mut reservation {
-            reservation.try_grow(batch.get_array_memory_size()).context("preview input exceeds memory_limit_bytes")?;
+            reservation
+                .try_grow(batch.get_array_memory_size())
+                .context("preview input exceeds memory_limit_bytes")?;
         }
         let context = match pool {
             Some(pool) => SessionContext::new_with_config_rt(
                 SessionConfig::new(),
-                Arc::new(RuntimeEnvBuilder::new()
-                    .with_memory_pool(pool)
-                    .with_disk_manager_builder(DiskManagerBuilder::default()
-                        .with_mode(DiskManagerMode::Disabled)
-                        .with_max_temp_directory_size(0))
-                    .build()?),
+                Arc::new(
+                    RuntimeEnvBuilder::new()
+                        .with_memory_pool(pool)
+                        .with_disk_manager_builder(
+                            DiskManagerBuilder::default()
+                                .with_mode(DiskManagerMode::Disabled)
+                                .with_max_temp_directory_size(0),
+                        )
+                        .build()?,
+                ),
             ),
             None => SessionContext::new(),
         };
@@ -84,38 +95,63 @@ impl DataFusionMiddleware {
             let batches = frame.collect().await.context("execute DataFusion SQL")?;
             return concat_batches(&schema, &batches).context("combine DataFusion output batches");
         }
-        let mut stream = frame.execute_stream().await.context("execute DataFusion SQL")?;
+        let mut stream = frame
+            .execute_stream()
+            .await
+            .context("execute DataFusion SQL")?;
         let mut batches = Vec::new();
         let mut output_bytes = 0usize;
         while let Some(batch) = stream.try_next().await.context("execute DataFusion SQL")? {
             let bytes = batch.get_array_memory_size();
             if let Some(reservation) = &mut reservation {
-                reservation.try_grow(bytes).context("preview output exceeds memory_limit_bytes")?;
+                reservation
+                    .try_grow(bytes)
+                    .context("preview output exceeds memory_limit_bytes")?;
             }
-            output_bytes = output_bytes.checked_add(bytes).context("preview output memory accounting overflow")?;
+            output_bytes = output_bytes
+                .checked_add(bytes)
+                .context("preview output memory accounting overflow")?;
             batches.push(batch);
         }
         if batches.len() == 1 {
-            return Ok(batches.pop().expect("one batch"));
+            return batches.pop().context("DataFusion output batch is missing");
         }
         if let Some(reservation) = &mut reservation {
-            reservation.try_grow(output_bytes).context("preview output combination exceeds memory_limit_bytes")?;
+            reservation
+                .try_grow(output_bytes)
+                .context("preview output combination exceeds memory_limit_bytes")?;
         }
         concat_batches(&schema, &batches).context("combine DataFusion output batches")
     }
 
-    async fn process_with_budget(&self, data: TableData, memory_limit_bytes: Option<usize>) -> anyhow::Result<TableData> {
+    async fn process_with_budget(
+        &self,
+        data: TableData,
+        memory_limit_bytes: Option<usize>,
+    ) -> anyhow::Result<TableData> {
         let batch = self.execute(data.batch, memory_limit_bytes).await?;
-        let system_columns = SystemColumns::new(data.system_columns.iter().filter_map(|column| {
-            batch.schema().index_of(&column.name).ok().map(|index| SystemColumn {
-                kind: column.kind,
-                index,
-                name: column.name.clone(),
-            })
-        }).collect::<Vec<_>>());
-        Ok(TableData { batch, system_columns, ..data })
+        let system_columns = SystemColumns::new(
+            data.system_columns
+                .iter()
+                .filter_map(|column| {
+                    batch
+                        .schema()
+                        .index_of(&column.name)
+                        .ok()
+                        .map(|index| SystemColumn {
+                            kind: column.kind,
+                            index,
+                            name: column.name.clone(),
+                        })
+                })
+                .collect::<Vec<_>>(),
+        );
+        Ok(TableData {
+            batch,
+            system_columns,
+            ..data
+        })
     }
-
 }
 
 #[async_trait]
@@ -137,11 +173,15 @@ impl Middleware for DataFusionMiddleware {
             .map(|field| new_empty_array(field.data_type()))
             .collect::<Vec<_>>();
         let output = self
-            .plan(RecordBatch::try_new(arrow_schema, columns)?, SessionContext::new())
+            .plan(
+                RecordBatch::try_new(arrow_schema, columns)?,
+                SessionContext::new(),
+            )
             .await?;
         Ok(DatasetSchema::new(
             output
-                .schema().as_arrow()
+                .schema()
+                .as_arrow()
                 .fields()
                 .iter()
                 .map(|field| {
@@ -174,18 +214,22 @@ impl Middleware for DataFusionMiddleware {
         self.process_with_budget(data, None).await
     }
 
-    async fn preview(&self, data: TableData, context: MiddlewarePreviewContext) -> anyhow::Result<TableData> {
-        anyhow::ensure!(context.memory_limit_bytes > 0, "preview memory_limit_bytes must be positive");
-        self.process_with_budget(data, Some(context.memory_limit_bytes)).await
+    async fn preview(
+        &self,
+        data: TableData,
+        context: MiddlewarePreviewContext,
+    ) -> anyhow::Result<TableData> {
+        anyhow::ensure!(
+            context.memory_limit_bytes > 0,
+            "preview memory_limit_bytes must be positive"
+        );
+        self.process_with_budget(data, Some(context.memory_limit_bytes))
+            .await
     }
 }
 
 pub fn register(builder: &mut RegistryBuilder) -> anyhow::Result<()> {
-    builder.register_middleware(MiddlewareRegistration::new::<
-        DataFusionConfig,
-        _,
-        _,
-    >(
+    builder.register_middleware(MiddlewareRegistration::new::<DataFusionConfig, _, _>(
         "datafusion",
         "DataFusion SQL",
         || serde_json::json!({ "sql": "SELECT * FROM input" }),

@@ -6454,8 +6454,6 @@ dependencies = [
  "transferia-core",
  "transferia-delivery",
  "transferia-delivery-contracts",
- "transferia-middleware-datafusion",
- "transferia-middleware-filter",
  "transferia-registry",
  "transferia-runtime",
  "transferia-server-contracts",

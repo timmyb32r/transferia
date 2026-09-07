@@ -72,9 +72,14 @@ impl TableSampleLimits {
 }
 
 type SourceTableSampler = Box<
-    dyn Fn(Value, TableIdentity, TableSampleLimits, CancellationToken)
-        -> Pin<Box<dyn Future<Output = anyhow::Result<TableData>> + Send>>
-        + Send + Sync,
+    dyn Fn(
+            Value,
+            TableIdentity,
+            TableSampleLimits,
+            CancellationToken,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<TableData>> + Send>>
+        + Send
+        + Sync,
 >;
 type SourceFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SourceConnector>> + Send + Sync>;
 type SinkFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SinkConnector>> + Send + Sync>;
@@ -188,7 +193,6 @@ impl MiddlewareRegistration {
             }),
         })
     }
-
 }
 
 impl ComponentRegistration {
@@ -249,15 +253,21 @@ impl ComponentRegistration {
     pub fn source_table_sampler<C, F, Fut>(mut self, sampler: F) -> Self
     where
         C: DeserializeOwned + Send + 'static,
-        F: Fn(C, TableIdentity, TableSampleLimits, CancellationToken) -> Fut + Send + Sync + 'static,
+        F: Fn(C, TableIdentity, TableSampleLimits, CancellationToken) -> Fut
+            + Send
+            + Sync
+            + 'static,
         Fut: Future<Output = anyhow::Result<TableData>> + Send + 'static,
     {
-        self.source_table_sampler = Some(Box::new(move |raw, table, limits, cancellation| {
-            match serde_yaml::from_value(raw) {
-                Ok(config) => Box::pin(sampler(config, table, limits, cancellation)),
-                Err(_) => Box::pin(async { anyhow::bail!("invalid source sample configuration") }),
-            }
-        }));
+        self.source_table_sampler =
+            Some(Box::new(
+                move |raw, table, limits, cancellation| match serde_yaml::from_value(raw) {
+                    Ok(config) => Box::pin(sampler(config, table, limits, cancellation)),
+                    Err(_) => {
+                        Box::pin(async { anyhow::bail!("invalid source sample configuration") })
+                    }
+                },
+            ));
         self
     }
 
@@ -842,18 +852,27 @@ impl Registry {
         cancellation: CancellationToken,
     ) -> anyhow::Result<TableData> {
         limits.validate()?;
-        anyhow::ensure!(!table.namespace.is_empty() && !table.name.is_empty(), "source sample requires a qualified table identity");
-        let sampler = self.source_table_samplers.get(kind)
-            .ok_or_else(|| anyhow::anyhow!("{kind} source does not support native table sampling"))?;
+        anyhow::ensure!(
+            !table.namespace.is_empty() && !table.name.is_empty(),
+            "source sample requires a qualified table identity"
+        );
+        let sampler = self.source_table_samplers.get(kind).ok_or_else(|| {
+            anyhow::anyhow!("{kind} source does not support native table sampling")
+        })?;
         let result = tokio::select! {
             biased;
             () = cancellation.cancelled() => anyhow::bail!("source table sample cancelled"),
             result = sampler(raw, table.clone(), limits, cancellation.clone()) => result?,
         };
-        anyhow::ensure!(result.namespace.as_deref() == Some(table.namespace.as_str()) && result.table.as_ref() == table.name,
-            "source sample returned a different table identity");
-        anyhow::ensure!(result.batch.num_rows() <= limits.row_limit,
-            "source sample exceeded the requested row_limit");
+        anyhow::ensure!(
+            result.namespace.as_deref() == Some(table.namespace.as_str())
+                && result.table.as_ref() == table.name,
+            "source sample returned a different table identity"
+        );
+        anyhow::ensure!(
+            result.batch.num_rows() <= limits.row_limit,
+            "source sample exceeded the requested row_limit"
+        );
         limits.check_bytes(result.batch.get_array_memory_size())?;
         Ok(result)
     }

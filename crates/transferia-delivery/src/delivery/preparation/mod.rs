@@ -129,7 +129,15 @@ pub async fn build_preview_plan_with_metadata(
     composition: &dyn Composition,
     provider: &dyn PreviewDiscoveryProvider,
 ) -> anyhow::Result<DeliveryPlan> {
-    build_delivery_plan_internal(config, None, cancellation, composition, true, Some(provider)).await
+    build_delivery_plan_internal(
+        config,
+        None,
+        cancellation,
+        composition,
+        true,
+        Some(provider),
+    )
+    .await
 }
 
 pub async fn build_delivery_plan_with_replay_identity(
@@ -302,14 +310,18 @@ async fn build_pipeline_plan(
         source_descriptor.source_behavior() == Some(SourceBehavior::FiniteAppendOnlyRows);
     validate_record_semantics(&source_descriptor, &sink_connector.compatibility())?;
     let context = SourceDiscoveryContext {
-            request: DeliveryDiscoveryRequest {
-                keep_system_columns: true,
-            },
-            cancellation,
-            delivery_type: config.delivery_type,
-        };
+        request: DeliveryDiscoveryRequest {
+            keep_system_columns: true,
+        },
+        cancellation,
+        delivery_type: config.delivery_type,
+    };
     let discovery = match preview {
-        Some(provider) => provider.discover(source_kind, config.source.raw()?, context).await?,
+        Some(provider) => {
+            provider
+                .discover(source_kind, config.source.raw()?, context)
+                .await?
+        }
         None => source_connector.delivery_discovery(context).await?,
     };
     anyhow::ensure!(
@@ -399,15 +411,12 @@ pub(crate) async fn validate_middlewares(
     {
         found_main = true;
         for (index, middleware) in middlewares.iter().enumerate() {
-            *main = middleware
-                .output_dataset(main)
-                .await
-                .with_context(|| {
-                    format!(
-                        "middleware {index} is incompatible with dataset {:?}",
-                        main.name
-                    )
-                })?;
+            *main = middleware.output_dataset(main).await.with_context(|| {
+                format!(
+                    "middleware {index} is incompatible with dataset {:?}",
+                    main.name
+                )
+            })?;
         }
     }
     anyhow::ensure!(found_main, "middlewares require a discovered main dataset");

@@ -1389,7 +1389,7 @@ describe("App request orchestration", () => {
     expect(api.speedtestEstimate).not.toHaveBeenCalled();
   });
 
-  it("validates the committed save even when sidebar refresh fails", async () => {
+  it.each([false, true])("validates the committed save when sidebar refresh fails (retry recovers=%s)", async recovers => {
     installApiMocks([]);
     vi.mocked(api.catalog).mockResolvedValue({
       ...CATALOG,
@@ -1425,8 +1425,10 @@ describe("App request orchestration", () => {
     const created = delivery("created", "Created");
     vi.mocked(api.create).mockResolvedValue(created);
     vi.mocked(api.deliveries)
+      .mockRejectedValue(new Error("list unavailable"))
       .mockResolvedValueOnce([])
       .mockRejectedValueOnce(new Error("list unavailable"));
+    if (recovers) vi.mocked(api.deliveries).mockResolvedValueOnce([created]);
     vi.mocked(api.validate).mockResolvedValue({
       delivery: {
         ...created,
@@ -1451,7 +1453,13 @@ describe("App request orchestration", () => {
       expect(api.validate).toHaveBeenCalledWith("created", 1, "1", undefined, expect.any(AbortSignal)),
     );
     expect(api.delivery).not.toHaveBeenCalled();
-    expect(await app.findByText(/Delivery list refresh failed/)).toBeTruthy();
+    await app.findByText("Configuration is valid.");
+    expect(api.deliveries).toHaveBeenCalledTimes(3);
+    if (recovers) {
+      expect(app.queryByText(/Delivery list refresh failed/)).toBeNull();
+    } else {
+      expect(app.getByText(/Delivery list refresh failed: list unavailable/)).toBeTruthy();
+    }
   });
 });
 

@@ -108,7 +108,7 @@ impl PostgresConnectionConfig {
 
 /// A request-scoped connection: dropping a cancelled preview must terminate its
 /// driver, not leave a detached task draining a query nobody can consume.
-pub(crate) struct SampleConnection {
+pub(super) struct SampleConnection {
     client: tokio_postgres::Client,
     driver: tokio::task::JoinHandle<()>,
 }
@@ -127,7 +127,9 @@ impl Drop for SampleConnection {
     }
 }
 
-pub(crate) async fn connect_sample(config: &PostgresConnectionConfig) -> anyhow::Result<SampleConnection> {
+pub(super) async fn connect_sample(
+    config: &PostgresConnectionConfig,
+) -> anyhow::Result<SampleConnection> {
     let (client, driver) = connect_with_driver(config).await?;
     Ok(SampleConnection { client, driver })
 }
@@ -137,8 +139,9 @@ pub async fn connect(config: &PostgresConnectionConfig) -> anyhow::Result<tokio_
     Ok(client)
 }
 
-async fn connect_with_driver(config: &PostgresConnectionConfig)
-    -> anyhow::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>)> {
+async fn connect_with_driver(
+    config: &PostgresConnectionConfig,
+) -> anyhow::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>)> {
     let mut connection_config = tokio_postgres::Config::new();
     connection_config
         .host(&config.host)

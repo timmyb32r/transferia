@@ -170,14 +170,16 @@ impl CompiledTableRule {
     /// cross-step conflict policy applies to a sequential transform step.
     #[must_use]
     pub fn matches(&self, namespace: Option<&str>, name: &str) -> bool {
-        let qualified = match namespace {
-            Some(namespace) => TableIdentity {
-                namespace: namespace.into(),
-                name: name.into(),
-            }
-            .qualified_name(),
-            None => name.replace('\\', "\\\\").replace('.', "\\."),
-        };
+        let qualified = namespace.map_or_else(
+            || name.replace('\\', "\\\\").replace('.', "\\."),
+            |namespace| {
+                TableIdentity {
+                    namespace: namespace.into(),
+                    name: name.into(),
+                }
+                .qualified_name()
+            },
+        );
         self.include.is_match(&qualified)
             && !self
                 .exclude

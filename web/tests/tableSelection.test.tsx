@@ -73,7 +73,7 @@ it.each([false, true])("keeps pattern help on the fields, not the table-mode sel
     expect(field.querySelector('[role="tooltip"]')?.textContent).toContain("Default: glob / wildcard");
   }
   const includeHelp = fields[0]!.querySelector('[role="tooltip"]')!.textContent;
-  expect(includeHelp).toContain("Preview uses the last successful connection check");
+  expect(includeHelp).toContain("Preview uses the last successful table discovery");
   expect(includeHelp?.includes("Tables created later are not added automatically")).toBe(fixed);
   view.rerender(form("all"));
   expect(view.container.querySelector(".table-selection-toolbar")).toBe(toolbar);
@@ -222,7 +222,7 @@ it("expands the complete matched list only on request into a bounded inline view
   expect(css).toMatch(/\.table-pattern-confirmation\s*\{[^}]*position: absolute;[^}]*width: 22px;/);
   // Compact spacing must not remove the fixed match-status slot: typing a
   // wildcard or receiving a preview must not move the next row or Add button.
-  expect(css).toMatch(/\.table-selection-editor\s*\{[^}]*gap: 12px;/);
+  expect(css).toMatch(/\.table-selection-editor\s*\{[^}]*gap: 8px;/);
   expect(css).toMatch(/\.table-rule-row\s*\{[^}]*gap: 0;/);
 });
 
@@ -589,10 +589,17 @@ it("keeps a catalog across rule edits, invalidates it on connection edits, and d
   const api = { ...httpControlPlane, connectMetadata, releaseMetadata };
   const config = { host: "first", tables: { type: "selected", rules: [{ include: "db.*" }] } };
   const hook = renderHook(({ config }) => useEndpointActions({ api, role: "source", connector: "mysql", config, metadataMode: "batch" }), { initialProps: { config } });
-  act(() => { void hook.result.current.discoverTables(); void hook.result.current.discoverTables(); });
+  let pending!: ReturnType<typeof hook.result.current.discoverTables>;
+  act(() => {
+    pending = hook.result.current.discoverTables();
+    expect(hook.result.current.discoverTables()).toBe(pending);
+  });
   expect(hook.result.current.discovery.state).toBe("checking");
   expect(connectMetadata).toHaveBeenCalledTimes(1);
-  await act(async () => finish({ status: "verified", options: {}, tables: [] }));
+  await act(async () => {
+    finish({ status: "verified", options: {}, tables: [] });
+    await pending;
+  });
   expect(hook.result.current.discovery.state).toBe("success");
   hook.rerender({ config: { ...config, tables: { type: "selected", rules: [{ include: "db.other" }] } } });
   expect(hook.result.current.discovery.state).toBe("success");

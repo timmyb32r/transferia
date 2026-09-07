@@ -3,12 +3,14 @@ use std::time::Duration;
 
 use arrow::array::{
     make_array, ArrayData, ArrayRef, BinaryArray, BooleanBuilder, Decimal128Array, Decimal256Array,
-    DictionaryArray, Int32Builder, Int64Array, PrimitiveArray, StringArray, UInt8Array, UInt64Array,
+    DictionaryArray, Int32Builder, Int64Array, PrimitiveArray, StringArray, UInt64Array,
+    UInt8Array,
 };
 use arrow::compute::{cast_with_options, CastOptions};
 use arrow::datatypes::{
-    ArrowPrimitiveType, DataType, Field, Int8Type, Int16Type, Int32Type, Schema, TimeUnit, TimestampMicrosecondType,
-    TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType,
+    ArrowPrimitiveType, DataType, Field, Int16Type, Int32Type, Int8Type, Schema, TimeUnit,
+    TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType,
+    TimestampSecondType,
 };
 use arrow::record_batch::RecordBatch;
 use clickhouse_arrow::Type;
@@ -18,7 +20,9 @@ use futures_util::StreamExt as _;
 use std::pin::Pin;
 
 use super::connector::DiscoveredTable;
-use super::types::{is_string_conversion, source_declaration, validate_wire_declaration, wire_declaration};
+use super::types::{
+    is_string_conversion, source_declaration, validate_wire_declaration, wire_declaration,
+};
 use crate::metrics::SourceCounters;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::SchemaColumn;
@@ -153,7 +157,8 @@ impl ClickHouseSource {
                 false,
                 batch,
                 system_columns,
-            ).with_namespace(Arc::from(self.table.config.database.as_str()))],
+            )
+            .with_namespace(Arc::from(self.table.config.database.as_str()))],
             source_rows: rows as u64,
             commit_marker: Some(CommitMarker::new(self.offset)),
             memory: Vec::new(),
@@ -263,12 +268,17 @@ fn normalize_snapshot_schema_with_plans(
     for (index, column) in table.schema.columns.iter().enumerate() {
         let plan = &column_plans[index];
         let actual = &input_schema.fields()[index];
-        let allow_native_tuple_names = validate_wire_declaration(actual, plan.wire_declaration.as_deref()).map_err(|error| {
-            anyhow::anyhow!(
-                "ClickHouse source table '{}.{}' column '{}': {error:#}",
-                table.config.database, table.config.name, column.name,
-            )
-        })?;
+        let allow_native_tuple_names =
+            validate_wire_declaration(actual, plan.wire_declaration.as_deref()).map_err(
+                |error| {
+                    anyhow::anyhow!(
+                        "ClickHouse source table '{}.{}' column '{}': {error:#}",
+                        table.config.database,
+                        table.config.name,
+                        column.name,
+                    )
+                },
+            )?;
         anyhow::ensure!(
             actual.name() == &column.name && actual.is_nullable() == column.nullable,
             "ClickHouse snapshot schema drifted at '{}.{}' column {}: discovered '{} nullable={}', query returned '{} nullable={}'",
@@ -285,22 +295,41 @@ fn normalize_snapshot_schema_with_plans(
             && expected == &DataType::Utf8
             && plan.string_conversion
         {
-            arrays[index] = decode_snapshot_string(&arrays[index], &format!(
-                "{}.{}.{}", table.config.database, table.config.name, column.name,
-            ))?;
+            arrays[index] = decode_snapshot_string(
+                &arrays[index],
+                &format!(
+                    "{}.{}.{}",
+                    table.config.database, table.config.name, column.name,
+                ),
+            )?;
         }
         if !allow_native_tuple_names {
-            arrays[index] = plan.enums.decode(&arrays[index], &column.name).map_err(|error| {
-                anyhow::anyhow!("ClickHouse source table '{}.{}' column '{}': {error:#}",
-                    table.config.database, table.config.name, column.name)
-            })?;
+            arrays[index] = plan
+                .enums
+                .decode(&arrays[index], &column.name)
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "ClickHouse source table '{}.{}' column '{}': {error:#}",
+                        table.config.database,
+                        table.config.name,
+                        column.name
+                    )
+                })?;
         }
         arrays[index] = normalize_snapshot_array(
-            &arrays[index], expected, &column.name, allow_native_tuple_names,
-        ).map_err(|error| anyhow::anyhow!(
-            "ClickHouse snapshot schema drifted at '{}.{}' column '{}': {error:#}",
-            table.config.database, table.config.name, column.name,
-        ))?;
+            &arrays[index],
+            expected,
+            &column.name,
+            allow_native_tuple_names,
+        )
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "ClickHouse snapshot schema drifted at '{}.{}' column '{}': {error:#}",
+                table.config.database,
+                table.config.name,
+                column.name,
+            )
+        })?;
         fields[index] = Arc::clone(&plan.field);
     }
     Ok(RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?)
@@ -314,21 +343,39 @@ struct SnapshotColumnPlan {
 }
 
 fn snapshot_column_plans(table: &DiscoveredTable) -> anyhow::Result<Vec<SnapshotColumnPlan>> {
-    table.schema.columns.iter().enumerate().map(|(index, column)| {
-        let system = table.physical_system_columns.iter().find(|system| system.index == index);
-        let data_type = system.map_or_else(|| column.data_type.clone(), |system| system.kind.data_type());
-        Ok(SnapshotColumnPlan {
-            field: Arc::new(Field::new(&column.name, data_type, column.nullable)
-                .with_metadata(column.arrow_metadata())),
-            string_conversion: is_string_conversion(column)
-                || system.is_some_and(|system| system.kind == SystemColumnKind::Topic),
-            wire_declaration: wire_declaration(column),
-            enums: EnumTransport::for_column(column).map_err(|error| anyhow::anyhow!(
-                "ClickHouse source table '{}.{}' column '{}': {error:#}",
-                table.config.database, table.config.name, column.name,
-            ))?,
+    table
+        .schema
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(index, column)| {
+            let system = table
+                .physical_system_columns
+                .iter()
+                .find(|system| system.index == index);
+            let data_type = system.map_or_else(
+                || column.data_type.clone(),
+                |system| system.kind.data_type(),
+            );
+            Ok(SnapshotColumnPlan {
+                field: Arc::new(
+                    Field::new(&column.name, data_type, column.nullable)
+                        .with_metadata(column.arrow_metadata()),
+                ),
+                string_conversion: is_string_conversion(column)
+                    || system.is_some_and(|system| system.kind == SystemColumnKind::Topic),
+                wire_declaration: wire_declaration(column),
+                enums: EnumTransport::for_column(column).map_err(|error| {
+                    anyhow::anyhow!(
+                        "ClickHouse source table '{}.{}' column '{}': {error:#}",
+                        table.config.database,
+                        table.config.name,
+                        column.name,
+                    )
+                })?,
+            })
         })
-    }).collect()
+        .collect()
 }
 
 pub(super) enum EnumTransport {
@@ -349,18 +396,24 @@ impl EnumTransport {
         if is_string_conversion(column) {
             return Ok(Self::Identity);
         }
-        source_declaration(column).map(|declaration| {
-            Self::new(&declaration.parse::<Type>()?)
-        }).transpose().map(|plan| plan.unwrap_or(Self::Identity))
+        source_declaration(column)
+            .map(|declaration| Self::new(&declaration.parse::<Type>()?))
+            .transpose()
+            .map(|plan| plan.unwrap_or(Self::Identity))
     }
 
     pub(super) fn new(declared: &Type) -> anyhow::Result<Self> {
         let children = match declared {
             Type::Nullable(inner) => return Self::new(inner),
             Type::Enum8(labels) => return Ok(Self::Enum(EnumLookup::new(labels, DataType::Int8)?)),
-            Type::Enum16(labels) => return Ok(Self::Enum(EnumLookup::new(labels, DataType::Int16)?)),
+            Type::Enum16(labels) => {
+                return Ok(Self::Enum(EnumLookup::new(labels, DataType::Int16)?))
+            }
             Type::Array(inner) | Type::LowCardinality(inner) => vec![Self::new(inner)?],
-            Type::Tuple(members) => members.iter().map(Self::new).collect::<anyhow::Result<Vec<_>>>()?,
+            Type::Tuple(members) => members
+                .iter()
+                .map(Self::new)
+                .collect::<anyhow::Result<Vec<_>>>()?,
             Type::Map(key, value) => vec![Self::Children(vec![Self::new(key)?, Self::new(value)?])],
             _ => return Ok(Self::Identity),
         };
@@ -385,10 +438,15 @@ impl EnumTransport {
             Self::Enum(mapping) => Ok(mapping.code_type.clone()),
             Self::Children(plans) => {
                 let children = nested_types(canonical)?;
-                anyhow::ensure!(children.len() == plans.len(), "invalid ClickHouse enum container schema");
-                let children = plans.iter().zip(children).map(|(plan, data_type)| {
-                    plan.parquet_type(data_type)
-                }).collect::<anyhow::Result<Vec<_>>>()?;
+                anyhow::ensure!(
+                    children.len() == plans.len(),
+                    "invalid ClickHouse enum container schema"
+                );
+                let children = plans
+                    .iter()
+                    .zip(children)
+                    .map(|(plan, data_type)| plan.parquet_type(data_type))
+                    .collect::<anyhow::Result<Vec<_>>>()?;
                 with_nested_types(canonical, children)
             }
         }
@@ -400,35 +458,69 @@ impl EnumTransport {
             Self::Enum(mapping) => mapping.decode(array, path),
             Self::Children(plans) => {
                 let data = array.to_data();
-                anyhow::ensure!(data.child_data().len() == plans.len(),
-                    "ClickHouse enum column '{path}' has invalid nested Arrow storage");
-                let children = plans.iter().zip(data.child_data()).enumerate().map(|(index, (plan, child))| {
-                    plan.decode(&make_array(child.clone()), &format!("{path}[{index}]"))
-                        .map(|array| array.to_data())
-                }).collect::<anyhow::Result<Vec<_>>>()?;
-                let data_type = with_nested_types(array.data_type(),
-                    children.iter().map(|child| child.data_type().clone()).collect())?;
-                Ok(make_array(data.into_builder().data_type(data_type).child_data(children).build()?))
+                anyhow::ensure!(
+                    data.child_data().len() == plans.len(),
+                    "ClickHouse enum column '{path}' has invalid nested Arrow storage"
+                );
+                let children = plans
+                    .iter()
+                    .zip(data.child_data())
+                    .enumerate()
+                    .map(|(index, (plan, child))| {
+                        plan.decode(&make_array(child.clone()), &format!("{path}[{index}]"))
+                            .map(|array| array.to_data())
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+                let data_type = with_nested_types(
+                    array.data_type(),
+                    children
+                        .iter()
+                        .map(|child| child.data_type().clone())
+                        .collect(),
+                )?;
+                Ok(make_array(
+                    data.into_builder()
+                        .data_type(data_type)
+                        .child_data(children)
+                        .build()?,
+                ))
             }
         }
     }
 }
 
 impl EnumLookup {
-    fn new<T: Copy + Into<i32>>(labels: &[(String, T)], code_type: DataType) -> anyhow::Result<Self> {
-        let minimum = labels.iter().map(|(_, code)| (*code).into()).min()
+    fn new<T: Copy + Into<i32>>(
+        labels: &[(String, T)],
+        code_type: DataType,
+    ) -> anyhow::Result<Self> {
+        let minimum = labels
+            .iter()
+            .map(|(_, code)| (*code).into())
+            .min()
             .ok_or_else(|| anyhow::anyhow!("ClickHouse enum declaration is empty"))?;
-        let maximum = labels.iter().map(|(_, code)| (*code).into()).max().unwrap_or(minimum);
+        let maximum = labels
+            .iter()
+            .map(|(_, code)| (*code).into())
+            .max()
+            .unwrap_or(minimum);
         let mut indexes = vec![-1_i32; usize::try_from(maximum - minimum + 1)?];
         let mut names = std::collections::BTreeSet::new();
         for (index, (label, code)) in labels.iter().enumerate() {
             let slot = &mut indexes[usize::try_from((*code).into() - minimum)?];
-            anyhow::ensure!(*slot == -1 && names.insert(label), "ClickHouse enum repeats a code or label");
+            anyhow::ensure!(
+                *slot == -1 && names.insert(label),
+                "ClickHouse enum repeats a code or label"
+            );
             *slot = i32::try_from(index)?;
         }
         Ok(Self {
-            code_type, minimum, indexes: indexes.into_boxed_slice(),
-            labels: Arc::new(StringArray::from_iter_values(labels.iter().map(|(label, _)| label))),
+            code_type,
+            minimum,
+            indexes: indexes.into_boxed_slice(),
+            labels: Arc::new(StringArray::from_iter_values(
+                labels.iter().map(|(label, _)| label),
+            )),
         })
     }
 
@@ -448,25 +540,47 @@ impl EnumLookup {
     }
 
     fn decode_codes<T>(&self, array: &ArrayRef, path: &str) -> anyhow::Result<ArrayRef>
-    where T: ArrowPrimitiveType, T::Native: Into<i32> {
-        let values = array.as_any().downcast_ref::<PrimitiveArray<T>>()
-            .ok_or_else(|| anyhow::anyhow!("ClickHouse enum column '{path}' has invalid Arrow storage"))?;
+    where
+        T: ArrowPrimitiveType,
+        T::Native: Into<i32>,
+    {
+        let values = array
+            .as_any()
+            .downcast_ref::<PrimitiveArray<T>>()
+            .ok_or_else(|| {
+                anyhow::anyhow!("ClickHouse enum column '{path}' has invalid Arrow storage")
+            })?;
         let mut keys = Int32Builder::with_capacity(array.len());
         for (row, code) in values.iter().enumerate() {
-            let Some(code) = code else { keys.append_null(); continue };
+            let Some(code) = code else {
+                keys.append_null();
+                continue;
+            };
             let code = code.into();
-            let index = usize::try_from(code - self.minimum).ok()
-                .and_then(|index| self.indexes.get(index)).copied().filter(|index| *index >= 0)
-                .ok_or_else(|| anyhow::anyhow!("ClickHouse enum column '{path}' row {row} has undeclared code {code}"))?;
+            let index = usize::try_from(code - self.minimum)
+                .ok()
+                .and_then(|index| self.indexes.get(index))
+                .copied()
+                .filter(|index| *index >= 0)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "ClickHouse enum column '{path}' row {row} has undeclared code {code}"
+                    )
+                })?;
             keys.append_value(index);
         }
-        Ok(Arc::new(DictionaryArray::<Int32Type>::try_new(keys.finish(), Arc::clone(&self.labels))?))
+        Ok(Arc::new(DictionaryArray::<Int32Type>::try_new(
+            keys.finish(),
+            Arc::clone(&self.labels),
+        )?))
     }
 }
 
 fn nested_types(data_type: &DataType) -> anyhow::Result<Vec<&DataType>> {
     Ok(match data_type {
-        DataType::List(field) | DataType::LargeList(field) | DataType::FixedSizeList(field, _)
+        DataType::List(field)
+        | DataType::LargeList(field)
+        | DataType::FixedSizeList(field, _)
         | DataType::Map(field, _) => vec![field.data_type()],
         DataType::Struct(fields) => fields.iter().map(|field| field.data_type()).collect(),
         DataType::Dictionary(_, value) => vec![value],
@@ -475,17 +589,41 @@ fn nested_types(data_type: &DataType) -> anyhow::Result<Vec<&DataType>> {
 }
 
 fn with_nested_types(data_type: &DataType, children: Vec<DataType>) -> anyhow::Result<DataType> {
-    let first = || children.first().cloned().ok_or_else(|| anyhow::anyhow!("missing ClickHouse enum container child"));
+    let first = || {
+        children
+            .first()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("missing ClickHouse enum container child"))
+    };
     Ok(match data_type {
-        DataType::List(field) => DataType::List(Arc::new(field.as_ref().clone().with_data_type(first()?))),
-        DataType::LargeList(field) => DataType::LargeList(Arc::new(field.as_ref().clone().with_data_type(first()?))),
-        DataType::FixedSizeList(field, length) => DataType::FixedSizeList(Arc::new(field.as_ref().clone().with_data_type(first()?)), *length),
-        DataType::Map(field, sorted) => DataType::Map(Arc::new(field.as_ref().clone().with_data_type(first()?)), *sorted),
+        DataType::List(field) => {
+            DataType::List(Arc::new(field.as_ref().clone().with_data_type(first()?)))
+        }
+        DataType::LargeList(field) => {
+            DataType::LargeList(Arc::new(field.as_ref().clone().with_data_type(first()?)))
+        }
+        DataType::FixedSizeList(field, length) => DataType::FixedSizeList(
+            Arc::new(field.as_ref().clone().with_data_type(first()?)),
+            *length,
+        ),
+        DataType::Map(field, sorted) => DataType::Map(
+            Arc::new(field.as_ref().clone().with_data_type(first()?)),
+            *sorted,
+        ),
         DataType::Struct(fields) => {
-            anyhow::ensure!(fields.len() == children.len(), "ClickHouse enum tuple member count drifted");
-            DataType::Struct(fields.iter().zip(children).map(|(field, data_type)| {
-                Arc::new(field.as_ref().clone().with_data_type(data_type))
-            }).collect())
+            anyhow::ensure!(
+                fields.len() == children.len(),
+                "ClickHouse enum tuple member count drifted"
+            );
+            DataType::Struct(
+                fields
+                    .iter()
+                    .zip(children)
+                    .map(|(field, data_type)| {
+                        Arc::new(field.as_ref().clone().with_data_type(data_type))
+                    })
+                    .collect(),
+            )
         }
         DataType::Dictionary(key, _) => DataType::Dictionary(key.clone(), Box::new(first()?)),
         _ => anyhow::bail!("ClickHouse enum container schema drifted: got {data_type:?}"),
@@ -493,16 +631,21 @@ fn with_nested_types(data_type: &DataType, children: Vec<DataType>) -> anyhow::R
 }
 
 fn decode_snapshot_string(array: &ArrayRef, path: &str) -> anyhow::Result<ArrayRef> {
-    let binary = array.as_any().downcast_ref::<BinaryArray>().ok_or_else(|| {
-        anyhow::anyhow!("ClickHouse column '{path}' has invalid binary Arrow storage")
-    })?;
+    let binary = array
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .ok_or_else(|| {
+            anyhow::anyhow!("ClickHouse column '{path}' has invalid binary Arrow storage")
+        })?;
     // The default Arrow cast substitutes NULL for invalid UTF-8. String values
     // chosen explicitly by the user must instead decode exactly or fail.
     StringArray::try_from_binary(binary.clone())
         .map(|array| Arc::new(array) as ArrayRef)
-        .map_err(|error| anyhow::anyhow!(
+        .map_err(|error| {
+            anyhow::anyhow!(
             "ClickHouse column '{path}' cannot be decoded as UTF-8 without losing data: {error}",
-        ))
+        )
+        })
 }
 
 fn normalize_snapshot_array(
@@ -513,38 +656,65 @@ fn normalize_snapshot_array(
 ) -> anyhow::Result<ArrayRef> {
     let actual = array.data_type();
     match (actual, expected) {
-        (DataType::Decimal128(actual_precision, actual_scale), DataType::Decimal128(precision, scale))
-            if actual_scale == scale && (actual_precision == precision || allow_native_tuple_names) => {
-                let values = array.as_any().downcast_ref::<Decimal128Array>()
-                    .ok_or_else(|| anyhow::anyhow!("ClickHouse decimal column '{path}' has invalid Arrow storage"))?;
-                values.validate_decimal_precision(*precision).map_err(|error| anyhow::anyhow!(
+        (
+            DataType::Decimal128(actual_precision, actual_scale),
+            DataType::Decimal128(precision, scale),
+        ) if actual_scale == scale
+            && (actual_precision == precision || allow_native_tuple_names) =>
+        {
+            let values = array
+                .as_any()
+                .downcast_ref::<Decimal128Array>()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("ClickHouse decimal column '{path}' has invalid Arrow storage")
+                })?;
+            values.validate_decimal_precision(*precision).map_err(|error| anyhow::anyhow!(
                     "ClickHouse decimal column '{path}' violates declared precision {precision}: {error}"))?;
-                if actual == expected {
-                    return Ok(Arc::clone(array));
-                }
-                return Ok(Arc::new(values.clone().with_precision_and_scale(*precision, *scale)?));
+            if actual == expected {
+                return Ok(Arc::clone(array));
             }
-        (DataType::Decimal256(actual_precision, actual_scale), DataType::Decimal256(precision, scale))
-            if actual_scale == scale && (actual_precision == precision || allow_native_tuple_names) => {
-                let values = array.as_any().downcast_ref::<Decimal256Array>()
-                    .ok_or_else(|| anyhow::anyhow!("ClickHouse decimal column '{path}' has invalid Arrow storage"))?;
-                values.validate_decimal_precision(*precision).map_err(|error| anyhow::anyhow!(
+            return Ok(Arc::new(
+                values
+                    .clone()
+                    .with_precision_and_scale(*precision, *scale)?,
+            ));
+        }
+        (
+            DataType::Decimal256(actual_precision, actual_scale),
+            DataType::Decimal256(precision, scale),
+        ) if actual_scale == scale
+            && (actual_precision == precision || allow_native_tuple_names) =>
+        {
+            let values = array
+                .as_any()
+                .downcast_ref::<Decimal256Array>()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("ClickHouse decimal column '{path}' has invalid Arrow storage")
+                })?;
+            values.validate_decimal_precision(*precision).map_err(|error| anyhow::anyhow!(
                     "ClickHouse decimal column '{path}' violates declared precision {precision}: {error}"))?;
-                if actual == expected {
-                    return Ok(Arc::clone(array));
-                }
-                return Ok(Arc::new(values.clone().with_precision_and_scale(*precision, *scale)?));
+            if actual == expected {
+                return Ok(Arc::clone(array));
             }
+            return Ok(Arc::new(
+                values
+                    .clone()
+                    .with_precision_and_scale(*precision, *scale)?,
+            ));
+        }
         (DataType::UInt8, DataType::Boolean) if allow_native_tuple_names => {
-            let values = array.as_any().downcast_ref::<UInt8Array>()
-                .ok_or_else(|| anyhow::anyhow!("ClickHouse Boolean column '{path}' has invalid Arrow storage"))?;
+            let values = array.as_any().downcast_ref::<UInt8Array>().ok_or_else(|| {
+                anyhow::anyhow!("ClickHouse Boolean column '{path}' has invalid Arrow storage")
+            })?;
             let mut output = BooleanBuilder::with_capacity(array.len());
             for (row, value) in values.iter().enumerate() {
                 match value {
                     None => output.append_null(),
                     Some(0) => output.append_value(false),
                     Some(1) => output.append_value(true),
-                    Some(value) => anyhow::bail!("ClickHouse Boolean column '{path}' row {row} must be 0 or 1, got {value}"),
+                    Some(value) => anyhow::bail!(
+                        "ClickHouse Boolean column '{path}' row {row} must be 0 or 1, got {value}"
+                    ),
                 }
             }
             return Ok(Arc::new(output.finish()));
@@ -557,15 +727,25 @@ fn normalize_snapshot_array(
     if is_transport_timestamp_representation(actual, expected) {
         ensure_lossless_timestamp_cast(array, expected, path)?;
         return cast_with_options(
-            array, expected, &CastOptions { safe: false, ..CastOptions::default() },
-        ).map_err(|error| anyhow::anyhow!(
-            "ClickHouse timestamp column '{path}' cannot be decoded as {expected:?}: {error}",
-        ));
+            array,
+            expected,
+            &CastOptions {
+                safe: false,
+                ..CastOptions::default()
+            },
+        )
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "ClickHouse timestamp column '{path}' cannot be decoded as {expected:?}: {error}",
+            )
+        });
     }
     let data = array.to_data();
-    let first_child = || data.child_data().first().ok_or_else(|| {
-        anyhow::anyhow!("ClickHouse column '{path}' has invalid Arrow child storage")
-    });
+    let first_child = || {
+        data.child_data().first().ok_or_else(|| {
+            anyhow::anyhow!("ClickHouse column '{path}' has invalid Arrow child storage")
+        })
+    };
     let children = match (actual, expected) {
         (DataType::List(actual), DataType::List(expected))
         | (DataType::LargeList(actual), DataType::LargeList(expected)) => {
@@ -613,16 +793,24 @@ fn normalize_snapshot_array(
         // Recursive validation does not require rebuilding unchanged arrays.
         return Ok(Arc::clone(array));
     }
-    Ok(make_array(data.into_builder()
-        .data_type(expected.clone()).child_data(children).build()?))
+    Ok(make_array(
+        data.into_builder()
+            .data_type(expected.clone())
+            .child_data(children)
+            .build()?,
+    ))
 }
 
 fn contains_decimal(data_type: &DataType) -> bool {
     match data_type {
         DataType::Decimal128(_, _) | DataType::Decimal256(_, _) => true,
-        DataType::List(field) | DataType::LargeList(field) | DataType::FixedSizeList(field, _)
+        DataType::List(field)
+        | DataType::LargeList(field)
+        | DataType::FixedSizeList(field, _)
         | DataType::Map(field, _) => contains_decimal(field.data_type()),
-        DataType::Struct(fields) => fields.iter().any(|field| contains_decimal(field.data_type())),
+        DataType::Struct(fields) => fields
+            .iter()
+            .any(|field| contains_decimal(field.data_type())),
         DataType::Dictionary(_, value) => contains_decimal(value),
         _ => false,
     }
@@ -646,9 +834,12 @@ fn normalize_snapshot_child(
         expected.name(), expected.is_nullable(), actual.name(), actual.is_nullable(),
     );
     normalize_snapshot_array(
-        &make_array(child.clone()), expected.data_type(),
-        &format!("{path}.{}", expected.name()), allow_native_tuple_names,
-    ).map(|array| array.to_data())
+        &make_array(child.clone()),
+        expected.data_type(),
+        &format!("{path}.{}", expected.name()),
+        allow_native_tuple_names,
+    )
+    .map(|array| array.to_data())
 }
 
 fn is_transport_timestamp_representation(actual: &DataType, expected: &DataType) -> bool {

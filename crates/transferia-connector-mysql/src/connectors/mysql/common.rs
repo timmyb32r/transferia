@@ -120,7 +120,7 @@ pub async fn connect_with_max_allowed_packet(
     connect_with_packet_limit(config, Some(max_allowed_packet), false).await
 }
 
-pub(crate) async fn connect_sample_with_max_allowed_packet(
+pub(super) async fn connect_sample_with_max_allowed_packet(
     config: &MySqlConnectionConfig,
     max_allowed_packet: usize,
 ) -> anyhow::Result<Conn> {

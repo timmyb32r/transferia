@@ -31,18 +31,28 @@ async fn cancelled_table_sample_closes_pending_socket_without_draining() {
         write_column(&mut socket).await;
         let mut byte = [0];
         tokio::time::timeout(std::time::Duration::from_secs(1), socket.read(&mut byte))
-            .await.expect("cancelled sample left its MySQL socket draining")
-            .map_or_else(|error| {
+            .await
+            .expect("cancelled sample left its MySQL socket draining")
+            .unwrap_or_else(|error| {
                 assert_eq!(error.kind(), std::io::ErrorKind::ConnectionReset);
                 0
-            }, |count| count)
+            })
     });
     let task = tokio::spawn(async move {
-        let mut connection = super::connect_sample_with_max_allowed_packet(&super::MySqlConnectionConfig {
-            host: address.ip().to_string(), port: address.port(), database: String::new(),
-            username: "reader".into(), password: String::new(), trusted_plaintext: true,
-            tls_ca_file: None,
-        }, 1024 * 1024).await.unwrap();
+        let mut connection = super::connect_sample_with_max_allowed_packet(
+            &super::MySqlConnectionConfig {
+                host: address.ip().to_string(),
+                port: address.port(),
+                database: String::new(),
+                username: "reader".into(),
+                password: String::new(),
+                trusted_plaintext: true,
+                tls_ca_file: None,
+            },
+            1024 * 1024,
+        )
+        .await
+        .unwrap();
         let mut rows = connection.query_iter("SELECT SLEEP(60)").await.unwrap();
         pending_tx.send(()).unwrap();
         rows.next().await.unwrap();
@@ -65,7 +75,10 @@ async fn write_column(socket: &mut tokio::net::TcpStream) {
 
 async fn write_packet(socket: &mut tokio::net::TcpStream, sequence: u8, body: &[u8]) {
     let size = u32::try_from(body.len()).unwrap().to_le_bytes();
-    socket.write_all(&[size[0], size[1], size[2], sequence]).await.unwrap();
+    socket
+        .write_all(&[size[0], size[1], size[2], sequence])
+        .await
+        .unwrap();
     socket.write_all(body).await.unwrap();
 }
 

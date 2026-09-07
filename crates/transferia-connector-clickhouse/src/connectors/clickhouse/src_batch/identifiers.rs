@@ -21,11 +21,16 @@ pub(super) fn key_columns(expression: &str) -> anyhow::Result<Vec<String>> {
             // Unquoted dotted names can refer to flattened Nested columns.
             // Other characters must be quoted so expressions cannot be mistaken
             // for column references merely because their text matches a name.
-            anyhow::ensure!(name.split('.').all(|part| {
-                let mut bytes = part.bytes();
-                bytes.next().is_some_and(|byte| byte == b'_' || byte.is_ascii_alphabetic())
-                    && bytes.all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
-            }), "expected a column identifier, not an expression");
+            anyhow::ensure!(
+                name.split('.').all(|part| {
+                    let mut bytes = part.bytes();
+                    bytes
+                        .next()
+                        .is_some_and(|byte| byte == b'_' || byte.is_ascii_alphabetic())
+                        && bytes.all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
+                }),
+                "expected a column identifier, not an expression"
+            );
             (name.to_owned(), &remaining[end..])
         };
         names.push(name);
@@ -33,9 +38,13 @@ pub(super) fn key_columns(expression: &str) -> anyhow::Result<Vec<String>> {
         if rest.is_empty() {
             return Ok(names);
         }
-        remaining = rest.strip_prefix(',')
+        remaining = rest
+            .strip_prefix(',')
             .ok_or_else(|| anyhow::anyhow!("expected a comma after the column identifier"))?
             .trim_start();
-        anyhow::ensure!(!remaining.is_empty(), "missing column identifier after comma");
+        anyhow::ensure!(
+            !remaining.is_empty(),
+            "missing column identifier after comma"
+        );
     }
 }

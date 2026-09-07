@@ -694,27 +694,31 @@ describe("connector catalog readiness", () => {
     expect(sinkCount).toBeGreaterThan(0);
   });
 
-  it("does not constrain nested forms to a scalar control width in any catalog variant", () => {
-    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
-    let checked = 0;
-    for (const connector of catalog.connectors) {
-      for (const endpoint of [connector.source, connector.sink]) {
-        if (!endpoint) continue;
-        const node = compileSchema(endpoint.schema, productionWidgetRegistry);
-        for (const scenario of unionScenarios(node)) {
-          const view = render(<SchemaForm node={node} value={visibleWitness(node, endpoint.initial, true, scenario.forces)} onChange={() => {}} />);
-          for (const row of view.container.querySelectorAll(".form-row")) {
-            const control = row.querySelector(":scope > .field-control");
-            if (!control?.querySelector(".form-row")) continue;
-            expect(row.matches(".form-row-wide, .form-row-installation"), `${connector.key} ${scenario.label}: ${row.getAttribute("data-field-name")} squeezes a nested form`).toBe(true);
-            expect(row.matches(".control-width-enum, .control-width-medium, .control-width-parser"), `${connector.key} ${scenario.label}: nested form has a scalar width cap`).toBe(false);
-            checked += 1;
-          }
-          view.unmount();
-        }
-      }
+  const layoutVariants = matrixCatalog.connectors.flatMap(connector =>
+    (["source", "sink"] as const).flatMap(role => {
+      const endpoint = connector[role];
+      if (!endpoint) return [];
+      const node = compileSchema(endpoint.schema, productionWidgetRegistry);
+      return unionScenarios(node).map(scenario => ({
+        key: connector.key, role, node, initial: endpoint.initial, ...scenario,
+      }));
+    }),
+  );
+
+  // Each variant has its own render/cleanup and timeout budget. A single loop
+  // over the entire growing catalog made this contract depend on CPU contention.
+  it.each(layoutVariants)("does not constrain nested forms to a scalar control width: $key $role $label", ({ key, role, node, initial, label, forces }) => {
+    const view = render(<SchemaForm node={node} value={visibleWitness(node, initial, true, forces)} onChange={() => {}} />);
+    for (const row of nestedFormRows(view.container)) {
+      expect(row.matches(".form-row-wide, .form-row-installation"), `${key} ${role} ${label}: ${row.getAttribute("data-field-name")} squeezes a nested form`).toBe(true);
+      expect(row.matches(".control-width-enum, .control-width-medium, .control-width-parser"), `${key} ${role} ${label}: nested form has a scalar width cap`).toBe(false);
     }
-    expect(checked).toBeGreaterThan(0);
+  });
+
+  it("exercises nested form rows in the catalog layout fixtures", () => {
+    const sample = layoutVariants.find(variant => variant.key === "kafka" && variant.role === "source")!;
+    const view = render(<SchemaForm node={sample.node} value={visibleWitness(sample.node, sample.initial, true, sample.forces)} onChange={() => {}} />);
+    expect(nestedFormRows(view.container).length).toBeGreaterThan(0);
   });
 
   it("leaves no non-editable blocker undiscovered in any selectable endpoint variant", () => {
@@ -856,6 +860,11 @@ function completeWitness(
       return option ?? "configured";
     }
   }
+}
+
+function nestedFormRows(container: Element): Element[] {
+  return Array.from(container.querySelectorAll(".form-row"))
+    .filter(row => row.querySelector(":scope > .field-control")?.querySelector(".form-row"));
 }
 
 function unionScenarios(

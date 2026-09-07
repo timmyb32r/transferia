@@ -2041,7 +2041,7 @@
           "type": "integer"
         },
         "memory_limit_bytes": {
-          "description": "DataFusion tracked operator state and retained Arrow batches, not an\noperating-system process memory limit. Scalar expressions may allocate\ntransient memory outside the tracked pool.",
+          "description": "`DataFusion` tracked operator state and retained Arrow batches, not an\noperating-system process memory limit. Scalar expressions may allocate\ntransient memory outside the tracked pool.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"

@@ -14,6 +14,11 @@ import { mockTableDiscovery } from "./support/metadata";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+it("does not narrow a standalone Tables fallback twice", () => {
+  const view = render(<Form />);
+  expect(view.container.querySelector(".endpoint-card-source > .island-form .source-tables-card > .island-form-wide")).not.toBeNull();
+});
+
 function Form({ connectorKey = "postgres", readOnly = false, role = "source", deliveryType = "batch", fullWidth = false }: {
   connectorKey?: string; readOnly?: boolean; role?: "source" | "sink"; deliveryType?: string; fullWidth?: boolean;
 }) {
@@ -155,9 +160,15 @@ it("includes the MySQL new-table policy in the same locked group for stream deli
 it.each(["postgres", "mysql", "clickhouse"])("unlocks %s only after verification without replacing controls or moving their slots", async connectorKey => {
   let finish!: (result: ConnectionCheckResult) => void;
   mockTableDiscovery().mockReturnValue(new Promise(resolve => { finish = resolve; }));
-  const view = render(<Form connectorKey={connectorKey} />);
+  const view = render(<Form connectorKey={connectorKey} fullWidth />);
   const group = view.getByRole("group", { name: "Table settings" });
   const check = view.getByRole("button", { name: /Discover tables|Refresh tables/ });
+  const tables = view.getByRole("region", { name: "Source tables" });
+  const column = tables.querySelector(":scope > .island-form")!;
+  expect(column).not.toBeNull();
+  expect(column.contains(group)).toBe(true);
+  expect(column.contains(check)).toBe(true);
+  expect(column.contains(view.getByRole("button", { name: "Available tables in source" }))).toBe(true);
   const input = within(group).getByLabelText("Include rule 1") as HTMLInputElement;
   const checkbox = within(group).getByLabelText(/^Hide system tables/) as HTMLInputElement;
   const status = view.container.querySelector(".table-discovery-result")!;
@@ -168,6 +179,7 @@ it.each(["postgres", "mysql", "clickhouse"])("unlocks %s only after verification
   expect(check.getAttribute("aria-busy")).toBe("true");
   expect(check.getAttribute("aria-disabled")).toBe("true");
   expect(view.getByText("Discovering tables…")).toBeTruthy();
+  expect(tables.querySelector(":scope > .island-form")).toBe(column);
   expect(input.disabled).toBe(true);
   fireEvent.click(check);
   expect(api.connectMetadata).toHaveBeenCalledTimes(1);
@@ -175,6 +187,7 @@ it.each(["postgres", "mysql", "clickhouse"])("unlocks %s only after verification
   finish({ status: "verified", options: {}, message: null, tables: [] });
   await waitFor(() => expect(input.disabled).toBe(false));
   expect(view.getByText("Tables discovered")).toBeTruthy();
+  expect(tables.querySelector(":scope > .island-form")).toBe(column);
   expect(checkbox.disabled).toBe(false);
   expect(input.closest(".required-incomplete")).toBeTruthy();
   expect(document.activeElement).toBe(check);

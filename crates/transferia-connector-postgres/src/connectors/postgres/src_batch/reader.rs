@@ -174,7 +174,10 @@ pub(super) fn discovered_schema_matches(current: &DatasetSchema, expected: &Data
             })
 }
 
-pub(crate) fn source_select_projection(columns: &[Column], policy: crate::connectors::postgres::source::UnsupportedTypePolicy) -> anyhow::Result<String> {
+pub(in crate::connectors::postgres) fn source_select_projection(
+    columns: &[Column],
+    policy: crate::connectors::postgres::source::UnsupportedTypePolicy,
+) -> anyhow::Result<String> {
     columns
         .iter()
         .map(|column| source_column_expression(column.name(), column.type_(), policy))
@@ -182,7 +185,7 @@ pub(crate) fn source_select_projection(columns: &[Column], policy: crate::connec
         .map(|columns| columns.join(", "))
 }
 
-pub(crate) fn source_column_expression(
+pub(in crate::connectors::postgres) fn source_column_expression(
     name: &str,
     data_type: &tokio_postgres::types::Type,
     policy: crate::connectors::postgres::source::UnsupportedTypePolicy,
@@ -265,7 +268,8 @@ impl Source for PostgresSource {
                     false,
                     batch,
                     routing_system_columns(system_start, system_kinds),
-                ).with_namespace(Arc::from(self.table.schema.as_str()))],
+                )
+                .with_namespace(Arc::from(self.table.schema.as_str()))],
                 source_rows,
                 commit_marker: Some(CommitMarker::new(self.offset)),
                 memory: Vec::new(),

@@ -16,44 +16,80 @@ use super::connector::{discover_table, snapshot_query};
 use super::reader::normalize_snapshot_schema;
 use crate::connectors::clickhouse::sink::client::ReconnectingClient;
 
-pub(crate) async fn sample_table(config: ClickHouseSourceConfig, table: TableIdentity, limits: TableSampleLimits,
-    cancellation: CancellationToken) -> anyhow::Result<TableData> {
+pub async fn sample_table(
+    config: ClickHouseSourceConfig,
+    table: TableIdentity,
+    limits: TableSampleLimits,
+    cancellation: CancellationToken,
+) -> anyhow::Result<TableData> {
     sample_with_metadata(config, table, limits, cancellation, None).await
 }
 
-pub(super) async fn sample_with_metadata(config: ClickHouseSourceConfig, table: TableIdentity, limits: TableSampleLimits,
-    cancellation: CancellationToken, cached: Option<super::connector::DiscoveredTable>) -> anyhow::Result<TableData> {
+pub(super) async fn sample_with_metadata(
+    config: ClickHouseSourceConfig,
+    table: TableIdentity,
+    limits: TableSampleLimits,
+    cancellation: CancellationToken,
+    cached: Option<super::connector::DiscoveredTable>,
+) -> anyhow::Result<TableData> {
     limits.validate()?;
     let row_limit = limits.row_limit;
     config.validate_connection()?;
     anyhow::ensure!(row_limit > 0, "row_limit must be positive");
-    anyhow::ensure!(!table.namespace.is_empty() && !table.name.is_empty()
-        && !table.namespace.contains('\0') && !table.name.contains('\0'), "invalid ClickHouse sample table identity");
+    anyhow::ensure!(
+        !table.namespace.is_empty()
+            && !table.name.is_empty()
+            && !table.namespace.contains('\0')
+            && !table.name.contains('\0'),
+        "invalid ClickHouse sample table identity"
+    );
     let classification = config.tables.compile()?.classify(&table);
-    anyhow::ensure!(classification.selected_by.len() == 1 && classification.issues.is_empty(), "sample table must be selected by exactly one table rule");
-    anyhow::ensure!(!config.hide_system_tables || !super::config::is_system_database(&table.namespace),
-        "sample table is hidden by Hide system tables");
+    anyhow::ensure!(
+        classification.selected_by.len() == 1 && classification.issues.is_empty(),
+        "sample table must be selected by exactly one table rule"
+    );
+    anyhow::ensure!(
+        !config.hide_system_tables || !super::config::is_system_database(&table.namespace),
+        "sample table is hidden by Hide system tables"
+    );
     let block_rows = i64::try_from(row_limit.min(config.batch_rows))?;
     let block_bytes = u64::try_from(limits.max_bytes)?;
     let timeout = std::time::Duration::from_millis(u64::try_from(limits.timeout_ms)?);
-    let timeout_seconds = format!("{}.{:03}", limits.timeout_ms / 1000, limits.timeout_ms % 1000);
-    let builders = config.hosts.iter().map(|host| {
-        let builder = ClientBuilder::new()
-            .with_destination(crate::connectors::address::host_port(host, config.port))
-            .with_database("default")
-            .with_username(&config.username)
-            .with_password(&config.password)
-            .with_arrow_options(clickhouse_arrow::ArrowOptions::strict().with_source_type_metadata(true))
-            .with_setting("readonly", 2_i64)
-            .with_setting("max_block_size", block_rows)
-            .with_setting("preferred_block_size_bytes", block_bytes)
-            .with_setting("max_execution_time", timeout_seconds.clone())
-            .with_setting("timeout_overflow_mode", "throw")
-            .with_tls(!config.trusted_plaintext);
-        if let Some(path) = &config.tls_ca_file { builder.with_cafile(path) } else { builder }
-    }).collect();
-    let client = Arc::new(ReconnectingClient::from_connections(builders,
-        config.connect_timeout().min(timeout), config.request_timeout().min(timeout)));
+    let timeout_seconds = format!(
+        "{}.{:03}",
+        limits.timeout_ms / 1000,
+        limits.timeout_ms % 1000
+    );
+    let builders = config
+        .hosts
+        .iter()
+        .map(|host| {
+            let builder = ClientBuilder::new()
+                .with_destination(crate::connectors::address::host_port(host, config.port))
+                .with_database("default")
+                .with_username(&config.username)
+                .with_password(&config.password)
+                .with_arrow_options(
+                    clickhouse_arrow::ArrowOptions::strict().with_source_type_metadata(true),
+                )
+                .with_setting("readonly", 2_i64)
+                .with_setting("max_block_size", block_rows)
+                .with_setting("preferred_block_size_bytes", block_bytes)
+                .with_setting("max_execution_time", timeout_seconds.clone())
+                .with_setting("timeout_overflow_mode", "throw")
+                .with_tls(!config.trusted_plaintext);
+            if let Some(path) = &config.tls_ca_file {
+                builder.with_cafile(path)
+            } else {
+                builder
+            }
+        })
+        .collect();
+    let client = Arc::new(ReconnectingClient::from_connections(
+        builders,
+        config.connect_timeout().min(timeout),
+        config.request_timeout().min(timeout),
+    ));
     tokio::select! {
         biased;
         () = cancellation.cancelled() => anyhow::bail!("ClickHouse table sample cancelled"),
@@ -90,15 +126,16 @@ pub(super) async fn sample_with_metadata(config: ClickHouseSourceConfig, table: 
             }).await?;
             let schema = Arc::new(Schema::new(discovered.schema.columns.iter().map(|column|
                 Field::new(&column.name, column.data_type.clone(), column.nullable).with_metadata(column.arrow_metadata())).collect::<Vec<_>>()));
-            let batch = if batches.len() == 1 {
-                batches.pop().expect("one batch was checked")
-            } else {
-                limits.check_bytes(retained_bytes.checked_mul(2)
-                    .ok_or_else(|| anyhow::anyhow!("sample byte accounting overflow"))?)?;
-                let batch = concat_batches(&schema, &batches)?;
-                limits.check_bytes(retained_bytes.checked_add(batch.get_array_memory_size())
-                    .ok_or_else(|| anyhow::anyhow!("sample byte accounting overflow"))?)?;
-                batch
+            let batch = match <[_; 1]>::try_from(batches) {
+                Ok([batch]) => batch,
+                Err(batches) => {
+                    limits.check_bytes(retained_bytes.checked_mul(2)
+                        .ok_or_else(|| anyhow::anyhow!("sample byte accounting overflow"))?)?;
+                    let batch = concat_batches(&schema, &batches)?;
+                    limits.check_bytes(retained_bytes.checked_add(batch.get_array_memory_size())
+                        .ok_or_else(|| anyhow::anyhow!("sample byte accounting overflow"))?)?;
+                    batch
+                }
             };
             Ok(TableData::new(Arc::from(table.name.as_str()), false, batch, discovered.physical_system_columns)
                 .with_namespace(Arc::from(table.namespace.as_str())))
@@ -111,7 +148,10 @@ pub(super) fn sample_query(select: &str, row_limit: usize) -> anyhow::Result<Str
     Ok(format!("{select} LIMIT {row_limit}"))
 }
 
-pub(super) fn validate_cached_schema(cached: &super::connector::DiscoveredTable, current: &super::connector::DiscoveredTable) -> anyhow::Result<()> {
+pub(super) fn validate_cached_schema(
+    cached: &super::connector::DiscoveredTable,
+    current: &super::connector::DiscoveredTable,
+) -> anyhow::Result<()> {
     anyhow::ensure!(cached.config.database == current.config.database && cached.config.name == current.config.name
         && cached.schema.columns.len() == current.schema.columns.len()
         && cached.schema.columns.iter().zip(&current.schema.columns).all(|(a, b)|

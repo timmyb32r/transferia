@@ -46,16 +46,18 @@ describe("Rust catalog contract", () => {
     const view = render(h(SchemaForm, { node, value: {}, deliveryType: "batch", onChange }));
     const details = view.container.querySelector("details")!;
     details.open = true;
-    expect(view.getByRole("button", { name: "to_string", exact: true })).toBeTruthy();
+    const select = view.getByRole("button", { name: /^Unsupported source types/ });
+    expect(select.textContent).toBe("to_string");
     expect(view.queryByRole("checkbox")).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
     view.rerender(h(SchemaForm, { node, value: { unsupported_types: "fail" }, deliveryType: "batch", onChange }));
-    expect(view.getByRole("button", { name: "Fail delivery", exact: true })).toBeTruthy();
+    expect(view.getByRole("button", { name: /^Unsupported source types/ })).toBe(select);
+    expect(select.textContent).toBe("Fail delivery");
     expect(onChange).not.toHaveBeenCalled();
     if (key === "postgres") {
       for (const deliveryType of ["stream", "batch_and_stream"]) {
         view.rerender(h(SchemaForm, { node, value: {}, deliveryType, onChange }));
-        expect(view.queryByRole("button", { name: "to_string", exact: true })).toBeNull();
+        expect(view.queryByRole("button", { name: /^Unsupported source types/ })).toBeNull();
         expect(view.container.querySelector('[data-field-name="unsupported_types"]')).toBeNull();
         expect(onChange).not.toHaveBeenCalled();
       }
