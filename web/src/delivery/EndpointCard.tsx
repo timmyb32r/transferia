@@ -51,7 +51,7 @@ export function EndpointCard(props: {
       ? {}
       : endpointValue(props.config, props.role, props.selectedKey);
   const node = props.endpoint ? compiledSchema(props.endpoint.schema, widgets) : undefined;
-  const tableFields = props.role === "source" ? sourceTableFields(node, props.selectedKey) : [];
+  const tableFields = props.role === "source" ? sourceTableFields(node) : [];
   const requiresTableDiscovery = props.role === "source" && props.endpoint?.connection_check === true
     && node?.kind === "object" && node.properties.tables?.xUi.widget === "table_selection";
   const localActions = useEndpointActions({

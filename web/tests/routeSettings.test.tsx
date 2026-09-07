@@ -25,7 +25,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
 
-it.each(["iceberg", "opensearch", "ydb", "ytsaurus", "s3"])("allocates a separate Tables island for the %s source before any connection request", key => {
+it.each(["iceberg", "opensearch", "ydb", "ytsaurus"])("allocates a separate Tables island for the %s source before any connection request", key => {
   const source = catalog.connectors.find(connector => connector.key === key)!.source!;
   const config = { delivery_type: "batch", source: { [key]: source.initial }, sink: { discard: {} } };
   const selection = selectedEndpoints(catalog, config, productionWidgetRegistry);

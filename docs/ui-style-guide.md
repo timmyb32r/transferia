@@ -156,7 +156,7 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
 - A new transform starts with `Transformation: Not selected`, never an implicit
   SQL or filter action. Its table scope stays editable; action-specific fields
   and Preview require an explicit selection. Clone retains the original action.
-- Transform naming uses **C — the overflow menu** after Delete: `Add name` for
+- Transform naming uses **C — the overflow menu** after Delete: `Set name` for
   unnamed steps, `Rename` otherwise. The menu opens a small floating name editor,
   never a field in the expanded settings. Save (or Enter) commits; Cancel, Escape
   and outside click discard the draft. Shift+Enter inserts a newline. Empty Save
@@ -191,11 +191,11 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   connection/catalog settings, including Iceberg namespace, in Source. These
   explicit lists stay editable before connection checking: sources without a
   table-catalog capability have no Discover tables action or discovery gate.
-  S3 places Path prefix, Table name and the Parser selector (with Scan) in Tables.
-  Keep S3 connection controls and Check connection in Source; relocated fields
-  cannot anchor that action. Parser settings remain in their own subsequent
-  island, with JSON Output columns retaining their full width. This is only a
-  presentation split: source configuration paths and entered values stay exact.
+  S3 keeps Path prefix, Table name and the Parser selector (with Scan) in Source,
+  with Check connection immediately before Parser. S3 has no separate Tables
+  island. Parser settings remain in their own subsequent island, with JSON
+  Output columns retaining their full width. This is only a presentation split:
+  source configuration paths and entered values stay exact.
   Destination table/index settings are not moved.
 - Island forms use **B — an invisible, left-aligned inner column**. All content
   in Source, Destination, Tables and ordinary parser settings occupies 60% of the
@@ -203,6 +203,9 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   width. Leave the right side empty; add no inner frame, background or centering.
   Headers and actions share the same column. JSON and TSKV scalar sections use
   the same compact width: table naming, framing and parsing/error policies.
+  Parser scalar columns additionally cap at 480px: 60% alone remains too wide
+  inside a full-route island. This cap is shared across parser types and sources,
+  including Table name, its nested Name and JSON framing; apply it only once.
   JSON's Data schema / Output columns, including nested column settings, remain
   full-width and unchanged; TSKV's output schema also retains its full width. Identify these by
   parser capability metadata, not display labels. Apply the width once at the
@@ -216,7 +219,7 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   JSON uses the same authored editor for S3, Kafka and Logbroker. Referenced
   `x-ui` hints are retained when a branch adds capabilities; explicit sibling
   hints override individual keys. Keep source-specific fields in their actual
-  owning section (S3 table naming remains in Tables), without placeholder fields
+  owning section (S3 table naming remains in Source), without placeholder fields
   or changing defaults to make forms match. Do not restyle Output columns cells.
   `npm run test:parser-layout` checks actual-catalog browser geometry for JSON,
   TSKV, Schema Registry, Debezium and Raw to table across supported sources and
@@ -235,13 +238,19 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   the longer label's width. The island and locked table controls are mounted
   before discovery; the discovery button stays outside the locked fieldset.
   Unlock selection and transforms only after authenticated discovery returns a
-  catalog (including an empty catalog). Check and discovery have independent,
-  fixed-size pending/success/error slots and deduplicate their requests. No
+  catalog (including an empty catalog). Check and discovery have independent
+  pending/success/error regions and deduplicate their requests. Discovery retains
+  a fixed-size slot; connection diagnostics follow the full-text rule below. No
   automatic scrolling follows either action. Connection edits invalidate both
   states and release the metadata session; plain re-checks do not.
-- Check connection feedback stays in its reserved two-line slot without an
-  internal scrollbar. Clamp long messages with an ellipsis; preserve the full
-  diagnostic in the native hover title and accessible status/alert text.
+- Check connection feedback shows the entire diagnostic inline, with preserved
+  line breaks and wrapping even for long unbroken words. No fixed height, line
+  clamp, ellipsis, clipping or internal scrollbar is allowed. Reserve at least
+  one button-height row; longer messages grow downwards as an explicit full-text
+  display exception. The row is top-aligned so its fixed-size button and spinner
+  do not move down as the message grows. Following content may move down to make
+  room for the complete diagnostic; never cover it with overflowing text. Keep
+  the full accessible status/alert text and native hover title as well.
 - Source and Transforms share one authenticated table catalog and a server-side
   metadata session. Fewer than 1000 catalog tables triggers asynchronous schema
   preloading; 1000 or more uses explicit `Load schemas` beside each transform's

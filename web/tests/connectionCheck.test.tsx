@@ -13,6 +13,7 @@ const feedbackStates: ConnectionCheckState[] = [
   { state: "success", status: "verified", options: {}, message: "Connection verified, including access to the configured database and its tables." },
   { state: "success", status: "network_reachable", options: {}, message: "Network connection is available, but authentication and access to the configured tables were not checked." },
   { state: "error", options: {}, message: "Authentication failed. Check the username, password and database access permissions before trying again." },
+  { state: "error", options: {}, message: `Connection failed.\n${"A_long_diagnostic_without_spaces_".repeat(20)}\nLast diagnostic line.` },
 ];
 
 it.each(feedbackStates)("preserves the full $state diagnostic in accessible text and its hover hint", check => {

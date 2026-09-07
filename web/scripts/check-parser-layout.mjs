@@ -48,13 +48,15 @@ async function measure(page) {
 }
 
 function checkLayout(layout, viewport, context) {
-  const expectedWidth = Math.max(layout.width * 0.6, Math.min(layout.width, 320));
+  const expectedWidth = Math.min(480, Math.max(layout.width * 0.6, Math.min(layout.width, 320)));
   assert(layout.pageWidth <= viewport.width, `${context}: page overflows horizontally: ${JSON.stringify(layout.overflowing)}`);
   for (const section of layout.compact) {
     close(section.x, layout.left, `${context}: scalar section alignment`);
     close(section.width, expectedWidth, `${context}: scalar width must be applied exactly once`);
   }
   for (const row of layout.rows) {
+    if (!row.containsSchema) assert(row.field.width <= expectedWidth + 0.7,
+      `${context}/${row.path}: scalar controls must not exceed the compact width cap`);
     close(row.field.x, row.label.x, `${context}/${row.path}: label/control alignment`);
     close(row.field.y - row.label.bottom, 6, `${context}/${row.path}: label/control gap`);
     assert(row.field.x >= layout.left - 0.7 && row.field.x + row.field.width <= layout.left + layout.width + 0.7,
@@ -83,7 +85,7 @@ try {
   browser = await chromium.launch({ headless: true,
     ...(process.env.TRANSFERIA_BROWSER_EXECUTABLE ? { executablePath: process.env.TRANSFERIA_BROWSER_EXECUTABLE } : {}) });
   let cases = 0;
-  for (const width of [1440, 800, 390]) {
+  for (const width of [2560, 1440, 800, 390]) {
     const viewport = { width, height: 1000 };
     const references = new Map();
     let tableNaming;

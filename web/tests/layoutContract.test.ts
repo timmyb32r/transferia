@@ -56,6 +56,11 @@ describe("delivery layout contract", () => {
     expect(styles).not.toMatch(/(?:loading|busy|success|error)[^{]*\.island-form\s*\{/);
   });
   it("shares one scalar-section width across JSON and TSKV without narrowing output schemas", () => {
+    const parser = styles.split(".parser-form {")[1]?.split("}")[0];
+    expect(parser).toContain("--island-form-width: min(480px, max(60%, min(100%, 320px)));");
+    // Cap the scalar column, not the full-width schema container or each child.
+    expect(parser).not.toMatch(/(?:^|[;\s])(?:width|max-width)\s*:/);
+    expect(styles.split(".island-form-wide {")[1]?.split("}")[0]).toContain("width: 100%;");
     expect(styles).toContain(".schema-object-with-columns { grid-template-columns: minmax(0, 1fr); }");
     const selectors = [
       ".parser-form.island-form-wide .parser-scalar-section",
@@ -279,13 +284,11 @@ describe("delivery layout contract", () => {
     expect(list).toContain("min-height: 0;");
     expect(list).toContain("resize: none;");
   });
-  it("reserves independent connection and discovery feedback across idle, pending, success and failure", () => {
-    for (const selector of [".connection-check-result", ".table-discovery-result"]) {
-      const rule = styles.split(`${selector} {`)[1]?.split("}")[0];
-      expect(rule).toContain("height: 2.7em;");
-      expect(rule).toContain("overflow-wrap: anywhere;");
-    }
-    expect(styles.split(".table-discovery-result {")[1]?.split("}")[0]).toContain("overflow: auto;");
+  it("keeps discovery feedback fixed independently of full connection diagnostics", () => {
+    const discovery = styles.split(".table-discovery-result {")[1]?.split("}")[0];
+    expect(discovery).toContain("height: 2.7em;");
+    expect(discovery).toContain("overflow-wrap: anywhere;");
+    expect(discovery).toContain("overflow: auto;");
     const fields = styles.split("\n.connection-dependent-fields {")[1]?.split("}")[0];
     expect(fields).toContain("min-width: 0;");
     expect(fields).toContain("grid-template-columns: minmax(0, 1fr);");
@@ -297,17 +300,26 @@ describe("delivery layout contract", () => {
     // State colors must not change the footprint or hide the disabled form.
     expect(styles).not.toMatch(/\.connection-dependent[^{}]*\[aria-disabled[^{}]*\{[^}]*(?:display|height|padding|margin)\s*:/s);
   });
-  it("keeps connection feedback at two lines without an internal scrollbar", () => {
+  it("wraps full connection feedback without clipping, scrollbars or moving the button down", () => {
+    const row = styles.split(".connection-check {")[1]?.split("}")[0];
+    expect(row).toContain("align-items: flex-start;");
+    expect(row).toContain("min-height: var(--button-height);");
+    expect(styles.split(".connection-check-button {")[1]?.split("}")[0]).toContain("flex: 0 0 auto;");
+    expect(styles.split(".connection-check-spinner-slot {")[1]?.split("}")[0])
+      .toContain("margin-top: calc((var(--button-height) - 12px) / 2);");
     const result = styles.split(".connection-check-result {")[1]?.split("}")[0];
-    expect(result).toContain("height: 2.7em;");
+    expect(result).toContain("min-height: var(--button-height);");
+    expect(result).toContain("flex: 1 1 0;");
     expect(result).toContain("line-height: 1.35;");
-    expect(result).toContain("overflow: hidden;");
-    expect(result).not.toMatch(/overflow:\s*(?:auto|scroll)|scrollbar-gutter/);
+    expect(result).toContain("overflow: visible;");
+    expect(result).toContain("overflow-wrap: anywhere;");
     const message = styles.split(".connection-check-result > span {")[1]?.split("}")[0];
-    expect(message).toContain("display: -webkit-box;");
-    expect(message).toContain("-webkit-box-orient: vertical;");
-    expect(message).toContain("-webkit-line-clamp: 2;");
-    expect(message).toContain("overflow: hidden;");
+    expect(message).toContain("display: block;");
+    expect(message).toContain("white-space: pre-wrap;");
+    for (const rule of [row, result, message]) {
+      expect(rule).not.toMatch(/(?:^|[;\s])(?:height|max-height|line-clamp|-webkit-line-clamp|text-overflow|scrollbar-gutter)\s*:/);
+      expect(rule).not.toMatch(/overflow(?:-[xy])?:\s*(?:auto|scroll|hidden|clip)/);
+    }
   });
   it("stacks form labels in narrow containers without squeezing controls", () => {
     expect(styles).toContain("container: form-space / inline-size;");

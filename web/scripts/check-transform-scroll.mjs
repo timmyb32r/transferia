@@ -139,7 +139,7 @@ async function checkRenameGeometry(page) {
   for (const value of [name, ""]) {
     await trigger.click();
     await unchanged();
-    await page.getByRole("menuitem", { name: value ? "Add name" : "Rename", exact: true }).click();
+    await page.getByRole("menuitem", { name: value ? "Set name" : "Rename", exact: true }).click();
     await unchanged();
     const dialog = page.getByRole("dialog", { name: "Transformation name" });
     const bounds = await dialog.boundingBox();

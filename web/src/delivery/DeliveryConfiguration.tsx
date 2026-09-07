@@ -78,7 +78,7 @@ export function DeliveryConfiguration({
   const sourceConfig = selection ? endpointValue(editor.config, "source", selection.sourceKey) : undefined;
   const sourceNode = selection?.source ? compiledSchema(selection.source.schema, widgets) : undefined;
   const hasParser = sourceNode && selectedComponentNode(sourceNode, sourceConfig ?? null, "parser") !== undefined;
-  const hasTableSettings = routeSettingsAvailable && sourceTableFields(sourceNode, selection?.sourceKey ?? "").length > 0;
+  const hasTableSettings = routeSettingsAvailable && sourceTableFields(sourceNode).length > 0;
   const previewSource = selection?.source?.table_preview && isObject(sourceConfig)
     ? { connector: selection.sourceKey, config: sourceConfig } : undefined;
   const sharedCheck = sharedMetadata?.discovery;

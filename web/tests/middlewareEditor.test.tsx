@@ -23,13 +23,13 @@ function Editor({ value = [step], disabled = false }: { value?: JsonValue; disab
 }
 
 describe("ordered transform strips", () => {
-  it("adds a name through the overflow menu without opening settings or changing the action", () => {
+  it("sets a name through the overflow menu without opening settings or changing the action", () => {
     const view = render(<Editor />);
     const toggle = view.getByRole("button", { name: "Expand transform 1" });
     const more = view.getByRole("button", { name: "Actions for transform 1" });
     const remove = view.getByRole("button", { name: "Delete transform 1" });
     fireEvent.click(more);
-    fireEvent.click(view.getByRole("menuitem", { name: "Add name" }));
+    fireEvent.click(view.getByRole("menuitem", { name: "Set name" }));
     const dialog = view.getByRole("dialog", { name: "Transformation name" });
     const input = within(dialog).getByRole("textbox", { name: "Transformation name" });
     expect(document.activeElement).toBe(input);
@@ -103,7 +103,7 @@ describe("ordered transform strips", () => {
     const onChange = vi.fn();
     const view = render(<MiddlewareEditor value={[step]} disabled={false} onChange={onChange} />);
     fireEvent.click(view.getByRole("button", { name: "Actions for transform 1" }));
-    fireEvent.click(view.getByRole("menuitem", { name: "Add name" }));
+    fireEvent.click(view.getByRole("menuitem", { name: "Set name" }));
     view.rerender(<MiddlewareEditor value={[step]} disabled onChange={onChange} />);
     expect(view.queryByRole("dialog")).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
@@ -129,7 +129,7 @@ describe("ordered transform strips", () => {
     const onChange = vi.fn();
     const view = render(<MiddlewareEditor value={[{ tables: step.tables }]} disabled={false} onChange={onChange} />);
     fireEvent.click(view.getByRole("button", { name: "Actions for transform 1" }));
-    fireEvent.click(view.getByRole("menuitem", { name: "Add name" }));
+    fireEvent.click(view.getByRole("menuitem", { name: "Set name" }));
     fireEvent.input(view.getByRole("textbox", { name: "Transformation name" }), { target: { value: "Later" } });
     fireEvent.click(view.getByRole("button", { name: "Save" }));
     expect(onChange).toHaveBeenCalledExactlyOnceWith([{ tables: step.tables, name: "Later" }]);

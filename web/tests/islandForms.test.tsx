@@ -18,36 +18,40 @@ import type { JsonObject } from "../src/types";
 afterEach(cleanup);
 const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
 
-it("changes the S3 parser from Tables while keeping JSON settings in a separate full-width island", () => {
-  const initial = catalog.connectors.find(item => item.key === "s3")!.source!.initial;
+it("changes the S3 parser in Source without creating Tables or moving parser settings into Source", () => {
+  const initial: JsonObject = { ...catalog.connectors.find(item => item.key === "s3")!.source!.initial,
+    path_prefix: "Exact Prefix/../2026/", table_name: "Exact.Table Name" };
   const onConfig = vi.fn();
   function S3Delivery() {
     const [config, setConfig] = useState<JsonObject>({ delivery_type: "batch",
       source: { s3: initial }, sink: { discard: {} } });
     return <DeliveryConfiguration catalog={catalog}
-      editor={{ sessionId: "s3-tables", editing: true, localRevision: 0, name: "S3", description: "", config,
+      editor={{ sessionId: "s3-source", editing: true, localRevision: 0, name: "S3", description: "", config,
         validation: { state: "draft" }, runtime: { state: "stopped" } }}
       selection={selectedEndpoints(catalog, config, productionWidgetRegistry)}
       readOnly={false} requiredErrorScope="none" onName={() => {}} onDescription={() => {}}
       onConfig={next => { setConfig(next); onConfig(next); }} onChooseEndpoint={() => {}} />;
   }
   const view = render(<S3Delivery />);
-  const tables = view.getByRole("region", { name: "Source tables" });
-  const selector = within(tables).getByLabelText(/^Parser/);
+  const source = view.container.querySelector<HTMLElement>(".endpoint-card-source")!;
+  expect(view.queryByRole("region", { name: "Source tables" })).toBeNull();
+  const selector = within(source).getByLabelText(/^Parser/);
   expect(selector.textContent).toContain("Parquet parser");
-  const path = within(tables).getByLabelText(/^Path prefix/);
+  const path = within(source).getByLabelText(/^Path prefix/);
+  const name = within(source).getByLabelText(/^Table name/);
   const check = view.getByRole("button", { name: "Check connection", exact: true });
   fireEvent.click(selector);
   fireEvent.click(view.getByRole("option", { name: "JSON parser", exact: true }));
   const details = view.container.querySelector(".parser-details-card")!;
   expect(details).not.toBeNull();
-  expect(details.parentElement).toBe(tables.parentElement);
-  expect(details.previousElementSibling).toBe(tables);
+  expect(details.parentElement).toBe(source.parentElement);
+  expect(details.previousElementSibling?.classList.contains("endpoint-card-sink")).toBe(true);
   expect(details.querySelector(".island-form-wide.json-parser-form .column-editor")).not.toBeNull();
-  expect(tables.querySelector(".column-editor")).toBeNull();
-  expect(view.getByRole("region", { name: "Source tables" })).toBe(tables);
-  expect(within(tables).getByLabelText(/^Path prefix/)).toBe(path);
-  expect(within(tables).getByLabelText(/^Parser/)).toBe(selector);
+  expect(source.querySelector(".column-editor")).toBeNull();
+  expect(view.queryByRole("region", { name: "Source tables" })).toBeNull();
+  expect(within(source).getByLabelText(/^Path prefix/)).toBe(path);
+  expect(within(source).getByLabelText(/^Table name/)).toBe(name);
+  expect(within(source).getByLabelText(/^Parser/)).toBe(selector);
   expect(selector.textContent).toContain("JSON parser");
   expect(view.getByRole("button", { name: "Check connection", exact: true })).toBe(check);
   const next = onConfig.mock.lastCall![0];
@@ -78,7 +82,7 @@ describe("compact island forms", () => {
     expect(onChange).toHaveBeenLastCalledWith({ parser: { ...parser, json_parser: { ...settings, json_framing: next } } });
   });
   it.each([
-    ["postgres", "source"], ["mysql", "source"], ["clickhouse", "source"],
+    ["postgres", "source"], ["mysql", "source"], ["clickhouse", "source"], ["s3", "source"],
     ["mysql", "sink"], ["discard", "sink"],
   ] as const)("contains the whole %s %s form in one compact column", (key, role) => {
     const connector = catalog.connectors.find(item => item.key === key)!;

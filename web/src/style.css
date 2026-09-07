@@ -1059,6 +1059,7 @@ h3 {
   container: form-space / inline-size;
 }
 .island-form-wide { width: 100%; }
+.parser-form { --island-form-width: min(480px, max(60%, min(100%, 320px))); }
 .schema-object-with-columns { grid-template-columns: minmax(0, 1fr); }
 /* JSON and TSKV retain full-width schemas. Apply the common compact width
    once to their scalar sections, never to a column editor or nested options. */
@@ -1107,7 +1108,7 @@ h3 {
 }
 .connection-check {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   margin-top: 16px;
   min-height: var(--button-height);
@@ -1140,11 +1141,9 @@ h3 {
   overscroll-behavior: contain;
 }
 .connection-check-result > span {
-  display: -webkit-box;
+  display: block;
   min-width: 0;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  white-space: pre-wrap;
 }
 .connection-check-button.interaction-pending::after { content: none; }
 .connection-dependent-settings {
@@ -1206,12 +1205,16 @@ h3 {
   flex: 0 0 12px;
   width: 12px;
   height: 12px;
+  margin-top: calc((var(--button-height) - 12px) / 2);
   place-items: center;
 }
 .connection-check-result {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
   min-width: 0;
-  height: 2.7em;
-  overflow: hidden;
+  min-height: var(--button-height);
+  overflow: visible;
   overflow-wrap: anywhere;
   color: var(--muted);
   font-size: 12px;

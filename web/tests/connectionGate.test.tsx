@@ -54,33 +54,34 @@ it.each([false, true])("labels the S3 destination prefix as Path without changin
   }
 });
 
-it("moves S3 path, table name and parser with Scan into Tables, leaving connection controls in Source", () => {
-  const view = render(<Form connectorKey="s3" fullWidth />);
-  const host = view.getByRole("region", { name: "Source tables" });
-  const group = within(host).getByRole("group", { name: "Table settings" }) as HTMLFieldSetElement;
-  expect(group.disabled).toBe(false);
-  expect(within(group).getByLabelText(/^Path prefix/)).toBeTruthy();
-  expect(within(group).getByLabelText(/^Table name/)).toBeTruthy();
-  expect(within(group).getByLabelText(/^Parser/).textContent).toContain("Parquet parser");
-  expect(within(group).getByRole("button", { name: "Preview one message" })).toBeTruthy();
-  const source = view.container.querySelector(".endpoint-card-source")!;
-  expect(source.contains(group)).toBe(false);
-  expect(source.contains(view.getByLabelText(/^Bucket/))).toBe(true);
-  expect(source.contains(view.getByRole("button", { name: "Check connection", exact: true }))).toBe(true);
+it.each([false, true])("keeps S3 path, table name, parser and Scan in Source (readOnly=%s)", readOnly => {
+  const view = render(<Form connectorKey="s3" readOnly={readOnly} />);
+  const source = view.container.querySelector<HTMLElement>(".endpoint-card-source > .island-form")!;
+  const path = within(source).getByLabelText(/^Path prefix/) as HTMLInputElement;
+  const name = within(source).getByLabelText(/^Table name/) as HTMLInputElement;
+  const parser = within(source).getByLabelText(/^Parser/) as HTMLButtonElement;
+  const scan = within(source).getByRole("button", { name: "Preview one message" }) as HTMLButtonElement;
+  expect(parser.textContent).toContain("Parquet parser");
+  for (const control of [path, name, parser, scan]) expect(control.disabled).toBe(readOnly);
+  expect(within(source).getByLabelText(/^Bucket/)).toBeTruthy();
+  const check = within(source).getByRole("button", { name: "Check connection", exact: true });
+  expect(name.compareDocumentPosition(check) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  expect(check.compareDocumentPosition(parser) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
   expect(view.getAllByLabelText(/^Path prefix/)).toHaveLength(1);
   expect(view.getAllByLabelText(/^Table name/)).toHaveLength(1);
   expect(view.getAllByLabelText(/^Parser/)).toHaveLength(1);
-  expect(host.querySelector(":scope > .island-form:not(.island-form-wide)")).not.toBeNull();
+  expect(view.container.querySelector(".source-tables-card")).toBeNull();
+  expect(view.queryByRole("group", { name: "Table settings" })).toBeNull();
   expect(view.queryByRole("button", { name: "Discover tables" })).toBeNull();
 });
 
-it("edits S3 fields in Tables without rewriting their values or the rest of the delivery", () => {
+it("edits S3 fields in Source without rewriting their values or the rest of the delivery", () => {
   const source = catalog.connectors.find(item => item.key === "s3")!.source!.initial;
   const config: JsonObject = { delivery_type: "batch", source: { s3: source }, sink: { discard: {} } };
   const onConfig = vi.fn();
-  const view = render(<Form connectorKey="s3" fullWidth initialConfig={config} onConfig={onConfig} />);
+  const view = render(<Form connectorKey="s3" initialConfig={config} onConfig={onConfig} />);
   expect(onConfig).not.toHaveBeenCalled();
-  const group = view.getByRole("group", { name: "Table settings" });
+  const group = view.container.querySelector<HTMLElement>(".endpoint-card-source")!;
   const path = within(group).getByLabelText(/^Path prefix/);
   const name = within(group).getByLabelText(/^Table name/);
   fireEvent.input(path, { target: { value: "Exact Prefix/../2026/" } });
@@ -119,17 +120,13 @@ it.each([
     expect(view.container.querySelector(".endpoint-card-source [data-field-name='namespace']")).not.toBeNull();
 });
 
-it.each(["iceberg", "opensearch", "ydb", "ytsaurus", "s3"])("keeps relocated %s selection read-only when viewing a saved delivery", connectorKey => {
+it.each(["iceberg", "opensearch", "ydb", "ytsaurus"])("keeps relocated %s selection read-only when viewing a saved delivery", connectorKey => {
   const view = render(<Form connectorKey={connectorKey} fullWidth readOnly />);
   const group = view.getByRole("group", { name: "Table settings" }) as HTMLFieldSetElement;
   expect(group.disabled).toBe(true);
   const inputs = [...group.querySelectorAll("input")];
   expect(inputs.length).toBeGreaterThan(0);
   expect(inputs.every(input => input.disabled)).toBe(true);
-  if (connectorKey === "s3") {
-    expect((within(group).getByLabelText(/^Parser/) as HTMLButtonElement).disabled).toBe(true);
-    expect((within(group).getByRole("button", { name: "Preview one message" }) as HTMLButtonElement).disabled).toBe(true);
-  }
 });
 
 it.each([["opensearch", "auth"], ["ydb", "tables"], ["ytsaurus", "tables"], ["s3", "installation"]])("leaves %s destination settings in Destination", (connectorKey, field) => {
@@ -164,13 +161,15 @@ it.each([
   expect(group.querySelector("input")).toBe(input);
 });
 
-it.each(["iceberg", "opensearch", "ydb", "ytsaurus", "s3"])("keeps %s Tables controls mounted and editable while connection checking is pending", async connectorKey => {
+it.each(["iceberg", "opensearch", "ydb", "ytsaurus", "s3"])("keeps %s selection controls mounted and editable while connection checking is pending", async connectorKey => {
   let finish!: (result: ConnectionCheckResult) => void;
   const request = vi.spyOn(api, "checkConnection").mockReturnValue(new Promise(resolve => { finish = resolve; }));
   const discover = vi.spyOn(api, "connectMetadata");
-  const view = render(<Form connectorKey={connectorKey} fullWidth />);
-  const host = view.getByRole("region", { name: "Source tables" });
-  const group = within(host).getByRole("group", { name: "Table settings" }) as HTMLFieldSetElement;
+  const view = render(<Form connectorKey={connectorKey} fullWidth={connectorKey !== "s3"} />);
+  const host = connectorKey === "s3"
+    ? view.container.querySelector<HTMLElement>(".endpoint-card-source")!
+    : view.getByRole("region", { name: "Source tables" });
+  const group = connectorKey === "s3" ? host : within(host).getByRole("group", { name: "Table settings" });
   const input = group.querySelector("input")!;
   const siblings = [...host.parentElement!.children];
   const controls = [...group.querySelectorAll("input, button")];
@@ -178,18 +177,23 @@ it.each(["iceberg", "opensearch", "ydb", "ytsaurus", "s3"])("keeps %s Tables con
   fireEvent.click(check);
   expect(check.getAttribute("aria-busy")).toBe("true");
   expect(check.getAttribute("aria-disabled")).toBe("true");
-  expect(group.disabled).toBe(false);
+  expect(group.matches(":disabled")).toBe(false);
   expect(input.disabled).toBe(false);
   fireEvent.click(check);
   expect(request).toHaveBeenCalledOnce();
   finish({ status: "verified", options: {}, tables: [] });
   await view.findByText("Connection verified.");
   expect(view.getByRole("button", { name: "Check connection", exact: true })).toBe(check);
-  expect(view.getByRole("region", { name: "Source tables" })).toBe(host);
-  expect(within(host).getByRole("group", { name: "Table settings" })).toBe(group);
+  if (connectorKey === "s3") {
+    expect(view.container.querySelector(".endpoint-card-source")).toBe(host);
+    expect(view.container.querySelector(".source-tables-card")).toBeNull();
+  } else {
+    expect(view.getByRole("region", { name: "Source tables" })).toBe(host);
+    expect(within(host).getByRole("group", { name: "Table settings" })).toBe(group);
+  }
   expect([...host.parentElement!.children]).toEqual(siblings);
   expect([...group.querySelectorAll("input, button")]).toEqual(controls);
-  expect(group.disabled).toBe(false);
+  expect(group.matches(":disabled")).toBe(false);
   expect(input.disabled).toBe(false);
   expect(discover).not.toHaveBeenCalled();
 });

@@ -48,10 +48,8 @@ export function compiledSchema(
   return compiled;
 }
 
-export function sourceTableFields(node: CompiledNode | undefined, connector: string): string[] {
+export function sourceTableFields(node: CompiledNode | undefined): string[] {
   if (node?.kind !== "object") return [];
-  if (connector === "s3")
-    return ["path_prefix", "table_name", "parser"].filter(name => node.properties[name] !== undefined);
   const tableField = ["tables", "table_names", "indices"].find(name => {
     const field = node.properties[name];
     return field?.kind === "array" || field?.xUi.widget === "table_selection";

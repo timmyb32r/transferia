@@ -69,7 +69,7 @@ export function TransformNameAction({ name, index, disabled, onSave }: {
       style={position}>
       <Button variant="plain" role="menuitem" aria-haspopup="dialog" buttonRef={item} onClick={() => {
         setDraft(name); setView("rename");
-      }}>{name ? "Rename" : "Add name"}</Button>
+      }}>{name ? "Rename" : "Set name"}</Button>
     </div>}
     {view === "rename" && <section id={`${id}-rename`} class="middleware-name-dialog" role="dialog"
       aria-labelledby={`${id}-label`} aria-describedby={`${id}-hint`}
