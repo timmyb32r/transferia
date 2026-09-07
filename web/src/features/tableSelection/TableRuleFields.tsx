@@ -38,6 +38,7 @@ export function TableRuleFields({ id, rule, labelSuffix, disabled, excludeExpand
       description={`${HELP} Use ${namespace}.table or ${namespace}.*. ${kind === "include" ? includeHelp : excludeHelp}`}>
       <TablePatternInput id={`${id}-${kind}`} label={`${title} ${labelSuffix}`} value={rule[kind] ?? ""}
         mode={rule[`${kind}_mode`] ?? "glob"} disabled={disabled} required={kind === "include"}
+        searchSuggestions={kind === "include"}
         invalid={kind === "include" && invalid} confirmed={kind === "include" ? confirmed : undefined}
         onBrowse={kind === "include" ? () => setBrowse(true) : undefined}
         onChange={value => {

@@ -1,10 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { createPortal } from "preact/compat";
 import type { PatternMode, TableIdentity } from "../../generated/apiContract";
 import { useTableCatalog } from "../../schema/tableCatalog";
 import { AutofillResistantInput } from "../../ui/AutofillResistantField";
 import { Button } from "../../ui/Button";
 import { SearchIcon } from "../../ui/icons";
+import { rankSearchResults } from "../../ui/search";
+import { SearchHighlight } from "../../ui/SearchHighlight";
 import { anchoredMenuStyle, useAnchoredOverlay } from "../../ui/overlay";
 import { completionPattern, exactPattern, literalPatternPrefix, qualifiedName } from "./model";
 import { useTableNamespace } from "./naming";
@@ -12,12 +14,13 @@ import { useTableNamespace } from "./naming";
 const GLOB_HELP = "Glob / wildcard: * matches any number of characters; ? matches one character. Matching starts at the beginning of the qualified name. Click to enable regex.";
 const REGEX_HELP = "Regex is enabled. The expression matches the entire qualified name. Use .* for any characters and . for one character. Click to use glob / wildcard.";
 
-export function TablePatternInput({ id, label, value, mode, disabled, required, invalid, onChange, onModeChange, placeholder, onBrowse, confirmed }: {
+export function TablePatternInput({ id, label, value, mode, disabled, required, invalid, onChange, onModeChange, placeholder, onBrowse, confirmed, searchSuggestions = false }: {
   id: string; label: string; value: string; mode: PatternMode; disabled: boolean;
   required: boolean; invalid: boolean;
   placeholder?: string;
   onBrowse?: (() => void) | undefined;
   confirmed?: boolean | undefined;
+  searchSuggestions?: boolean;
   onChange: (value: string) => void; onModeChange: (mode: PatternMode) => void;
 }) {
   const catalog = useTableCatalog();
@@ -53,13 +56,18 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
   const key = JSON.stringify([value, mode]);
   const tables = catalog?.tables;
   const preview = catalog?.preview;
-  const open = focused && value.length > 0 && !disabled && tables !== undefined && preview !== undefined;
-  const current = result?.key === key && result.tables === tables ? result.matches : undefined;
+  const open = focused && (searchSuggestions || value.length > 0) && !disabled && tables !== undefined && preview !== undefined;
+  // Search helps choose a name; it never changes glob/regex rule semantics.
+  // For authored patterns, search the literal prefix (so * / .* browse all).
+  const prefix = literalPatternPrefix(value, mode);
+  const searched = useMemo(() => open && searchSuggestions && tables
+    ? rankSearchResults(tables, prefix, qualifiedName) : undefined, [open, searchSuggestions, tables, prefix]);
+  const current = searchSuggestions ? searched : result?.key === key && result.tables === tables ? result.matches : undefined;
   const suggestions = current?.slice(0, 30) ?? [];
   useAnchoredOverlay({ open, root, trigger: input, onClose: () => setFocused(false) });
+  useLayoutEffect(() => setActive(-1), [key, open, tables, searchSuggestions]);
   useEffect(() => {
-    setActive(-1);
-    if (!open || !tables || !preview) return;
+    if (searchSuggestions || !open || !tables || !preview) return;
     const controller = new AbortController();
     // Reuse the production matcher: completion is prefix-based for plain glob
     // input, and follows exact glob/regex semantics once a pattern is present.
@@ -75,14 +83,13 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
       });
     }, 150);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [key, open, tables, preview]);
+  }, [key, open, tables, preview, searchSuggestions]);
   const choose = (table: TableIdentity) => {
     onChange(exactPattern(table, mode));
     input.current?.focus({ preventScroll: true });
     setFocused(false);
     setActive(-1);
   };
-  const prefix = literalPatternPrefix(value, mode);
   return <div class={`table-pattern-input${onBrowse ? " table-pattern-with-browser" : ""}${confirmed !== undefined ? " table-pattern-with-confirmation" : ""}`} ref={root} onBlur={event => {
     if (!root.current?.contains(event.relatedTarget as Node | null)) setFocused(false);
   }} onKeyDown={event => {
@@ -100,9 +107,11 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
       aria-describedby={fullName ? `${id}-full-name` : undefined}
       placeholder={placeholder ?? (required ? `${namespace}.table or ${namespace}.*` : "Optional pattern")}
       value={value} disabled={disabled} onFocus={() => setFocused(true)}
+      onClick={() => { if (searchSuggestions) setFocused(true); }}
       onMouseEnter={showFullName} onMouseLeave={hideFullName}
       onInput={event => { hideFullName(); setFocused(true); onChange(event.currentTarget.value); }}
       onKeyDown={event => {
+        if (event.isComposing) return;
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault(); setFocused(true);
           if (suggestions.length) {
@@ -111,12 +120,21 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
             setActive(next);
             document.getElementById(`${id}-suggestion-${next}`)?.scrollIntoView?.({ block: "nearest" });
           }
-        } else if (event.key === "Enter" && !event.isComposing) {
+        } else if (event.key === "Enter") {
           event.preventDefault();
           event.stopPropagation();
+          // Only deliberate arrow navigation accepts a suggestion. Enter on
+          // an authored pattern still finishes it without replacing its scope.
+          if (searchSuggestions && open && active >= 0 && suggestions[active]) {
+            choose(suggestions[active]);
+            return;
+          }
           setFocused(false);
           setActive(-1);
           event.currentTarget.blur();
+        } else if (event.key === "Tab" && searchSuggestions) {
+          setFocused(false);
+          setActive(-1);
         }
       }} />
     {confirmed !== undefined && <span class="table-pattern-confirmation" aria-live="polite">
@@ -135,10 +153,11 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
           : suggestions.length === 0 ? <div class="select-empty">No matching tables</div>
           : suggestions.map((table, index) => {
             const name = qualifiedName(table);
-            return <Button variant="plain" id={`${id}-suggestion-${index}`} key={name} role="option" aria-selected={index === active}
+            return <Button variant="plain" id={`${id}-suggestion-${index}`} key={name} role="option" aria-label={name} aria-selected={index === active}
               tabIndex={-1} class="select-option" onPointerDown={event => event.preventDefault()}
               onClick={() => choose(table)}>
-              {prefix && name.startsWith(prefix) ? <><strong>{name.slice(0, prefix.length)}</strong>{name.slice(prefix.length)}</> : name}
+              {searchSuggestions ? <SearchHighlight text={name} query={prefix} />
+                : prefix && name.startsWith(prefix) ? <><strong>{name.slice(0, prefix.length)}</strong>{name.slice(prefix.length)}</> : name}
             </Button>;
           })}
       </div>

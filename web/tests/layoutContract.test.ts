@@ -16,9 +16,37 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("keeps transform naming overlays out of flow and reserves one title line", () => {
+    const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
+    expect(rule(".middleware-name-menu, .middleware-name-dialog")).toContain("position: fixed;");
+    expect(rule(".middleware-name-action")).toContain("flex: 0 0 30px;");
+    expect(rule(".middleware-strip-title-line")).toContain("height: 20px;");
+    expect(rule(".middleware-strip-title")).toContain("white-space: nowrap;");
+    expect(rule(".middleware-strip-title")).toContain("text-overflow: ellipsis;");
+    expect(rule(".middleware-strip-type")).toContain("flex-shrink: 0;");
+    expect(rule(".middleware-name-dialog")).not.toMatch(/transition\s*:/);
+  });
+  it("grows Description in the same grid cell as its hidden wrapping mirror without delayed height changes", () => {
+    const rule = (selector: string) => styles.split(`${selector} {`).slice(1).at(-1)?.split("}")[0];
+    expect(rule(".identity-form")).toContain("display: grid;");
+    expect(rule(".identity-form")).toContain("gap: 8px;");
+    expect(rule(".delivery-description")).toContain("display: grid;");
+    const shared = rule(".delivery-description > textarea,\n.delivery-description > .description-size");
+    expect(shared).toContain("grid-area: 1 / 1;");
+    expect(shared).toContain("min-height: var(--control-height);");
+    expect(shared).toContain("white-space: pre-wrap;");
+    expect(shared).toContain("overflow-wrap: anywhere;");
+    expect(shared).toContain("font: inherit;");
+    expect(shared).not.toMatch(/(?:max-height|transition)\s*:/);
+    expect(rule(".delivery-description > .description-size")).toContain("visibility: hidden;");
+    expect(rule(".delivery-description > textarea")).toContain("resize: none;");
+    expect(rule(".delivery-description > textarea")).toContain("overflow: hidden;");
+    expect(styles).toMatch(/@container form-space \(max-width: 520px\)\s*\{\s*\.identity-form > \.top-field\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
+  });
   it("uses a borderless left-aligned 60% island form without recursively narrowing nested settings", () => {
     const column = styles.split(".island-form {")[1]?.split("}")[0];
-    expect(column).toContain("width: max(60%, min(100%, 320px));");
+    expect(column).toContain("--island-form-width: max(60%, min(100%, 320px));");
+    expect(column).toContain("width: var(--island-form-width);");
     expect(column).toContain("min-width: 0;");
     expect(column).toContain("container: form-space / inline-size;");
     expect(column).not.toMatch(/(?:border|background|padding|margin|transition)\s*:/);
@@ -26,6 +54,25 @@ describe("delivery layout contract", () => {
     expect(styles).not.toMatch(/\.island-form\s+\.(?:schema-object|nested-section|field-control)[^{]*\{[^}]*width:\s*60%/);
     // Network state must never change the inner column's width or alignment.
     expect(styles).not.toMatch(/(?:loading|busy|success|error)[^{]*\.island-form\s*\{/);
+  });
+  it("shares one scalar-section width across JSON and TSKV without narrowing output schemas", () => {
+    expect(styles).toContain(".schema-object-with-columns { grid-template-columns: minmax(0, 1fr); }");
+    const selectors = [
+      ".parser-form.island-form-wide .parser-scalar-section",
+      ".parser-form.island-form-wide .schema-object-with-columns > .form-row",
+      ".parser-form.island-form-wide .schema-object-with-columns > .parse-policy-row",
+    ].join(",\n");
+    const rule = styles.split(`${selectors} {`)[1]?.split("}")[0];
+    expect(rule).toContain("width: var(--island-form-width);");
+    expect(rule).toContain("min-width: 0;");
+    expect(rule).toContain("container: form-space / inline-size;");
+    expect(rule).not.toMatch(/(?:border|background|padding|margin|transition)\s*:/);
+    expect(styles).not.toContain(".json-parser-form > .schema-object");
+    const row = styles.split(":root .parser-form .form-row:not(.column-editor *) {")[1]?.split("}")[0];
+    expect(row).toContain("grid-template-columns: minmax(0, 1fr);");
+    expect(row).toContain("align-content: start;");
+    expect(row).toContain("gap: 6px;");
+    expect(styles.split(":root .parser-form .field-control:not(.column-editor *) {")[1]?.split("}")[0]).toContain("width: 100%;");
   });
   it("keeps nested installation and array actions inside the narrowed form", () => {
     const nested = styles.split("\n.form-row-installation > .field-control > .union-editor > .nested-section {")[1]?.split("}")[0];
@@ -55,8 +102,23 @@ describe("delivery layout contract", () => {
     expect(styles).toMatch(/\.parser-details-card,\s*\.source-tables-card \{[^}]*grid-column: 1 \/ -1;/);
     expect(styles).toContain(":root .table-rule-compact .field-label { display: none; }");
     expect(styles).not.toContain(".table-rule-row ~ .table-rule-row { padding-top: 12px;");
-    expect(styles).toContain("grid-template-rows: auto auto 40px 24px minmax(0, 1fr) 116px;");
+    expect(styles).toContain("grid-template-rows: auto auto 40px 24px minmax(0, 1fr);");
     expect(styles).toMatch(/\.table-pattern-tooltip \{[^}]*position: fixed;[^}]*pointer-events: none;/);
+  });
+  it("opens schema errors out of flow without reserving an empty bottom panel or resizing the list", () => {
+    const overlay = styles.split(".available-table-error {")[1]?.split("}")[0];
+    expect(overlay).toContain("position: absolute;");
+    expect(overlay).toContain("inset: 20px;");
+    expect(styles).not.toContain("minmax(0, 1fr) 116px;");
+    expect(styles).not.toMatch(/\.available-tables-dialog:has\(\.available-table-error\)[^{]*\{/);
+    expect(styles).toMatch(/\.available-tables-dialog\s*\{[^}]*position: relative;/);
+  });
+  it("keeps All matched tables left-aligned beside Add tables instead of pushing it to the far edge", () => {
+    const footer = styles.split(".table-selection-footer {")[1]?.split("}")[0];
+    expect(footer).toContain("display: flex;");
+    expect(footer).toContain("gap: 10px;");
+    expect(footer).not.toContain("justify-content: space-between;");
+    expect(styles).not.toMatch(/\.table-selection-footer\s+\.matched-toggle\s*\{[^}]*margin-left:\s*auto;/);
   });
   it("makes Tables and parsers separate full-width islands without empty reserved grid rows", () => {
     const details = styles.split(".parser-details-card,\n.source-tables-card {")[1]?.split("}")[0];
@@ -118,7 +180,7 @@ describe("delivery layout contract", () => {
     expect(rule(":root .middleware-strip-heading .icon-button")).toContain("height: 32px;");
     expect(rule(":root .middleware-strip-heading .middleware-clone")).toContain("height: 32px;");
     for (const state of ["hover", "active"]) {
-      expect(rule(`:root .middleware-strip-heading button:${state}:not(:disabled, .copy-action)`))
+      expect(rule(`:root .middleware-strip-heading button:${state}:not(:disabled, .copy-action, .middleware-name-dialog button)`))
         .not.toMatch(/(?:width|height|padding|margin|transform|border-width)\s*:/);
     }
   });
@@ -221,9 +283,9 @@ describe("delivery layout contract", () => {
     for (const selector of [".connection-check-result", ".table-discovery-result"]) {
       const rule = styles.split(`${selector} {`)[1]?.split("}")[0];
       expect(rule).toContain("height: 2.7em;");
-      expect(rule).toContain("overflow: auto;");
       expect(rule).toContain("overflow-wrap: anywhere;");
     }
+    expect(styles.split(".table-discovery-result {")[1]?.split("}")[0]).toContain("overflow: auto;");
     const fields = styles.split("\n.connection-dependent-fields {")[1]?.split("}")[0];
     expect(fields).toContain("min-width: 0;");
     expect(fields).toContain("grid-template-columns: minmax(0, 1fr);");
@@ -234,6 +296,18 @@ describe("delivery layout contract", () => {
     expect(regex).toContain("background: var(--disabled-surface);");
     // State colors must not change the footprint or hide the disabled form.
     expect(styles).not.toMatch(/\.connection-dependent[^{}]*\[aria-disabled[^{}]*\{[^}]*(?:display|height|padding|margin)\s*:/s);
+  });
+  it("keeps connection feedback at two lines without an internal scrollbar", () => {
+    const result = styles.split(".connection-check-result {")[1]?.split("}")[0];
+    expect(result).toContain("height: 2.7em;");
+    expect(result).toContain("line-height: 1.35;");
+    expect(result).toContain("overflow: hidden;");
+    expect(result).not.toMatch(/overflow:\s*(?:auto|scroll)|scrollbar-gutter/);
+    const message = styles.split(".connection-check-result > span {")[1]?.split("}")[0];
+    expect(message).toContain("display: -webkit-box;");
+    expect(message).toContain("-webkit-box-orient: vertical;");
+    expect(message).toContain("-webkit-line-clamp: 2;");
+    expect(message).toContain("overflow: hidden;");
   });
   it("stacks form labels in narrow containers without squeezing controls", () => {
     expect(styles).toContain("container: form-space / inline-size;");

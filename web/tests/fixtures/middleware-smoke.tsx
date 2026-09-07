@@ -7,6 +7,7 @@ import type { ControlPlanePort } from "../../src/application/ports/controlPlane"
 import type { JsonValue } from "../../src/types";
 import type { TransformPreviewResult } from "../../src/generated/apiContract";
 import { Button } from "../../src/ui/Button";
+import { AutofillResistantInput } from "../../src/ui/AutofillResistantField";
 import { TableCatalogContext } from "../../src/schema/tableCatalog";
 import type { TableSelectionPreviewRequest } from "../../src/generated/apiContract";
 import "../../src/style.css";
@@ -43,7 +44,9 @@ function Fixture() {
   const [value, setValue] = useState<JsonValue>([
     { tables: { include: "analytics.reports_*", exclude: "analytics.reports_test*", include_mode: "glob", exclude_mode: "glob" }, datafusion: { sql: "SELECT id, country, revenue FROM input" } },
     { tables: { include: "analytics.reports_*", include_mode: "glob", exclude_mode: "glob" }, filter: { field: "country", value: "DE" } },
-    { tables: { include: "*", include_mode: "glob", exclude_mode: "glob" }, datafusion: { sql: "SELECT *, revenue * 2 AS adjusted_revenue FROM input" } },
+    { tables: { include: "*", include_mode: "glob", exclude_mode: "glob" },
+      ...(new URLSearchParams(location.search).get("last-transform") === "unselected" ? {}
+        : { datafusion: { sql: "SELECT *, revenue * 2 AS adjusted_revenue FROM input" } }) },
   ]);
   return <ApplicationServicesProvider services={services}>
     <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "24px" }}>
@@ -59,6 +62,9 @@ function Fixture() {
         </TableCatalogContext.Provider></TableNamingProvider>
       </section>
       <Button style={{ marginTop: "18px" }}>Following control</Button>
+      <label style={{ display: "block", marginTop: "18px" }}>Following field
+        <AutofillResistantInput value="1" />
+      </label>
     </main>
   </ApplicationServicesProvider>;
 }

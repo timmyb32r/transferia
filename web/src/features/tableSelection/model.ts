@@ -2,7 +2,7 @@ import type { PatternMode, SelectionIssue, TableIdentity, TableSelection } from 
 
 export function qualifiedName(table: TableIdentity): string {
   const part = (value: string) => value.replaceAll("\\", "\\\\").replaceAll(".", "\\.");
-  return `${part(table.namespace)}.${part(table.name)}`;
+  return table.namespace ? `${part(table.namespace)}.${part(table.name)}` : part(table.name);
 }
 
 export function exactPattern(table: TableIdentity, mode: PatternMode): string {

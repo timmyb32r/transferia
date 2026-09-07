@@ -4,6 +4,7 @@ import { tableConnectionIdentity } from "../../delivery/useEndpointActions";
 import type { TableIdentity, TableSelection, TransformPreviewSource } from "../../generated/apiContract";
 import type { TableCatalog } from "../../schema/tableCatalog";
 import { visibleTableCatalog } from "../tableSelection/catalog";
+import type { DiscoveryResult } from "../../types";
 
 export interface VerifiedTableCatalog { identity: string; tables: TableIdentity[] }
 
@@ -20,7 +21,8 @@ export async function selectedSourceTables(source: TransformPreviewSource, table
 }
 
 export function useTransformCatalog(source: TransformPreviewSource | undefined,
-  checked: VerifiedTableCatalog | undefined, api: ControlPlanePort): TableCatalog | undefined {
+  checked: VerifiedTableCatalog | undefined, api: ControlPlanePort,
+  parserDiscovery?: DiscoveryResult | undefined): TableCatalog | undefined {
   const key = JSON.stringify(source ?? null);
   const identity = source ? tableConnectionIdentity(source.connector, source.config) : undefined;
   const tables = identity !== undefined && checked?.identity === identity ? checked.tables : undefined;
@@ -37,5 +39,14 @@ export function useTransformCatalog(source: TransformPreviewSource | undefined,
     return () => controller.abort();
   }, [key, tables, api]);
   const selected = result?.key === key && result.catalog === tables ? result.selected : undefined;
-  return useMemo(() => selected ? { tables: selected, preview: api.previewTables } : undefined, [selected, api.previewTables]);
+  return useMemo(() => {
+    if (source) return selected ? { tables: selected, preview: api.previewTables } : undefined;
+    // Parser discovery describes the input to the first transform. DLQ rows
+    // bypass transforms, and parser table names have no database namespace.
+    return parserDiscovery ? {
+      tables: parserDiscovery.datasets.filter(dataset => dataset.role === "Main")
+        .map(dataset => ({ namespace: "", name: dataset.name })),
+      preview: api.previewTables,
+    } : undefined;
+  }, [source !== undefined, selected, parserDiscovery, api.previewTables]);
 }

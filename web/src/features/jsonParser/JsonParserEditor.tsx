@@ -50,7 +50,7 @@ export function JsonParserEditor({
   );
   return (
     <div class="schema-object json-parser-editor">
-      <section class="parser-common-section">
+      <section class="parser-common-section parser-scalar-section">
         {commonNode.properties.table_naming && (
           <PropertyEditor
             name="table_naming"
@@ -124,7 +124,7 @@ export function JsonParserEditor({
         }
       />
       {parserFields.length > 0 && (
-        <section class="parser-secondary-section">
+        <section class="parser-secondary-section parser-scalar-section">
           <h3>Parsing behavior</h3>
           <div class="schema-object">
             {parserFields.map(([name, child]) => (

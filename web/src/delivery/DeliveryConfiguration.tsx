@@ -3,6 +3,7 @@ import {
   endpointValue,
   isObject,
   selectedEndpoints,
+  sourceTableFields,
   stringValue,
 } from "./editorConfig";
 import { orderedEndpointConnectors } from "../connectorCatalog";
@@ -15,8 +16,9 @@ import type { EditorState } from "../state";
 import type {
   JsonObject,
   UiCatalog,
+  DiscoveryResult,
 } from "../types";
-import { AutofillResistantInput } from "../ui/AutofillResistantField";
+import { AutofillResistantInput, AutofillResistantTextarea } from "../ui/AutofillResistantField";
 import { TopField } from "../ui/FormField";
 import { SelectControl } from "../ui/SelectControl";
 import { MiddlewareEditor } from "../features/middleware/MiddlewareEditor";
@@ -29,6 +31,7 @@ import { TableCatalogContext } from "../schema/tableCatalog";
 import { useTransformCatalog, type VerifiedTableCatalog } from "../features/middleware/useTransformCatalog";
 import {
   DELIVERY_TYPES,
+  selectedComponentNode,
   type DeliveryType,
 } from "../recordSemantics";
 
@@ -45,6 +48,7 @@ export function DeliveryConfiguration({
   onConfig,
   onChooseEndpoint,
   onTableConnection,
+  sourceDiscovery,
 }: {
   catalog: UiCatalog;
   editor: EditorState;
@@ -56,6 +60,7 @@ export function DeliveryConfiguration({
   onConfig: (config: JsonObject) => void;
   onChooseEndpoint: (role: "source" | "sink", key: string) => void;
   onTableConnection?: ((identity: string | undefined) => void) | undefined;
+  sourceDiscovery?: DiscoveryResult | undefined;
 }) {
   const widgets = useWidgetRegistry();
   const api = useControlPlane();
@@ -72,15 +77,19 @@ export function DeliveryConfiguration({
   const allSinkConnectors = orderedEndpointConnectors(catalog, "sink");
   const sourceConfig = selection ? endpointValue(editor.config, "source", selection.sourceKey) : undefined;
   const sourceNode = selection?.source ? compiledSchema(selection.source.schema, widgets) : undefined;
-  const hasTableSettings = routeSettingsAvailable && selection?.source?.connection_check === true
-    && sourceNode?.kind === "object" && sourceNode.properties.tables?.xUi.widget === "table_selection";
+  const hasParser = sourceNode && selectedComponentNode(sourceNode, sourceConfig ?? null, "parser") !== undefined;
+  const hasTableSettings = routeSettingsAvailable && sourceTableFields(sourceNode, selection?.sourceKey ?? "").length > 0;
   const previewSource = selection?.source?.table_preview && isObject(sourceConfig)
     ? { connector: selection.sourceKey, config: sourceConfig } : undefined;
   const sharedCheck = sharedMetadata?.discovery;
   const sharedTables = sharedCheck?.state === "success" ? sharedCheck.tables : undefined;
   const identity = previewSource ? tableConnectionIdentity(previewSource.connector, previewSource.config) : undefined;
   const sharedCatalog = useMemo(() => identity && sharedTables ? { identity, tables: sharedTables } : undefined, [identity, sharedTables]);
-  const transformCatalog = useTransformCatalog(previewSource, sharedMetadata ? sharedCatalog : checkedTables, api);
+  const transformCatalog = useTransformCatalog(previewSource, sharedMetadata ? sharedCatalog : checkedTables, api,
+    hasParser ? sourceDiscovery : undefined);
+  const catalogUnavailableReason = sourceNode?.kind === "object" && sourceNode.properties.parser !== undefined
+    ? "Complete the parser configuration and wait for its table schemas to load."
+    : "Use Discover tables in Tables first to obtain the available table list.";
   return (
       <div
         class="editor-view"
@@ -88,50 +97,57 @@ export function DeliveryConfiguration({
         key={`editor-${editor.sessionId}`}
       >
         <section class="card identity-card">
-          <TopField
-            label="Delivery name"
-            required
-            incomplete={!readOnly && editor.name.trim() === ""}
-            invalid={requiredErrorScope === "all" && editor.name.trim() === ""}
-          >
-            <AutofillResistantInput
-              type="text"
-              value={editor.name}
-              disabled={readOnly}
-              placeholder="e.g. Events to ClickHouse"
-              onInput={(event) => onName(event.currentTarget.value)}
-            />
-          </TopField>
-          <TopField label="Description">
-            <AutofillResistantInput
-              type="text"
-              value={editor.description}
-              disabled={readOnly}
-              onInput={(event) => onDescription(event.currentTarget.value)}
-            />
-          </TopField>
-          <TopField
-            label="Delivery type"
-            required
-            incomplete={!readOnly && !deliveryTypeSelected}
-            invalid={
-              requiredErrorScope === "all" &&
-              stringValue(editor.config.delivery_type) === ""
-            }
-          >
-            <SelectControl
-              value={stringValue(editor.config.delivery_type)}
-              disabled={readOnly}
-              placeholder="Not selected"
-              options={DELIVERY_TYPES.map((value) => ({
-                value,
-                label: deliveryTypeLabel(value),
-              }))}
-              onChange={(value) =>
-                onConfig({ ...editor.config, delivery_type: value })
+          <div class="island-form identity-form">
+            <TopField
+              label="Delivery name"
+              required
+              incomplete={!readOnly && editor.name.trim() === ""}
+              invalid={requiredErrorScope === "all" && editor.name.trim() === ""}
+            >
+              <AutofillResistantInput
+                type="text"
+                value={editor.name}
+                disabled={readOnly}
+                placeholder="e.g. Events to ClickHouse"
+                onInput={(event) => onName(event.currentTarget.value)}
+              />
+            </TopField>
+            <TopField label="Description">
+              <div class="delivery-description">
+                <AutofillResistantTextarea
+                  rows={1}
+                  value={editor.description}
+                  disabled={readOnly}
+                  onInput={(event) => onDescription(event.currentTarget.value)}
+                />
+                {/* A trailing measuring space keeps a final empty line visible.
+                    It is not part of the editable or saved description. */}
+                <span class="description-size" aria-hidden="true">{editor.description}{" "}</span>
+              </div>
+            </TopField>
+            <TopField
+              label="Delivery type"
+              required
+              incomplete={!readOnly && !deliveryTypeSelected}
+              invalid={
+                requiredErrorScope === "all" &&
+                stringValue(editor.config.delivery_type) === ""
               }
-            />
-          </TopField>
+            >
+              <SelectControl
+                value={stringValue(editor.config.delivery_type)}
+                disabled={readOnly}
+                placeholder="Not selected"
+                options={DELIVERY_TYPES.map((value) => ({
+                  value,
+                  label: deliveryTypeLabel(value),
+                }))}
+                onChange={(value) =>
+                  onConfig({ ...editor.config, delivery_type: value })
+                }
+              />
+            </TopField>
+          </div>
         </section>
 
         <div class="route-feedback" role="status" aria-live="polite">
@@ -216,8 +232,9 @@ export function DeliveryConfiguration({
         {routeSettingsAvailable && <section class="middleware-island">
           <TableNamingProvider connector={selection?.sourceKey ?? ""}>
             <TableCatalogContext.Provider value={transformCatalog}>
-            <MiddlewareEditor value={editor.config.middlewares ?? []} disabled={readOnly} source={previewSource}
-              onChange={middlewares => onConfig({ ...editor.config, middlewares })} />
+              <MiddlewareEditor value={editor.config.middlewares ?? []} disabled={readOnly} source={previewSource}
+                catalogUnavailableReason={catalogUnavailableReason}
+                onChange={middlewares => onConfig({ ...editor.config, middlewares })} />
             </TableCatalogContext.Provider>
           </TableNamingProvider>
         </section>}

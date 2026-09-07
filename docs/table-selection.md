@@ -97,6 +97,12 @@ tables:
   exact-match expression with the appropriate escaping; it never renames the
   actual table or changes its identifier.
 - Keep namespace and table identifiers separate in catalog data.
+- A namespace-less parser output uses an empty `namespace` in the table catalog;
+  its qualified name has no leading dot. Database table sampling still requires
+  a nonempty namespace. Transforms reuse the current parser schema discovery
+  (the same result as Data widget), including only Main datasets: DLQ rows bypass
+  transformations. Changing the source/parser invalidates this catalog immediately;
+  editing a transform or destination does not invalidate unchanged parser outputs.
 - The qualified text representation escapes literal dots and backslashes inside
   each identifier so a namespace containing a dot cannot alias a table containing
   a dot. Expressions match this representation; exact suggestions escape it for

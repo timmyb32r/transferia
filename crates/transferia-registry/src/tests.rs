@@ -51,6 +51,41 @@ fn typed_table_sample_byte_budget_is_explicit_and_fail_closed() {
 }
 
 #[tokio::test]
+async fn typed_table_sample_rejects_namespace_less_parser_identity_before_reading() -> anyhow::Result<()>
+{
+    let called = Arc::new(AtomicBool::new(false));
+    let observed = Arc::clone(&called);
+    let mut builder = RegistryBuilder::new();
+    builder.register(
+        source_registration("sample")?.source_table_sampler::<TestSourceConfig, _, _>(
+            move |_, _, _, _| {
+                observed.store(true, Ordering::SeqCst);
+                async { anyhow::bail!("must not sample") }
+            },
+        ),
+    )?;
+    let error = builder
+        .build()
+        .sample_source_table(
+            "sample",
+            serde_yaml::from_str("enabled: true")?,
+            TableIdentity {
+                namespace: String::new(),
+                name: "events".into(),
+            },
+            sample_limits(1),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("requires a qualified table identity"));
+    assert!(!called.load(Ordering::SeqCst));
+    Ok(())
+}
+
+#[tokio::test]
 async fn typed_table_sample_rejects_zero_limit_before_reading() -> anyhow::Result<()> {
     let called = Arc::new(AtomicBool::new(false));
     let observed = Arc::clone(&called);

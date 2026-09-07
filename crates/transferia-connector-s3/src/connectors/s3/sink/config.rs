@@ -42,7 +42,7 @@ pub struct S3SinkConfig {
     pub object_layout_version: u32,
 
     #[serde(default)]
-    #[schemars(title = "Path prefix")]
+    #[schemars(title = "Path")]
     pub path_prefix: String,
 
     #[serde(default = "default_region")]

@@ -15,6 +15,20 @@ import { validateCatalogSchemas } from "../src/delivery/editorConfig";
 import type { JsonSchema, JsonValue } from "../src/types";
 
 describe("schema compiler", () => {
+  it.each([{ hints: null }, { hints: [] }, { hints: 5 }, { hints: "invalid" }])("does not turn malformed reference UI hints ($hints) into empty hints", ({ hints }) => {
+    const schema = { $defs: { base: { type: "object", properties: {} } },
+      $ref: "#/$defs/base", "x-ui": hints } as unknown as JsonSchema;
+    expect(() => compileSchema(schema, productionWidgetRegistry)).toThrow(SchemaContractError);
+  });
+  it.each([false, true])("preserves referenced UI hints and overrides only authored sibling hints (union: %s)", union => {
+    const reference = { $ref: "#/$defs/options", "x-ui": { order: 2 } };
+    const node = compileSchema({
+      $defs: { options: { type: "object", properties: {}, "x-ui": { widget: "json_parser", order: 1 } } },
+      ...(union ? { anyOf: [reference] } : reference),
+    }, productionWidgetRegistry);
+    const resolved = node.kind === "union" ? node.branches[0]!.node : node;
+    expect(resolved.xUi).toMatchObject({ widget: "json_parser", order: 2 });
+  });
   it("keeps explicitly trailing union variants at the end", () => {
     const node = compileSchema({
       anyOf: [

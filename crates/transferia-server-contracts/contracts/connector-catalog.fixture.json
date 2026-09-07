@@ -7201,7 +7201,7 @@
               }
             },
             "path_prefix": {
-              "title": "Path prefix",
+              "title": "Path",
               "type": "string",
               "default": ""
             },

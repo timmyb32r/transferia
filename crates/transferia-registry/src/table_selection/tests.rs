@@ -17,6 +17,44 @@ fn standalone_step_rule_matches_current_names_without_catalog_conflicts() {
 }
 
 #[test]
+fn parser_catalog_matches_namespace_less_runtime_tables_without_changing_names() {
+    let catalog = [
+        table("", "events"),
+        table("", r"db.events*?\log"),
+        table("db", "events"),
+    ];
+    assert_eq!(catalog[0].qualified_name(), "events");
+    assert_ne!(
+        table("", "db.events").qualified_name(),
+        catalog[2].qualified_name()
+    );
+    for mode in [PatternMode::Glob, PatternMode::Regex] {
+        for entry in &catalog {
+            let rule = TableRule {
+                include: mode.exact_pattern(entry),
+                exclude: None,
+                include_mode: mode,
+                exclude_mode: mode,
+            };
+            let compiled = rule.compile().unwrap();
+            let namespace = (!entry.namespace.is_empty()).then_some(entry.namespace.as_str());
+            assert!(compiled.matches(namespace, &entry.name));
+            let preview = resolve(vec![rule], &catalog);
+            assert!(preview.issues.is_empty());
+            assert_eq!(preview.cards[0].selected, vec![entry.clone()]);
+        }
+    }
+    let preview = resolve(vec![rule("*", Some("events"))], &catalog);
+    assert_eq!(preview.cards[0].excluded, vec![catalog[0].clone()]);
+    assert_eq!(preview.cards[0].selected, catalog[1..]);
+    assert!(TableSelection::All {}
+        .compile()
+        .unwrap()
+        .resolve(&[table("", "")])
+        .is_err());
+}
+
+#[test]
 fn all_tables_and_independent_pattern_modes_share_startup_and_admission_rules() {
     let catalog = [
         table("db", "reports_1"),

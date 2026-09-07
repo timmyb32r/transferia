@@ -116,7 +116,8 @@ describe("schema form", () => {
     const view = render(<SchemaForm node={node} value={{}} onChange={() => undefined} />);
     expect(view.queryByText("JSON parser", { exact: true })).toBeNull();
     expect(view.getByText("JSON framing", { exact: true })).toBeTruthy();
-    expect(view.getByText("Parser settings", { exact: true })).toBeTruthy();
+    expect(view.queryByText("Parser settings", { exact: true })).toBeNull();
+    expect(view.container.querySelector(".parser-common-section.parser-scalar-section")).not.toBeNull();
   });
   it("supports connector-specific field labels without changing shared schemas", () => {
     const node: CompiledNode = {

@@ -24,8 +24,7 @@ export const jsonParserWidgets: readonly WidgetPlugin[] = [
     kinds: ["object"],
     renderer: "property",
     property: (context, services) => (
-      <section class="parser-common-section">
-        <h3>{context.node.title ?? "Parser settings"}</h3>
+      <section class="parser-common-section parser-scalar-section">
         <services.NodeEditor
           node={context.node}
           value={context.effectiveValue}

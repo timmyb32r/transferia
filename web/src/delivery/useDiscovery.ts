@@ -31,11 +31,20 @@ export function useDiscovery({
   isCurrentContext: (context: EditorRequestContext) => boolean;
 }) {
   const api = useControlPlane();
-  const [discovery, setDiscovery] = useState<DiscoveryResult>();
+  const [snapshot, setSnapshot] = useState<{
+    value: DiscoveryResult; sessionId: EditorState["sessionId"]; sourceKey: string;
+  }>();
+  // Sink/transform edits do not change parser outputs. Source edits invalidate
+  // the usable catalog immediately, including during the discovery debounce.
+  const sourceKey = JSON.stringify([editor.config.delivery_type, editor.config.source]);
+  const discovery = snapshot?.value;
+  const sourceDiscovery = structurallyComplete && snapshot?.sessionId === editor.sessionId
+    && snapshot.sourceKey === sourceKey ? snapshot.value : undefined;
+  const clearDiscovery = () => setSnapshot(undefined);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    setDiscovery(undefined);
+    clearDiscovery();
     setError(undefined);
   }, [editor.sessionId]);
 
@@ -43,7 +52,7 @@ export function useDiscovery({
     job.cancel();
     operations.clearOperation("discovery");
     if (!structurallyComplete || (metadataRequired && (!metadata || metadata.loading))) {
-      setDiscovery(undefined);
+      clearDiscovery();
       setError(metadataRequired && structurallyComplete ? metadata
         ? "Source schemas are loading…" : "Use Discover tables in Tables first." : undefined);
       return;
@@ -64,13 +73,13 @@ export function useDiscovery({
         )
         .then((result) => {
           if (result !== undefined && isCurrentContext(result.context)) {
-            setDiscovery(result.value);
+            setSnapshot({ value: result.value, sessionId: context.sessionId, sourceKey });
           }
           operations.finishOperation("discovery", requestId);
         })
         .catch((reason: unknown) => {
           if (isCurrentContext(context)) {
-            setDiscovery(undefined);
+            clearDiscovery();
             setError(errorMessage(reason));
           }
           operations.finishOperation("discovery", requestId);
@@ -92,7 +101,7 @@ export function useDiscovery({
     metadata?.errors.length,
   ]);
 
-  return { discovery, setDiscovery, error };
+  return { discovery, sourceDiscovery, clearDiscovery, error };
 }
 
 function errorMessage(reason: unknown): string {

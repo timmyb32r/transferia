@@ -16,11 +16,42 @@ import { metadataResponse } from "./support/metadata";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+it("keeps parser table names namespace-less and escapes exact patterns without renaming them", () => {
+  expect(qualifiedName({ namespace: "", name: "events" })).toBe("events");
+  expect(exactPattern({ namespace: "", name: "events" }, "glob")).toBe("events");
+  const table = { namespace: "", name: "db.events*?\\log" };
+  expect(qualifiedName(table)).toBe(String.raw`db\.events*?\\log`);
+  expect(exactPattern(table, "glob")).toBe(String.raw`db\\.events\*\?\\\\log`);
+  expect(new RegExp(`^(?:${exactPattern(table, "regex")})$`, "u").test(qualifiedName(table))).toBe(true);
+  expect(qualifiedName({ namespace: "", name: "db.events" }))
+    .not.toBe(qualifiedName({ namespace: "db", name: "events" }));
+});
+
 function mockOverflowingList() {
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(140);
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(138);
   vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(600);
 }
+
+it("opens source Include subsequence suggestions on focus without waiting for selection preview", () => {
+  const tables = [{ namespace: "system", name: "query_log" }, { namespace: "public", name: "orders" }];
+  const preview = vi.fn().mockResolvedValue({ cards: [], issues: [] });
+  function Form() {
+    const [value, setValue] = useState<JsonValue>({ type: "selected", rules: [{ include: "" }] });
+    return <TableCatalogContext.Provider value={{ tables, preview }}>
+      <TableSelectionEditor value={value} onChange={setValue} />
+    </TableCatalogContext.Provider>;
+  }
+  const view = render(<Form />);
+  const input = view.getByRole("combobox", { name: "Include rule 1" });
+  act(() => input.focus());
+  expect(view.getAllByRole("option")).toHaveLength(2);
+  fireEvent.input(input, { target: { value: "sql" } });
+  expect(view.getByRole("option", { name: "system.query_log" })).toBeTruthy();
+  expect(view.queryByRole("option", { name: "public.orders" })).toBeNull();
+  fireEvent.click(view.getByRole("option", { name: "system.query_log" }));
+  expect((input as HTMLInputElement).value).toBe("system.query_log");
+});
 
 it("browses the complete source catalog without changing selection and restores trigger focus", () => {
   const tables = [{ namespace: "db", name: "chosen" }, { namespace: "db", name: "other" }];

@@ -25,7 +25,9 @@ export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse
   const [copy, setCopy] = useState<{ name: string; state: CopyState }>();
   const copying = useRef(false);
   const [filter, setFilter] = useState<SchemaFilter>(initialFilter);
-  const [errorTable, setErrorTable] = useState<string>();
+  const [errorDetails, setErrorDetails] = useState<{ name: string; message: string }>();
+  const errorPanel = useRef<HTMLElement>(null);
+  const returnFocus = useRef<HTMLElement>();
   const [heldRows, setHeldRows] = useState<{ key: string; filter: SchemaFilter; tables: TableIdentity[] }>();
   const listHovered = useRef(false);
   const key = JSON.stringify([query, mode]);
@@ -41,6 +43,19 @@ export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
     };
   }, []);
+  useLayoutEffect(() => {
+    if (errorDetails) {
+      errorPanel.current?.querySelector<HTMLElement>("pre")?.focus({ preventScroll: true });
+    } else if (returnFocus.current) {
+      const trigger = returnFocus.current;
+      returnFocus.current = undefined;
+      if (trigger.isConnected) trigger.focus({ preventScroll: true });
+      else dialog.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+      if (!listHovered.current && !dialog.current?.querySelector(".available-tables-list")?.contains(document.activeElement)) {
+        setHeldRows(undefined);
+      }
+    }
+  }, [errorDetails]);
   useEffect(() => {
     if (!query) return;
     const controller = new AbortController();
@@ -71,12 +86,14 @@ export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse
   // or keyboard focus. A deliberate search/filter change selects a new list.
   const tables = heldRows?.key === key && heldRows.filter === filter ? heldRows.tables : filtered;
   const holdRows = () => { if (tables) setHeldRows({ key, filter, tables }); };
-  const selectedError = errorTable ?? (filter === "failed" ? tables?.[0] && qualifiedName(tables[0]) : undefined);
-  const errorMessage = selectedError ? schemaStates.get(selectedError)?.error : undefined;
   return createPortal(<div class="message-preview-backdrop" onMouseDown={event => {
-    if (event.target === event.currentTarget) onClose();
+    if (event.target === event.currentTarget) {
+      if (errorDetails) setErrorDetails(undefined);
+      else onClose();
+    }
   }}>
-    <section class="available-tables-dialog" ref={dialog} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`}
+    <section class="available-tables-dialog" ref={dialog} role="dialog" aria-modal="true"
+      aria-labelledby={`${id}-${errorDetails ? "error-title" : "title"}`}
       onKeyDownCapture={event => {
         // Enter completes Include/Exclude by blurring, but a modal search must
         // retain focus so the next Tab cannot escape to the background page.
@@ -85,13 +102,19 @@ export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse
         }
       }}
       onKeyDown={event => {
-        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
+        if (event.key === "Escape") {
+          event.preventDefault(); event.stopPropagation();
+          if (errorDetails) setErrorDetails(undefined);
+          else onClose();
+        }
         if (event.key !== "Tab") return;
-        const controls = [...(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]') ?? [])];
+        const activePanel = errorDetails ? errorPanel.current : dialog.current;
+        const controls = [...(activePanel?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]') ?? [])];
         const first = controls[0], last = controls[controls.length - 1];
         if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
       }}>
+      <div class="available-tables-browser" inert={errorDetails !== undefined} aria-hidden={errorDetails ? "true" : undefined}>
       <header><h2 id={`${id}-title`}>Available tables <span class="table-match-count" aria-hidden="true">({catalog.tables.length})</span></h2>
         <Button shape="icon" aria-label="Close available tables" onClick={onClose}>×</Button>
       </header>
@@ -105,7 +128,7 @@ export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse
       {catalog.metadata && <div class="available-tables-filters"><SegmentedControl label="Schema status" value={filter}
         options={[{ value: "all", label: `All (${catalog.tables.length})` }, { value: "failed", label: `Failed (${failed.length})` },
           { value: "pending", label: `Not loaded (${pending.length})` }]}
-        onChange={next => { setFilter(next); setErrorTable(undefined); }} /></div>}
+        onChange={setFilter} /></div>}
       <div class="available-tables-status" role="status" aria-live="polite" title={catalog.metadataError}>
         {catalog.metadataError ?? current?.error ?? (!tables ? "Searching…" : copy?.state === "error" ? `Could not copy ${copy.name}.` : copy?.state === "copied" ? `Copied ${copy.name}`
           : `${tables.length} tables`)}
@@ -114,23 +137,29 @@ export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse
         onPointerEnter={() => { listHovered.current = true; holdRows(); }}
         onPointerLeave={event => {
           listHovered.current = false;
-          if (!event.currentTarget.contains(document.activeElement)) setHeldRows(undefined);
+          if (!errorDetails && !event.currentTarget.contains(document.activeElement)) setHeldRows(undefined);
         }}
         onFocusCapture={holdRows}
         onBlurCapture={event => {
-          if (!listHovered.current && !event.currentTarget.contains(event.relatedTarget as Node | null)) setHeldRows(undefined);
+          if (!errorDetails && !listHovered.current && !event.currentTarget.contains(event.relatedTarget as Node | null)) setHeldRows(undefined);
         }}>
         {tables?.map(table => {
           const name = qualifiedName(table);
           const schema = schemaStates.get(name);
-          return <div class="available-table-row" key={JSON.stringify(table)}>
+          const rowContent = <>
             <span title={name}>{name}</span>
-            {catalog.metadata && <span class="available-table-schema">
-              {schema?.error !== undefined ? <Button variant="plain" class="available-table-failed"
-                aria-label={`Show schema error for ${name}`} aria-controls={`${id}-error`} title="Show full schema error"
-                onClick={() => setErrorTable(name)}>Failed</Button>
-                : <span aria-label={`Schema ${schema?.label ?? "Not loaded"} for ${name}`}>{schema?.label ?? "Not loaded"}</span>}
-            </span>}
+            {catalog.metadata && <span class={`available-table-schema${schema?.error !== undefined ? " available-table-failed" : ""}`}
+              aria-label={`Schema ${schema?.label ?? "Not loaded"} for ${name}`}>{schema?.label ?? "Not loaded"}</span>}
+          </>;
+          return <div class="available-table-row" key={JSON.stringify(table)}>
+            {schema?.error !== undefined ? <Button variant="plain" class="available-table-details"
+              aria-label={`Show schema error for ${name}`} aria-controls={`${id}-error`} title="Show full schema error"
+              onClick={event => {
+                holdRows();
+                returnFocus.current = event.currentTarget;
+                // Inspect the clicked cached diagnostic, even if polling updates its status.
+                setErrorDetails({ name, message: schema.error! });
+              }}>{rowContent}</Button> : <div class="available-table-details">{rowContent}</div>}
             <div class="available-table-actions">
               <CopyButton text={name} label={`Copy ${name}`} framed lock={copying}
                 disabled={copy?.state === "copying" && copy.name !== name}
@@ -143,11 +172,14 @@ export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse
         })}
         {tables?.length === 0 && <p>No matching tables.</p>}
       </div>
-      {catalog.metadata && <section class="available-table-error" id={`${id}-error`} role="region" aria-label="Schema error">
-        <div class="available-table-error-heading"><span>{errorMessage !== undefined ? selectedError : "Schema errors"}</span>
-          <CopyButton text={errorMessage ?? ""} label="Copy schema error" disabled={errorMessage === undefined} />
-        </div>
-        <pre tabIndex={0} aria-label="Full schema error">{errorMessage !== undefined ? errorMessage : "Select Failed to inspect a table’s full error."}</pre>
+      </div>
+      {errorDetails && <section class="available-table-error" ref={errorPanel} id={`${id}-error`} role="region" aria-label="Schema error">
+        <header class="available-table-error-heading"><h2 id={`${id}-error-title`}>Schema error</h2>
+          <CopyButton text={errorDetails.message} label="Copy schema error" />
+          <Button shape="icon" aria-label="Close schema error" title="Back to available tables" onClick={() => setErrorDetails(undefined)}>×</Button>
+        </header>
+        <div class="available-table-error-name">{errorDetails.name}</div>
+        <pre tabIndex={0} aria-label="Full schema error">{errorDetails.message}</pre>
       </section>}
     </section>
   </div>, document.body);

@@ -62,7 +62,7 @@ export function compileSchema(
         throw new SchemaContractError(
           `${path}: cyclic schema reference: ${reference}`,
         );
-      const merged = { ...referenceTarget(root, reference), ...input };
+      const merged = mergeReferenceHints(referenceTarget(root, reference), input);
       delete merged.$ref;
       return compile(merged, path, new Set(activeReferences).add(reference));
     }
@@ -697,9 +697,25 @@ function resolveShallowReference(
   const reference = input.$ref;
   if (seen.has(reference))
     throw new SchemaContractError(`cyclic schema reference: ${reference}`);
-  const merged = { ...referenceTarget(root, reference), ...input };
+  const merged = mergeReferenceHints(referenceTarget(root, reference), input);
   delete merged.$ref;
   return resolveShallowReference(root, merged, new Set(seen).add(reference));
+}
+
+function mergeReferenceHints(target: JsonSchema, input: JsonSchema): JsonSchema {
+  for (const hints of [target["x-ui"], input["x-ui"]]) {
+    if (hints !== undefined && !isObject(hints))
+      throw new SchemaContractError("reference x-ui hints must be an object");
+  }
+  return {
+    ...target,
+    ...input,
+    // A branch's capabilities/order must not erase the referenced renderer.
+    // Sibling hints override individual keys, not the entire UI annotation.
+    ...(target["x-ui"] === undefined && input["x-ui"] === undefined ? {} : {
+      "x-ui": { ...target["x-ui"], ...input["x-ui"] },
+    }),
+  };
 }
 
 function referenceTarget(root: JsonSchema, reference: string): JsonSchema {

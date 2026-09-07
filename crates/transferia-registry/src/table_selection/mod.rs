@@ -170,16 +170,7 @@ impl CompiledTableRule {
     /// cross-step conflict policy applies to a sequential transform step.
     #[must_use]
     pub fn matches(&self, namespace: Option<&str>, name: &str) -> bool {
-        let qualified = namespace.map_or_else(
-            || name.replace('\\', "\\\\").replace('.', "\\."),
-            |namespace| {
-                TableIdentity {
-                    namespace: namespace.into(),
-                    name: name.into(),
-                }
-                .qualified_name()
-            },
-        );
+        let qualified = crate::traits::qualified_table_name(namespace, name);
         self.include.is_match(&qualified)
             && !self
                 .exclude
@@ -275,8 +266,8 @@ impl CompiledSelection {
         }
         for table in catalog {
             anyhow::ensure!(
-                !table.namespace.is_empty() && !table.name.is_empty(),
-                "Table catalog contains an empty namespace or table name"
+                !table.name.is_empty(),
+                "Table catalog contains an empty table name"
             );
             anyhow::ensure!(seen.insert(table), "Table catalog repeats {table:?}");
             let classification = self.classify(table);

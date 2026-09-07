@@ -91,12 +91,19 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   catalog after Hide system tables. Schema failures are amber; the popup exposes
   Loaded / Not loaded / Failed per table. The amber failure count is a separate
   one-click action opening the Failed filter; the catalog has All / Failed /
-  Not loaded filters. Clicking Failed on a row selects its full cached error in
-  a fixed-height, keyboard-scrollable details area with Copy. Keep this area
-  reserved throughout browsing rather than expanding rows. Controls keep fixed geometry during polling.
+  Not loaded filters. Failed rows have a clickable name/status area; Copy and
+  Use remain separate actions. A click opens the full cached error with Copy and
+  Close in an overlay inside the fixed-size catalog window, with keyboard scrolling
+  and focus contained in the details. There is no permanent Schema errors panel
+  or empty space reserved for it, and selecting the Failed filter does not open
+  an error automatically. Keep the underlying list mounted and inert; preserve
+  its scroll position, filter and control geometry. Escape closes details first
+  and restores focus to the row (or Search if the row no longer exists).
+  Controls keep fixed geometry during polling.
   Place the inline Hide system tables checkbox beside Selected / All tables.
   Use `Add tables` and retain the overall All matched tables disclosure.
-- Keep table-group padding compact (8px). Empty Exclude starts as a quiet
+  Keep the disclosure left-aligned, beside Add tables when that action is present.
+- Keep table-group padding compact (8px). In sources, empty Exclude starts as a quiet
   `+ Exclude` action beside Include, opening its field in the same row and
   focusing it. This explicit opt-in makes an additional `(optional)` label redundant.
   Saved nonempty exclusions are always visible, including readonly
@@ -105,11 +112,25 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   Reserve equal label heights and a fixed Delete column so opening Exclude does
   not move Delete or later controls in normal-width forms. Only table sections
   narrower than 380px put Exclude below Include; Delete stays on the Include row.
+  In transforms, Exclude starts expanded even when empty, for both new and saved
+  steps (including readonly forms). Manual Hide remains available for an empty
+  editable Exclude; this visibility preference never changes the configured scope.
 - Source and transform scopes share `TableRuleFields`: magnifier, exact Use,
   independent modes, optional Exclude and exact-match check. Source Include is
   labelled once; subsequent rules omit visible repeated labels while retaining
   unique accessible names. Keep the compact matching rail reserved, remove the
   large per-row separator/padding, and never collapse it on a late preview result.
+- Include in both source tables and transforms opens a floating suggestion list
+  immediately on focus, including an empty field. Search the cached catalog with
+  the same prefix / substring / subsequence ranking and character highlighting
+  as Logbroker topic paths, including case-insensitive and keyboard-layout matching.
+  For an authored glob/regex, search its literal prefix; `*` and `.*` show the
+  catalog. This is suggestion search only: actual rule matching and validation
+  retain their existing glob/regex semantics. No request is needed per keystroke.
+  Clicking a result, or selecting it with arrows and Enter, inserts its exact
+  escaped name in the current mode. Plain Enter finishes the authored pattern;
+  Tab and Escape close the menu without choosing a table. Exclude and the
+  Available tables popup retain their pattern search. Keep the list out of flow.
 - A truncated table-pattern value gets an immediate full-value tooltip on hover.
   Measure the rendered text against the actual input space (excluding inline
   icons), and show no tooltip if it fits. The shared `TablePatternInput` owns
@@ -135,6 +156,26 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
 - A new transform starts with `Transformation: Not selected`, never an implicit
   SQL or filter action. Its table scope stays editable; action-specific fields
   and Preview require an explicit selection. Clone retains the original action.
+- Transform naming uses **C — the overflow menu** after Delete: `Add name` for
+  unnamed steps, `Rename` otherwise. The menu opens a small floating name editor,
+  never a field in the expanded settings. Save (or Enter) commits; Cancel, Escape
+  and outside click discard the draft. Shift+Enter inserts a newline. Empty Save
+  explicitly removes the custom name; other text is retained exactly. The name
+  is the strip title, with the action type in a quiet badge and the existing
+  summary underneath. Long titles ellipsize visually and expose the full name
+  through a native title, without resizing the header or its controls. Menus and
+  editors stay out of flow; closing with Save, Cancel or Escape restores focus to
+  the overflow button without scrolling. Readonly names remain visible but cannot
+  be changed. Optional `middlewares[].name` is display-only configuration metadata,
+  preserved in YAML and clones; it never renames tables or changes the action.
+  The transform-scroll browser regression also checks rename geometry.
+- Expanding a transform keeps its header at the same viewport coordinates,
+  including at the page bottom: the body grows downwards, never underneath the
+  pointer. Suspend native document scroll anchoring only for the toggle's layout
+  commit, then restore it before paint; keep focus on the header without scrolling.
+  Do not use delayed scroll corrections or a persistent scroll lock. The browser
+  regression is `npm run test:transform-scroll` (Playwright; optional
+  `TRANSFERIA_PLAYWRIGHT_MODULE` and `TRANSFERIA_BROWSER_EXECUTABLE` overrides).
 - Use `variant="plain"` for tabs, selectors, navigation, drag handles and
   disclosures such as Matched tables. These are not secondary form actions and
   keep their existing neutral/selected treatments. Primary, danger and transport
@@ -145,16 +186,50 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   Tables and parser settings span the full route width below both endpoints,
   separated by the shared editor gap. There are no bridges, concave joins or
   stretched endpoint cards; absent sections leave no empty grid rows.
+  Iceberg table names, OpenSearch indices and YDB/YTsaurus table paths also live
+  in Tables, using their original list editors and configuration paths. Keep
+  connection/catalog settings, including Iceberg namespace, in Source. These
+  explicit lists stay editable before connection checking: sources without a
+  table-catalog capability have no Discover tables action or discovery gate.
+  S3 places Path prefix, Table name and the Parser selector (with Scan) in Tables.
+  Keep S3 connection controls and Check connection in Source; relocated fields
+  cannot anchor that action. Parser settings remain in their own subsequent
+  island, with JSON Output columns retaining their full width. This is only a
+  presentation split: source configuration paths and entered values stay exact.
+  Destination table/index settings are not moved.
 - Island forms use **B — an invisible, left-aligned inner column**. All content
   in Source, Destination, Tables and ordinary parser settings occupies 60% of the
   island's content width, with a 320px readability floor capped by the available
   width. Leave the right side empty; add no inner frame, background or centering.
-  Headers and actions share the same column. JSON and TSKV parser settings retain
-  100% width for their column editors, identified by parser capability metadata,
-  not display labels. Apply the width once at the island boundary, never again
-  to nested settings. Transforms and delivery identity are unchanged. The column
+  Headers and actions share the same column. JSON and TSKV scalar sections use
+  the same compact width: table naming, framing and parsing/error policies.
+  JSON's Data schema / Output columns, including nested column settings, remain
+  full-width and unchanged; TSKV's output schema also retains its full width. Identify these by
+  parser capability metadata, not display labels. Apply the width once at the
+  island boundary (or JSON/TSKV scalar-section boundary), never again to nested
+  settings. Delivery identity uses the same compact column; Transforms are unchanged. The column
   is a `form-space` container and never changes width on network/status updates.
-- Database sources have an ordinary `Check connection` action. It authenticates
+- All parser scalar fields share top-aligned labels, a 6px label/control gap,
+  and controls filling their compact column. Nested settings use the remaining
+  column width, not another 60% reduction. Parsing-policy pairs align at their
+  top edges even when one has nested options; they stack at narrow widths.
+  JSON uses the same authored editor for S3, Kafka and Logbroker. Referenced
+  `x-ui` hints are retained when a branch adds capabilities; explicit sibling
+  hints override individual keys. Keep source-specific fields in their actual
+  owning section (S3 table naming remains in Tables), without placeholder fields
+  or changing defaults to make forms match. Do not restyle Output columns cells.
+  `npm run test:parser-layout` checks actual-catalog browser geometry for JSON,
+  TSKV, Schema Registry, Debezium and Raw to table across supported sources and
+  responsive widths, including dropdown and nested-setting interactions.
+- Description is a multiline field starting at one control-height row. It grows
+  and shrinks synchronously with user-entered wrapped lines, without an internal
+  scrollbar or manual resize handle. A hidden, accessibility-excluded sizing
+  mirror shares the textarea's typography and grid cell; no delayed measurement
+  or height animation is involved. Keep saved whitespace/newlines exact and
+  size saved descriptions before paint. This user-requested growth is an explicit
+  layout-stability exception: it may move later fields while the user edits the
+  description, but unrelated network/status updates must not resize the field.
+- Catalog-enabled database sources have an ordinary `Check connection` action. It authenticates
   without enumerating tables, loading schemas or invalidating an existing catalog.
   Tables owns `Discover tables`, becoming `Refresh tables` after success. Reserve
   the longer label's width. The island and locked table controls are mounted
@@ -164,6 +239,9 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   fixed-size pending/success/error slots and deduplicate their requests. No
   automatic scrolling follows either action. Connection edits invalidate both
   states and release the metadata session; plain re-checks do not.
+- Check connection feedback stays in its reserved two-line slot without an
+  internal scrollbar. Clamp long messages with an ellipsis; preserve the full
+  diagnostic in the native hover title and accessible status/alert text.
 - Source and Transforms share one authenticated table catalog and a server-side
   metadata session. Fewer than 1000 catalog tables triggers asynchronous schema
   preloading; 1000 or more uses explicit `Load schemas` beside each transform's

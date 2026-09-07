@@ -15,7 +15,7 @@ import type {
   JsonObject,
   JsonValue,
 } from "../types";
-import { compiledSchema, endpointValue, isObject } from "./editorConfig";
+import { compiledSchema, endpointValue, isObject, sourceTableFields } from "./editorConfig";
 import { MessagePreviewDialog } from "./MessagePreviewDialog";
 import { tableConnectionIdentity, useEndpointActions } from "./useEndpointActions";
 import { ConnectionCheck } from "./ConnectionCheck";
@@ -51,6 +51,7 @@ export function EndpointCard(props: {
       ? {}
       : endpointValue(props.config, props.role, props.selectedKey);
   const node = props.endpoint ? compiledSchema(props.endpoint.schema, widgets) : undefined;
+  const tableFields = props.role === "source" ? sourceTableFields(node, props.selectedKey) : [];
   const requiresTableDiscovery = props.role === "source" && props.endpoint?.connection_check === true
     && node?.kind === "object" && node.properties.tables?.xUi.widget === "table_selection";
   const localActions = useEndpointActions({
@@ -183,22 +184,22 @@ export function EndpointCard(props: {
                 ? { tables: visibleTables, preview: api.previewTables,
                   metadata: discovery.state === "success" ? discovery.metadata : undefined,
                   metadataError: discovery.state === "success" ? discovery.metadataError : undefined } : undefined}
-              connectionFields={requiresTableDiscovery ? {
-                names: ["hide_system_tables", "tables", "new_tables"],
+              connectionFields={tableFields.length > 0 ? {
+                names: requiresTableDiscovery ? ["hide_system_tables", "tables", "new_tables"] : tableFields,
                 label: "Table settings",
-                disabled: !tablesReady,
+                disabled: requiresTableDiscovery && !tablesReady,
                 renderGroup: group => {
                   const contents = <div class={props.tablesHost === undefined ? "island-form island-form-wide" : "island-form"}>
                     <header class="table-selection-heading"><h2>Tables</h2>
-                      <AvailableTablesButton label="Available tables in source" title="Browse available source tables and schema status" showMetadata />
+                      {requiresTableDiscovery && <AvailableTablesButton label="Available tables in source" title="Browse available source tables and schema status" showMetadata />}
                     </header>
-                    <TableDiscovery discovery={discovery} onDiscover={() => { void discoverTables(); }} />
+                    {requiresTableDiscovery && <TableDiscovery discovery={discovery} onDiscover={() => { void discoverTables(); }} />}
                     {group}
                   </div>;
                   return props.tablesHost === undefined ? <section class="card source-tables-card">{contents}</section>
                     : props.tablesHost ? createPortal(contents, props.tablesHost) : null;
                 },
-                renderField: (name, field) => name === "hide_system_tables" ? null : name !== "tables" ? field
+                renderField: (name, field) => !requiresTableDiscovery ? field : name === "hide_system_tables" ? null : name !== "tables" ? field
                   : <div data-field-name="tables" key="tables"
                     class={[!props.readOnly && tablesReady && tablesIncomplete ? "required-incomplete" : "",
                       props.showRequiredErrors && tablesIncomplete ? "required-missing" : ""].filter(Boolean).join(" ")}>

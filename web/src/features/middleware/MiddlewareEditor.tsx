@@ -1,3 +1,4 @@
+import { flushSync } from "preact/compat";
 import { useId, useRef, useState } from "preact/hooks";
 
 import { isObject } from "../../schema/value";
@@ -11,6 +12,7 @@ import { exactPattern } from "../tableSelection/model";
 import { TransformPreview } from "./TransformPreview";
 import { TransformTableScope, useTransformMatches } from "./TransformTableScope";
 import { TransformSchemaLoader } from "./TransformSchemaLoader";
+import { TransformNameAction } from "./TransformNameAction";
 import { useTableCatalog } from "../../schema/tableCatalog";
 import { InstantTooltip } from "../../ui/InstantTooltip";
 import type { TransformPreviewSource } from "../../generated/apiContract";
@@ -22,7 +24,7 @@ const ACTIONS = [
 const DEFAULT_TABLES: JsonObject = { include: "*", include_mode: "glob", exclude_mode: "glob" };
 
 function action(entry: JsonObject): string | undefined {
-  const keys = Object.keys(entry).filter(key => key !== "tables");
+  const keys = Object.keys(entry).filter(key => key !== "tables" && key !== "name");
   return keys.length === 1 ? keys[0] : undefined;
 }
 
@@ -32,13 +34,15 @@ function summary(kind: string | undefined, raw: JsonObject): string {
   return "Edit unsupported configuration in YAML";
 }
 
-export function MiddlewareEditor({ value, disabled, onChange, source }: {
+export function MiddlewareEditor({ value, disabled, onChange, source, catalogUnavailableReason }: {
   value: JsonValue; disabled: boolean; onChange: (value: JsonValue) => void;
   source?: TransformPreviewSource | undefined;
+  catalogUnavailableReason?: string | undefined;
 }) {
   const entries = Array.isArray(value) ? value : [];
   const catalog = useTableCatalog();
-  const needsCatalog = source !== undefined && catalog === undefined;
+  const needsCatalog = (source !== undefined || catalogUnavailableReason !== undefined) && catalog === undefined;
+  const unavailableReason = catalogUnavailableReason ?? "Use Discover tables in Tables first to obtain the available table list.";
   const sequence = useRef(0);
   const identity = useRef<{ fingerprint: string; ids: number[] }>({ fingerprint: "", ids: [] });
   const fingerprint = JSON.stringify(entries);
@@ -69,7 +73,7 @@ export function MiddlewareEditor({ value, disabled, onChange, source }: {
     {entries.length === 0 && <p class="middleware-empty">No transforms. Rows pass through unchanged.</p>}
     <div class="middleware-list">
       {entries.map((entry, index) => <TransformStrip key={ids[index]} entry={entry}
-        entries={entries} source={source}
+        entries={entries} source={source} needsCatalog={needsCatalog} catalogUnavailableReason={unavailableReason}
         index={index} disabled={disabled} initiallyOpen={ids[index] === newStep}
         onChange={next => commit(entries.map((current, offset) => offset === index ? next : current), ids)}
         onClone={() => {
@@ -93,7 +97,7 @@ export function MiddlewareEditor({ value, disabled, onChange, source }: {
       />)}
     </div>
     <InstantTooltip class="middleware-add-hint" content={needsCatalog
-      ? "Use Discover tables in Tables first to obtain the available table list." : "Add transform"}>
+      ? unavailableReason : "Add transform"}>
     <Button class="middleware-add" disabled={disabled || needsCatalog} aria-label="Add transform" onClick={() => {
       if (needsCatalog) return;
       const id = ++sequence.current;
@@ -104,9 +108,10 @@ export function MiddlewareEditor({ value, disabled, onChange, source }: {
   </section>;
 }
 
-function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen, onChange, onClone, onDelete, onDragStart, onDragEnd, onDrop }: {
+function TransformStrip({ entry, entries, source, needsCatalog, catalogUnavailableReason, index, disabled, initiallyOpen, onChange, onClone, onDelete, onDragStart, onDragEnd, onDrop }: {
   entry: JsonValue; index: number; disabled: boolean; initiallyOpen: boolean;
   entries: JsonValue[]; source: TransformPreviewSource | undefined;
+  needsCatalog: boolean; catalogUnavailableReason: string;
   onChange: (entry: JsonValue) => void; onClone: () => void; onDelete: () => void;
   onDragStart: () => void; onDragEnd: () => void; onDrop: () => void;
 }) {
@@ -116,7 +121,8 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
   const object = isObject(entry) ? entry : {};
   const kind = action(object);
   const known = ACTIONS.some(option => option.value === kind);
-  const unselected = isObject(entry) && Object.keys(object).every(key => key === "tables");
+  const unselected = isObject(entry) && Object.keys(object).every(key => key === "tables" || key === "name");
+  const name = typeof object.name === "string" ? object.name : "";
   const raw = kind !== undefined && isObject(object[kind]) ? object[kind] : {};
   const tables = isObject(object.tables) ? object.tables : DEFAULT_TABLES;
   const include = typeof tables.include === "string" ? tables.include : "";
@@ -124,7 +130,6 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
   const matches = useTransformMatches({ include, exclude: exclude || null,
     include_mode: tables.include_mode === "regex" ? "regex" : "glob",
     exclude_mode: tables.exclude_mode === "regex" ? "regex" : "glob" }, expanded);
-  const catalog = useTableCatalog();
   const updateTables = (next: JsonObject) => onChange({ ...object, tables: { ...tables, ...next } });
   const updateRaw = (next: JsonObject) => { if (kind) onChange({ ...object, [kind]: { ...raw, ...next } }); };
   const title = unselected ? "Not selected" : ACTIONS.find(option => option.value === kind)?.label ?? kind ?? "Invalid transform";
@@ -144,10 +149,29 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
       <Button variant="plain" class="middleware-strip-toggle" aria-expanded={expanded} aria-controls={`${id}-settings`}
         data-required-control={unselected && !expanded && !disabled ? true : undefined}
         aria-label={`${expanded ? "Collapse" : "Expand"} transform ${index + 1}`}
-        onClick={() => setExpanded(!expanded)}>
+        onClick={event => {
+          const root = event.currentTarget.ownerDocument.documentElement;
+          const value = root.style.getPropertyValue("overflow-anchor");
+          const priority = root.style.getPropertyPriority("overflow-anchor");
+          // The browser may anchor to Pipeline settings below this strip. Keep
+          // this commit at the current scroll offset, not at the page bottom.
+          root.style.setProperty("overflow-anchor", "none");
+          try {
+            event.currentTarget.focus({ preventScroll: true });
+            flushSync(() => setExpanded(current => !current));
+          } finally {
+            // Flush the expanded layout before re-enabling native anchoring.
+            void root.scrollHeight;
+            if (value) root.style.setProperty("overflow-anchor", value, priority);
+            else root.style.removeProperty("overflow-anchor");
+          }
+        }}>
         <span class="middleware-step-number">{index + 1}</span>
         <span class="middleware-strip-description">
-          <span class="middleware-strip-title">{title}</span>
+          <span class="middleware-strip-title-line">
+            <span class="middleware-strip-title" title={name || title}>{name || title}</span>
+            {name && <span class="middleware-strip-type" title={title}>{title}</span>}
+          </span>
           <span class="middleware-strip-summary" title={description}>{description}</span>
         </span>
         <span class="middleware-scope-summary" title={`Include: ${include || "(empty)"}${exclude ? `; exclude: ${exclude}` : ""}`}>
@@ -156,15 +180,20 @@ function TransformStrip({ entry, entries, source, index, disabled, initiallyOpen
         </span>
       </Button>
       <div class="middleware-strip-actions">
-        <Button variant="plain" class="middleware-clone copy-action copy-action-framed" disabled={disabled || (source !== undefined && !catalog)} aria-label={`Clone transform ${index + 1}`} title="Clone transform with its Include / Exclude" onClick={onClone}>
+        <Button variant="plain" class="middleware-clone copy-action copy-action-framed" disabled={disabled || needsCatalog} aria-label={`Clone transform ${index + 1}`} title="Clone transform with its Include / Exclude" onClick={onClone}>
           <CopyIcon /><span>Clone</span>
         </Button>
         <Button variant="plain" shape="icon" disabled={disabled} aria-label={`Delete transform ${index + 1}`} title="Delete transform" onClick={onDelete}><TrashIcon /></Button>
+        <TransformNameAction name={name} index={index} disabled={disabled || !isObject(entry)} onSave={next => {
+          const { name: _previous, ...rest } = object;
+          onChange(next === "" ? rest : { ...rest, name: next });
+        }} />
       </div>
     </div>
     {expanded && <div class="middleware-strip-body" id={`${id}-settings`}>
       {!known && !unselected ? <p role="alert">This transform cannot be edited here. Open YAML to correct its configuration.</p> : <>
         <TransformTableScope id={id} index={index} matches={matches}
+          catalogUnavailableReason={catalogUnavailableReason}
           rule={{ include, exclude, include_mode: tables.include_mode === "regex" ? "regex" : "glob",
             exclude_mode: tables.exclude_mode === "regex" ? "regex" : "glob" }} disabled={disabled}
           onChange={patch => updateTables(patch as JsonObject)}

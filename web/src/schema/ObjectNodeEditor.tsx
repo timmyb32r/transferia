@@ -91,12 +91,13 @@ export function ObjectNodeEditor({
   const advancedParquet = section(visible, "advanced_parquet");
   const systemColumns = section(visible, "system_columns");
   const shardGroup = section(visible, "shard_group");
+  const connectionProperties = regular.filter(([name]) => !connectionFields?.names.includes(name));
   const connectionAnchor =
-    regular.find(
+    connectionProperties.find(
       ([, child]) =>
         widgets.presentation(child)?.connectionActionAnchor === "after",
     ) ??
-    regular.find(
+    connectionProperties.find(
       ([, child]) =>
         widgets.presentation(child)?.connectionActionAnchor === "before",
     );
@@ -194,7 +195,7 @@ export function ObjectNodeEditor({
   );
 
   return (
-    <div class="schema-object">
+    <div class={`schema-object${Object.values(node.properties).some(child => child.xUi.widget === "column_mappings") ? " schema-object-with-columns" : ""}`}>
       {regular.map(entry => !connectionFields || !connectionFields.names.includes(entry[0])
         ? regularProperty(entry)
         : entry[0] !== grouped[0]?.[0] ? null

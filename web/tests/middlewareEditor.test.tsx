@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/preact";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/preact";
 import { useState } from "preact/hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -23,21 +23,233 @@ function Editor({ value = [step], disabled = false }: { value?: JsonValue; disab
 }
 
 describe("ordered transform strips", () => {
-  it("shares the source rule controls, including magnifier, optional Exclude and exact Use", () => {
+  it("adds a name through the overflow menu without opening settings or changing the action", () => {
+    const view = render(<Editor />);
+    const toggle = view.getByRole("button", { name: "Expand transform 1" });
+    const more = view.getByRole("button", { name: "Actions for transform 1" });
+    const remove = view.getByRole("button", { name: "Delete transform 1" });
+    fireEvent.click(more);
+    fireEvent.click(view.getByRole("menuitem", { name: "Add name" }));
+    const dialog = view.getByRole("dialog", { name: "Transformation name" });
+    const input = within(dialog).getByRole("textbox", { name: "Transformation name" });
+    expect(document.activeElement).toBe(input);
+    fireEvent.input(input, { target: { value: "  Подготовка событий  " } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(view.container.querySelector(".middleware-strip-title")?.textContent).toBe("  Подготовка событий  ");
+    expect(view.container.querySelector(".middleware-strip-type")?.textContent).toBe("SQL");
+    expect(view.container.querySelector(".middleware-strip-summary")?.textContent).toBe(step.datafusion.sql);
+    expect(view.getByRole("button", { name: "Expand transform 1" })).toBe(toggle);
+    expect(view.getByRole("button", { name: "Delete transform 1" })).toBe(remove);
+    expect(view.getByRole("button", { name: "Actions for transform 1" })).toBe(more);
+    expect(document.activeElement).toBe(more);
+    expect(view.queryByRole("dialog")).toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    expect(view.getByDisplayValue(step.datafusion.sql)).toBeTruthy();
+  });
+
+  it.each(["Cancel", "Escape", "outside"])("discards a draft name on %s", method => {
+    const onChange = vi.fn();
+    const view = render(<MiddlewareEditor value={[{ ...step, name: "Original" }]} disabled={false} onChange={onChange} />);
+    const more = view.getByRole("button", { name: "Actions for transform 1" });
+    fireEvent.click(more);
+    fireEvent.click(view.getByRole("menuitem", { name: "Rename" }));
+    const input = view.getByRole("textbox", { name: "Transformation name" });
+    fireEvent.input(input, { target: { value: "Unsaved" } });
+    if (method === "Cancel") fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+    else if (method === "Escape") fireEvent.keyDown(input, { key: "Escape" });
+    else fireEvent.pointerDown(document.body);
+    expect(view.queryByRole("dialog")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+    if (method !== "outside") expect(document.activeElement).toBe(more);
+  });
+
+  it("removes only the custom name when explicitly saved empty", () => {
+    const onChange = vi.fn();
+    const view = render(<MiddlewareEditor value={[{ ...step, name: "Original" }]} disabled={false} onChange={onChange} />);
+    fireEvent.click(view.getByRole("button", { name: "Actions for transform 1" }));
+    fireEvent.click(view.getByRole("menuitem", { name: "Rename" }));
+    const input = view.getByRole("textbox", { name: "Transformation name" });
+    fireEvent.input(input, { target: { value: "" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledExactlyOnceWith([step]);
+  });
+
+  it("preserves multiline drafts when the text field scrolls and supports keyboard focus cycling", () => {
+    const name = "  first\nsecond 🦀  ";
+    const onChange = vi.fn();
+    const view = render(<MiddlewareEditor value={[{ ...step, name }]} disabled={false} onChange={onChange} />);
+    const more = view.getByRole("button", { name: "Actions for transform 1" });
+    fireEvent.keyDown(more, { key: "ArrowDown" });
+    const rename = view.getByRole("menuitem", { name: "Rename" });
+    expect(document.activeElement).toBe(rename);
+    fireEvent.click(rename);
+    const input = view.getByRole("textbox", { name: "Transformation name" }) as HTMLTextAreaElement;
+    expect(input.value).toBe(name);
+    fireEvent.scroll(input);
+    expect(view.getByRole("dialog", { name: "Transformation name" })).toBeTruthy();
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    const save = view.getByRole("button", { name: "Save" });
+    expect(document.activeElement).toBe(save);
+    fireEvent.keyDown(save, { key: "Tab" });
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.click(save);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith([{ ...step, name }]);
+  });
+
+  it("closes a draft without saving when the editor becomes readonly", () => {
+    const onChange = vi.fn();
+    const view = render(<MiddlewareEditor value={[step]} disabled={false} onChange={onChange} />);
+    fireEvent.click(view.getByRole("button", { name: "Actions for transform 1" }));
+    fireEvent.click(view.getByRole("menuitem", { name: "Add name" }));
+    view.rerender(<MiddlewareEditor value={[step]} disabled onChange={onChange} />);
+    expect(view.queryByRole("dialog")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("preserves a name through cloning, action changes and reordering", () => {
+    const view = render(<Editor value={[{ ...step, name: "My SQL" }]} />);
+    fireEvent.click(view.getByRole("button", { name: "Clone transform 1" }));
+    expect(view.getAllByText("My SQL")).toHaveLength(2);
+    fireEvent.click(view.getByRole("button", { name: "Expand transform 2" }));
+    fireEvent.click(view.getByRole("button", { name: "Transformation" }));
+    fireEvent.click(view.getByRole("option", { name: "Not selected" }));
+    expect(view.getAllByText("My SQL")).toHaveLength(2);
+    expect(view.container.querySelectorAll(".middleware-strip-type")[1]?.textContent).toBe("Not selected");
+    expect(view.queryByRole("alert")).toBeNull();
+    fireEvent.dragStart(view.getByRole("button", { name: "Reorder transform 2" }));
+    fireEvent.drop(view.getAllByRole("article")[0]!);
+    expect(view.container.querySelector(".middleware-strip-type")?.textContent).toBe("Not selected");
+    expect(view.getAllByText("My SQL")).toHaveLength(2);
+  });
+
+  it("names an unselected draft without selecting an action", () => {
+    const onChange = vi.fn();
+    const view = render(<MiddlewareEditor value={[{ tables: step.tables }]} disabled={false} onChange={onChange} />);
+    fireEvent.click(view.getByRole("button", { name: "Actions for transform 1" }));
+    fireEvent.click(view.getByRole("menuitem", { name: "Add name" }));
+    fireEvent.input(view.getByRole("textbox", { name: "Transformation name" }), { target: { value: "Later" } });
+    fireEvent.click(view.getByRole("button", { name: "Save" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith([{ tables: step.tables, name: "Later" }]);
+  });
+
+  it("does not offer renaming a readonly transform", () => {
+    const view = render(<Editor value={[{ ...step, name: "Original" }]} disabled />);
+    const more = view.getByRole("button", { name: "Actions for transform 1" }) as HTMLButtonElement;
+    expect(more.disabled).toBe(true);
+    fireEvent.click(more);
+    expect(view.queryByRole("menu")).toBeNull();
+    expect(view.getByText("Original")).toBeTruthy();
+  });
+
+  it.each(["same", "different"])("restores anchoring between consecutive clicks on %s strips", target => {
+    const view = render(<Editor value={[step, step]} />);
+    const toggle = view.getByRole("button", { name: "Expand transform 1" });
+    const next = target === "same" ? toggle : view.getByRole("button", { name: "Expand transform 2" });
+    const root = document.documentElement;
+    const anchor = root.style.getPropertyValue("overflow-anchor");
+    const priority = root.style.getPropertyPriority("overflow-anchor");
+    try {
+      act(() => {
+        toggle.click();
+        expect(root.style.getPropertyValue("overflow-anchor")).toBe(anchor);
+        expect(toggle.getAttribute("aria-expanded")).toBe("true");
+        next.click();
+        expect(root.style.getPropertyValue("overflow-anchor")).toBe(anchor);
+      });
+      expect(root.style.getPropertyValue("overflow-anchor")).toBe(anchor);
+      expect(toggle.getAttribute("aria-expanded")).toBe(String(target !== "same"));
+    } finally {
+      view.unmount();
+      if (anchor) root.style.setProperty("overflow-anchor", anchor, priority);
+      else root.style.removeProperty("overflow-anchor");
+    }
+  });
+  it.each(["", "auto", "none"])("restores the document's %s anchoring after the toggle layout commit", anchor => {
+    const view = render(<Editor />);
+    const toggle = view.getByRole("button", { name: "Expand transform 1" });
+    const root = document.documentElement;
+    const previous = root.style.getPropertyValue("overflow-anchor");
+    const priority = root.style.getPropertyPriority("overflow-anchor");
+    if (anchor) root.style.setProperty("overflow-anchor", anchor, "important");
+    else root.style.removeProperty("overflow-anchor");
+    const focus = vi.spyOn(toggle, "focus");
+    const layouts: { anchor: string; expanded: string | null; body: boolean }[] = [];
+    vi.spyOn(root, "scrollHeight", "get").mockImplementation(() => {
+      layouts.push({ anchor: root.style.getPropertyValue("overflow-anchor"),
+        expanded: toggle.getAttribute("aria-expanded"),
+        body: view.container.querySelector(".middleware-strip-body") !== null });
+      return 0;
+    });
+    try {
+      fireEvent.click(toggle);
+      expect(layouts).toEqual([{ anchor: "none", expanded: "true", body: true }]);
+      expect(document.activeElement).toBe(toggle);
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+      expect(root.style.getPropertyValue("overflow-anchor")).toBe(anchor);
+      expect(root.style.getPropertyPriority("overflow-anchor")).toBe(anchor ? "important" : "");
+      fireEvent.click(toggle);
+      expect(layouts.at(-1)).toEqual({ anchor: "none", expanded: "false", body: false });
+      expect(root.style.getPropertyValue("overflow-anchor")).toBe(anchor);
+      view.unmount();
+      expect(root.style.getPropertyValue("overflow-anchor")).toBe(anchor);
+    } finally {
+      if (previous) root.style.setProperty("overflow-anchor", previous, priority);
+      else root.style.removeProperty("overflow-anchor");
+    }
+  });
+  it("shares the source rule controls but opens Exclude immediately in a new transform", () => {
     const table = { namespace: "analytics", name: "reports" };
     const preview = vi.fn().mockResolvedValue({ cards: [{ selected: [table], excluded: [] }], issues: [] });
     const view = render(<TableCatalogContext.Provider value={{ tables: [table], preview }}><Editor value={[]} /></TableCatalogContext.Provider>);
     fireEvent.click(view.getByRole("button", { name: "Add transform" }));
-    expect(view.queryByLabelText("Exclude transform 1")).toBeNull();
+    const exclude = view.getByLabelText("Exclude transform 1");
+    expect((exclude as HTMLInputElement).value).toBe("");
+    expect(view.queryByRole("button", { name: "Add Exclude for transform 1" })).toBeNull();
+    const include = view.getByLabelText("Include transform 1");
+    act(() => include.focus());
+    expect(view.getByRole("option", { name: "analytics.reports" })).toBeTruthy();
+    fireEvent.input(include, { target: { value: "arp" } });
+    expect(view.getByRole("option", { name: "analytics.reports" })).toBeTruthy();
     const browse = view.getByRole("button", { name: "Browse tables for Include transform 1" });
     fireEvent.click(browse);
     fireEvent.click(view.getByRole("button", { name: "Use analytics.reports in Include" }));
     expect((view.getByLabelText("Include transform 1") as HTMLInputElement).value).toBe("analytics.reports");
     expect(view.queryByRole("dialog")).toBeNull();
-    fireEvent.click(view.getByRole("button", { name: "Add Exclude for transform 1" }));
-    const exclude = view.getByLabelText("Exclude transform 1");
-    expect(document.activeElement).toBe(exclude);
+    expect(view.getByLabelText("Exclude transform 1")).toBe(exclude);
     expect(exclude.closest(".table-rule-patterns")).toBe(view.getByLabelText("Include transform 1").closest(".table-rule-patterns"));
+  });
+  it.each([false, true])("shows an empty saved Exclude by default without changing configuration (read-only: %s)", disabled => {
+    const onChange = vi.fn();
+    const value = [{ ...step, tables: { include: "*" } }];
+    const form = () => <MiddlewareEditor value={value} disabled={disabled} onChange={onChange} />;
+    const view = render(form());
+    fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
+    const exclude = view.getByLabelText("Exclude transform 1") as HTMLInputElement;
+    expect(exclude.value).toBe("");
+    expect(exclude.disabled).toBe(disabled);
+    const include = view.getByLabelText("Include transform 1");
+    const selector = view.getByRole("button", { name: "Transformation" });
+    view.rerender(form());
+    expect(view.getByLabelText("Exclude transform 1")).toBe(exclude);
+    expect(view.getByLabelText("Include transform 1")).toBe(include);
+    expect(view.getByRole("button", { name: "Transformation" })).toBe(selector);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+  it("still permits explicitly hiding and reopening an empty transform Exclude", () => {
+    const onChange = vi.fn();
+    const view = render(<MiddlewareEditor value={[{ ...step, tables: { include: "*" } }]} disabled={false} onChange={onChange} />);
+    fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
+    expect(view.getByLabelText("Exclude transform 1")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Hide Exclude for transform 1" }));
+    expect(view.queryByLabelText("Exclude transform 1")).toBeNull();
+    const add = view.getByRole("button", { name: "Add Exclude for transform 1" });
+    expect(document.activeElement).toBe(add);
+    fireEvent.click(add);
+    expect(document.activeElement).toBe(view.getByLabelText("Exclude transform 1"));
+    expect(onChange).not.toHaveBeenCalled();
   });
   it.each([
     ["glob", "reports_daily", "analytics.reports_daily"],
@@ -140,8 +352,6 @@ describe("ordered transform strips", () => {
     for (const index of [0, 1]) {
       if (index === 1) fireEvent.click(view.getByRole("button", { name: "Add transform" }));
       const strip = view.getAllByRole("article")[index]!;
-      if (label === "Exclude" && index === 1)
-        fireEvent.click(within(strip).getByRole("button", { name: "Add Exclude for transform 2" }));
       const input = within(strip).getByRole("combobox", { name: `${label} transform ${index + 1}` });
       fireEvent.input(input, { target: { value: "public.rep" } });
       const suggestion = await within(strip).findByRole("option", { name: "public.reports_daily" });

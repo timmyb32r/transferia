@@ -725,7 +725,7 @@ describe("App request orchestration", () => {
       (app.getByLabelText("Delivery name") as HTMLInputElement).value,
     ).toBe("orders10");
     expect(
-      (app.getByLabelText("Description", { exact: false }) as HTMLInputElement)
+      (app.getByLabelText("Description", { exact: false }) as HTMLTextAreaElement)
         .value,
     ).toBe("cloned description");
     expect(view.container.querySelector(".transfer-id-slot")?.textContent).toBe(

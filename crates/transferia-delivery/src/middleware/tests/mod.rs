@@ -1,6 +1,44 @@
 use super::*;
 
 #[test]
+fn display_name_roundtrips_exactly_without_becoming_an_action() -> anyhow::Result<()> {
+    for name in ["Normalize events", "  События 🦀  ", "first\nsecond", ""] {
+        let value = serde_json::json!({
+            "name": name,
+            "tables": { "include": "public.events", "exclude": "public.test" },
+            "filter": { "field": "kind", "value": "event" },
+        });
+        let entry: MiddlewareEntry = serde_json::from_value(value)?;
+        let yaml = serde_yaml::to_string(&entry)?;
+        let restored: MiddlewareEntry = serde_yaml::from_str(&yaml)?;
+        assert_eq!(restored.name.as_deref(), Some(name));
+        assert_eq!(restored.kind()?, "filter");
+        assert_eq!(restored.raw()?, entry.raw()?);
+        assert_eq!(serde_json::to_value(&restored)?, serde_json::to_value(&entry)?);
+        assert_eq!(restored.clone().name, entry.name);
+    }
+    Ok(())
+}
+
+#[test]
+fn absent_name_stays_absent_and_names_do_not_replace_the_required_action() -> anyhow::Result<()> {
+    let unnamed: MiddlewareEntry = serde_yaml::from_str("filter: {}")?;
+    assert!(!serde_json::to_value(unnamed)?.as_object().unwrap().contains_key("name"));
+    for yaml in ["name: Only a label", "name: Label\nfirst: {}\nsecond: {}"] {
+        let entry: MiddlewareEntry = serde_yaml::from_str(yaml)?;
+        assert!(entry.kind().is_err());
+    }
+    Ok(())
+}
+
+#[test]
+fn display_name_rejects_non_string_values_instead_of_coercing_them() {
+    for name in ["42", "true", "[]", "{}"] {
+        assert!(serde_yaml::from_str::<MiddlewareEntry>(&format!("name: {name}\nfilter: {{}}")).is_err());
+    }
+}
+
+#[test]
 fn decodes_an_opaque_middleware_entry_without_owning_its_implementation() -> anyhow::Result<()> {
     let entry: MiddlewareEntry =
         serde_yaml::from_str("filter:\n  field: event_name\n  value: page_view\n")?;
@@ -195,7 +233,7 @@ async fn builder_preserves_order_and_allows_overlapping_steps() -> anyhow::Resul
         |_| Ok(Box::new(RejectTestTable)),
     )?)?;
     let entries: Vec<MiddlewareEntry> = serde_yaml::from_str(
-        "- rename_test: {}\n- tables:\n    include: public.renamed\n  reject_test: {}\n",
+        "- name: First step\n  rename_test: {}\n- name: Second step\n  tables:\n    include: public.renamed\n  reject_test: {}\n",
     )?;
     let middlewares = build_middlewares(&builder.build(), &entries)?;
     let output = middlewares[0]

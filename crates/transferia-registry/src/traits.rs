@@ -48,6 +48,8 @@ pub struct ConnectionCheckResult {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct TableIdentity {
+    // An empty namespace denotes a namespace-less parser output, not a database.
+    // Database sampling still requires a nonempty namespace.
     pub namespace: String,
 
     pub name: String,
@@ -56,9 +58,19 @@ pub struct TableIdentity {
 impl TableIdentity {
     #[must_use]
     pub fn qualified_name(&self) -> String {
-        let escape = |part: &str| part.replace('\\', "\\\\").replace('.', "\\.");
-        format!("{}.{}", escape(&self.namespace), escape(&self.name))
+        qualified_table_name(
+            (!self.namespace.is_empty()).then_some(self.namespace.as_str()),
+            &self.name,
+        )
     }
+}
+
+pub(crate) fn qualified_table_name(namespace: Option<&str>, name: &str) -> String {
+    let escape = |part: &str| part.replace('\\', "\\\\").replace('.', "\\.");
+    namespace.map_or_else(
+        || escape(name),
+        |namespace| format!("{}.{}", escape(namespace), escape(name)),
+    )
 }
 
 impl Default for ConnectionCheckResult {

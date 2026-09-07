@@ -297,7 +297,8 @@ export function DeliveryApplication() {
   );
   const {
     discovery,
-    setDiscovery,
+    sourceDiscovery,
+    clearDiscovery,
     error: discoveryError,
   } = useDiscovery({
     editor,
@@ -640,7 +641,7 @@ export function DeliveryApplication() {
           config: clonedConfig(catalog, editor.config),
         });
         yamlEditor.reset();
-        setDiscovery(undefined);
+        clearDiscovery();
         setSchemaInspectorVisible(false);
       }}
       onDelete={() => {
@@ -656,7 +657,7 @@ export function DeliveryApplication() {
             config: freshConfig(catalog),
           });
           yamlEditor.reset();
-          setDiscovery(undefined);
+          clearDiscovery();
         });
       }}
       onSave={() => void mutations.save()}
@@ -717,7 +718,7 @@ export function DeliveryApplication() {
             config: freshConfig(catalog),
           });
           yamlEditor.reset();
-          setDiscovery(undefined);
+          clearDiscovery();
         }}
         onOpen={(id) => {
           jobs.cancelEditorJobs();
@@ -731,7 +732,7 @@ export function DeliveryApplication() {
                 return;
               }
               yamlEditor.reset();
-              setDiscovery(undefined);
+              clearDiscovery();
               setRequiredErrorScope("none");
               dispatch({
                 type: "open",
@@ -805,6 +806,7 @@ export function DeliveryApplication() {
             editor={editor}
             selection={selection}
             readOnly={readOnly}
+            sourceDiscovery={sourceDiscovery}
             requiredErrorScope={requiredErrorScope}
             onName={(name) => dispatchLocalChange({ type: "name", name })}
             onDescription={(description) =>

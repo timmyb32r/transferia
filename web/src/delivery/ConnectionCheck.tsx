@@ -15,7 +15,8 @@ export function ConnectionCheck({ check, onCheck }: {
       {checking && <span class="connection-check-spinner" />}
     </span>
     <span class={`connection-check-result connection-check-${tone}`}
-      role={check.state === "error" ? "alert" : "status"} aria-atomic="true" tabIndex={message ? 0 : -1}>
+      role={check.state === "error" ? "alert" : "status"} aria-atomic="true" tabIndex={message ? 0 : -1}
+      title={message || undefined}>
       <span>{message}</span>
     </span>
   </div>;

@@ -12,11 +12,28 @@ pub mod preview;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MiddlewareEntry {
+    #[serde(
+        default,
+        deserialize_with = "display_name",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub name: Option<String>,
+
     #[serde(default = "all_tables")]
     pub tables: TableRule,
 
     #[serde(flatten)]
     inner: HashMap<String, Value>,
+}
+
+fn display_name<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    match Option::<Value>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(Value::String(name)) => Ok(Some(name)),
+        Some(_) => Err(serde::de::Error::custom("transform name must be a string")),
+    }
 }
 
 impl MiddlewareEntry {

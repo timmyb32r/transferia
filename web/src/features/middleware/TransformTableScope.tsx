@@ -31,14 +31,15 @@ export function useTransformMatches(rule: TableRule, enabled = true) {
   return result?.key === key && result.catalog === tables ? result : undefined;
 }
 
-export function TransformTableScope({ id, index, matches: current, rule, disabled, onChange, onUseTable }: {
+export function TransformTableScope({ id, index, matches: current, rule, disabled, onChange, onUseTable, catalogUnavailableReason }: {
   id: string; index: number; matches: ReturnType<typeof useTransformMatches>; rule: TableRule; disabled: boolean;
   onChange: (patch: Partial<TableRule>) => void;
   onUseTable: ((table: TableIdentity) => void) | undefined;
+  catalogUnavailableReason: string;
 }) {
   const catalog = useTableCatalog();
   const [matchedOpen, setMatchedOpen] = useState(false);
-  const [excludeExpanded, setExcludeExpanded] = useState(false);
+  const [excludeExpanded, setExcludeExpanded] = useState(true);
   const showMatches = matchedOpen || hasPattern(rule.include, rule.include_mode ?? "glob");
   const confirmed = !showMatches && rule.include.length > 0 && current?.tables?.length === 1 && !current?.error;
   return <div class="middleware-table-scope">
@@ -51,7 +52,7 @@ export function TransformTableScope({ id, index, matches: current, rule, disable
       toggleLabel={`Matched tables for transform ${index + 1}`} regionLabel={`Matched tables for transform ${index + 1}`}
       tables={current?.tables} open={matchedOpen} onToggle={() => setMatchedOpen(!matchedOpen)}
       after={<span class="middleware-scope-status" role="status" title={current?.error}>
-        {current?.error ? "Invalid pattern" : !catalog ? "Use Discover tables in Tables first" : ""}
+        {current?.error ? "Invalid pattern" : !catalog ? catalogUnavailableReason : ""}
       </span>} /> : <div class="table-rule-result"><span class="middleware-scope-status" role="status" title={current?.error}>
         {current?.error ? "Invalid pattern" : ""}</span></div>}
   </div>;

@@ -3,12 +3,120 @@ import { act, cleanup, fireEvent, waitFor } from "@testing-library/preact";
 import { useState } from "preact/hooks";
 import { afterEach, expect, it, vi } from "vitest";
 import { TablePatternInput } from "../src/features/tableSelection/TablePatternInput";
-import { completionPattern, literalPatternPrefix } from "../src/features/tableSelection/model";
+import { completionPattern, exactPattern, literalPatternPrefix } from "../src/features/tableSelection/model";
 import { TableCatalogContext } from "../src/schema/tableCatalog";
 import type { SelectionPreview } from "../src/generated/apiContract";
 import { render } from "./support/render";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+it("opens Include search immediately on empty focus and ranks subsequences from the cached catalog", () => {
+  const tables = [
+    { namespace: "system", name: "query_log" },
+    { namespace: "public", name: "sql_queries" },
+    { namespace: "sql", name: "events" },
+    { namespace: "public", name: "orders" },
+  ];
+  const preview = vi.fn();
+  function Field() {
+    const [value, setValue] = useState("");
+    return <div><TableCatalogContext.Provider value={{ tables, preview }}>
+      <TablePatternInput id="search" label="Include" value={value} mode="glob" disabled={false} required invalid={false}
+        searchSuggestions onChange={setValue} onModeChange={() => {}} />
+    </TableCatalogContext.Provider><button>Following</button></div>;
+  }
+  const view = render(<Field />);
+  const input = view.getByRole("combobox") as HTMLInputElement;
+  const following = view.getByRole("button", { name: "Following" });
+  act(() => input.focus());
+  const menu = view.getByRole("listbox");
+  expect(menu.getAttribute("aria-busy")).toBe("false");
+  expect(menu.parentElement?.classList.contains("select-menu-floating")).toBe(true);
+  expect(view.getAllByRole("option")).toHaveLength(4);
+  for (const query of ["SQL", "ыйд"]) {
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.input(input, { target: { value: query } });
+    expect(input.hasAttribute("aria-activedescendant")).toBe(false);
+    expect(view.getAllByRole("option").map(option => option.textContent))
+      .toEqual(["sql.events", "public.sql_queries", "system.query_log"]);
+    expect([...view.getByRole("option", { name: "system.query_log" }).querySelectorAll("strong")]
+      .map(node => node.textContent).join("")).toBe("sql");
+    expect(view.getByRole("listbox")).toBe(menu);
+    expect(view.getByRole("combobox")).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(view.getByRole("button", { name: "Following" })).toBe(following);
+  }
+  fireEvent.input(input, { target: { value: "no_such_table" } });
+  expect(view.queryByRole("option")).toBeNull();
+  expect(view.getByText("No matching tables")).toBeTruthy();
+  fireEvent.input(input, { target: { value: "" } });
+  expect(view.getAllByRole("option")).toHaveLength(4);
+  expect(preview).not.toHaveBeenCalled();
+});
+
+it.each(["glob", "regex"] as const)("keeps a %s pattern unchanged until explicit selection and inserts the exact escaped table", mode => {
+  const table = { namespace: "a.b", name: "reports*?" };
+  const preview = vi.fn(), onChange = vi.fn();
+  const value = mode === "glob" ? "*" : ".*";
+  const view = render(<TableCatalogContext.Provider value={{ tables: [table], preview }}>
+    <TablePatternInput id="search" label="Include" value={value} mode={mode} disabled={false} required invalid={false}
+      searchSuggestions onChange={onChange} onModeChange={() => {}} />
+  </TableCatalogContext.Provider>);
+  const input = view.getByRole("combobox") as HTMLInputElement;
+  act(() => input.focus());
+  expect(view.getAllByRole("option")).toHaveLength(1);
+  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(input.value).toBe(value);
+  expect(onChange).not.toHaveBeenCalled();
+  act(() => input.focus());
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(onChange).toHaveBeenCalledExactlyOnceWith(exactPattern(table, mode));
+  expect(view.queryByRole("listbox")).toBeNull();
+  expect(document.activeElement).toBe(input);
+  expect(preview).not.toHaveBeenCalled();
+});
+
+it("reopens Include search on click, and closes on Escape or Tab without silently completing text", () => {
+  const onChange = vi.fn();
+  const view = render(<TableCatalogContext.Provider value={{ tables: [{ namespace: "db", name: "events" }], preview: vi.fn() }}>
+    <TablePatternInput id="search" label="Include" value="ev" mode="glob" disabled={false} required invalid={false}
+      searchSuggestions onChange={onChange} onModeChange={() => {}} />
+  </TableCatalogContext.Provider>);
+  const input = view.getByRole("combobox");
+  act(() => input.focus());
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(view.queryByRole("listbox")).toBeNull();
+  expect(document.activeElement).toBe(input);
+  fireEvent.click(input);
+  expect(view.getByRole("option")).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Tab" });
+  expect(view.queryByRole("listbox")).toBeNull();
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+it("clears stale Include search options immediately when the catalog changes and never offers disabled edits", () => {
+  const preview = vi.fn(), onChange = vi.fn();
+  const component = (name: string, disabled = false) => <TableCatalogContext.Provider value={{ tables: [{ namespace: "db", name }], preview }}>
+    <TablePatternInput id="search" label="Include" value="" mode="glob" disabled={disabled} required invalid={false}
+      searchSuggestions onChange={onChange} onModeChange={() => {}} />
+  </TableCatalogContext.Provider>;
+  const view = render(component("old"));
+  act(() => view.getByRole("combobox").focus());
+  expect(view.getByRole("option", { name: "db.old" })).toBeTruthy();
+  fireEvent.keyDown(view.getByRole("combobox"), { key: "ArrowDown" });
+  view.rerender(component("new"));
+  expect(view.queryByRole("option", { name: "db.old" })).toBeNull();
+  expect(view.getByRole("option", { name: "db.new" })).toBeTruthy();
+  expect(view.getByRole("combobox").hasAttribute("aria-activedescendant")).toBe(false);
+  fireEvent.keyDown(view.getByRole("combobox"), { key: "Enter" });
+  expect(onChange).not.toHaveBeenCalled();
+  act(() => view.getByRole("combobox").focus());
+  view.rerender(component("new", true));
+  expect(view.queryByRole("listbox")).toBeNull();
+  expect(preview).not.toHaveBeenCalled();
+});
 
 it.each([false, true])("shows an immediate, layout-free full value only when the field is truncated (%s)", truncated => {
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ measureText: () => ({ width: truncated ? 400 : 20 }), font: "" } as unknown as CanvasRenderingContext2D);

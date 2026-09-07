@@ -19,22 +19,180 @@ it("does not narrow a standalone Tables fallback twice", () => {
   expect(view.container.querySelector(".endpoint-card-source > .island-form .source-tables-card > .island-form-wide")).not.toBeNull();
 });
 
-function Form({ connectorKey = "postgres", readOnly = false, role = "source", deliveryType = "batch", fullWidth = false }: {
+function Form({ connectorKey = "postgres", readOnly = false, role = "source", deliveryType = "batch", fullWidth = false, initialConfig, onConfig }: {
   connectorKey?: string; readOnly?: boolean; role?: "source" | "sink"; deliveryType?: string; fullWidth?: boolean;
+  initialConfig?: JsonObject; onConfig?: (config: JsonObject) => void;
 }) {
   const connector = catalog.connectors.find(item => item.key === connectorKey)! as unknown as ConnectorDefinition;
   const endpoint = connector[role]! as EndpointDefinition;
   const [tablesHost, setTablesHost] = useState<HTMLElement | null>(null);
-  const [config, setConfig] = useState<JsonObject>({
+  const [config, setConfig] = useState<JsonObject>(initialConfig ?? {
     delivery_type: deliveryType,
     [role]: { [connectorKey]: endpoint.initial },
   });
   return <><EndpointCard title={role === "source" ? "Source" : "Destination"} role={role}
     selectedKey={connectorKey} connectors={[connector]} endpoint={endpoint} config={config}
-    readOnly={readOnly} showRequiredErrors={false} onChoose={() => undefined} onConfig={setConfig} tablesHost={fullWidth ? tablesHost : undefined} />
+    readOnly={readOnly} showRequiredErrors={false} onChoose={() => undefined}
+    onConfig={next => { setConfig(next); onConfig?.(next); }} tablesHost={fullWidth ? tablesHost : undefined} />
     {fullWidth && <><button>Destination settings</button><section class="source-tables-card" aria-label="Source tables" ref={setTablesHost} /></>}
   </>;
 }
+
+it.each([false, true])("labels the S3 destination prefix as Path without changing its configuration (readOnly=%s)", readOnly => {
+  const sink = catalog.connectors.find(item => item.key === "s3")!.sink!.initial;
+  const config: JsonObject = { delivery_type: "batch", sink: { s3: { ...sink, path_prefix: "Reports/2026" } } };
+  const onConfig = vi.fn();
+  const view = render(<Form connectorKey="s3" role="sink" readOnly={readOnly} initialConfig={config} onConfig={onConfig} />);
+  const path = view.getByLabelText(/^Path(?:\s|$)/) as HTMLInputElement;
+  expect(path.value).toBe("Reports/2026");
+  expect(path.disabled).toBe(readOnly);
+  expect(view.queryByLabelText(/^Path prefix/)).toBeNull();
+  expect(onConfig).not.toHaveBeenCalled();
+  if (!readOnly) {
+    fireEvent.input(path, { target: { value: "Reports/New Path" } });
+    expect(onConfig.mock.lastCall?.[0]).toEqual({ ...config, sink: { s3: { ...sink, path_prefix: "Reports/New Path" } } });
+  }
+});
+
+it("moves S3 path, table name and parser with Scan into Tables, leaving connection controls in Source", () => {
+  const view = render(<Form connectorKey="s3" fullWidth />);
+  const host = view.getByRole("region", { name: "Source tables" });
+  const group = within(host).getByRole("group", { name: "Table settings" }) as HTMLFieldSetElement;
+  expect(group.disabled).toBe(false);
+  expect(within(group).getByLabelText(/^Path prefix/)).toBeTruthy();
+  expect(within(group).getByLabelText(/^Table name/)).toBeTruthy();
+  expect(within(group).getByLabelText(/^Parser/).textContent).toContain("Parquet parser");
+  expect(within(group).getByRole("button", { name: "Preview one message" })).toBeTruthy();
+  const source = view.container.querySelector(".endpoint-card-source")!;
+  expect(source.contains(group)).toBe(false);
+  expect(source.contains(view.getByLabelText(/^Bucket/))).toBe(true);
+  expect(source.contains(view.getByRole("button", { name: "Check connection", exact: true }))).toBe(true);
+  expect(view.getAllByLabelText(/^Path prefix/)).toHaveLength(1);
+  expect(view.getAllByLabelText(/^Table name/)).toHaveLength(1);
+  expect(view.getAllByLabelText(/^Parser/)).toHaveLength(1);
+  expect(host.querySelector(":scope > .island-form:not(.island-form-wide)")).not.toBeNull();
+  expect(view.queryByRole("button", { name: "Discover tables" })).toBeNull();
+});
+
+it("edits S3 fields in Tables without rewriting their values or the rest of the delivery", () => {
+  const source = catalog.connectors.find(item => item.key === "s3")!.source!.initial;
+  const config: JsonObject = { delivery_type: "batch", source: { s3: source }, sink: { discard: {} } };
+  const onConfig = vi.fn();
+  const view = render(<Form connectorKey="s3" fullWidth initialConfig={config} onConfig={onConfig} />);
+  expect(onConfig).not.toHaveBeenCalled();
+  const group = view.getByRole("group", { name: "Table settings" });
+  const path = within(group).getByLabelText(/^Path prefix/);
+  const name = within(group).getByLabelText(/^Table name/);
+  fireEvent.input(path, { target: { value: "Exact Prefix/../2026/" } });
+  fireEvent.input(name, { target: { value: "Exact.Table Name" } });
+  expect(onConfig.mock.lastCall?.[0]).toEqual({ ...config, source: { s3: {
+    ...source, path_prefix: "Exact Prefix/../2026/", table_name: "Exact.Table Name",
+  } } });
+  expect(within(group).getByLabelText(/^Path prefix/)).toBe(path);
+  expect(within(group).getByLabelText(/^Table name/)).toBe(name);
+});
+
+it.each([
+  ["iceberg", "table_names"], ["opensearch", "indices"], ["ydb", "tables"], ["ytsaurus", "tables"],
+])("moves %s %s into Tables without requiring discovery or moving Check connection", (connectorKey, field) => {
+  const view = render(<Form connectorKey={connectorKey} fullWidth />);
+  const host = view.getByRole("region", { name: "Source tables" });
+  const group = within(host).getByRole("group", { name: "Table settings" }) as HTMLFieldSetElement;
+  const selectorQuery = connectorKey === "opensearch" || connectorKey === "ydb"
+    ? ".compact-array-field" : `[data-field-name="${field}"]`;
+  const selector = group.querySelector(selectorQuery)!;
+  expect(selector).not.toBeNull();
+  expect(group.disabled).toBe(false);
+  const input = selector.querySelector("input")!;
+  expect(input.disabled).toBe(false);
+  expect(view.container.querySelector(".endpoint-card-source")?.contains(selector)).toBe(false);
+  expect(group.querySelectorAll(selectorQuery)).toHaveLength(1);
+  expect(selector.querySelector(".field-label")?.textContent).toContain(
+    connectorKey === "iceberg" ? "Table names" : connectorKey === "opensearch" ? "Indices" : "Tables");
+  const check = view.getByRole("button", { name: "Check connection", exact: true });
+  expect(view.container.querySelector(".endpoint-card-source")?.contains(check)).toBe(true);
+  expect(host.querySelector(":scope > .island-form:not(.island-form-wide)")).not.toBeNull();
+  expect(within(host).getByRole("heading", { name: "Tables" })).toBeTruthy();
+  expect(view.queryByRole("button", { name: "Discover tables" })).toBeNull();
+  expect(view.queryByRole("button", { name: "Available tables in source" })).toBeNull();
+  if (connectorKey === "iceberg")
+    expect(view.container.querySelector(".endpoint-card-source [data-field-name='namespace']")).not.toBeNull();
+});
+
+it.each(["iceberg", "opensearch", "ydb", "ytsaurus", "s3"])("keeps relocated %s selection read-only when viewing a saved delivery", connectorKey => {
+  const view = render(<Form connectorKey={connectorKey} fullWidth readOnly />);
+  const group = view.getByRole("group", { name: "Table settings" }) as HTMLFieldSetElement;
+  expect(group.disabled).toBe(true);
+  const inputs = [...group.querySelectorAll("input")];
+  expect(inputs.length).toBeGreaterThan(0);
+  expect(inputs.every(input => input.disabled)).toBe(true);
+  if (connectorKey === "s3") {
+    expect((within(group).getByLabelText(/^Parser/) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(group).getByRole("button", { name: "Preview one message" }) as HTMLButtonElement).disabled).toBe(true);
+  }
+});
+
+it.each([["opensearch", "auth"], ["ydb", "tables"], ["ytsaurus", "tables"], ["s3", "installation"]])("leaves %s destination settings in Destination", (connectorKey, field) => {
+  const view = render(<Form connectorKey={connectorKey} role="sink" />);
+  expect(view.queryByRole("group", { name: "Table settings" })).toBeNull();
+  expect(view.container.querySelector(".source-tables-card")).toBeNull();
+  const selector = view.container.querySelector(connectorKey === "ydb"
+    ? ".endpoint-card-sink .compact-array-field" : `.endpoint-card-sink [data-field-name="${field}"]`);
+  expect(selector).not.toBeNull();
+  if (connectorKey === "ydb") expect(selector!.querySelector(".field-label")?.textContent).toContain("Tables");
+});
+
+it.each([
+  ["iceberg", "table_names", ""], ["opensearch", "indices", "name"],
+  ["ydb", "tables", "path"], ["ytsaurus", "tables", "path"],
+])("edits relocated %s selection without changing connection or delivery configuration", (connectorKey, field, itemField) => {
+  const endpoint = catalog.connectors.find(item => item.key === connectorKey)!.source!;
+  const initial = { ...endpoint.initial, [field]: [itemField ? { [itemField]: "original" } : "original"] };
+  const config: JsonObject = { delivery_type: "batch", source: { [connectorKey]: initial },
+    sink: { discard: {} }, middlewares: [] };
+  const onConfig = vi.fn();
+  const view = render(<Form connectorKey={connectorKey} fullWidth initialConfig={config} onConfig={onConfig} />);
+  expect(onConfig).not.toHaveBeenCalled();
+  const group = view.getByRole("group", { name: "Table settings" });
+  const input = group.querySelector("input")!;
+  const selected = "//Exact Path/Table-01";
+  fireEvent.input(input, { target: { value: selected } });
+  expect(onConfig.mock.lastCall?.[0]).toEqual({ ...config, source: { [connectorKey]: {
+    ...initial, [field]: [itemField ? { [itemField]: selected } : selected],
+  } } });
+  expect(view.getByRole("group", { name: "Table settings" })).toBe(group);
+  expect(group.querySelector("input")).toBe(input);
+});
+
+it.each(["iceberg", "opensearch", "ydb", "ytsaurus", "s3"])("keeps %s Tables controls mounted and editable while connection checking is pending", async connectorKey => {
+  let finish!: (result: ConnectionCheckResult) => void;
+  const request = vi.spyOn(api, "checkConnection").mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  const discover = vi.spyOn(api, "connectMetadata");
+  const view = render(<Form connectorKey={connectorKey} fullWidth />);
+  const host = view.getByRole("region", { name: "Source tables" });
+  const group = within(host).getByRole("group", { name: "Table settings" }) as HTMLFieldSetElement;
+  const input = group.querySelector("input")!;
+  const siblings = [...host.parentElement!.children];
+  const controls = [...group.querySelectorAll("input, button")];
+  const check = view.getByRole("button", { name: "Check connection", exact: true });
+  fireEvent.click(check);
+  expect(check.getAttribute("aria-busy")).toBe("true");
+  expect(check.getAttribute("aria-disabled")).toBe("true");
+  expect(group.disabled).toBe(false);
+  expect(input.disabled).toBe(false);
+  fireEvent.click(check);
+  expect(request).toHaveBeenCalledOnce();
+  finish({ status: "verified", options: {}, tables: [] });
+  await view.findByText("Connection verified.");
+  expect(view.getByRole("button", { name: "Check connection", exact: true })).toBe(check);
+  expect(view.getByRole("region", { name: "Source tables" })).toBe(host);
+  expect(within(host).getByRole("group", { name: "Table settings" })).toBe(group);
+  expect([...host.parentElement!.children]).toEqual(siblings);
+  expect([...group.querySelectorAll("input, button")]).toEqual(controls);
+  expect(group.disabled).toBe(false);
+  expect(input.disabled).toBe(false);
+  expect(discover).not.toHaveBeenCalled();
+});
 
 it.each(["postgres", "mysql", "clickhouse"])("plain %s Check does not discover or unlock tables", async connectorKey => {
   const check = vi.spyOn(api, "checkConnection").mockResolvedValue({ status: "verified", options: {}, tables: [] });
@@ -268,6 +426,8 @@ it.each([{ connectorKey: "clickhouse", role: "sink" as const }, { connectorKey: 
   "does not make ordinary checks mandatory for $connectorKey $role", props => {
     const view = render(<Form {...props} />);
     expect(view.queryByText("Required")).toBeNull();
-    expect(view.queryByRole("group", { name: "Table settings" })).toBeNull();
+    const group = view.queryByRole("group", { name: "Table settings" }) as HTMLFieldSetElement | null;
+    if (group) expect(group.disabled).toBe(false);
+    expect(view.queryByRole("button", { name: "Discover tables" })).toBeNull();
   },
 );

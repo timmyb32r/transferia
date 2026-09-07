@@ -25,6 +25,14 @@ use super::actor::S3Sink;
 use super::config::S3SinkConfig;
 use super::upload::{ObjectUploader, UploadError};
 
+#[test]
+fn path_label_preserves_the_path_prefix_configuration_key() {
+    let schema = serde_json::to_value(schemars::schema_for!(S3SinkConfig)).unwrap();
+    assert_eq!(schema["properties"]["path_prefix"]["title"], "Path");
+    assert_eq!(schema["properties"]["path_prefix"]["default"], "");
+    assert!(schema["properties"].get("path").is_none());
+}
+
 fn durable_storage() -> Arc<dyn crate::durable::DurableStorage> {
     crate::durable::test_support::context().storage
 }

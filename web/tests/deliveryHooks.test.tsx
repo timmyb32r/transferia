@@ -504,6 +504,51 @@ describe("delivery controllers", () => {
     expect(result.current.discovery).toBeUndefined();
   });
 
+  it("invalidates parser catalogs immediately on source edits, not on transform edits, without hiding the old widget", async () => {
+    vi.useFakeTimers();
+    const discovered: DiscoveryResult = {
+      source: "logbroker", sink: "clickhouse", pipeline_count: 1, performance_advice: [],
+      datasets: [{ name: "events", role: "Main", intermediate_columns: [], final_columns: [] }],
+      sink_limits: { sink: "clickhouse", supported_arrow_types: [] },
+    };
+    let resolveRefresh!: (value: DiscoveryResult) => void;
+    vi.spyOn(api, "discover").mockResolvedValueOnce(discovered)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveRefresh = resolve; }))
+      .mockRejectedValueOnce(new Error("Parser configuration is invalid"));
+    const initial: EditorState = { ...newEditor(), config: {
+      delivery_type: "stream", source: { logbroker: { parser: { table_name: "events" } } },
+    } };
+    const { result, rerender } = renderHook(({ editor, complete }: { editor: EditorState; complete: boolean }) => {
+      const jobs = useDeliveryJobs();
+      const operations = useOperations();
+      return useDiscovery({ editor, structurallyComplete: complete, job: jobs.discovery,
+        operations, isCurrentContext: () => true });
+    }, { initialProps: { editor: initial, complete: true } });
+    expect(result.current.sourceDiscovery).toBeUndefined();
+    await act(async () => { await vi.advanceTimersByTimeAsync(450); });
+    expect(result.current.sourceDiscovery).toBe(discovered);
+    rerender({ editor: { ...initial, localRevision: 1,
+      config: { ...initial.config, middlewares: [{ tables: { include: "events" } }] } }, complete: true });
+    expect(result.current.sourceDiscovery).toBe(discovered);
+    const renamed = { ...initial, localRevision: 2, config: {
+      ...initial.config, source: { logbroker: { parser: { table_name: "renamed" } } },
+    } };
+    rerender({ editor: renamed, complete: true });
+    expect(result.current.sourceDiscovery).toBeUndefined();
+    expect(result.current.discovery).toBe(discovered);
+    await act(async () => { await vi.advanceTimersByTimeAsync(450); });
+    expect(result.current.sourceDiscovery).toBeUndefined();
+    const updated = { ...discovered, datasets: [{ ...discovered.datasets[0]!, name: "renamed" }] };
+    await act(async () => { resolveRefresh(updated); });
+    expect(result.current.sourceDiscovery).toBe(updated);
+    rerender({ editor: { ...renamed, localRevision: 3 }, complete: true });
+    await act(async () => { await vi.advanceTimersByTimeAsync(450); });
+    expect(result.current.sourceDiscovery).toBeUndefined();
+    expect(result.current.error).toBe("Parser configuration is invalid");
+    rerender({ editor: { ...initial, sessionId: "another-delivery" }, complete: true });
+    expect(result.current.sourceDiscovery).toBeUndefined();
+  });
+
   it("round-trips the current YAML draft through its controller", async () => {
     vi.useFakeTimers();
     vi.spyOn(api, "yaml").mockResolvedValue({ yaml: "source: {}" });
