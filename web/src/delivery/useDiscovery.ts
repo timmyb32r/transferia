@@ -45,7 +45,7 @@ export function useDiscovery({
     if (!structurallyComplete || (metadataRequired && (!metadata || metadata.loading))) {
       setDiscovery(undefined);
       setError(metadataRequired && structurallyComplete ? metadata
-        ? "Source schemas are loading…" : "Connect & load metadata in Source first." : undefined);
+        ? "Source schemas are loading…" : "Use Discover tables in Tables first." : undefined);
       return;
     }
     const context = {

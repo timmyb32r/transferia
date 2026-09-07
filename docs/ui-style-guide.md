@@ -141,38 +141,31 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   actions retain their semantic styling. Disabled controls remain gray, without
   enabled hover/press feedback; pending actions retain their label, dimensions and
   spinner. This action palette does not recolor classic or dark themes.
-- Database-source metadata uses **A — required form item**: a neutral
-  `Required` badge, a stable Connected/pending/error status beside the button, and a bordered group for
-  dependent table fields. Tables continue the Source surface at full route width,
-  using the same bridge, concave join and border treatment as parser details;
-  they are not a separate island. On narrow screens they sit directly below
-  Source, before Destination. Existing form contexts and DOM order are preserved.
-  The continuation is mounted and locked before connection, not inserted
-  by an asynchronous response. The primary action is `Connect & load metadata`, then
-  `Refresh metadata` after success; reserve the longer label's width. Before
-  verification show `Required to unlock tables and transforms` and a small
-  lock, not a validation error. Unlock only after authenticated verification
-  returns a table catalog (including an empty catalog). Do not duplicate readiness
-  in a Table settings are ready banner. Keep status slots and
-  controls mounted with identical dimensions while checking, succeeding,
-  failing, or invalidating credentials. Connection/advanced options stay outside
-  the locked group so users can repair a failed connection. Ordinary diagnostic
-  checks in destinations and non-table sources do not gain a required badge.
-- Only an explicitly clicked successful metadata connection scrolls to Tables,
-  once, without stealing keyboard focus. Polling, Validate's automatic connection
-  and remounts never trigger this. Cancel the pending reveal on a new gesture,
-  focus change, failed/stale response or unmount; honor reduced-motion preferences.
+- Source, Destination, Tables and parser settings are independent rounded islands.
+  Tables and parser settings span the full route width below both endpoints,
+  separated by the shared editor gap. There are no bridges, concave joins or
+  stretched endpoint cards; absent sections leave no empty grid rows.
+- Database sources have an ordinary `Check connection` action. It authenticates
+  without enumerating tables, loading schemas or invalidating an existing catalog.
+  Tables owns `Discover tables`, becoming `Refresh tables` after success. Reserve
+  the longer label's width. The island and locked table controls are mounted
+  before discovery; the discovery button stays outside the locked fieldset.
+  Unlock selection and transforms only after authenticated discovery returns a
+  catalog (including an empty catalog). Check and discovery have independent,
+  fixed-size pending/success/error slots and deduplicate their requests. No
+  automatic scrolling follows either action. Connection edits invalidate both
+  states and release the metadata session; plain re-checks do not.
 - Source and Transforms share one authenticated table catalog and a server-side
   metadata session. Fewer than 1000 catalog tables triggers asynchronous schema
   preloading; 1000 or more uses explicit `Load schemas` beside each transform's
   Preview disclosure. This action loads only that transform's matches, not rows.
   Keep its status and control slots fixed across pending, partial success and
   errors. Add transform stays disabled until the catalog is known, with a tooltip
-  directing the user to the source metadata action; known-empty is not unknown.
+  directing the user to `Discover tables` in Tables; known-empty is not unknown.
 - Editor discovery is cache-only. Validate loads missing schemas for the selected
   source tables and reports `Schemas checked X/Y` in the existing fixed progress
   overlay, then checks transforms and destination constraints. Validate first
-  connects if needed and joins an already-pending connection request. Cached
+  discovers tables if needed and joins an already-pending discovery request. Cached
   successes and errors are reused until explicit Refresh, connection/decoding
   options change, the editor closes, or the server restarts. Run preview checks
   the selected table's current schema against the cache before reading rows;

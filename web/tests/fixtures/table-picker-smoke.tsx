@@ -31,13 +31,17 @@ const tables = ["query_log", "query_thread_log", "query_views_log", "tables", "s
 const metadata: MetadataStatus = { id: "picker-fixture", catalog_count: tables.length, loaded: tables.slice(0, 4),
   errors: [{ table: tables[4]!, message: "Introspection functions are disabled for this user." }], loading: false };
 const api = {
-  connectMetadata: async () => ({ connection: { status: "verified", tables, options: {}, message: null }, metadata }),
+  checkConnection: async () => ({ status: "verified", options: {}, message: "Connection verified." }),
+  connectMetadata: async () => {
+    await new Promise(resolve => setTimeout(resolve, 800));
+    return { connection: { status: "verified", tables, options: {}, message: null }, metadata };
+  },
   releaseMetadata: async () => metadata,
   previewTables: async ({ selection, catalog }) => ({ issues: [], cards: (selection.type === "all" ? [{ include: "*" }] : selection.rules).map(rule => {
     const pattern = rule.include_mode === "regex" ? rule.include : [...rule.include].map(char => char === "*" ? ".*" : char === "?" ? "." : char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("");
     return { selected: catalog.filter(table => new RegExp(`^(?:${pattern})$`).test(qualifiedName(table))), excluded: [] };
   }) }),
-} satisfies Pick<ControlPlanePort, "connectMetadata" | "releaseMetadata" | "previewTables">;
+} satisfies Pick<ControlPlanePort, "checkConnection" | "connectMetadata" | "releaseMetadata" | "previewTables">;
 
 function Fixture() {
   const [inspectorVisible, setInspectorVisible] = useState(new URLSearchParams(location.search).has("inspector"));
@@ -54,8 +58,7 @@ function Fixture() {
       <div class="route-arrow">→</div>
       <EndpointCard title="Destination" role="sink" selectedKey="discard" connectors={[discard]} endpoint={discard.sink!}
         config={config} readOnly={false} showRequiredErrors={false} onChoose={() => {}} onConfig={setConfig} />
-      <div class="source-details-bridge" aria-hidden="true" />
-      <section class="source-details-card source-tables-card" ref={setTablesHost} tabIndex={-1} aria-label="Source tables" />
+      <section class="card source-tables-card" ref={setTablesHost} tabIndex={-1} aria-label="Source tables" />
     </main>
     {inspectorVisible && <DataSchemaInspector result={schema} onHide={() => setInspectorVisible(false)} />}
   </SourceMetadataContext.Provider>;

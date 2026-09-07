@@ -76,7 +76,7 @@ export function DeliveryConfiguration({
     && sourceNode?.kind === "object" && sourceNode.properties.tables?.xUi.widget === "table_selection";
   const previewSource = selection?.source?.table_preview && isObject(sourceConfig)
     ? { connector: selection.sourceKey, config: sourceConfig } : undefined;
-  const sharedCheck = sharedMetadata?.check;
+  const sharedCheck = sharedMetadata?.discovery;
   const sharedTables = sharedCheck?.state === "success" ? sharedCheck.tables : undefined;
   const identity = previewSource ? tableConnectionIdentity(previewSource.connector, previewSource.config) : undefined;
   const sharedCatalog = useMemo(() => identity && sharedTables ? { identity, tables: sharedTables } : undefined, [identity, sharedTables]);
@@ -187,10 +187,7 @@ export function DeliveryConfiguration({
             onChoose={onChooseEndpoint}
             onConfig={onConfig}
           />
-          {hasTableSettings && <>
-            <div class="source-details-bridge" aria-hidden="true" />
-            <section class="source-details-card source-tables-card" ref={setTablesHost} tabIndex={-1} aria-label="Source tables" />
-          </>}
+          {hasTableSettings && <section class="card source-tables-card" ref={setTablesHost} tabIndex={-1} aria-label="Source tables" />}
           {routeSettingsAvailable &&
             selection?.source && (
               <ParserDetailsForm

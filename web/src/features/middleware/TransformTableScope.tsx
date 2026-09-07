@@ -51,7 +51,7 @@ export function TransformTableScope({ id, index, matches: current, rule, disable
       toggleLabel={`Matched tables for transform ${index + 1}`} regionLabel={`Matched tables for transform ${index + 1}`}
       tables={current?.tables} open={matchedOpen} onToggle={() => setMatchedOpen(!matchedOpen)}
       after={<span class="middleware-scope-status" role="status" title={current?.error}>
-        {current?.error ? "Invalid pattern" : !catalog ? "Connect & load metadata in Source first" : ""}
+        {current?.error ? "Invalid pattern" : !catalog ? "Use Discover tables in Tables first" : ""}
       </span>} /> : <div class="table-rule-result"><span class="middleware-scope-status" role="status" title={current?.error}>
         {current?.error ? "Invalid pattern" : ""}</span></div>}
   </div>;

@@ -272,7 +272,7 @@ export function DeliveryApplication() {
     sessionKey: editor.sessionId, validating: isOperationPending(operations.validate),
   });
   const tableConnectionRequired = requiredTableConnection !== undefined &&
-    !(sourceMetadata.check.state === "success" && sourceMetadata.check.status === "verified" && sourceMetadata.check.tables !== undefined);
+    !(sourceMetadata.discovery.state === "success" && sourceMetadata.discovery.status === "verified" && sourceMetadata.discovery.tables !== undefined);
   const metadataProgress = sourceMetadata.metadata?.validation;
   useEffect(() => {
     const operation = operations.validate;
@@ -404,8 +404,8 @@ export function DeliveryApplication() {
     ensureMetadata: async () => {
       if (requiredTableConnection === undefined) return undefined;
       if (sourceMetadata.metadata && !sourceMetadata.metadataError) return sourceMetadata.metadata.id;
-      const metadata = await sourceMetadata.checkConnection();
-      if (!metadata) throw new Error("Load source metadata before validation. See the connection status in Source.");
+      const metadata = await sourceMetadata.discoverTables();
+      if (!metadata) throw new Error("Discover tables before validation. See the discovery status in Tables.");
       return metadata.id;
     },
     jobs: {

@@ -170,12 +170,12 @@ export function AvailableTablesButton({ label, title, onUse, showUse = false, sh
   }, [catalog?.tables, catalog?.metadata]);
   return <div class={`available-tables-action${showMetadata ? " available-tables-metadata" : ""}`}>
     <Button class="table-matches-height-toggle" aria-label={label} aria-haspopup="dialog" disabled={!catalog}
-      title={catalog ? title : "Connect & load metadata in Source first"} onClick={() => setOpen("all")}>
+      title={catalog ? title : "Use Discover tables in Tables first"} onClick={() => setOpen("all")}>
       <span class="available-tables-label">Available tables <span class="table-match-count">({catalog?.tables.length ?? "—"})</span></span>
       {showMetadata && <span class="available-tables-summary" aria-live="polite">
         {catalog?.metadataError ? <span class="has-error" title={catalog.metadataError}>Metadata unavailable</span> : summary
           ? <>Schemas loaded {summary.loaded}/{catalog!.tables.length}</>
-          : catalog ? "Browse table names" : "Connect to load metadata"}
+          : catalog ? "Browse table names" : "Discover tables to load metadata"}
       </span>}
     </Button>
     {showMetadata && <Button variant="plain" class="available-tables-failures" aria-label={`Show ${summary?.failed ?? 0} failed schemas`}

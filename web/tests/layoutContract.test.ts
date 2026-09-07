@@ -16,9 +16,9 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
-  it("keeps the destination at content height while Source can stretch into its continuation", () => {
-    expect(styles).not.toContain(".route-composition > .endpoint-card {\n  align-self: stretch;");
-    expect(styles).toContain(".route-composition > .endpoint-card-source {\n  align-self: stretch;");
+  it("keeps both endpoints at content height", () => {
+    expect(styles.split(".route-composition {")[1]?.split("}")[0]).toContain("align-items: start;");
+    expect(styles).not.toMatch(/\.endpoint-card(?:-source|-sink)?\s*\{[^}]*align-self: stretch;/);
   });
   it("contains long schema names and types and anchors tabs inside the fixed inspector", () => {
     const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
@@ -31,23 +31,22 @@ describe("delivery layout contract", () => {
     expect(rule(".schema-inspector-type-tabs")).toContain("grid-template-columns: repeat(2, minmax(0, 1fr));");
   });
   it("puts source tables below both endpoints and compacts repeated rules without asynchronous movement", () => {
-    expect(styles).toContain('"tables tables tables"');
-    expect(styles).toContain(".source-tables-card { grid-area: tables;");
+    expect(styles).toMatch(/\.parser-details-card,\s*\.source-tables-card \{[^}]*grid-column: 1 \/ -1;/);
     expect(styles).toContain(":root .table-rule-compact .field-label { display: none; }");
     expect(styles).not.toContain(".table-rule-row ~ .table-rule-row { padding-top: 12px;");
     expect(styles).toContain("grid-template-rows: auto auto 40px 24px minmax(0, 1fr) 116px;");
     expect(styles).toMatch(/\.table-pattern-tooltip \{[^}]*position: fixed;[^}]*pointer-events: none;/);
   });
-  it("joins Tables to Source like parser details instead of adding a separate island", () => {
-    const tables = styles.split(".source-tables-card {")[1]?.split("}")[0];
-    expect(tables).not.toMatch(/(?:margin|padding|background|border|box-shadow)\s*:/);
-    expect(tables).not.toContain("margin-top:");
-    const details = styles.split("\n.source-details-card {")[1]?.split("}")[0];
+  it("makes Tables and parsers separate full-width islands without empty reserved grid rows", () => {
+    const details = styles.split(".parser-details-card,\n.source-tables-card {")[1]?.split("}")[0];
     expect(details).toContain("grid-column: 1 / -1;");
-    expect(details).toContain("border-radius: 0 var(--radius-panel) var(--radius-panel);");
-    expect(styles).toContain(".route-composition:has(> .source-details-card) > .endpoint-card-source {");
+    expect(details).toContain("border-radius: var(--radius-panel);");
+    expect(details).toContain("padding: 20px 22px 22px;");
+    expect(styles).not.toContain("source-details-bridge");
+    expect(styles).not.toContain("source-details-card");
+    expect(styles.split(".route-composition {")[1]?.split("}")[0]).toContain('grid-template-areas: "source arrow sink";');
     const stacked = styles.split("@media (max-width: 1300px) {")[1];
-    expect(stacked).toMatch(/grid-template-areas:\s*"source"\s*"tables"\s*"parser"\s*"arrow"\s*"sink"/);
+    expect(stacked).toMatch(/grid-template-areas:\s*"source"\s*"sink";/);
   });
   it("reserves source metadata and exact-match slots and keeps the picker within narrow forms", () => {
     const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
@@ -137,7 +136,7 @@ describe("delivery layout contract", () => {
     expect(styles).toMatch(/\.metadata-button-label\s*\{[^}]*display: grid;/s);
     expect(styles).toMatch(/\.metadata-button-label > span\s*\{[^}]*grid-area: 1 \/ 1;/s);
     expect(styles).toMatch(/\.metadata-button-label > span\[aria-hidden\]\s*\{[^}]*visibility: hidden;/s);
-    expect(styles).toMatch(/\.connection-check-required \.connection-check-result\s*\{[^}]*height: 2\.7em;[^}]*overflow: auto;/s);
+    expect(styles).toMatch(/\.table-discovery-result\s*\{[^}]*height: 2\.7em;[^}]*overflow: auto;/s);
     expect(styles).toMatch(/\.transform-schema-loader\s*\{[^}]*height: 38px;/s);
     expect(styles).toMatch(/\.transform-schema-loader > span\s*\{[^}]*white-space: nowrap;/s);
     expect(styles).toMatch(/\.transform-load-schemas\s*\{[^}]*width: 126px;[^}]*height: 30px;/s);
@@ -197,8 +196,8 @@ describe("delivery layout contract", () => {
     expect(list).toContain("min-height: 0;");
     expect(list).toContain("resize: none;");
   });
-  it("reserves required connection feedback slots across idle, pending, success and failure", () => {
-    for (const selector of [".connection-check-required .connection-check-result", ".connection-dependent-status"]) {
+  it("reserves independent connection and discovery feedback across idle, pending, success and failure", () => {
+    for (const selector of [".connection-check-result", ".table-discovery-result"]) {
       const rule = styles.split(`${selector} {`)[1]?.split("}")[0];
       expect(rule).toContain("height: 2.7em;");
       expect(rule).toContain("overflow: auto;");
@@ -207,7 +206,7 @@ describe("delivery layout contract", () => {
     const fields = styles.split(".connection-dependent-fields {")[1]?.split("}")[0];
     expect(fields).toContain("min-width: 0;");
     expect(fields).toContain("grid-template-columns: minmax(0, 1fr);");
-    expect(styles).toContain(".connection-check-required .connection-check {");
+    expect(styles).toContain(".table-discovery {");
     expect(styles).toContain("grid-template-columns: max-content minmax(0, 1fr);");
     expect(styles).toContain('.segmented-control > button[aria-checked="true"]:not(:disabled)');
     const regex = styles.split('.connection-dependent-fields:disabled .table-pattern-input .regex-toggle[aria-pressed="true"]:disabled {')[1]?.split("}")[0];
@@ -271,31 +270,24 @@ describe("delivery layout contract", () => {
     const hover = styles.split('.column-table tbody tr:hover {')[1]?.split("}")[0];
     expect(hover?.trim()).toBe("background: #e5f2f0;");
   });
-  it("shares the destination gaps and panel radius with the parser join", () => {
+  it("shares the editor gap and panel radius across all route islands", () => {
     expect(styles).toContain("grid-template-columns: minmax(450px, 1fr) var(--route-gap) minmax(450px, 1fr);");
-    const bridge = styles.split(".source-details-bridge {")[1]?.split("}")[0];
-    // The one-pixel overlap hides the parser top border without shrinking the gap.
-    expect(bridge).toContain("height: calc(var(--route-gap) + 1px);");
-    expect(bridge).toContain("margin-bottom: -1px;");
-    expect(styles).toContain("border-bottom-left-radius: var(--radius-panel);");
-    expect(styles).toContain("border-radius: 0 var(--radius-panel) var(--radius-panel);");
-    expect(styles).toContain(".source-details-bridge {\n    display: none;");
+    expect(styles.split(".route-composition {")[1]?.split("}")[0]).toContain("row-gap: var(--editor-section-gap);");
+    expect(styles.split(".parser-details-card,\n.source-tables-card {")[1]?.split("}")[0]).toContain("border-radius: var(--radius-panel);");
   });
-  it("shades the three delivery islands without changing control geometry or dark themes", () => {
+  it("shades all delivery islands with semantic tokens without changing control geometry or dark themes", () => {
     const selectors = [
       ':root[data-theme="light"] .identity-card',
-      ':root[data-theme="light"] .route-composition > .endpoint-card',
-      ':root[data-theme="light"] .route-composition > .source-details-bridge',
-      ':root[data-theme="light"] .route-composition > .source-details-card',
+      ':root[data-theme="light"] .route-composition > .card',
     ].join(",\n");
     const rule = styles.split(`${selectors} {`)[1]?.split("}")[0];
-    expect(rule?.trim()).toBe("background: #edf1f4;\n  border-color: #cfd8de;");
+    expect(rule?.trim()).toBe("background: var(--panel2);\n  border-color: var(--line-strong);");
     for (const design of ["classic", "airy-v0"]) {
       const theme = styles.split(`:root[data-design="${design}"][data-theme="light"] {`)[1]?.split("}")[0];
       expect(theme).toContain("--control: #ffffff;");
       expect(theme).toContain("--canvas: #ffffff;");
     }
-    expect(styles).toContain(':root[data-theme="light"] .route-composition:has(> .source-details-card) > .endpoint-card-source {\n  border-bottom-color: transparent;');
+    expect(styles).not.toContain("border-bottom-color: transparent;");
   });
   it("uses identical field spacing for ordinary and advanced settings in every endpoint", () => {
     expect(styles).toMatch(/\.foldout-content,\s*\.schema-object\s*\{\s*display:\s*grid;\s*gap:\s*10px;/s);
@@ -312,9 +304,9 @@ describe("delivery layout contract", () => {
     expect(rule(`${airy} .identity-card`)).toContain("margin-bottom: 0;");
     expect(rule(`${airy} .editor-view > .route-feedback,\n${airy} .editor-view > .pipeline-section`)).toContain("margin: 0;");
     const stacked = styles.split("@media (max-width: 1300px) {")[1];
-    expect(stacked).toContain(`${airy} .route-arrow {\n    height: var(--editor-section-gap);`);
-    // Source and parser remain one joined island, with no gap inside their grid.
-    expect(rule(".route-composition")).not.toMatch(/^[ \t]*(?:row-)?gap\s*:/m);
+    expect(stacked).toMatch(/\.route-arrow \{[^}]*height: var\(--editor-section-gap\);[^}]*transform: translateY\(-100%\) rotate\(90deg\);/);
+    // The arrow occupies the endpoint gap, not a third row with two extra gaps.
+    expect(rule(".route-composition")).toContain("row-gap: var(--editor-section-gap);");
   });
   it("keeps parser support columns fixed and hover feedback dimension-neutral", () => {
     expect(styles).toMatch(/\.parser-support-table\s*\{[^}]*width: 100%;[^}]*table-layout: fixed;/s);
@@ -391,8 +383,8 @@ describe("delivery layout contract", () => {
     expect(styles).not.toContain(".instant-tooltip-content");
   });
   it("keeps detached parser layout without a detached serializer row or bridge", () => {
-    expect(styles).toContain('"sourcebridge . ."');
-    expect(styles).toContain('"parser parser parser"');
+    expect(styles).not.toContain("sourcebridge");
+    expect(styles).toMatch(/\.parser-details-card,\s*\.source-tables-card \{[^}]*grid-column: 1 \/ -1;/);
     expect(styles).not.toContain(".serializer-details-card");
     expect(styles).not.toContain(".sink-serializer-bridge");
     expect(styles).toMatch(/\.serializer-inline-settings > \.field-control,/);
@@ -416,7 +408,7 @@ describe("delivery layout contract", () => {
 
   it("does not paint a browser focus highlight around source detail settings", () => {
     expect(styles).toMatch(
-      /\.source-details-card\s*\{[^}]*outline:\s*none;/s,
+      /\.parser-details-card,\s*\.source-tables-card\s*\{[^}]*outline:\s*none;/s,
     );
   });
 

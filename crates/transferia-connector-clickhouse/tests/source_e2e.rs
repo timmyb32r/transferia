@@ -415,17 +415,16 @@ async fn clickhouse_source_discovers_and_streams_a_deterministic_native_snapshot
         Arc::new(MetricsRegistry::new()),
     )
     .await?;
-    let tables = checked
-        .tables
-        .expect("authenticated complete table catalog");
+    assert!(checked.tables.is_none(), "Check connection must not enumerate tables");
+    let connector = ClickHouseSourceConnector::from_config(config.clone(), Arc::new(MetricsRegistry::new()))?;
+    let tables = connector.metadata_reader(transferia_delivery_contracts::DeliveryType::Batch)?
+        .expect("metadata reader").list_tables(CancellationToken::new()).await?;
     assert!(tables
         .iter()
         .any(|table| table.namespace == "system" && table.name == "tables"));
     assert!(tables
         .iter()
         .any(|table| table.namespace == "default" && table.name == "events"));
-    let connector =
-        ClickHouseSourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))?;
     let discovery = connector
         .delivery_discovery(SourceDiscoveryContext {
             request: DeliveryDiscoveryRequest {

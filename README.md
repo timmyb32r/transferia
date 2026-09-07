@@ -347,11 +347,14 @@ or `filter` string equality) and its own `tables` rule. Clone copies the whole
 step, including Include/Exclude; dragging the handle on the left changes its
 position. Settings and the optional per-step preview start collapsed.
 
-After a successful source connection check, Include/Exclude offer the same
+After **Discover tables** succeeds in the separate Tables island, Include/Exclude offer the same
 glob/regex suggestions as source table selection. **Available tables (N)**
 opens a searchable catalog of the delivery's selected source tables, with an
 exact-name copy action on each row. **Matched tables** below the fields shows
 the current step's matches after Exclude, without opening its data preview.
+Source's **Check connection** only verifies connectivity and authentication; it
+does not load the catalog or reset cached schemas. Parser settings likewise live
+in their own full-width island below the endpoints.
 
 Steps run top to bottom. Include/Exclude match the **current** table identity
 and each action sees the columns produced by preceding actions. Namespaced

@@ -11,6 +11,10 @@ struct Reader {
 }
 
 impl SourceMetadataReader for Reader {
+    fn list_tables(&self, _: CancellationToken) -> BoxFuture<'_, anyhow::Result<Vec<TableIdentity>>> {
+        Box::pin(async { Ok(vec![table("good"), table("bad")]) })
+    }
+
     fn includes_table(&self, table: &TableIdentity, hide: bool) -> bool {
         !hide || table.namespace != "pg_catalog"
     }

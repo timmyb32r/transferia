@@ -52,7 +52,10 @@ export function useEndpointActions({
   metadataMode?: DeliveryType | undefined;
   sessionKey?: string | undefined;
 }) {
-  const [check, setCheck] = useState<ConnectionCheckState>({
+  const [check, setCheck] = useState<ConnectionCheckState>({ state: "idle", options: {} });
+  const checkController = useRef<AbortController>();
+  const checkPromise = useRef<Promise<void>>();
+  const [discovery, setDiscovery] = useState<ConnectionCheckState>({
     state: "idle",
     options: {},
   });
@@ -60,8 +63,8 @@ export function useEndpointActions({
     open: false,
     loading: false,
   });
-  const checkController = useRef<AbortController>();
-  const checkPromise = useRef<Promise<MetadataStatus | undefined>>();
+  const discoveryController = useRef<AbortController>();
+  const discoveryPromise = useRef<Promise<MetadataStatus | undefined>>();
   const previewController = useRef<AbortController>();
   const metadataId = useRef<string>();
   const releaseMetadata = () => {
@@ -70,7 +73,7 @@ export function useEndpointActions({
     if (id) void api.releaseMetadata(id).catch(() => { /* Already released or server restarted. */ });
   };
   const endpointIdentity = `${role}:${connector}:${metadataMode ?? ""}:${sessionKey ?? ""}`;
-  // Rules depend on the checked catalog, but do not change the connection.
+  // Rules depend on the discovered catalog, but do not change the connection.
   const configFingerprint = JSON.stringify(tableConnectionConfig(connector, config) ?? config);
   const previousEndpointIdentity = useRef(endpointIdentity);
   const previousConfigFingerprint = useRef(configFingerprint);
@@ -80,12 +83,16 @@ export function useEndpointActions({
     previousEndpointIdentity.current = endpointIdentity;
     previousConfigFingerprint.current = configFingerprint;
     checkController.current?.abort();
-    releaseMetadata();
-    previewController.current?.abort();
     checkController.current = undefined;
     checkPromise.current = undefined;
-    previewController.current = undefined;
     setCheck({ state: "idle", options: {} });
+    discoveryController.current?.abort();
+    releaseMetadata();
+    previewController.current?.abort();
+    discoveryController.current = undefined;
+    discoveryPromise.current = undefined;
+    previewController.current = undefined;
+    setDiscovery({ state: "idle", options: {} });
     setPreview({ open: false, loading: false });
   }, [configFingerprint, endpointIdentity]);
 
@@ -93,64 +100,98 @@ export function useEndpointActions({
     if (previousConfigFingerprint.current === configFingerprint) return;
     previousConfigFingerprint.current = configFingerprint;
     checkController.current?.abort();
-    releaseMetadata();
     checkController.current = undefined;
     checkPromise.current = undefined;
     setCheck((current) => ({ state: "idle", options: current.options }));
+    discoveryController.current?.abort();
+    releaseMetadata();
+    discoveryController.current = undefined;
+    discoveryPromise.current = undefined;
+    setDiscovery((current) => ({ state: "idle", options: current.options }));
   }, [configFingerprint]);
 
   useEffect(
     () => () => {
       checkController.current?.abort();
+      discoveryController.current?.abort();
       previewController.current?.abort();
       releaseMetadata();
     },
     [],
   );
 
-  const checkConnection = (): Promise<MetadataStatus | undefined> => {
+  const checkConnection = (): Promise<void> => {
     if (checkPromise.current) return checkPromise.current;
     const request = new AbortController();
     checkController.current = request;
+    setCheck(current => ({ state: "checking", options: current.options }));
+    const promise = (async () => {
+      try {
+        const result = await api.checkConnection({ connector, role, config }, request.signal);
+        if (request.signal.aborted || checkController.current !== request) return;
+        setCheck({ state: "success", status: result.status, options: result.options,
+          ...(result.message == null ? {} : { message: result.message }) });
+      } catch (error) {
+        if (!request.signal.aborted && checkController.current === request)
+          setCheck({ state: "error", message: error instanceof Error ? error.message : String(error), options: {} });
+      } finally {
+        if (checkController.current === request) {
+          checkController.current = undefined;
+          checkPromise.current = undefined;
+        }
+      }
+    })();
+    checkPromise.current = promise;
+    return promise;
+  };
+
+  const discoverTables = (): Promise<MetadataStatus | undefined> => {
+    if (discoveryPromise.current) return discoveryPromise.current;
+    if (metadataMode === undefined) {
+      setDiscovery({ state: "error", message: "Select a delivery type before discovering tables.", options: {} });
+      return Promise.resolve(undefined);
+    }
+    const request = new AbortController();
+    discoveryController.current = request;
     const previousMetadataId = metadataId.current;
     metadataId.current = undefined;
-    setCheck((current) => ({ state: "checking", options: current.options }));
+    setDiscovery((current) => ({ state: "checking", options: current.options }));
     const promise = (async () => {
     try {
-      const response = metadataMode === undefined ? undefined : await api.connectMetadata({
+      const response = await api.connectMetadata({
         source: { connector, config }, delivery_type: metadataMode,
         replace_metadata_id: previousMetadataId ?? null,
       }, request.signal);
-      const result = response?.connection ?? await api.checkConnection({ connector, role, config }, request.signal);
-      if (checkController.current !== request || request.signal.aborted) {
-        if (response) void api.releaseMetadata(response.metadata.id).catch(() => {});
+      const result = response.connection;
+      if (discoveryController.current !== request || request.signal.aborted) {
+        void api.releaseMetadata(response.metadata.id).catch(() => {});
         return;
       }
-      metadataId.current = response?.metadata.id;
-      setCheck({
+      metadataId.current = response.metadata.id;
+      setDiscovery({
         state: "success",
         ...(result.message == null ? {} : { message: result.message }),
         status: result.status,
         options: result.options,
         ...(result.tables === undefined ? {} : { tables: result.tables }),
-        ...(response === undefined ? {} : { metadata: response.metadata }),
+        metadata: response.metadata,
       });
-      return response?.metadata;
+      return response.metadata;
     } catch (error) {
-      if (request.signal.aborted || checkController.current !== request) return;
-      setCheck({
+      if (request.signal.aborted || discoveryController.current !== request) return;
+      setDiscovery({
         state: "error",
         message: error instanceof Error ? error.message : String(error),
         options: {},
       });
     } finally {
-      if (checkController.current === request) {
-        checkController.current = undefined;
-        checkPromise.current = undefined;
+      if (discoveryController.current === request) {
+        discoveryController.current = undefined;
+        discoveryPromise.current = undefined;
       }
     }
     })();
-    checkPromise.current = promise;
+    discoveryPromise.current = promise;
     return promise;
   };
 
@@ -183,22 +224,25 @@ export function useEndpointActions({
   };
 
   const updateMetadata = useCallback((metadata: MetadataStatus) => {
-    setCheck(current => current.state === "success" && current.metadata?.id === metadata.id
+    setDiscovery(current => current.state === "success" && current.metadata?.id === metadata.id
       ? { ...current, metadata, metadataError: undefined } : current);
   }, []);
 
   const metadataFailed = useCallback((id: string, message: string) => {
-    setCheck(current => current.state === "success" && current.metadata?.id === id
+    setDiscovery(current => current.state === "success" && current.metadata?.id === id
       ? { ...current, metadata: { ...current.metadata, loading: false }, metadataError: message } : current);
   }, []);
 
   return {
-    updateMetadata,
-    metadataFailed,
     check: previousConfigFingerprint.current === configFingerprint && previousEndpointIdentity.current === endpointIdentity
       ? check : { state: "idle" as const, options: {} },
-    preview,
     checkConnection,
+    updateMetadata,
+    metadataFailed,
+    discovery: previousConfigFingerprint.current === configFingerprint && previousEndpointIdentity.current === endpointIdentity
+      ? discovery : { state: "idle" as const, options: {} },
+    preview,
+    discoverTables,
     previewMessage,
     closePreview,
   };

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, waitFor } from "@testing-library/preact";
 import { afterEach, expect, it, vi } from "vitest";
 import { useSourceMetadata, SourceMetadataContext } from "../src/delivery/sourceMetadata";
 import { ConnectionCheck } from "../src/delivery/ConnectionCheck";
+import { TableDiscovery } from "../src/delivery/TableDiscovery";
 import { TransformSchemaLoader } from "../src/features/middleware/TransformSchemaLoader";
 import { AvailableTablesButton } from "../src/features/tableSelection/AvailableTablesDialog";
 import { TableCatalogContext } from "../src/schema/tableCatalog";
@@ -32,9 +33,10 @@ function hook() {
 function Harness() {
   const metadata = useSourceMetadata({ ...source, mode: "batch", sessionKey: "editor", validating: false });
   return <SourceMetadataContext.Provider value={metadata}>
-    <ConnectionCheck check={metadata.check} required onCheck={() => { void metadata.checkConnection(); }} />
-    <TableCatalogContext.Provider value={metadata.check.state === "success" && metadata.check.tables
-      ? { tables: metadata.check.tables, preview: api.previewTables, metadata: metadata.metadata, metadataError: metadata.metadataError } : undefined}>
+    <ConnectionCheck check={metadata.check} onCheck={() => { void metadata.checkConnection(); }} />
+    <TableDiscovery discovery={metadata.discovery} onDiscover={() => { void metadata.discoverTables(); }} />
+    <TableCatalogContext.Provider value={metadata.discovery.state === "success" && metadata.discovery.tables
+      ? { tables: metadata.discovery.tables, preview: api.previewTables, metadata: metadata.metadata, metadataError: metadata.metadataError } : undefined}>
       <AvailableTablesButton label="Source catalog" title="Browse schemas" showMetadata />
     </TableCatalogContext.Provider>
     <TransformSchemaLoader source={source} tables={[table]} disabled={false} />
@@ -42,15 +44,56 @@ function Harness() {
   </SourceMetadataContext.Provider>;
 }
 
-it("connects once and lets Validate join the already-pending source request", async () => {
+it("checks the connection independently without replacing or releasing discovered metadata", async () => {
+  const connect = vi.spyOn(api, "connectMetadata").mockResolvedValue(response());
+  const check = vi.spyOn(api, "checkConnection").mockResolvedValueOnce({ status: "verified", options: {} })
+    .mockRejectedValueOnce(new Error("Connection refused"));
+  const release = vi.spyOn(api, "releaseMetadata").mockResolvedValue(status());
+  const { result } = hook();
+  await act(async () => { await result.current.checkConnection(); });
+  expect(connect).not.toHaveBeenCalled();
+  expect(result.current.discovery.state).toBe("idle");
+  expect(result.current.metadata).toBeUndefined();
+  await act(async () => { await result.current.discoverTables(); });
+  const cached = result.current.metadata;
+  await act(async () => { await result.current.checkConnection(); });
+  expect(result.current.check.state).toBe("error");
+  expect(result.current.metadata).toBe(cached);
+  expect(result.current.discovery.state).toBe("success");
+  expect(connect).toHaveBeenCalledOnce();
+  expect(check).toHaveBeenCalledTimes(2);
+  expect(release).not.toHaveBeenCalled();
+});
+
+it("shows immediate pending feedback and deduplicates checks without starting discovery", async () => {
+  const pending = deferred<{ status: "verified"; options: Record<string, string[]> }>();
+  const check = vi.spyOn(api, "checkConnection").mockReturnValue(pending.promise);
+  const discover = vi.spyOn(api, "connectMetadata");
+  const view = render(<Harness />);
+  const button = view.getByRole("button", { name: "Check connection" });
+  const following = view.getByTestId("following-control");
+  const slot = view.container.querySelector(".connection-check-result");
+  fireEvent.click(button); fireEvent.click(button);
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect(button.getAttribute("aria-disabled")).toBe("true");
+  expect(check).toHaveBeenCalledOnce();
+  expect(discover).not.toHaveBeenCalled();
+  await act(async () => { pending.resolve({ status: "verified", options: {} }); await pending.promise; });
+  expect(button.getAttribute("aria-busy")).toBe("false");
+  expect(view.container.querySelector(".connection-check-result")).toBe(slot);
+  expect(view.getByTestId("following-control")).toBe(following);
+  expect(view.getByRole("button", { name: "Discover tables" })).toBeTruthy();
+});
+
+it("discovers once and lets Validate join the already-pending catalog request", async () => {
   const pending = deferred<MetadataConnection>();
   const connect = vi.spyOn(api, "connectMetadata").mockReturnValue(pending.promise);
   vi.spyOn(api, "releaseMetadata").mockResolvedValue(status());
   const { result } = hook();
   let sourceRequest!: Promise<MetadataStatus | undefined>;
   let validationRequest!: Promise<MetadataStatus | undefined>;
-  act(() => { sourceRequest = result.current.checkConnection(); validationRequest = result.current.checkConnection(); });
-  expect(result.current.check.state).toBe("checking");
+  act(() => { sourceRequest = result.current.discoverTables(); validationRequest = result.current.discoverTables(); });
+  expect(result.current.discovery.state).toBe("checking");
   expect(sourceRequest).toBe(validationRequest);
   expect(connect).toHaveBeenCalledOnce();
   await act(async () => { pending.resolve(response()); await sourceRequest; });
@@ -63,10 +106,10 @@ it("retries after a failed Refresh without resending the deleted cache ID", asyn
     .mockRejectedValueOnce(new Error("Connection refused")).mockResolvedValueOnce(response(status("two")));
   vi.spyOn(api, "releaseMetadata").mockResolvedValue(status());
   const { result } = hook();
-  await act(async () => { await result.current.checkConnection(); });
-  await act(async () => { await result.current.checkConnection(); });
-  expect(result.current.check.state).toBe("error");
-  await act(async () => { await result.current.checkConnection(); });
+  await act(async () => { await result.current.discoverTables(); });
+  await act(async () => { await result.current.discoverTables(); });
+  expect(result.current.discovery.state).toBe("error");
+  await act(async () => { await result.current.discoverTables(); });
   expect(connect.mock.calls.map(call => call[0].replace_metadata_id)).toEqual([null, "one", null]);
   expect(result.current.metadata?.id).toBe("two");
 });
@@ -76,12 +119,12 @@ it("keeps selection filters local but invalidates a changed connection and ignor
   vi.spyOn(api, "connectMetadata").mockResolvedValueOnce(response()).mockReturnValueOnce(pending.promise);
   const release = vi.spyOn(api, "releaseMetadata").mockResolvedValue(status());
   const { result, rerender } = hook();
-  await act(async () => { await result.current.checkConnection(); });
+  await act(async () => { await result.current.discoverTables(); });
   rerender({ value: { ...config, hide_system_tables: false } });
   expect(result.current.metadata?.id).toBe("one");
   expect(release).not.toHaveBeenCalled();
   let request!: Promise<MetadataStatus | undefined>;
-  act(() => { request = result.current.checkConnection(); });
+  act(() => { request = result.current.discoverTables(); });
   rerender({ value: { ...config, username: "another" } });
   await act(async () => { pending.resolve(response(status("stale"))); await request; });
   expect(result.current.metadata).toBeUndefined();
@@ -95,9 +138,9 @@ it("shows polling failure in the fixed catalog status while retaining successful
   const view = render(<Harness />);
   const slot = view.container.querySelector(".available-tables-summary");
   const following = view.getByTestId("following-control");
-  fireEvent.click(view.getByRole("button", { name: "Connect & load metadata" }));
+  fireEvent.click(view.getByRole("button", { name: "Discover tables" }));
   await waitFor(() => expect(slot?.textContent).toBe("Metadata unavailable"));
-  expect(view.container.querySelector(".connection-check-result")?.textContent).toBe("Connected");
+  expect(view.container.querySelector(".table-discovery-result")?.textContent).toBe("Tables discovered");
   expect(view.container.querySelector(".available-tables-summary")).toBe(slot);
   expect(view.getByTestId("following-control")).toBe(following);
   fireEvent.click(view.getByRole("button", { name: "Source catalog" }));
@@ -112,7 +155,7 @@ it("loads only matched schemas on explicit activation, with a stable pending/sta
   vi.spyOn(api, "releaseMetadata").mockResolvedValue(cached);
   const load = vi.spyOn(api, "loadMetadataSchemas").mockReturnValue(pending.promise);
   const view = render(<Harness />);
-  fireEvent.click(view.getByRole("button", { name: "Connect & load metadata" }));
+  fireEvent.click(view.getByRole("button", { name: "Discover tables" }));
   const button = view.container.querySelector<HTMLButtonElement>(".transform-load-schemas")!;
   const row = button.parentElement!;
   const controls = Array.from(row.children);

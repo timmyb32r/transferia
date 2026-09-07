@@ -195,7 +195,7 @@ describe("endpoint connection check", () => {
     expect((checkButton as HTMLButtonElement).disabled).toBe(false);
     expect(checkButton.getAttribute("aria-disabled")).toBe("true");
     expect(
-      view.getByRole("status", { name: "Checking connection…" }),
+      view.getByText("Checking connection…"),
     ).toBeTruthy();
     fireEvent.click(checkButton);
     expect(api.checkConnection).toHaveBeenCalledTimes(1);
@@ -207,7 +207,7 @@ describe("endpoint connection check", () => {
     await waitFor(() =>
       expect(
         view.getByText(
-          "Connection verified, including access to the configured entities.",
+          "Connection verified.",
         ),
       ).toBeTruthy(),
     );

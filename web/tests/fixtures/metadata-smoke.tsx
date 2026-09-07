@@ -2,6 +2,7 @@ import { render } from "preact";
 import { useState } from "preact/hooks";
 import { ApplicationServicesProvider } from "../../src/bootstrap/ApplicationServicesProvider";
 import { ConnectionCheck } from "../../src/delivery/ConnectionCheck";
+import { TableDiscovery } from "../../src/delivery/TableDiscovery";
 import { SourceMetadataContext, useSourceMetadata } from "../../src/delivery/sourceMetadata";
 import { MiddlewareEditor } from "../../src/features/middleware/MiddlewareEditor";
 import { TableCatalogContext } from "../../src/schema/tableCatalog";
@@ -20,6 +21,7 @@ let current: MetadataStatus = { id: "fixture", catalog_count: count, loaded: [],
 let connectedAt = 0;
 const delay = (milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds));
 const api = {
+  checkConnection: async () => { await delay(600); return { status: "verified", options: {}, message: null }; },
   connectMetadata: async () => {
     await delay(1000); connectedAt = Date.now();
     current = { ...current, id: String(connectedAt), loaded: [], loading: count < 1000 };
@@ -51,18 +53,21 @@ const api = {
       excluded: request.catalog.filter(table => rule.exclude && matches(table, rule.exclude, rule.exclude_mode)),
     })) };
   },
-} satisfies Pick<ControlPlanePort, "connectMetadata" | "metadataStatus" | "releaseMetadata" | "loadMetadataSchemas" | "previewTables">;
+} satisfies Pick<ControlPlanePort, "checkConnection" | "connectMetadata" | "metadataStatus" | "releaseMetadata" | "loadMetadataSchemas" | "previewTables">;
 
 function Fixture() {
   const metadata = useSourceMetadata({ ...source, mode: "batch", sessionKey: "fixture", validating: false });
   const [steps, setSteps] = useState<JsonValue>([{ tables: { include: "public.events_000*" }, filter: { field: "status", value: "ready" } }]);
-  const catalog = metadata.check.state === "success" && metadata.check.tables
-    ? { tables: metadata.check.tables, preview: api.previewTables } : undefined;
+  const catalog = metadata.discovery.state === "success" && metadata.discovery.tables
+    ? { tables: metadata.discovery.tables, preview: api.previewTables } : undefined;
   return <SourceMetadataContext.Provider value={metadata}>
     <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "24px", display: "grid", gap: "24px" }}>
       <section class="card" style={{ padding: "24px", background: "var(--panel2)" }}>
         <h2>Source · PostgreSQL</h2>
-        <ConnectionCheck check={metadata.check} required onCheck={() => { void metadata.checkConnection(); }} />
+        <ConnectionCheck check={metadata.check} onCheck={() => { void metadata.checkConnection(); }} />
+      </section>
+      <section class="card" style={{ padding: "24px", background: "var(--panel2)" }}><h2>Tables</h2>
+        <TableDiscovery discovery={metadata.discovery} onDiscover={() => { void metadata.discoverTables(); }} />
       </section>
       <section class="middleware-island">
         <TableNamingProvider connector="postgres"><TableCatalogContext.Provider value={catalog}>

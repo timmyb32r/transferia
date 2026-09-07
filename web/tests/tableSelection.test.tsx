@@ -12,6 +12,7 @@ import { useState } from "preact/hooks";
 import type { JsonValue } from "../src/json";
 import { tableConnectionIdentity } from "../src/delivery/useEndpointActions";
 import { visibleTableCatalog } from "../src/features/tableSelection/catalog";
+import { metadataResponse } from "./support/metadata";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -581,21 +582,24 @@ it("keeps inactive drafts, independent regex modes and keyboard segment selectio
   expect(view.queryByLabelText("Exclude rule 1")).toBeNull();
 });
 
-it("keeps a catalog across rule edits, invalidates it on connection edits, and deduplicates checks", async () => {
+it("keeps a catalog across rule edits, invalidates it on connection edits, and deduplicates discovery", async () => {
   let finish!: (result: ConnectionCheckResult) => void;
-  const checkConnection = vi.fn(() => new Promise<ConnectionCheckResult>(resolve => { finish = resolve; }));
-  const api = { ...httpControlPlane, checkConnection };
+  const connectMetadata = vi.fn(() => new Promise<ConnectionCheckResult>(resolve => { finish = resolve; }).then(metadataResponse));
+  const releaseMetadata = vi.fn().mockResolvedValue(metadataResponse({ status: "verified", options: {} }).metadata);
+  const api = { ...httpControlPlane, connectMetadata, releaseMetadata };
   const config = { host: "first", tables: { type: "selected", rules: [{ include: "db.*" }] } };
-  const hook = renderHook(({ config }) => useEndpointActions({ api, role: "source", connector: "mysql", config }), { initialProps: { config } });
-  act(() => { void hook.result.current.checkConnection(); void hook.result.current.checkConnection(); });
-  expect(hook.result.current.check.state).toBe("checking");
-  expect(checkConnection).toHaveBeenCalledTimes(1);
+  const hook = renderHook(({ config }) => useEndpointActions({ api, role: "source", connector: "mysql", config, metadataMode: "batch" }), { initialProps: { config } });
+  act(() => { void hook.result.current.discoverTables(); void hook.result.current.discoverTables(); });
+  expect(hook.result.current.discovery.state).toBe("checking");
+  expect(connectMetadata).toHaveBeenCalledTimes(1);
   await act(async () => finish({ status: "verified", options: {}, tables: [] }));
-  expect(hook.result.current.check.state).toBe("success");
+  expect(hook.result.current.discovery.state).toBe("success");
   hook.rerender({ config: { ...config, tables: { type: "selected", rules: [{ include: "db.other" }] } } });
-  expect(hook.result.current.check.state).toBe("success");
+  expect(hook.result.current.discovery.state).toBe("success");
+  expect(releaseMetadata).not.toHaveBeenCalled();
   hook.rerender({ config: { ...config, host: "second" } });
-  expect(hook.result.current.check.state).toBe("idle");
+  expect(hook.result.current.discovery.state).toBe("idle");
+  expect(releaseMetadata).toHaveBeenCalledOnce();
 });
 
 it.each([
@@ -608,23 +612,24 @@ it.each([
 ])("keeps the full $connector catalog and connection identity when hiding system tables", async ({ connector, hidden, visible }) => {
   const namespaces = [...hidden, ...visible];
   const tables = namespaces.map(namespace => ({ namespace, name: "t" }));
-  const checkConnection = vi.fn().mockResolvedValue({ status: "verified", options: {}, tables });
-  const api = { ...httpControlPlane, checkConnection };
+  const connectMetadata = vi.fn().mockResolvedValue(metadataResponse({ status: "verified", options: {}, tables }));
+  const releaseMetadata = vi.fn().mockResolvedValue(metadataResponse({ status: "verified", options: {} }).metadata);
+  const api = { ...httpControlPlane, connectMetadata, releaseMetadata };
   const config = { host: "first", hide_system_tables: true, tables: { type: "all" } };
-  const hook = renderHook(({ config }) => useEndpointActions({ api, connector, role: "source", config }), { initialProps: { config } });
-  await act(async () => { await hook.result.current.checkConnection(); });
+  const hook = renderHook(({ config }) => useEndpointActions({ api, connector, role: "source", config, metadataMode: "batch" }), { initialProps: { config } });
+  await act(async () => { await hook.result.current.discoverTables(); });
   const identity = tableConnectionIdentity(connector, config);
   for (const hide_system_tables of [false, true, false]) {
     hook.rerender({ config: { ...config, hide_system_tables } });
-    expect(hook.result.current.check.state).toBe("success");
-    expect(hook.result.current.check).toMatchObject({ tables });
+    expect(hook.result.current.discovery.state).toBe("success");
+    expect(hook.result.current.discovery).toMatchObject({ tables });
     expect(tableConnectionIdentity(connector, { ...config, hide_system_tables })).toBe(identity);
     expect(visibleTableCatalog(connector, hide_system_tables, tables).map(table => table.namespace))
       .toEqual(hide_system_tables ? visible : namespaces);
   }
-  expect(checkConnection).toHaveBeenCalledTimes(1);
+  expect(connectMetadata).toHaveBeenCalledTimes(1);
   hook.rerender({ config: { ...config, host: "second" } });
-  expect(hook.result.current.check.state).toBe("idle");
+  expect(hook.result.current.discovery.state).toBe("idle");
   expect(visibleTableCatalog("other", true, tables)).toBe(tables);
 });
 

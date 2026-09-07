@@ -13,10 +13,11 @@ import { TableRuleFields } from "./TableRuleFields";
 import { AvailableTablesButton } from "./AvailableTablesDialog";
 const RULE_HELP = "Suggestions escape exact names. Every row must select at least one table after exclusion. Duplicate includes and cross-row include/exclude conflicts fail validation.";
 
-export function TableSelectionEditor({ value, disabled = false, fixed = false, onChange, toolbar }: {
+export function TableSelectionEditor({ value, disabled = false, fixed = false, onChange, toolbar, showHeading = true }: {
   value: JsonValue; disabled?: boolean | undefined; fixed?: boolean;
   onChange: (value: JsonValue) => void;
   toolbar?: ComponentChildren;
+  showHeading?: boolean;
 }) {
   const catalog = useTableCatalog();
   const id = useId();
@@ -79,11 +80,11 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
   const issue = current?.error || current?.result?.issues.map(issue => selectionIssue(issue, selection.type)).join(" ");
   const status = !catalog ? ""
     : issue || (incomplete ? "Enter a table name or pattern." : "");
-  const includeHelp = `Include is required. Preview uses the last successful connection check; startup checks the catalog again.${fixed ? " Table patterns are resolved at delivery startup. Tables created later are not added automatically." : ""}`;
+  const includeHelp = `Include is required. Preview uses the last successful table discovery; startup checks the catalog again.${fixed ? " Table patterns are resolved at delivery startup. Tables created later are not added automatically." : ""}`;
   return <section class={`table-selection-editor${incomplete && !disabled && catalog ? " required-incomplete" : ""}`}>
-    <header class="table-selection-heading"><h3>Tables</h3>
+    {showHeading && <header class="table-selection-heading"><h3>Tables</h3>
       <AvailableTablesButton label="Available tables in source" title="Browse available source tables and schema status" showMetadata />
-    </header>
+    </header>}
     <div class="table-selection-toolbar">
     <SegmentedControl label="Tables to transfer" value={selection.type} disabled={disabled || !catalog}
       options={[{ value: "selected", label: "Selected tables" }, { value: "all", label: "All tables" }]}

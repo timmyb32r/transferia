@@ -46,7 +46,7 @@ impl Drop for Loading<'_> {
 
 impl MetadataSession {
     pub(super) fn ensure_active(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(!self.cancellation.is_cancelled(), "Metadata was released; connect and load metadata again");
+        anyhow::ensure!(!self.cancellation.is_cancelled(), "Metadata was released; discover tables again");
         Ok(())
     }
 
@@ -54,7 +54,7 @@ impl MetadataSession {
         operation: impl std::future::Future<Output = anyhow::Result<T>>) -> anyhow::Result<T> {
         tokio::select! {
             biased;
-            () = self.cancellation.cancelled() => anyhow::bail!("Metadata was released; connect and load metadata again"),
+            () = self.cancellation.cancelled() => anyhow::bail!("Metadata was released; discover tables again"),
             () = cancellation.cancelled() => anyhow::bail!("Metadata operation cancelled"),
             result = operation => result,
         }
@@ -73,7 +73,7 @@ impl MetadataSession {
     pub(super) async fn sample(&self, source: &transferia_server_contracts::api::TransformPreviewSource,
         table: TableIdentity, limits: transferia_registry::TableSampleLimits, cancellation: CancellationToken)
         -> anyhow::Result<transferia_core::TableData> {
-        anyhow::ensure!(!self.cancellation.is_cancelled(), "Metadata was released; connect and load metadata again");
+        anyhow::ensure!(!self.cancellation.is_cancelled(), "Metadata was released; discover tables again");
         anyhow::ensure!(source.connector == self.connector && metadata_identity(&source.config) == self.identity,
             "Source changed; refresh metadata before preview");
         anyhow::ensure!(self.selected(&source.config)?.contains(&table), "Sample table is not selected by the source");
@@ -214,7 +214,7 @@ impl CachedDiscovery {
         session.ensure_active()?;
         let (kind, source) = configured_source(config)?;
         anyhow::ensure!(session.connector == kind && session.identity == metadata_identity(source),
-            "Source configuration changed; connect and load metadata again");
+            "Source configuration changed; discover tables again");
         let selected = session.selected(source)?;
         Ok(Self { session, selected })
     }
@@ -225,7 +225,7 @@ impl PreviewDiscoveryProvider for CachedDiscovery {
         -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<DeliveryDiscovery>> + Send + 'a>> {
         Box::pin(async move {
             anyhow::ensure!(kind == self.session.connector && context.delivery_type == self.session.delivery_type,
-                "Source mode changed; connect and load metadata again");
+                "Source mode changed; discover tables again");
             anyhow::ensure!(metadata_identity(&serde_json::to_value(resolved)?) == self.session.resolved_identity,
                 "Resolved source endpoint changed; refresh metadata");
             let _loading = Loading::new(&self.session.active_loads);
@@ -250,10 +250,8 @@ impl ControlPlane {
         }
         let identity = metadata_identity(&request.source.config);
         let check_config = metadata_scan_config(&request.source.config)?;
-        let (connection, resolved) = self.check_connection_resolved(&request.source.connector,
+        let (mut connection, resolved) = self.check_connection_resolved(&request.source.connector,
             EndpointRole::Source, check_config, cancellation.clone()).await?;
-        let tables = connection.tables.clone().ok_or_else(|| ServiceError::Validation(
-            "Connection did not return an authenticated table catalog".to_owned()))?;
         if !matches!(connection.status, transferia_registry::ConnectionCheckStatus::Verified) {
             return Err(ServiceError::Validation("Authenticate the source to load metadata".to_owned()));
         }
@@ -270,6 +268,8 @@ impl ControlPlane {
         }
         let reader = source.metadata_reader(request.delivery_type)?.ok_or_else(|| ServiceError::Validation(
             "This source does not support cached table metadata".to_owned()))?;
+        let tables = reader.list_tables(cancellation.clone()).await.map_err(connection_check_service_error)?;
+        connection.tables = Some(tables.clone());
         let id = new_run_id()?.0;
         let session = Arc::new(MetadataSession {
             id: id.clone(), connector: request.source.connector, identity, resolved_identity,
@@ -286,7 +286,7 @@ impl ControlPlane {
 
     pub(super) async fn metadata_session(&self, id: &str) -> Result<Arc<MetadataSession>, ServiceError> {
         self.metadata_sessions.lock().await.get(id).cloned().ok_or_else(|| ServiceError::NotFound(
-            "Metadata cache is no longer available; connect and load metadata again".to_owned()))
+            "Metadata cache is no longer available; discover tables again".to_owned()))
     }
 
     pub async fn metadata_status(&self, id: &str) -> Result<MetadataStatus, ServiceError> {
@@ -307,7 +307,7 @@ impl ControlPlane {
         let session = self.metadata_session(id).await?;
         session.ensure_active()?;
         if session.connector != request.source.connector || session.identity != metadata_identity(&request.source.config) {
-            return Err(ServiceError::Validation("Source changed; connect and load metadata again".to_owned()));
+            return Err(ServiceError::Validation("Source changed; discover tables again".to_owned()));
         }
         let selected: BTreeSet<_> = session.selected(&request.source.config)?.into_iter().collect();
         for table in &request.tables {

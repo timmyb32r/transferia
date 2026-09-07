@@ -10,7 +10,6 @@ export function VariantDetailsCard({
   value,
   disabled,
   widget,
-  bridgeClass,
   cardClass,
   widgets,
   NodeEditor,
@@ -20,7 +19,6 @@ export function VariantDetailsCard({
   value: JsonValue;
   disabled: boolean;
   widget: string;
-  bridgeClass: string;
   cardClass: string;
   widgets: WidgetRegistry;
   NodeEditor: NodeEditorComponent;
@@ -49,7 +47,6 @@ export function VariantDetailsCard({
     return null;
   return (
     <>
-      <div class={bridgeClass} aria-hidden="true" />
       <section class={cardClass} tabindex={-1}>
         <div class="section-heading">
           <h2>{selected.label} settings</h2>

@@ -67,6 +67,16 @@ async fn native_table_preview_is_bounded_lossless_without_binlog_or_write_grants
         "host": fixture.admin.host, "port": fixture.admin.port, "database": DATABASE,
         "username":"sample_reader", "password":"read-only-test", "trusted_plaintext":true, "tables":{"type":"all"}
     }))?;
+    let checked = registry.check_connection("mysql", transferia_registry::EndpointRole::Source, config.clone()).await?;
+    assert!(matches!(checked.status, transferia_registry::ConnectionCheckStatus::Verified));
+    assert!(checked.tables.is_none(), "Check connection must not enumerate tables");
+    let source = registry.build_source("mysql", config.clone())?;
+    let metadata = source.metadata_reader(transferia_delivery_contracts::DeliveryType::Batch)?
+        .expect("database source supports metadata");
+    let tables = metadata.list_tables(CancellationToken::new()).await?;
+    assert!(tables.contains(&transferia_registry::TableIdentity {
+        namespace: DATABASE.into(), name: "events`quoted".into(),
+    }));
     let sample = registry.sample_source_table("mysql", config.clone(), transferia_registry::TableIdentity {
         namespace: DATABASE.into(), name: "events`quoted".into(),
     }, transferia_registry::TableSampleLimits { row_limit: 1, max_bytes: 1024 * 1024, timeout_ms: 30_000 }, CancellationToken::new()).await?;

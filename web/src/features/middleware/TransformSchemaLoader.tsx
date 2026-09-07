@@ -48,7 +48,7 @@ export function TransformSchemaLoader({ tables, source, disabled }: {
     </span>
     <Button class="transform-load-schemas" pending={pending} disabled={disabled || !tables?.length || ready === tables.length || !!tableError}
       style={{ visibility: manual ? "visible" : "hidden" }}
-      title={tableError ? "Refresh metadata in Source to retry failed schemas" : "Load schemas for this transform’s matched tables. No rows are read."}
+      title={tableError ? "Refresh tables in Tables to retry failed schemas" : "Load schemas for this transform’s matched tables. No rows are read."}
       onClick={() => { void load(); }}>Load schemas</Button>
   </div>;
 }

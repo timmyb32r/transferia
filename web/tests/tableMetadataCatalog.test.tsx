@@ -75,7 +75,7 @@ it("keeps popup controls and rows mounted while schema progress advances", () =>
 });
 
 it("exposes metadata polling failure without pretending the cached schemas are still loading", () => {
-  const error = "Metadata session unavailable. Refresh metadata to retry.";
+  const error = "Metadata session unavailable. Refresh tables to retry.";
   const view = render(<TableCatalogContext.Provider value={{ tables: [user], preview: vi.fn(), metadata, metadataError: error }}>
     <AvailableTablesButton label="Browse metadata" title="Browse metadata" showMetadata />
   </TableCatalogContext.Provider>);

@@ -189,7 +189,7 @@ async fn connect_with_driver(config: &PostgresConnectionConfig)
 pub async fn list_tables(
     config: &PostgresConnectionConfig,
 ) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
-    let client = connect(config).await?;
+    let client = connect_sample(config).await?;
     let rows = transferia_connector_support::external_request::observe_external_request(
         "postgres",
         "list_tables",

@@ -19,7 +19,7 @@ also support an optional database override.
 
 ## Connection and catalog
 
-PostgreSQL, ClickHouse and MySQL sources show the same **Hide system tables** checkbox above
+PostgreSQL, ClickHouse and MySQL sources show the same **Hide system tables** checkbox in
 Tables, enabled by default (`hide_system_tables: true`). ClickHouse excludes the
 exact databases `system`, `_system`, `INFORMATION_SCHEMA`, and every database
 whose name starts with lowercase `information_schema`. MySQL excludes the exact
@@ -27,22 +27,29 @@ databases `mysql`, `information_schema`, `performance_schema` and `sys`.
 PostgreSQL excludes `information_schema` and schemas starting with the reserved
 `pg_` prefix, including `pg_catalog` and `pg_toast`. This tests schema names, not
 table names: a user table such as `public.pg_events` remains selectable.
-Check connection retains
+Discover tables retains
 the full readable catalog. The checkbox filters that cached list locally, without
-invalidating the connection check or making another database request. Suggestions
+invalidating metadata or making another database request. Suggestions
 and match previews use the filtered list. Startup discovery applies the same
 filter before rule matching against a fresh catalog. MySQL repeats it at the
 locked snapshot/binlog boundary and for CREATE TABLE admission. Restart fails
 explicitly if the filter contradicts durably recorded replication membership.
 
-- A successful authenticated Check connection loads all accessible tables.
+- Source's Check connection verifies connectivity/authentication only; it does not
+  read tables or schemas and never invalidates an existing metadata session.
+- The separate, full-width Tables island owns Discover tables. Successful
+  authenticated discovery loads all accessible table names and unlocks its fields.
+  The island and fields stay mounted across idle, pending, success and failure.
 - Only then can the user add rule cards. Network reachability alone is not enough.
 - PostgreSQL lists schemas and tables within the configured database. MySQL and
   ClickHouse list accessible databases and tables on the connected server.
 - Changing connection parameters preserves rules but invalidates the catalog and
-  blocks additions and launch until another successful check. Editing a rule
-  does not invalidate the connection check.
-- Preview is explicitly labeled as the result of the last connection check.
+  blocks additions and launch until another successful discovery. Editing a rule
+  does not invalidate metadata.
+- Refresh tables explicitly replaces the cached catalog and schemas. Plain
+  connection checks do not. Validate joins pending discovery and loads missing
+  schemas from the shared metadata session; see `ui-style-guide.md` for caching.
+- Match preview uses the last successful table discovery.
 - Backend startup resolves rules against a fresh catalog and validates the
   resulting source and destination contracts before destination preparation.
 

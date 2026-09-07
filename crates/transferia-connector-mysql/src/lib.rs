@@ -55,16 +55,7 @@ pub fn register(
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,
             ])?
-            .source_checker::<mysql::MySqlConnectionCheckConfig, _, _>(|config| async move {
-                if config.username.is_empty() {
-                    return check_mysql_connection(config).await;
-                }
-                let tables = mysql::list_tables(&config.connection()).await?;
-                Ok(transferia_registry::ConnectionCheckResult {
-                    tables: Some(tables),
-                    ..Default::default()
-                })
-            })
+            .source_checker::<mysql::MySqlConnectionCheckConfig, _, _>(check_mysql_connection)
             .sink::<mysql::sink::MySqlSinkConfig, _, _>(
                 || {
                     serde_json::json!({

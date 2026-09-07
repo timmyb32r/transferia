@@ -53,13 +53,7 @@ pub fn register(
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,
             ])?
-            .source_checker::<postgres::PostgresConnectionCheckConfig, _, _>(|config| async move {
-                let mut result = check_postgres_connection(config.clone()).await?;
-                if config.credentials_complete() {
-                    result.tables = Some(postgres::list_tables(&config.connection()).await?);
-                }
-                Ok(result)
-            })
+            .source_checker::<postgres::PostgresConnectionCheckConfig, _, _>(check_postgres_connection)
             .source_table_sampler::<postgres::source::PostgresSourceConfig, _, _>(postgres::src_batch::sample_table)
             .sink::<postgres::sink::PostgresSinkConfig, _, _>(
                 || {

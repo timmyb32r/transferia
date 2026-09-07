@@ -811,6 +811,17 @@ struct MySqlMetadataState {
 }
 
 impl transferia_registry::SourceMetadataReader for MySqlMetadataReader {
+    fn list_tables(&self, cancellation: tokio_util::sync::CancellationToken)
+        -> BoxFuture<'_, anyhow::Result<Vec<transferia_registry::TableIdentity>>> {
+        Box::pin(async move {
+            tokio::select! {
+                biased;
+                () = cancellation.cancelled() => anyhow::bail!("Table discovery cancelled"),
+                result = super::super::common::list_tables(&self.config.connection) => result,
+            }
+        })
+    }
+
     fn sample_table(&self, table: transferia_registry::TableIdentity, limits: transferia_registry::TableSampleLimits,
         cancellation: tokio_util::sync::CancellationToken) -> BoxFuture<'_, anyhow::Result<transferia_core::TableData>> {
         Box::pin(async move {

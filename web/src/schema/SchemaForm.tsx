@@ -99,12 +99,10 @@ export function VariantDetailsForm({
   showRequiredErrors = false,
   onChange,
   widget,
-  bridgeClass,
   cardClass,
   fieldLabelOverrides = {},
 }: SchemaFormProps & {
   widget: string;
-  bridgeClass: string;
   cardClass: string;
 }) {
   const widgets = useWidgetRegistry();
@@ -117,7 +115,6 @@ export function VariantDetailsForm({
             value={value}
             disabled={disabled}
             widget={widget}
-            bridgeClass={bridgeClass}
             cardClass={cardClass}
             widgets={widgets}
             NodeEditor={NodeEditor}

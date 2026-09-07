@@ -93,7 +93,7 @@ export function MiddlewareEditor({ value, disabled, onChange, source }: {
       />)}
     </div>
     <InstantTooltip class="middleware-add-hint" content={needsCatalog
-      ? "Connect & load metadata in Source first to obtain the available table list." : "Add transform"}>
+      ? "Use Discover tables in Tables first to obtain the available table list." : "Add transform"}>
     <Button class="middleware-add" disabled={disabled || needsCatalog} aria-label="Add transform" onClick={() => {
       if (needsCatalog) return;
       const id = ++sequence.current;

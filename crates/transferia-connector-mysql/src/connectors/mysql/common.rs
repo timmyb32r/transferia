@@ -185,7 +185,7 @@ pub async fn list_tables(
     let mut connection = transferia_connector_support::external_request::observe_external_request(
         "mysql",
         "connect_table_catalog",
-        connect(config),
+        connect_with_packet_limit(config, None, true),
     )
     .await?;
     let result = list_tables_on_connection(&mut connection).await;
