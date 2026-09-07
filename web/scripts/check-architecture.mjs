@@ -1,6 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { extname, relative, resolve } from "node:path";
 import { checkTooltipPolicy } from "./check-tooltip-policy.mjs";
+import { checkSchemaInspectorLayout } from "./check-schema-inspector-layout.mjs";
 
 const root = resolve(import.meta.dirname, "../src");
 const sourceFiles = await collect(root);
@@ -85,19 +86,7 @@ async function checkCssCustomProperties() {
     if (!declared.has(property))
       violations.push(`style.css: custom property ${property} is not declared`);
   }
-  const inspector = css.match(/\.schema-inspector\s*\{([^}]*)\}/)?.[1] ?? "";
-  if (!inspector.includes("overflow: scroll"))
-    violations.push(
-      "style.css: schema inspector must always reserve scrollbars",
-    );
-  if (!inspector.includes("scrollbar-gutter: stable both-edges"))
-    violations.push(
-      "style.css: schema inspector must reserve a stable scrollbar gutter",
-    );
-  if (!inspector.includes("max-height: calc(100vh - 48px)"))
-    violations.push(
-      "style.css: schema inspector must keep its resize handle inside the initial viewport",
-    );
+  violations.push(...checkSchemaInspectorLayout(css));
   const globalBoxRule = css.match(/\*\s*\{([^}]*)\}/)?.[1] ?? "";
   if (
     !globalBoxRule.includes("scrollbar-color: auto") ||

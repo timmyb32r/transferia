@@ -6,8 +6,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
     let workspace = PathBuf::from("../..");
     let web = workspace.join("web");
     println!("cargo:rerun-if-changed=../../web/src");
-    println!("cargo:rerun-if-changed=../../web/scripts/build.mjs");
-    println!("cargo:rerun-if-changed=../../web/scripts/generate-api.mjs");
+    println!("cargo:rerun-if-changed=../../web/scripts");
     println!(
         "cargo:rerun-if-changed=../transferia-server-contracts/contracts/server-api.schema.json"
     );
