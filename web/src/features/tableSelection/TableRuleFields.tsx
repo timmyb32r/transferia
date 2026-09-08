@@ -13,12 +13,12 @@ const HELP = "Default: glob / wildcard, where * matches any number of characters
 
 /** One visual and interaction contract for source rules and transform scopes. */
 export function TableRuleFields({ id, rule, labelSuffix, disabled, excludeExpanded, onExcludeExpanded,
-  onChange, includeHelp, excludeHelp, confirmed = false, invalid = false, compact = false, trailing, onUse }: {
+  onChange, includeHelp, excludeHelp, invalid = false, compact = false, trailing, onUse }: {
   id: string; rule: TableRule; labelSuffix: string; disabled: boolean;
   excludeExpanded: boolean; onExcludeExpanded: (expanded: boolean) => void;
   onChange: (patch: Partial<TableRule>) => void;
   includeHelp: string; excludeHelp: string;
-  confirmed?: boolean; invalid?: boolean; compact?: boolean;
+  invalid?: boolean; compact?: boolean;
   trailing?: ComponentChildren; onUse?: (() => void) | undefined;
 }) {
   const catalog = useTableCatalog();
@@ -39,7 +39,7 @@ export function TableRuleFields({ id, rule, labelSuffix, disabled, excludeExpand
       <TablePatternInput id={`${id}-${kind}`} label={`${title} ${labelSuffix}`} value={rule[kind] ?? ""}
         mode={rule[`${kind}_mode`] ?? "glob"} disabled={disabled} required={kind === "include"}
         searchSuggestions={kind === "include"}
-        invalid={kind === "include" && invalid} confirmed={kind === "include" ? confirmed : undefined}
+        invalid={kind === "include" && invalid}
         onBrowse={kind === "include" ? () => setBrowse(true) : undefined}
         onChange={value => {
           if (kind === "exclude") onExcludeExpanded(true);

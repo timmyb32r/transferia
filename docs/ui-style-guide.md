@@ -134,7 +134,7 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   steps (including readonly forms). Manual Hide remains available for an empty
   editable Exclude; this visibility preference never changes the configured scope.
 - Source and transform scopes share `TableRuleFields`: magnifier, exact Use,
-  independent modes, optional Exclude and exact-match check. Source Include is
+  independent modes, optional Exclude and matched-table disclosure. Source Include is
   labelled once; subsequent rules omit visible repeated labels while retaining
   unique accessible names. Keep the compact matching rail reserved, remove the
   large per-row separator/padding, and never collapse it on a late preview result.
@@ -154,9 +154,9 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
   icons), and show no tooltip if it fits. The shared `TablePatternInput` owns
   this explicit exception to native-title defaults: a pointer-transparent fixed
   overlay, without a competing native title or any change to field geometry.
-- Exact Include names get a green check inside a permanently reserved input slot,
-  not a duplicate Table found line or a matched-table disclosure. Pattern rules
-  retain their disclosure; an already-open list stays mounted while typing until
+- Exact Include names and patterns share the same Matched tables disclosure and
+  count in sources and transforms, including zero matches. There is no in-field
+  confirmation check. An already-open list stays mounted while typing until
   explicitly closed. Keep a compact result rail reserved so pattern edits and
   asynchronous checks cannot move later controls. Each matched name has frameless Copy.
 - The neutral magnifier immediately before Include's `.*` opens the same popup

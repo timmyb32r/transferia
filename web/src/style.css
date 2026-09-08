@@ -5330,9 +5330,6 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .table-pattern-tooltip-above { transform: translateY(-100%); }
 .table-pattern-input input[type="text"] { width: 100%; padding-right: calc(var(--control-height) + 4px); }
 .table-pattern-with-browser input[type="text"] { padding-right: calc(var(--control-height) * 2); }
-.table-pattern-with-browser.table-pattern-with-confirmation input[type="text"] { padding-right: calc(var(--control-height) * 2 + 22px); }
-.table-pattern-confirmation { position: absolute; inset: 0 var(--control-height) 0 auto; width: 22px; display: grid; place-items: center; color: var(--success-text); pointer-events: none; }
-.table-pattern-with-browser .table-pattern-confirmation { right: calc(var(--control-height) * 2 - 6px); }
 :root .table-pattern-input .table-pattern-browse,
 :root .table-pattern-input .regex-toggle {
   position: absolute;

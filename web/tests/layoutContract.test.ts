@@ -136,15 +136,14 @@ describe("delivery layout contract", () => {
     const stacked = styles.split("@media (max-width: 1300px) {")[1];
     expect(stacked).toMatch(/grid-template-areas:\s*"source"\s*"sink";/);
   });
-  it("reserves source metadata and exact-match slots and keeps the picker within narrow forms", () => {
+  it("reserves source metadata and matched-table rails and keeps the picker within narrow forms", () => {
     const rule = (selector: string) => styles.split(`\n${selector} {`)[1]?.split("}")[0];
     expect(rule(":root .available-tables-metadata > .table-matches-height-toggle")).toContain("height: 48px; width: 248px;");
     expect(rule(":root .available-tables-failures")).toContain("width: 56px; height: 18px;");
     expect(rule(".available-tables-summary")).toContain("height: 14px;");
     expect(rule(".available-table-row .available-table-schema")).toContain("flex: 0 0 70px;");
-    expect(rule(".table-pattern-confirmation")).toContain("position: absolute;");
-    expect(rule(".table-pattern-confirmation")).toContain("width: 22px;");
-    expect(styles).toContain(".table-pattern-with-browser.table-pattern-with-confirmation input[type=\"text\"] { padding-right: calc(var(--control-height) * 2 + 22px); }");
+    expect(styles).not.toContain("table-pattern-confirmation");
+    expect(rule(".table-rule-result")).toContain("height: 24px;");
     expect(styles).toContain("container: table-space / inline-size;");
     expect(rule(".table-rule-patterns.table-rule-with-exclude")).toContain("grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) var(--control-height);");
     expect(rule(".table-rule-patterns")).toContain("grid-template-columns: minmax(0, 1fr) 78px var(--control-height);");

@@ -319,18 +319,37 @@ describe("ordered transform strips", () => {
     const view = render(<Editor value={[{ ...step, tables: { include: "public.reports_*" } }]} />);
     expect(view.container.querySelector(".middleware-scope-summary")?.textContent).toBe("public.reports_*");
   });
-  it("shows available tables in a dialog and shared matched tables below the scope", async () => {
+  it.each([
+    { include: "public.reports_*", include_mode: "glob" },
+    { include: "public.reports_daily", include_mode: "glob" },
+    { include: String.raw`public\.reports_daily`, include_mode: "regex" },
+  ])("shows available and shared matched tables for $include ($include_mode)", async scope => {
     const selected = { namespace: "public", name: "reports_daily" };
     const excluded = { namespace: "public", name: "reports_test" };
+    const tables = { ...step.tables, ...scope };
     const preview = vi.fn().mockResolvedValue({ cards: [{ selected: [selected], excluded: [excluded] }], issues: [] });
-    const view = render(<TableCatalogContext.Provider value={{ tables: [selected, excluded], preview }}><Editor /></TableCatalogContext.Provider>);
+    const view = render(<TableCatalogContext.Provider value={{ tables: [selected, excluded], preview }}>
+      <Editor value={[{ ...step, tables }]} />
+    </TableCatalogContext.Provider>);
     fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
     const available = view.getByRole("button", { name: "Available tables for transform 1" });
-    const matched = view.getByRole("button", { name: "Matched tables for transform 1" });
+    const matched = view.getByRole("button", { name: "Matched tables for transform 1" }) as HTMLButtonElement;
+    const rail = matched.parentElement;
+    const following = view.getByRole("button", { name: "Transformation" });
+    const input = view.getByRole("combobox", { name: "Include transform 1" });
+    input.focus();
+    expect(matched.disabled).toBe(true);
+    expect(matched.querySelector(".table-match-count")?.textContent).toBe("—");
     expect(available.textContent).toBe("Available tables (2)");
     expect(available.getAttribute("aria-haspopup")).toBe("dialog");
     await waitFor(() => expect(matched.textContent).toContain("1"));
-    expect(preview).toHaveBeenCalledWith({ catalog: [selected, excluded], selection: { type: "selected", rules: [step.tables] } }, expect.any(AbortSignal));
+    expect(matched.disabled).toBe(false);
+    expect(view.getByRole("button", { name: "Matched tables for transform 1" })).toBe(matched);
+    expect(matched.parentElement).toBe(rail);
+    expect(view.getByRole("button", { name: "Transformation" })).toBe(following);
+    expect(document.activeElement).toBe(input);
+    expect(view.queryByLabelText("Table found")).toBeNull();
+    expect(preview).toHaveBeenCalledWith({ catalog: [selected, excluded], selection: { type: "selected", rules: [tables] } }, expect.any(AbortSignal));
     fireEvent.click(available);
     const dialog = view.getByRole("dialog", { name: "Available tables" });
     expect(within(dialog).getByRole("textbox", { name: "Search tables" })).toBeTruthy();
@@ -340,8 +359,54 @@ describe("ordered transform strips", () => {
     const list = view.getByRole("region", { name: "Matched tables for transform 1" });
     expect(list.classList.contains("table-rule-matches")).toBe(true);
     expect(within(list).getByText("public.reports_daily")).toBeTruthy();
+    expect(within(list).getByRole("button", { name: "Copy public.reports_daily" })).toBeTruthy();
     expect(within(list).queryByText("public.reports_test")).toBeNull();
     expect(view.queryByRole("button", { name: "Show all" })).toBeNull();
+    fireEvent.click(matched);
+    expect(view.queryByRole("region", { name: "Matched tables for transform 1" })).toBeNull();
+    expect(view.getByRole("button", { name: "Matched tables for transform 1" })).toBe(matched);
+    expect(matched.getAttribute("aria-expanded")).toBe("false");
+    expect(view.queryByLabelText("Table found")).toBeNull();
+  });
+
+  it("withdraws stale exact-name matches without replacing an open transform disclosure", async () => {
+    const tables = [{ namespace: "public", name: "reports_daily" }];
+    const preview = vi.fn().mockResolvedValue({ cards: [{ selected: tables, excluded: [] }], issues: [] });
+    const form = (catalog: typeof tables | undefined) =>
+      <TableCatalogContext.Provider value={catalog ? { tables: catalog, preview } : undefined}>
+        <Editor value={[{ ...step, tables: { ...step.tables, include: "public.reports_daily" } }]} />
+      </TableCatalogContext.Provider>;
+    const view = render(form(tables));
+    fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
+    const toggle = view.getByRole("button", { name: "Matched tables for transform 1" }) as HTMLButtonElement;
+    const count = () => toggle.querySelector(".table-match-count")?.textContent;
+    await waitFor(() => expect(count()).toBe("1"));
+    fireEvent.click(toggle);
+    const list = view.getByRole("region", { name: "Matched tables for transform 1" });
+    const input = view.getByRole("combobox", { name: "Include transform 1" });
+    const following = view.getByRole("button", { name: "Transformation" });
+    input.focus();
+    const changes: [string, typeof tables | undefined][] = [
+      ["public.other", tables], ["public.reports_*", tables], ["public.reports_daily", []],
+      ["public.reports_daily", undefined], ["", tables],
+    ];
+    for (const [include, catalog] of changes) {
+      fireEvent.input(input, { target: { value: include } });
+      view.rerender(form(catalog));
+      expect(count()).toBe("—");
+      expect(toggle.disabled).toBe(true);
+      expect(view.getByRole("button", { name: "Matched tables for transform 1" })).toBe(toggle);
+      expect(view.getByRole("region", { name: "Matched tables for transform 1" })).toBe(list);
+      expect(list.getAttribute("aria-busy")).toBe("true");
+      expect(view.getByRole("button", { name: "Transformation" })).toBe(following);
+      expect(document.activeElement).toBe(input);
+    }
+    fireEvent.input(input, { target: { value: "public.reports_daily" } });
+    await waitFor(() => expect(count()).toBe("1"));
+    expect(view.getByRole("region", { name: "Matched tables for transform 1" })).toBe(list);
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(view.getByRole("button", { name: "Matched tables for transform 1" })).toBe(toggle);
   });
 
   it.each(["Include", "Exclude"])("reuses source suggestions in %s for existing and newly added steps", async label => {

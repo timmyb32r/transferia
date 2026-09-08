@@ -111,7 +111,7 @@ it.each([false, true])("keeps pattern help on the fields, not the table-mode sel
   expect(toolbar.querySelector(".help, [title], [role=tooltip]")).toBeNull();
 });
 
-it("confirms an exact match inside its input without changing the reserved result slot", async () => {
+it("shows an exact match in the shared disclosure without moving or remounting controls", async () => {
   const table = { namespace: "db", name: "events" };
   const preview = vi.fn().mockResolvedValue({ cards: [{ selected: [table], excluded: [] }], issues: [] });
   const view = render(<TableCatalogContext.Provider value={{ tables: [table], preview }}>
@@ -122,17 +122,26 @@ it("confirms an exact match inside its input without changing the reserved resul
   const following = view.getByRole("button", { name: "Add tables" });
   const input = view.getByRole("combobox", { name: "Include rule 1" });
   expect(within(row).queryByLabelText("Table found")).toBeNull();
+  const toggle = within(row).getByRole("button", { name: "Matched tables for rule 1" }) as HTMLButtonElement;
+  expect(toggle.disabled).toBe(true);
+  expect(toggle.querySelector(".table-match-count")?.textContent).toBe("—");
   input.focus();
-  await waitFor(() => expect(within(row).getByLabelText("Table found")).toBeTruthy());
+  await waitFor(() => expect(toggle.disabled).toBe(false));
+  expect(toggle.querySelector(".table-match-count")?.textContent).toBe("1");
   expect(row.querySelector(".table-rule-result")).toBe(slot);
-  expect(row.querySelector(".table-pattern-confirmation")?.getAttribute("aria-live")).toBe("polite");
+  expect(slot.getAttribute("aria-live")).toBe("polite");
   expect(view.getByRole("button", { name: "Add tables" })).toBe(following);
   expect(document.activeElement).toBe(input);
-  expect(within(row).queryByRole("button", { name: "Matched tables for rule 1" })).toBeNull();
+  expect(within(row).getByRole("button", { name: "Matched tables for rule 1" })).toBe(toggle);
+  fireEvent.click(toggle);
+  expect(within(view.getByRole("region", { name: "Matches for rule 1" })).getByRole("button", { name: "Copy db.events" })).toBeTruthy();
+  fireEvent.click(toggle);
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(within(row).queryByLabelText("Table found")).toBeNull();
 });
 
 it.each(["missing", "excluded", "multiple_includes", "include_exclude", "error"] as const)(
-  "does not confirm an exact table when the result is %s", async kind => {
+  "retains the exact-name disclosure and validation when the result is %s", async kind => {
     const table = { namespace: "db", name: "events" };
     const response: SelectionPreview = {
       cards: [{ selected: kind === "missing" || kind === "excluded" ? [] : [table],
@@ -148,10 +157,13 @@ it.each(["missing", "excluded", "multiple_includes", "include_exclude", "error"]
     </TableCatalogContext.Provider>);
     await waitFor(() => expect(view.getByRole("status").textContent).not.toBe(""));
     expect(view.queryByLabelText("Table found")).toBeNull();
+    const toggle = view.getByRole("button", { name: "Matched tables for rule 1" }) as HTMLButtonElement;
+    expect(toggle.disabled).toBe(kind === "error");
+    expect(toggle.querySelector(".table-match-count")?.textContent).toBe(kind === "error" ? "—" : String(response.cards[0]!.selected.length));
   },
 );
 
-it("removes exact-match confirmation immediately when the name or catalog changes", async () => {
+it("invalidates the exact-name match count immediately without replacing the disclosure", async () => {
   const table = { namespace: "db", name: "events" };
   const tables = [table];
   const preview = vi.fn().mockResolvedValue({ cards: [{ selected: tables, excluded: [] }], issues: [] });
@@ -160,14 +172,20 @@ it("removes exact-match confirmation immediately when the name or catalog change
       <TableSelectionEditor value={{ type: "selected", rules: [{ include }] }} onChange={() => undefined} />
     </TableCatalogContext.Provider>;
   const view = render(form("db.events", tables));
-  await waitFor(() => expect(view.getByLabelText("Table found")).toBeTruthy());
+  const toggle = view.getByRole("button", { name: "Matched tables for rule 1" }) as HTMLButtonElement;
+  const count = () => toggle.querySelector(".table-match-count")?.textContent;
+  await waitFor(() => expect(count()).toBe("1"));
   view.rerender(form("db.other", tables));
-  expect(view.queryByLabelText("Table found")).toBeNull();
+  expect(count()).toBe("—");
+  expect(toggle.disabled).toBe(true);
   view.rerender(form("db.events", tables));
-  await waitFor(() => expect(view.getByLabelText("Table found")).toBeTruthy());
+  await waitFor(() => expect(count()).toBe("1"));
   view.rerender(form("db.events", []));
-  expect(view.queryByLabelText("Table found")).toBeNull();
+  expect(count()).toBe("—");
   view.rerender(form("db.events", undefined));
+  expect(count()).toBe("—");
+  expect(toggle.disabled).toBe(true);
+  expect(view.getByRole("button", { name: "Matched tables for rule 1" })).toBe(toggle);
   expect(view.queryByLabelText("Table found")).toBeNull();
 });
 
@@ -250,7 +268,7 @@ it("expands the complete matched list only on request into a bounded inline view
   expect(css).toMatch(/\.regex-toggle\s*\{[^}]*height: calc\(var\(--control-height\) - 8px\);/);
   expect(css).toMatch(/\.regex-toggle\[aria-pressed="true"\]\s*\{[^}]*background: var\(--blue\);[^}]*color: var\(--on-accent\);/);
   expect(css).toMatch(/\.table-rule-result\s*\{[^}]*height: 24px;/);
-  expect(css).toMatch(/\.table-pattern-confirmation\s*\{[^}]*position: absolute;[^}]*width: 22px;/);
+  expect(css).not.toContain("table-pattern-confirmation");
   // Compact spacing must not remove the fixed match-status slot: typing a
   // wildcard or receiving a preview must not move the next row or Add button.
   expect(css).toMatch(/\.table-selection-editor\s*\{[^}]*gap: 8px;/);
@@ -703,8 +721,9 @@ it("keeps an expanded rule preview collapsible when a pattern becomes an exact n
   await waitFor(() => expect((toggle as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(toggle);
   expect(view.queryByLabelText("Matches for rule 1")).toBeNull();
-  expect(view.queryByRole("button", { name: "Matched tables for rule 1" })).toBeNull();
-  expect(view.getByLabelText("Table found")).toBeTruthy();
+  expect(view.getByRole("button", { name: "Matched tables for rule 1" })).toBe(toggle);
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(view.queryByLabelText("Table found")).toBeNull();
 });
 
 it("maps invalid-pattern diagnostics back to the original draft row", async () => {

@@ -7,7 +7,7 @@ import { useTableCatalog } from "../../schema/tableCatalog";
 import { Button } from "../../ui/Button";
 import { SegmentedControl } from "../../ui/SegmentedControl";
 import { TrashIcon } from "../../ui/icons";
-import { hasPattern, selectionIssue, tablePreviewError } from "./model";
+import { selectionIssue, tablePreviewError } from "./model";
 import { MatchedTablesDisclosure } from "./MatchedTablesDisclosure";
 import { TableRuleFields } from "./TableRuleFields";
 import { AvailableTablesButton } from "./AvailableTablesDialog";
@@ -94,15 +94,11 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
     {rules.map((rule, index) => {
       const invalid = current?.result?.issues.some(issue => issue.kind === "empty_match" && issue.card === index);
       // Keep an explicitly opened viewport until the user closes it. A typed
-      // exact name must not pull later controls upward under an active pointer.
-      const showMatches = expandedRules.includes(index) || hasPattern(rule.include, rule.include_mode ?? "glob");
-      const rowIssue = current?.result?.issues.some(issue => issue.kind === "no_rules"
-        || (issue.kind === "empty_match" ? issue.card === index : issue.first_card === index || issue.second_card === index));
-      const exactFound = !showMatches && rule.include.trim().length > 0
-        && current?.result?.cards[index]?.selected.length === 1 && !rowIssue;
+      // empty draft must not pull later controls upward under an active pointer.
+      const showMatches = expandedRules.includes(index) || rule.include.length > 0;
       return <section class="table-rule-row" key={`${selection.type}-${index}`} aria-label={`Table rule ${index + 1}`}>
         <TableRuleFields id={`${id}-${index}`} rule={rule} labelSuffix={`rule ${index + 1}`} compact={index > 0}
-          disabled={disabled || !catalog} confirmed={exactFound} invalid={!!invalid}
+          disabled={disabled || !catalog} invalid={!!invalid}
           includeHelp={`${RULE_HELP} ${includeHelp}`} excludeHelp={`${RULE_HELP} Exclude applies only to this row.`}
           excludeExpanded={expandedExcludes.includes(index)}
           onExcludeExpanded={open => setExpandedExcludes(open ? [...new Set([...expandedExcludes, index])] : expandedExcludes.filter(item => item !== index))}

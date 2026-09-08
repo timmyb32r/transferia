@@ -14,12 +14,11 @@ import { useTableNamespace } from "./naming";
 const GLOB_HELP = "Glob / wildcard: * matches any number of characters; ? matches one character. Matching starts at the beginning of the qualified name. Click to enable regex.";
 const REGEX_HELP = "Regex is enabled. The expression matches the entire qualified name. Use .* for any characters and . for one character. Click to use glob / wildcard.";
 
-export function TablePatternInput({ id, label, value, mode, disabled, required, invalid, onChange, onModeChange, placeholder, onBrowse, confirmed, searchSuggestions = false }: {
+export function TablePatternInput({ id, label, value, mode, disabled, required, invalid, onChange, onModeChange, placeholder, onBrowse, searchSuggestions = false }: {
   id: string; label: string; value: string; mode: PatternMode; disabled: boolean;
   required: boolean; invalid: boolean;
   placeholder?: string;
   onBrowse?: (() => void) | undefined;
-  confirmed?: boolean | undefined;
   searchSuggestions?: boolean;
   onChange: (value: string) => void; onModeChange: (mode: PatternMode) => void;
 }) {
@@ -90,7 +89,7 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
     setFocused(false);
     setActive(-1);
   };
-  return <div class={`table-pattern-input${onBrowse ? " table-pattern-with-browser" : ""}${confirmed !== undefined ? " table-pattern-with-confirmation" : ""}`} ref={root} onBlur={event => {
+  return <div class={`table-pattern-input${onBrowse ? " table-pattern-with-browser" : ""}`} ref={root} onBlur={event => {
     if (!root.current?.contains(event.relatedTarget as Node | null)) setFocused(false);
   }} onKeyDown={event => {
     if (event.key !== "Escape" || !catalog) return;
@@ -137,9 +136,6 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
           setActive(-1);
         }
       }} />
-    {confirmed !== undefined && <span class="table-pattern-confirmation" aria-live="polite">
-      {confirmed && <span role="img" aria-label="Table found" title="Table found">✓</span>}
-    </span>}
     {onBrowse && <Button variant="plain" shape="icon" class="table-pattern-browse" aria-label={`Browse tables for ${label}`}
       title="Browse available tables" aria-haspopup="dialog" disabled={disabled || !catalog}
       onClick={() => { setFocused(false); setActive(-1); onBrowse(); }}><SearchIcon /></Button>}

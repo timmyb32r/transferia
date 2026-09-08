@@ -4,7 +4,6 @@ import { useTableCatalog } from "../../schema/tableCatalog";
 import { MatchedTablesDisclosure } from "../tableSelection/MatchedTablesDisclosure";
 import { AvailableTablesButton } from "../tableSelection/AvailableTablesDialog";
 import { TableRuleFields } from "../tableSelection/TableRuleFields";
-import { hasPattern } from "../tableSelection/model";
 
 const SCOPE_HELP = "Each step matches the complete current table name and sees the name and columns produced by previous steps. Exclude applies only to this step. A table that does not match passes through unchanged; matching tables must have the columns this transform requires.";
 
@@ -40,14 +39,13 @@ export function TransformTableScope({ id, index, matches: current, rule, disable
   const catalog = useTableCatalog();
   const [matchedOpen, setMatchedOpen] = useState(false);
   const [excludeExpanded, setExcludeExpanded] = useState(true);
-  const showMatches = matchedOpen || hasPattern(rule.include, rule.include_mode ?? "glob");
-  const confirmed = !showMatches && rule.include.length > 0 && current?.tables?.length === 1 && !current?.error;
+  const showMatches = matchedOpen || rule.include.length > 0;
   return <div class="middleware-table-scope">
     <AvailableTablesButton label={`Available tables for transform ${index + 1}`} title="Browse tables selected in the source"
       onUse={onUseTable} showUse />
     <TableRuleFields id={id} rule={rule} labelSuffix={`transform ${index + 1}`} disabled={disabled}
       excludeExpanded={excludeExpanded} onExcludeExpanded={setExcludeExpanded} onChange={onChange}
-      confirmed={confirmed} includeHelp={SCOPE_HELP} excludeHelp={SCOPE_HELP} onUse={() => setMatchedOpen(false)} />
+      includeHelp={SCOPE_HELP} excludeHelp={SCOPE_HELP} onUse={() => setMatchedOpen(false)} />
     {showMatches ? <MatchedTablesDisclosure id={`${id}-matched`} label="Matched tables" headerClass="table-rule-result"
       toggleLabel={`Matched tables for transform ${index + 1}`} regionLabel={`Matched tables for transform ${index + 1}`}
       tables={current?.tables} open={matchedOpen} onToggle={() => setMatchedOpen(!matchedOpen)}

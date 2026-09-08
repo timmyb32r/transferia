@@ -119,7 +119,7 @@ it.each(["glob", "regex"] as const)("Use from Include's magnifier preserves %s m
   expect(view.queryByRole("listbox")).toBeNull();
 });
 
-it("has no exact-name result row and confirms it inside the input without moving following controls", async () => {
+it("keeps the exact-name result rail and following controls stable during preview", async () => {
   const selected = [{ namespace: "db", name: "events" }];
   let finish!: (value: SelectionPreview) => void;
   const preview = vi.fn(() => new Promise<SelectionPreview>(resolve => { finish = resolve; }));
@@ -129,14 +129,17 @@ it("has no exact-name result row and confirms it inside the input without moving
   const row = view.getByLabelText("Table rule 1");
   const following = view.getByRole("button", { name: "Add tables" });
   const input = view.getByRole("combobox", { name: "Include rule 1" });
-  const slot = row.querySelector(".table-pattern-confirmation");
+  const slot = row.querySelector(".table-rule-result");
   expect(slot).toBeTruthy();
-  expect(row.querySelector(".table-rule-result")?.textContent).toBe("");
+  const toggle = within(row).getByRole("button", { name: "Matched tables for rule 1" }) as HTMLButtonElement;
+  expect(toggle.disabled).toBe(true);
   await waitFor(() => expect(preview).toHaveBeenCalled());
   await act(async () => finish({ cards: [{ selected, excluded: [] }], issues: [] }));
-  expect(row.querySelector(".table-pattern-confirmation")).toBe(slot);
-  expect(within(row).getByLabelText("Table found")).toBeTruthy();
-  expect(within(row).queryByRole("button", { name: /Matched tables/ })).toBeNull();
+  expect(row.querySelector(".table-rule-result")).toBe(slot);
+  expect(within(row).queryByLabelText("Table found")).toBeNull();
+  expect(within(row).getByRole("button", { name: "Matched tables for rule 1" })).toBe(toggle);
+  expect(toggle.disabled).toBe(false);
+  expect(toggle.querySelector(".table-match-count")?.textContent).toBe("1");
   expect(view.getByRole("combobox", { name: "Include rule 1" })).toBe(input);
   expect(view.getByRole("button", { name: "Add tables" })).toBe(following);
 });
