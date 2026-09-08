@@ -3478,6 +3478,10 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   background: var(--panel);
 }
 .transform-preview-output > p { color: var(--muted); font-size: 12px; padding: 16px; margin: 0; }
+.transform-preview-output > section > h4 {
+  margin: 0; padding: 12px; font-size: 12px; text-align: left;
+  white-space: normal; overflow-wrap: anywhere;
+}
 .transform-preview-output table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .transform-preview-output th { position: sticky; top: 0; background: var(--surface-soft); z-index: 1; }
 .transform-preview-output th, .transform-preview-output td { padding: 9px 12px; border-bottom: 1px solid var(--line-inner); text-align: left; white-space: pre; }

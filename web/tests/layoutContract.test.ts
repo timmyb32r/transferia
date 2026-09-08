@@ -16,6 +16,16 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("aligns preview table names with cells and wraps full identifiers inside the output viewport", () => {
+    const heading = styles.split(".transform-preview-output > section > h4 {")[1]?.split("}")[0];
+    expect(heading).toContain("margin: 0;");
+    expect(heading).toContain("padding: 12px;");
+    expect(heading).toContain("white-space: normal;");
+    expect(heading).toContain("overflow-wrap: anywhere;");
+    expect(heading).not.toMatch(/text-overflow:\s*ellipsis|overflow:\s*hidden/);
+    const cells = styles.split(".transform-preview-output th, .transform-preview-output td {")[1]?.split("}")[0];
+    expect(cells).toContain("padding: 9px 12px;");
+  });
   it("overlays SQL highlighting with identical metrics and no content-driven layout changes", () => {
     const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
     const shared = rule(".sql-code-editor > pre, .sql-code-editor > textarea");
