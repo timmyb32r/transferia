@@ -21,6 +21,14 @@ pub(super) const YDB_TZ_TIMESTAMP_EXTENSION: &str = "transferia.ydb.tz_timestamp
 pub(super) const YDB_DYNUMBER_EXTENSION: &str = "transferia.ydb.dynumber";
 pub(super) const ARROW_UUID_EXTENSION: &str = "arrow.uuid";
 
+pub(crate) fn source_type_mapping() -> transferia_registry::type_mapping::TypeMapping {
+    use transferia_registry::type_mapping::{TypeMapping, TypeMappingRow};
+    use PrimitiveTypeId as P;
+    TypeMapping { context: "Evaluated by YDB discovery's primitive resolver. Source extensions are shown after the Arrow type; Optional preserves nullability. Decimal precision/scale are validated separately.".to_owned(),
+        rows: [P::Bool, P::Int8, P::Uint8, P::Int16, P::Uint16, P::Int32, P::Uint32, P::Int64, P::Uint64, P::Float, P::Double, P::Date, P::Date32, P::Datetime, P::Datetime64, P::Timestamp, P::Timestamp64, P::Interval, P::Interval64, P::String, P::Utf8, P::Yson, P::Json, P::JsonDocument, P::Dynumber, P::Uuid, P::TzDate, P::TzDatetime, P::TzTimestamp]
+            .into_iter().map(|t| TypeMappingRow::evaluate(format!("{t:?}"), primitive_kind(t).map(|kind| format!("{:?}{}", kind.arrow_type(), kind.extension().map_or(String::new(), |e| format!(" · {e}")))))).collect() }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ColumnKind {
     Bool,

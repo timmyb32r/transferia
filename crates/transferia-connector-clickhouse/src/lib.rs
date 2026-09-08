@@ -56,6 +56,7 @@ pub fn register(
                 },
             )?
             .source_tuning_parameters(clickhouse_source_tuning_parameters())?
+            .source_type_mapping(clickhouse::src_batch::type_mapping())
             .source_checker::<clickhouse::src_batch::ClickHouseSourceConfig, _, _>({
                 let metrics = Arc::clone(metrics);
                 move |config| {
@@ -88,6 +89,7 @@ pub fn register(
                 },
             )?
             .sink_tuning_parameters(clickhouse_sink_tuning_parameters())?
+            .sink_type_mapping(clickhouse::sink::type_mapping())
             .sink_record_semantics(vec![
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,

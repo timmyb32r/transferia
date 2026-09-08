@@ -133,6 +133,8 @@ pub fn register_with_parsers(
             .sink_record_semantics(
                 serializer::SerializerConfig::SUPPORTED_RECORD_SEMANTICS.to_vec(),
             )?
+            .source_type_mapping(transferia_registry::type_mapping::TypeMapping { context: "This source exposes bytes. The selected parser determines Arrow columns; there is no native source column conversion.".to_owned(), rows: Vec::new() })
+            .sink_type_mapping(serializer::json_type_mapping())
             .sink_checker::<logbroker::sink::LogbrokerSinkCheckConfig, _, _>(|config| async move {
                 let cancellation = tokio_util::sync::CancellationToken::new();
                 if !config.auth.is_configured() {

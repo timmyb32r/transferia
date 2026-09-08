@@ -15,6 +15,22 @@ use transferia_delivery_contracts::DeliveryType;
 
 use super::*;
 
+#[test]
+fn type_mapping_examples_are_evaluated_and_keep_rejections() {
+    let calls = std::cell::Cell::new(0);
+    let report = type_mapping::destination_mapping("test", |column| {
+        calls.set(calls.get() + 1);
+        if column.data_type == arrow::datatypes::DataType::Null {
+            anyhow::bail!("unsupported test input");
+        }
+        Ok(format!("resolved {:?}", column.data_type))
+    });
+    assert_eq!(calls.get(), report.rows.len());
+    assert!(report.rows.iter().all(|row| row.output.is_some() != row.error.is_some()));
+    assert_eq!(report.rows[0].error.as_deref(), Some("unsupported test input"));
+    assert!(report.rows.iter().any(|row| row.output.as_deref() == Some("resolved Int32")));
+}
+
 fn sample_limits(row_limit: usize) -> TableSampleLimits {
     TableSampleLimits {
         row_limit,

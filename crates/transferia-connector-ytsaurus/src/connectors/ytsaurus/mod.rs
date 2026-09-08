@@ -7,6 +7,17 @@ mod sink;
 pub mod src_batch;
 mod yt_wire;
 
+pub(crate) fn source_type_mapping() -> transferia_registry::type_mapping::TypeMapping {
+    use transferia_registry::type_mapping::{TypeMapping, TypeMappingRow};
+    TypeMapping { context: "Evaluated by the YTsaurus primitive schema resolver. Complex type_v3 declarations are not implied by these primitive examples.".to_owned(),
+        rows: ["int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64", "float", "double", "boolean", "string", "utf8", "date", "datetime", "timestamp", "interval", "any"]
+            .into_iter().map(|t| TypeMappingRow::evaluate(t, schema::yt_to_arrow(t).map(|a| format!("{a:?}")))).collect() }
+}
+
+pub(crate) fn sink_type_mapping() -> transferia_registry::type_mapping::TypeMapping {
+    transferia_registry::type_mapping::destination_mapping("Evaluated by the YTsaurus destination schema resolver. Non-null primitive columns; key/value validation is separate.", |c| schema::arrow_to_yt(&c.data_type).map(str::to_owned))
+}
+
 pub use config::{
     YTsaurusAuthConfig, YTsaurusBenchmarkDiscardConfig, YTsaurusBenchmarkTransport,
     YTsaurusConnectionConfig, YTsaurusDynamicWriteConfig, YTsaurusPrimaryKeySemantics,

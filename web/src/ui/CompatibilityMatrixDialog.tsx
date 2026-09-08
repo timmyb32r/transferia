@@ -1,4 +1,7 @@
 import { createPortal } from "preact/compat";
+import { createContext, type ComponentChildren } from "preact";
+import { useContext } from "preact/hooks";
+import { TypeMappingBrowser } from "./TypeMappingBrowser";
 import {
   useLayoutEffect,
   useMemo,
@@ -305,27 +308,33 @@ export interface CompatibilityRoute {
   partial: DeliveryMode[];
 }
 
-export function CompatibilityMatrixLauncher({
-  catalog,
-}: {
-  catalog: UiCatalog;
-}) {
-  const [open, setOpen] = useState(false);
+type AboutTarget = { tab: "matrix" | "source-types" | "sink-types"; connector?: string };
+const AboutContext = createContext<((target: AboutTarget) => void) | undefined>(undefined);
+
+export function AboutProvider({ catalog, children }: { catalog: UiCatalog; children: ComponentChildren }) {
+  const [target, setTarget] = useState<AboutTarget | undefined>();
+  return <AboutContext.Provider value={setTarget}>{children}{target &&
+    <CompatibilityMatrixDialog catalog={catalog} initialTarget={target} onClose={() => setTarget(undefined)} />}
+  </AboutContext.Provider>;
+}
+
+export function TypeMappingLink({ role, connector }: { role: "source" | "sink"; connector: string }) {
+  const open = useContext(AboutContext);
+  if (!open || !connector) return null;
+  return <Button variant="plain" class="type-mapping-link" onClick={() => open({ tab: role === "source" ? "source-types" : "sink-types", connector })}>Type mapping <span aria-hidden="true">↗</span></Button>;
+}
+
+export function CompatibilityMatrixLauncher() {
+  const open = useContext(AboutContext);
 
   return (
     <>
       <Button variant="plain"
         class="sidebar-tool-button compatibility-launcher"
-        onClick={() => setOpen(true)}
+        onClick={() => open?.({ tab: "matrix" })}
       >
-        Matrix
+        About
       </Button>
-      {open && (
-        <CompatibilityMatrixDialog
-          catalog={catalog}
-          onClose={() => setOpen(false)}
-        />
-      )}
     </>
   );
 }
@@ -370,9 +379,11 @@ export function compatibilityRoutes(catalog: UiCatalog): CompatibilityRoute[] {
 export function CompatibilityMatrixDialog({
   catalog,
   onClose,
+  initialTarget,
 }: {
   catalog: UiCatalog;
   onClose: () => void;
+  initialTarget?: AboutTarget;
 }) {
   const dialog = useRef<HTMLElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
@@ -388,8 +399,8 @@ export function CompatibilityMatrixDialog({
   const [selectedSink, setSelectedSink] = useState<string | null>(null);
   const [matrixSearch, setMatrixSearch] = useState("");
   const [activeTab, setActiveTab] = useState<
-    "matrix" | "entities" | "properties"
-  >("matrix");
+    "matrix" | "entities" | "properties" | "source-types" | "sink-types"
+  >(initialTarget?.tab ?? "matrix");
   const [activeProperty, setActiveProperty] = useState<string | null>(null);
   const sources = useMemo(
     () => orderedEndpointConnectors(catalog, "source"),
@@ -468,16 +479,33 @@ export function CompatibilityMatrixDialog({
         : null;
     dialog.current
       ?.querySelector<HTMLButtonElement>(
-        "[aria-label='Close compatibility matrix']",
+        "[aria-label='Close About']",
       )
-      ?.focus();
+      ?.focus({ preventScroll: true });
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close.current();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close.current();
+      }
+      if (event.key === "Tab") {
+        const targets = Array.from(dialog.current?.querySelectorAll<HTMLElement>(
+          "button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])",
+        ) ?? []).filter((element) => element.getClientRects().length > 0);
+        const first = targets[0];
+        const last = targets[targets.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus({ preventScroll: true });
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus({ preventScroll: true });
+        }
+      }
     };
     document.addEventListener("keydown", keydown);
     return () => {
       document.removeEventListener("keydown", keydown);
-      restoreFocus.current?.focus();
+      restoreFocus.current?.focus({ preventScroll: true });
     };
   }, []);
 
@@ -512,15 +540,14 @@ export function CompatibilityMatrixDialog({
         <header>
           <div>
             <small>LIVE CONNECTOR CATALOG</small>
-            <h2 id="compatibility-title">Matrix</h2>
+            <h2 id="compatibility-title">About</h2>
             <p id="compatibility-description">
-              Batch and Stream are delivery modes. Compatibility also accounts
-              for append-only and change-event semantics.
+              Connector capabilities, compatibility and runtime type mappings.
             </p>
           </div>
           <Button
             shape="icon"
-            aria-label="Close compatibility matrix"
+            aria-label="Close About"
             onClick={onClose}
           >
             ×
@@ -553,9 +580,13 @@ export function CompatibilityMatrixDialog({
           >
             Properties
           </Button>
+          <Button variant="plain" role="tab" aria-selected={activeTab === "source-types"} onClick={() => setActiveTab("source-types")}>Source types</Button>
+          <Button variant="plain" role="tab" aria-selected={activeTab === "sink-types"} onClick={() => setActiveTab("sink-types")}>Destination types</Button>
         </div>
 
-        {activeTab === "matrix" ? (
+        {activeTab === "source-types" || activeTab === "sink-types" ? (
+          <div class="capability-summary">Concrete examples evaluated by production resolvers, not an exhaustive list. Parameters, extensions and configuration can affect the result.</div>
+        ) : activeTab === "matrix" ? (
           <div class="compatibility-matrix-tools">
             <label class="compatibility-search">
               <span>Find source or destination</span>
@@ -578,7 +609,9 @@ export function CompatibilityMatrixDialog({
           </div>
         )}
 
-        {activeTab === "matrix" ? (
+        {activeTab === "source-types" || activeTab === "sink-types" ? (
+          <TypeMappingBrowser key={activeTab} catalog={catalog} role={activeTab === "source-types" ? "source" : "sink"} initialConnector={initialTarget?.connector} />
+        ) : activeTab === "matrix" ? (
           <div class="compatibility-matrix-viewport" ref={matrixViewport}>
             <div class="compatibility-matrix-content" ref={matrixContent}>
             <table

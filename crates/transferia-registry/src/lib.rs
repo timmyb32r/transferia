@@ -1,6 +1,7 @@
 //! Connector-neutral runtime component registry.
 
 mod definition;
+pub mod type_mapping;
 pub mod durable;
 mod registry;
 pub mod table_selection;

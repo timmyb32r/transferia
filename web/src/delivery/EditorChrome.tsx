@@ -265,7 +265,6 @@ export function DeliverySidebar({
   onNew,
   onOpen,
   appearance,
-  catalog,
   onAppearance,
   dataWidgetAvailable,
   dataWidgetUnavailableReason,
@@ -344,7 +343,7 @@ export function DeliverySidebar({
           Data widget
         </Button>
       </InstantTooltip>
-      <CompatibilityMatrixLauncher catalog={catalog} />
+      <CompatibilityMatrixLauncher />
       <AppearanceSettings
         value={appearance}
         onChange={onAppearance}

@@ -585,6 +585,17 @@
         "table_preview": {
           "description": "Read-only, bounded Arrow rows from an explicitly chosen source table.",
           "type": "boolean"
+        },
+        "type_mapping": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TypeMapping"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-omit-none": true
         }
       },
       "required": [
@@ -2146,6 +2157,49 @@
       },
       "required": [
         "name"
+      ],
+      "type": "object"
+    },
+    "TypeMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/TypeMappingRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "context",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "TypeMappingRow": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input": {
+          "type": "string"
+        },
+        "output": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "input"
       ],
       "type": "object"
     },

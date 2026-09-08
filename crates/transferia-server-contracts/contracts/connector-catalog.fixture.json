@@ -247,6 +247,10 @@
       "key": "logbroker",
       "title": "Logbroker",
       "source": {
+        "type_mapping": {
+          "context": "This source exposes bytes. The selected parser determines Arrow columns; there is no native source column conversion.",
+          "rows": []
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "LogbrokerSourceConfig",
@@ -1608,6 +1612,211 @@
         "table_preview": false
       },
       "sink": {
+        "type_mapping": {
+          "context": "JSON serializer examples, evaluated by the production serializer. This transport has no native column types. Selecting Avro, Protobuf, Debezium or another format changes the output contract; inspect that format's configuration and schema.",
+          "rows": [
+            {
+              "input": "Null",
+              "output": null,
+              "error": "Arrow type Null has no JSON serializer representation"
+            },
+            {
+              "input": "Boolean",
+              "output": "JSON boolean",
+              "error": null
+            },
+            {
+              "input": "Int8",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Int16",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Int32",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Int64",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "UInt8",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "UInt16",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "UInt32",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "UInt64",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Float16",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Float32",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Float64",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Utf8",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "LargeUtf8",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Utf8View",
+              "output": null,
+              "error": "Arrow type Utf8View has no JSON serializer representation"
+            },
+            {
+              "input": "Binary",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "BinaryView",
+              "output": null,
+              "error": "Arrow type BinaryView has no JSON serializer representation"
+            },
+            {
+              "input": "FixedSizeBinary(16)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Date32",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Decimal128(18, 4)",
+              "output": null,
+              "error": "Arrow type Decimal128(18, 4) has no JSON serializer representation"
+            },
+            {
+              "input": "Decimal128(38, 9)",
+              "output": null,
+              "error": "Arrow type Decimal128(38, 9) has no JSON serializer representation"
+            },
+            {
+              "input": "Decimal256(76, 18)",
+              "output": null,
+              "error": "Arrow type Decimal256(76, 18) has no JSON serializer representation"
+            },
+            {
+              "input": "List(Field { data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "Arrow type List(Field { data_type: Int32, nullable: true }) has no JSON serializer representation"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "output": null,
+              "error": "Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) has no JSON serializer representation"
+            },
+            {
+              "input": "Dictionary(Int32, Utf8)",
+              "output": null,
+              "error": "Arrow type Dictionary(Int32, Utf8) has no JSON serializer representation"
+            },
+            {
+              "input": "Timestamp(Second, None)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Second, Some(\"UTC\"))",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Duration(Second)",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Millisecond, None)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Millisecond, Some(\"UTC\"))",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Duration(Millisecond)",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, None)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, Some(\"UTC\"))",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Duration(Microsecond)",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Nanosecond, None)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Nanosecond, Some(\"UTC\"))",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Duration(Nanosecond)",
+              "output": "JSON number",
+              "error": null
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "LogbrokerSinkConfig",
@@ -2199,6 +2408,10 @@
       "key": "kafka",
       "title": "Kafka",
       "source": {
+        "type_mapping": {
+          "context": "This source exposes bytes. The selected parser determines Arrow columns; there is no native source column conversion.",
+          "rows": []
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "KafkaSourceConfig",
@@ -3621,6 +3834,211 @@
         "table_preview": false
       },
       "sink": {
+        "type_mapping": {
+          "context": "JSON serializer examples, evaluated by the production serializer. This transport has no native column types. Selecting Avro, Protobuf, Debezium or another format changes the output contract; inspect that format's configuration and schema.",
+          "rows": [
+            {
+              "input": "Null",
+              "output": null,
+              "error": "Arrow type Null has no JSON serializer representation"
+            },
+            {
+              "input": "Boolean",
+              "output": "JSON boolean",
+              "error": null
+            },
+            {
+              "input": "Int8",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Int16",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Int32",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Int64",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "UInt8",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "UInt16",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "UInt32",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "UInt64",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Float16",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Float32",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Float64",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Utf8",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "LargeUtf8",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Utf8View",
+              "output": null,
+              "error": "Arrow type Utf8View has no JSON serializer representation"
+            },
+            {
+              "input": "Binary",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "BinaryView",
+              "output": null,
+              "error": "Arrow type BinaryView has no JSON serializer representation"
+            },
+            {
+              "input": "FixedSizeBinary(16)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Date32",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Decimal128(18, 4)",
+              "output": null,
+              "error": "Arrow type Decimal128(18, 4) has no JSON serializer representation"
+            },
+            {
+              "input": "Decimal128(38, 9)",
+              "output": null,
+              "error": "Arrow type Decimal128(38, 9) has no JSON serializer representation"
+            },
+            {
+              "input": "Decimal256(76, 18)",
+              "output": null,
+              "error": "Arrow type Decimal256(76, 18) has no JSON serializer representation"
+            },
+            {
+              "input": "List(Field { data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "Arrow type List(Field { data_type: Int32, nullable: true }) has no JSON serializer representation"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "output": null,
+              "error": "Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) has no JSON serializer representation"
+            },
+            {
+              "input": "Dictionary(Int32, Utf8)",
+              "output": null,
+              "error": "Arrow type Dictionary(Int32, Utf8) has no JSON serializer representation"
+            },
+            {
+              "input": "Timestamp(Second, None)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Second, Some(\"UTC\"))",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Duration(Second)",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Millisecond, None)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Millisecond, Some(\"UTC\"))",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Duration(Millisecond)",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, None)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, Some(\"UTC\"))",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Duration(Microsecond)",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Nanosecond, None)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Nanosecond, Some(\"UTC\"))",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Duration(Nanosecond)",
+              "output": "JSON number",
+              "error": null
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "KafkaSinkConfig",
@@ -4314,6 +4732,166 @@
       "key": "mysql",
       "title": "MySQL",
       "source": {
+        "type_mapping": {
+          "context": "Evaluated by MySQL discovery. Text examples use utf8mb4 unless specified; non-UTF character sets retain bytes. Physical type extensions preserve source metadata. Decimal and temporal values use canonical text.",
+          "rows": [
+            {
+              "input": "tinyint",
+              "output": "Int8 · transferia.mysql.signed_integer",
+              "error": null
+            },
+            {
+              "input": "tinyint unsigned",
+              "output": "UInt8 · transferia.mysql.unsigned_integer",
+              "error": null
+            },
+            {
+              "input": "smallint",
+              "output": "Int16 · transferia.mysql.signed_integer",
+              "error": null
+            },
+            {
+              "input": "smallint unsigned",
+              "output": "UInt16 · transferia.mysql.unsigned_integer",
+              "error": null
+            },
+            {
+              "input": "mediumint",
+              "output": "Int32 · transferia.mysql.signed_integer",
+              "error": null
+            },
+            {
+              "input": "mediumint unsigned",
+              "output": "UInt32 · transferia.mysql.unsigned_integer",
+              "error": null
+            },
+            {
+              "input": "int",
+              "output": "Int32 · transferia.mysql.signed_integer",
+              "error": null
+            },
+            {
+              "input": "int unsigned",
+              "output": "UInt32 · transferia.mysql.unsigned_integer",
+              "error": null
+            },
+            {
+              "input": "bigint",
+              "output": "Int64 · transferia.mysql.signed_integer",
+              "error": null
+            },
+            {
+              "input": "bigint unsigned",
+              "output": "UInt64 · transferia.mysql.unsigned_integer",
+              "error": null
+            },
+            {
+              "input": "float",
+              "output": "Float32 · transferia.mysql.float",
+              "error": null
+            },
+            {
+              "input": "double",
+              "output": "Float64 · transferia.mysql.float",
+              "error": null
+            },
+            {
+              "input": "bit",
+              "output": "Binary · transferia.mysql.binary",
+              "error": null
+            },
+            {
+              "input": "binary",
+              "output": "Binary · transferia.mysql.binary",
+              "error": null
+            },
+            {
+              "input": "varbinary",
+              "output": "Binary · transferia.mysql.binary",
+              "error": null
+            },
+            {
+              "input": "blob",
+              "output": "Binary · transferia.mysql.binary",
+              "error": null
+            },
+            {
+              "input": "geometry",
+              "output": "Binary · transferia.mysql.binary",
+              "error": null
+            },
+            {
+              "input": "vector",
+              "output": "Binary · transferia.mysql.binary",
+              "error": null
+            },
+            {
+              "input": "json",
+              "output": "Utf8 · arrow.json",
+              "error": null
+            },
+            {
+              "input": "char",
+              "output": "Utf8 · transferia.mysql.text",
+              "error": null
+            },
+            {
+              "input": "varchar",
+              "output": "Utf8 · transferia.mysql.text",
+              "error": null
+            },
+            {
+              "input": "text",
+              "output": "Utf8 · transferia.mysql.text",
+              "error": null
+            },
+            {
+              "input": "enum",
+              "output": "UInt16 · transferia.mysql.enum",
+              "error": null
+            },
+            {
+              "input": "set",
+              "output": "UInt64 · transferia.mysql.set",
+              "error": null
+            },
+            {
+              "input": "decimal",
+              "output": "Utf8 · transferia.mysql.decimal",
+              "error": null
+            },
+            {
+              "input": "date",
+              "output": "Utf8 · transferia.mysql.date",
+              "error": null
+            },
+            {
+              "input": "datetime",
+              "output": "Utf8 · transferia.mysql.datetime",
+              "error": null
+            },
+            {
+              "input": "timestamp",
+              "output": "Utf8 · transferia.mysql.timestamp",
+              "error": null
+            },
+            {
+              "input": "time",
+              "output": "Utf8 · transferia.mysql.time",
+              "error": null
+            },
+            {
+              "input": "year",
+              "output": "Utf8 · transferia.mysql.year",
+              "error": null
+            },
+            {
+              "input": "varchar CHARACTER SET latin1",
+              "output": "Binary · transferia.mysql.text_bytes",
+              "error": null
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "MySqlSourceConfig",
@@ -4673,6 +5251,211 @@
         "table_preview": true
       },
       "sink": {
+        "type_mapping": {
+          "context": "Evaluated by MySQL DDL resolver. Non-null columns without source-type extensions; preserved MySQL extensions may select a different physical declaration. Runtime range/encoding validation still applies.",
+          "rows": [
+            {
+              "input": "Null",
+              "output": null,
+              "error": "unsupported Arrow type Null for MySQL sink"
+            },
+            {
+              "input": "Boolean",
+              "output": "BOOLEAN",
+              "error": null
+            },
+            {
+              "input": "Int8",
+              "output": "TINYINT",
+              "error": null
+            },
+            {
+              "input": "Int16",
+              "output": "SMALLINT",
+              "error": null
+            },
+            {
+              "input": "Int32",
+              "output": "INT",
+              "error": null
+            },
+            {
+              "input": "Int64",
+              "output": "BIGINT",
+              "error": null
+            },
+            {
+              "input": "UInt8",
+              "output": "TINYINT UNSIGNED",
+              "error": null
+            },
+            {
+              "input": "UInt16",
+              "output": "SMALLINT UNSIGNED",
+              "error": null
+            },
+            {
+              "input": "UInt32",
+              "output": "INT UNSIGNED",
+              "error": null
+            },
+            {
+              "input": "UInt64",
+              "output": "BIGINT UNSIGNED",
+              "error": null
+            },
+            {
+              "input": "Float16",
+              "output": null,
+              "error": "unsupported Arrow type Float16 for MySQL sink"
+            },
+            {
+              "input": "Float32",
+              "output": "FLOAT",
+              "error": null
+            },
+            {
+              "input": "Float64",
+              "output": "DOUBLE",
+              "error": null
+            },
+            {
+              "input": "Utf8",
+              "output": "LONGTEXT",
+              "error": null
+            },
+            {
+              "input": "LargeUtf8",
+              "output": null,
+              "error": "unsupported Arrow type LargeUtf8 for MySQL sink"
+            },
+            {
+              "input": "Utf8View",
+              "output": null,
+              "error": "unsupported Arrow type Utf8View for MySQL sink"
+            },
+            {
+              "input": "Binary",
+              "output": "LONGBLOB",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": null,
+              "error": "unsupported Arrow type LargeBinary for MySQL sink"
+            },
+            {
+              "input": "BinaryView",
+              "output": null,
+              "error": "unsupported Arrow type BinaryView for MySQL sink"
+            },
+            {
+              "input": "FixedSizeBinary(16)",
+              "output": null,
+              "error": "unsupported Arrow type FixedSizeBinary(16) for MySQL sink"
+            },
+            {
+              "input": "Date32",
+              "output": "DATE",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": "DATETIME(3)",
+              "error": null
+            },
+            {
+              "input": "Decimal128(18, 4)",
+              "output": "DECIMAL(18,4)",
+              "error": null
+            },
+            {
+              "input": "Decimal128(38, 9)",
+              "output": "DECIMAL(38,9)",
+              "error": null
+            },
+            {
+              "input": "Decimal256(76, 18)",
+              "output": null,
+              "error": "MySQL DECIMAL cannot preserve precision 76, scale 18; maximum precision is 65 and scale is 30"
+            },
+            {
+              "input": "List(Field { data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "unsupported Arrow type List(Field { data_type: Int32, nullable: true }) for MySQL sink"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "output": null,
+              "error": "unsupported Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) for MySQL sink"
+            },
+            {
+              "input": "Dictionary(Int32, Utf8)",
+              "output": null,
+              "error": "unsupported Arrow type Dictionary(Int32, Utf8) for MySQL sink"
+            },
+            {
+              "input": "Timestamp(Second, None)",
+              "output": "DATETIME",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Second, Some(\"UTC\"))",
+              "output": null,
+              "error": "MySQL has no timestamp type that preserves Arrow timezone 'UTC'; explicitly transform it before this sink"
+            },
+            {
+              "input": "Duration(Second)",
+              "output": null,
+              "error": "unsupported Arrow type Duration(Second) for MySQL sink"
+            },
+            {
+              "input": "Timestamp(Millisecond, None)",
+              "output": "DATETIME(3)",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Millisecond, Some(\"UTC\"))",
+              "output": null,
+              "error": "MySQL has no timestamp type that preserves Arrow timezone 'UTC'; explicitly transform it before this sink"
+            },
+            {
+              "input": "Duration(Millisecond)",
+              "output": null,
+              "error": "unsupported Arrow type Duration(Millisecond) for MySQL sink"
+            },
+            {
+              "input": "Timestamp(Microsecond, None)",
+              "output": "DATETIME(6)",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, Some(\"UTC\"))",
+              "output": null,
+              "error": "MySQL has no timestamp type that preserves Arrow timezone 'UTC'; explicitly transform it before this sink"
+            },
+            {
+              "input": "Duration(Microsecond)",
+              "output": null,
+              "error": "unsupported Arrow type Duration(Microsecond) for MySQL sink"
+            },
+            {
+              "input": "Timestamp(Nanosecond, None)",
+              "output": "DATETIME(6)",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Nanosecond, Some(\"UTC\"))",
+              "output": null,
+              "error": "MySQL has no timestamp type that preserves Arrow timezone 'UTC'; explicitly transform it before this sink"
+            },
+            {
+              "input": "Duration(Nanosecond)",
+              "output": null,
+              "error": "unsupported Arrow type Duration(Nanosecond) for MySQL sink"
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "MySqlSinkConfig",
@@ -4791,6 +5574,31 @@
       "key": "opensearch",
       "title": "OpenSearch",
       "source": {
+        "type_mapping": {
+          "context": "OpenSearch preserves a document envelope, not individual index-property types. _source contains the complete JSON document. These rows come from the production document schema.",
+          "rows": [
+            {
+              "input": "_id",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "_routing",
+              "output": "Utf8 · nullable",
+              "error": null
+            },
+            {
+              "input": "_source",
+              "output": "Utf8 · arrow.json",
+              "error": null
+            },
+            {
+              "input": "_routing_key",
+              "output": "Utf8",
+              "error": null
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "OpenSearchSourceConfig",
@@ -5056,6 +5864,211 @@
         "table_preview": false
       },
       "sink": {
+        "type_mapping": {
+          "context": "Evaluated by the OpenSearch destination mapping resolver. Plain columns without source extensions; document identity, routing and runtime values are validated separately.",
+          "rows": [
+            {
+              "input": "Null",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Null"
+            },
+            {
+              "input": "Boolean",
+              "output": "boolean",
+              "error": null
+            },
+            {
+              "input": "Int8",
+              "output": "byte",
+              "error": null
+            },
+            {
+              "input": "Int16",
+              "output": "short",
+              "error": null
+            },
+            {
+              "input": "Int32",
+              "output": "integer",
+              "error": null
+            },
+            {
+              "input": "Int64",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "UInt8",
+              "output": "short",
+              "error": null
+            },
+            {
+              "input": "UInt16",
+              "output": "integer",
+              "error": null
+            },
+            {
+              "input": "UInt32",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "UInt64",
+              "output": "unsigned_long",
+              "error": null
+            },
+            {
+              "input": "Float16",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Float16"
+            },
+            {
+              "input": "Float32",
+              "output": "float",
+              "error": null
+            },
+            {
+              "input": "Float64",
+              "output": "double",
+              "error": null
+            },
+            {
+              "input": "Utf8",
+              "output": "keyword",
+              "error": null
+            },
+            {
+              "input": "LargeUtf8",
+              "output": "keyword",
+              "error": null
+            },
+            {
+              "input": "Utf8View",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Utf8View"
+            },
+            {
+              "input": "Binary",
+              "output": "binary",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": "binary",
+              "error": null
+            },
+            {
+              "input": "BinaryView",
+              "output": null,
+              "error": "unsupported primary-key Arrow type BinaryView"
+            },
+            {
+              "input": "FixedSizeBinary(16)",
+              "output": "binary",
+              "error": null
+            },
+            {
+              "input": "Date32",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Decimal128(18, 4)",
+              "output": "keyword",
+              "error": null
+            },
+            {
+              "input": "Decimal128(38, 9)",
+              "output": "keyword",
+              "error": null
+            },
+            {
+              "input": "Decimal256(76, 18)",
+              "output": "keyword",
+              "error": null
+            },
+            {
+              "input": "List(Field { data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "unsupported primary-key Arrow type List(Field { data_type: Int32, nullable: true })"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])"
+            },
+            {
+              "input": "Dictionary(Int32, Utf8)",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Dictionary(Int32, Utf8)"
+            },
+            {
+              "input": "Timestamp(Second, None)",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Second, Some(\"UTC\"))",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Duration(Second)",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Millisecond, None)",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Millisecond, Some(\"UTC\"))",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Duration(Millisecond)",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, None)",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, Some(\"UTC\"))",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Duration(Microsecond)",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Nanosecond, None)",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Nanosecond, Some(\"UTC\"))",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Duration(Nanosecond)",
+              "output": "long",
+              "error": null
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "OpenSearchSinkConfig",
@@ -5326,6 +6339,136 @@
       "key": "postgres",
       "title": "PostgreSQL",
       "source": {
+        "type_mapping": {
+          "context": "Evaluated by PostgreSQL discovery. Non-native types use canonical text. Pseudo types require the explicit batch-only unsupported_types=to_string policy. Examples do not replace value, timezone or COPY validation.",
+          "rows": [
+            {
+              "input": "bool",
+              "output": "Boolean",
+              "error": null
+            },
+            {
+              "input": "char",
+              "output": "Int8",
+              "error": null
+            },
+            {
+              "input": "int2",
+              "output": "Int16",
+              "error": null
+            },
+            {
+              "input": "int4",
+              "output": "Int32",
+              "error": null
+            },
+            {
+              "input": "int8",
+              "output": "Int64",
+              "error": null
+            },
+            {
+              "input": "oid",
+              "output": "UInt32",
+              "error": null
+            },
+            {
+              "input": "float4",
+              "output": "Float32",
+              "error": null
+            },
+            {
+              "input": "float8",
+              "output": "Float64",
+              "error": null
+            },
+            {
+              "input": "bytea",
+              "output": "Binary",
+              "error": null
+            },
+            {
+              "input": "text",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "varchar",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "bpchar",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "name",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "date",
+              "output": "Date32",
+              "error": null
+            },
+            {
+              "input": "timestamp",
+              "output": "Timestamp(Microsecond, None)",
+              "error": null
+            },
+            {
+              "input": "timestamptz",
+              "output": "Timestamp(Microsecond, Some(\"UTC\"))",
+              "error": null
+            },
+            {
+              "input": "numeric",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "uuid",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "json",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "jsonb",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "interval",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "inet",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "_int4",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "int4range",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "record",
+              "output": null,
+              "error": "PostgreSQL source type 'record' has no supported Arrow representation; select unsupported_types=to_string for an explicit batch text conversion"
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "PostgresSourceConfig",
@@ -5705,6 +6848,211 @@
         "table_preview": true
       },
       "sink": {
+        "type_mapping": {
+          "context": "Evaluated by PostgreSQL DDL/COPY type resolver. Non-null columns without extensions; runtime value validation still applies.",
+          "rows": [
+            {
+              "input": "Null",
+              "output": null,
+              "error": "unsupported Arrow type Null for PostgreSQL COPY"
+            },
+            {
+              "input": "Boolean",
+              "output": "boolean",
+              "error": null
+            },
+            {
+              "input": "Int8",
+              "output": "\"char\"",
+              "error": null
+            },
+            {
+              "input": "Int16",
+              "output": "smallint",
+              "error": null
+            },
+            {
+              "input": "Int32",
+              "output": "integer",
+              "error": null
+            },
+            {
+              "input": "Int64",
+              "output": "bigint",
+              "error": null
+            },
+            {
+              "input": "UInt8",
+              "output": "smallint",
+              "error": null
+            },
+            {
+              "input": "UInt16",
+              "output": "integer",
+              "error": null
+            },
+            {
+              "input": "UInt32",
+              "output": "oid",
+              "error": null
+            },
+            {
+              "input": "UInt64",
+              "output": "numeric(20,0)",
+              "error": null
+            },
+            {
+              "input": "Float16",
+              "output": null,
+              "error": "unsupported Arrow type Float16 for PostgreSQL COPY"
+            },
+            {
+              "input": "Float32",
+              "output": "real",
+              "error": null
+            },
+            {
+              "input": "Float64",
+              "output": "double precision",
+              "error": null
+            },
+            {
+              "input": "Utf8",
+              "output": "text",
+              "error": null
+            },
+            {
+              "input": "LargeUtf8",
+              "output": null,
+              "error": "unsupported Arrow type LargeUtf8 for PostgreSQL COPY"
+            },
+            {
+              "input": "Utf8View",
+              "output": null,
+              "error": "unsupported Arrow type Utf8View for PostgreSQL COPY"
+            },
+            {
+              "input": "Binary",
+              "output": "bytea",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": null,
+              "error": "unsupported Arrow type LargeBinary for PostgreSQL COPY"
+            },
+            {
+              "input": "BinaryView",
+              "output": null,
+              "error": "unsupported Arrow type BinaryView for PostgreSQL COPY"
+            },
+            {
+              "input": "FixedSizeBinary(16)",
+              "output": null,
+              "error": "unsupported Arrow type FixedSizeBinary(16) for PostgreSQL COPY"
+            },
+            {
+              "input": "Date32",
+              "output": "date",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": null,
+              "error": "unsupported Arrow type Date64 for PostgreSQL COPY"
+            },
+            {
+              "input": "Decimal128(18, 4)",
+              "output": null,
+              "error": "unsupported Arrow type Decimal128(18, 4) for PostgreSQL COPY"
+            },
+            {
+              "input": "Decimal128(38, 9)",
+              "output": null,
+              "error": "unsupported Arrow type Decimal128(38, 9) for PostgreSQL COPY"
+            },
+            {
+              "input": "Decimal256(76, 18)",
+              "output": null,
+              "error": "unsupported Arrow type Decimal256(76, 18) for PostgreSQL COPY"
+            },
+            {
+              "input": "List(Field { data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "unsupported Arrow type List(Field { data_type: Int32, nullable: true }) for PostgreSQL COPY"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "output": null,
+              "error": "unsupported Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) for PostgreSQL COPY"
+            },
+            {
+              "input": "Dictionary(Int32, Utf8)",
+              "output": null,
+              "error": "unsupported Arrow type Dictionary(Int32, Utf8) for PostgreSQL COPY"
+            },
+            {
+              "input": "Timestamp(Second, None)",
+              "output": "timestamp",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Second, Some(\"UTC\"))",
+              "output": "timestamp with time zone",
+              "error": null
+            },
+            {
+              "input": "Duration(Second)",
+              "output": null,
+              "error": "unsupported Arrow type Duration(Second) for PostgreSQL COPY"
+            },
+            {
+              "input": "Timestamp(Millisecond, None)",
+              "output": "timestamp",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Millisecond, Some(\"UTC\"))",
+              "output": "timestamp with time zone",
+              "error": null
+            },
+            {
+              "input": "Duration(Millisecond)",
+              "output": null,
+              "error": "unsupported Arrow type Duration(Millisecond) for PostgreSQL COPY"
+            },
+            {
+              "input": "Timestamp(Microsecond, None)",
+              "output": "timestamp",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, Some(\"UTC\"))",
+              "output": "timestamp with time zone",
+              "error": null
+            },
+            {
+              "input": "Duration(Microsecond)",
+              "output": null,
+              "error": "unsupported Arrow type Duration(Microsecond) for PostgreSQL COPY"
+            },
+            {
+              "input": "Timestamp(Nanosecond, None)",
+              "output": "timestamp",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Nanosecond, Some(\"UTC\"))",
+              "output": "timestamp with time zone",
+              "error": null
+            },
+            {
+              "input": "Duration(Nanosecond)",
+              "output": null,
+              "error": "unsupported Arrow type Duration(Nanosecond) for PostgreSQL COPY"
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "PostgresSinkConfig",
@@ -5831,6 +7179,196 @@
       "key": "clickhouse",
       "title": "ClickHouse",
       "source": {
+        "type_mapping": {
+          "context": "Evaluated by ClickHouse discovery with unsupported_types=fail. With explicit to_string, unsupported columns become Utf8. Parameterized types below are concrete examples; nullability and source-type metadata are retained by discovery.",
+          "rows": [
+            {
+              "input": "Bool",
+              "output": "Boolean",
+              "error": null
+            },
+            {
+              "input": "Int8",
+              "output": "Int8",
+              "error": null
+            },
+            {
+              "input": "Int16",
+              "output": "Int16",
+              "error": null
+            },
+            {
+              "input": "Int32",
+              "output": "Int32",
+              "error": null
+            },
+            {
+              "input": "Int64",
+              "output": "Int64",
+              "error": null
+            },
+            {
+              "input": "Int128",
+              "output": null,
+              "error": "cannot decode the source type: ClickHouse type Int128 has no ordinary Arrow source representation. Choose to_string in Advanced options to explicitly convert unsupported columns to text"
+            },
+            {
+              "input": "Int256",
+              "output": null,
+              "error": "cannot decode the source type: ClickHouse type Int256 has no ordinary Arrow source representation. Choose to_string in Advanced options to explicitly convert unsupported columns to text"
+            },
+            {
+              "input": "UInt8",
+              "output": "UInt8",
+              "error": null
+            },
+            {
+              "input": "UInt16",
+              "output": "UInt16",
+              "error": null
+            },
+            {
+              "input": "UInt32",
+              "output": "UInt32",
+              "error": null
+            },
+            {
+              "input": "UInt64",
+              "output": "UInt64",
+              "error": null
+            },
+            {
+              "input": "UInt128",
+              "output": null,
+              "error": "cannot decode the source type: ClickHouse type UInt128 has no ordinary Arrow source representation. Choose to_string in Advanced options to explicitly convert unsupported columns to text"
+            },
+            {
+              "input": "UInt256",
+              "output": null,
+              "error": "cannot decode the source type: ClickHouse type UInt256 has no ordinary Arrow source representation. Choose to_string in Advanced options to explicitly convert unsupported columns to text"
+            },
+            {
+              "input": "Float32",
+              "output": "Float32",
+              "error": null
+            },
+            {
+              "input": "Float64",
+              "output": "Float64",
+              "error": null
+            },
+            {
+              "input": "String",
+              "output": "Binary",
+              "error": null
+            },
+            {
+              "input": "FixedString(16)",
+              "output": "FixedSizeBinary(16)",
+              "error": null
+            },
+            {
+              "input": "UUID",
+              "output": null,
+              "error": "cannot decode the source type: ClickHouse type UUID has no ordinary Arrow source representation. Choose to_string in Advanced options to explicitly convert unsupported columns to text"
+            },
+            {
+              "input": "IPv4",
+              "output": null,
+              "error": "cannot decode the source type: ClickHouse type IPv4 has no ordinary Arrow source representation. Choose to_string in Advanced options to explicitly convert unsupported columns to text"
+            },
+            {
+              "input": "IPv6",
+              "output": null,
+              "error": "cannot decode the source type: ClickHouse type IPv6 has no ordinary Arrow source representation. Choose to_string in Advanced options to explicitly convert unsupported columns to text"
+            },
+            {
+              "input": "Date",
+              "output": "Date32",
+              "error": null
+            },
+            {
+              "input": "Date32",
+              "output": "Date32",
+              "error": null
+            },
+            {
+              "input": "DateTime",
+              "output": "Timestamp(Second, None)",
+              "error": null
+            },
+            {
+              "input": "DateTime('UTC')",
+              "output": "Timestamp(Second, Some(\"UTC\"))",
+              "error": null
+            },
+            {
+              "input": "DateTime64(3)",
+              "output": "Timestamp(Millisecond, None)",
+              "error": null
+            },
+            {
+              "input": "DateTime64(6, 'UTC')",
+              "output": "Timestamp(Microsecond, Some(\"UTC\"))",
+              "error": null
+            },
+            {
+              "input": "DateTime64(9)",
+              "output": "Timestamp(Nanosecond, None)",
+              "error": null
+            },
+            {
+              "input": "Decimal(18, 4)",
+              "output": "Decimal128(18, 4)",
+              "error": null
+            },
+            {
+              "input": "Decimal(38, 9)",
+              "output": "Decimal128(38, 9)",
+              "error": null
+            },
+            {
+              "input": "Decimal(76, 18)",
+              "output": "Decimal256(76, 18)",
+              "error": null
+            },
+            {
+              "input": "Nullable(Int32)",
+              "output": "Int32 · nullable",
+              "error": null
+            },
+            {
+              "input": "LowCardinality(String)",
+              "output": "Dictionary(Int32, Binary)",
+              "error": null
+            },
+            {
+              "input": "Array(Int32)",
+              "output": "List(Field { data_type: Int32 })",
+              "error": null
+            },
+            {
+              "input": "Tuple(id Int32, name String)",
+              "output": "Struct([Field { name: \"id\", data_type: Int32 }, Field { name: \"name\", data_type: Binary }])",
+              "error": null
+            },
+            {
+              "input": "Map(String, Int32)",
+              "output": "Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Binary }, Field { name: \"value\", data_type: Int32 }]) }, false)",
+              "error": null
+            },
+            {
+              "input": "Enum8('a' = 1)",
+              "output": "Dictionary(Int32, Utf8)",
+              "error": null
+            },
+            {
+              "input": "JSON",
+              "output": null,
+              "error": "cannot decode the source type: ClickHouse type JSON has no ordinary Arrow source representation. Choose to_string in Advanced options to explicitly convert unsupported columns to text"
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "ClickHouseSourceConfig",
@@ -6194,6 +7732,211 @@
         "table_preview": true
       },
       "sink": {
+        "type_mapping": {
+          "context": "Evaluated by ClickHouse destination DDL resolver. Non-null columns without LowCardinality or source extensions. Nullable/LowCardinality wrappers and value constraints are validated separately.",
+          "rows": [
+            {
+              "input": "Null",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Null"
+            },
+            {
+              "input": "Boolean",
+              "output": "Bool",
+              "error": null
+            },
+            {
+              "input": "Int8",
+              "output": "Int8",
+              "error": null
+            },
+            {
+              "input": "Int16",
+              "output": "Int16",
+              "error": null
+            },
+            {
+              "input": "Int32",
+              "output": "Int32",
+              "error": null
+            },
+            {
+              "input": "Int64",
+              "output": "Int64",
+              "error": null
+            },
+            {
+              "input": "UInt8",
+              "output": "UInt8",
+              "error": null
+            },
+            {
+              "input": "UInt16",
+              "output": "UInt16",
+              "error": null
+            },
+            {
+              "input": "UInt32",
+              "output": "UInt32",
+              "error": null
+            },
+            {
+              "input": "UInt64",
+              "output": "UInt64",
+              "error": null
+            },
+            {
+              "input": "Float16",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Float16"
+            },
+            {
+              "input": "Float32",
+              "output": "Float32",
+              "error": null
+            },
+            {
+              "input": "Float64",
+              "output": "Float64",
+              "error": null
+            },
+            {
+              "input": "Utf8",
+              "output": "String",
+              "error": null
+            },
+            {
+              "input": "LargeUtf8",
+              "output": "String",
+              "error": null
+            },
+            {
+              "input": "Utf8View",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Utf8View"
+            },
+            {
+              "input": "Binary",
+              "output": "String",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": "String",
+              "error": null
+            },
+            {
+              "input": "BinaryView",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type BinaryView"
+            },
+            {
+              "input": "FixedSizeBinary(16)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type FixedSizeBinary(16)"
+            },
+            {
+              "input": "Date32",
+              "output": "Date32",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": null,
+              "error": "Arrow Date64 is unavailable for ClickHouse without an explicit configured conversion to Timestamp(Millisecond)"
+            },
+            {
+              "input": "Decimal128(18, 4)",
+              "output": "Decimal(18, 4)",
+              "error": null
+            },
+            {
+              "input": "Decimal128(38, 9)",
+              "output": "Decimal(38, 9)",
+              "error": null
+            },
+            {
+              "input": "Decimal256(76, 18)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Decimal256(76, 18)"
+            },
+            {
+              "input": "List(Field { data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type List(Field { data_type: Int32, nullable: true })"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])"
+            },
+            {
+              "input": "Dictionary(Int32, Utf8)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Dictionary(Int32, Utf8)"
+            },
+            {
+              "input": "Timestamp(Second, None)",
+              "output": "DateTime64(0)",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Second, Some(\"UTC\"))",
+              "output": "DateTime64(0, 'UTC')",
+              "error": null
+            },
+            {
+              "input": "Duration(Second)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Duration(Second)"
+            },
+            {
+              "input": "Timestamp(Millisecond, None)",
+              "output": "DateTime64(3)",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Millisecond, Some(\"UTC\"))",
+              "output": "DateTime64(3, 'UTC')",
+              "error": null
+            },
+            {
+              "input": "Duration(Millisecond)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Duration(Millisecond)"
+            },
+            {
+              "input": "Timestamp(Microsecond, None)",
+              "output": "DateTime64(6)",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, Some(\"UTC\"))",
+              "output": "DateTime64(6, 'UTC')",
+              "error": null
+            },
+            {
+              "input": "Duration(Microsecond)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Duration(Microsecond)"
+            },
+            {
+              "input": "Timestamp(Nanosecond, None)",
+              "output": "DateTime64(9)",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Nanosecond, Some(\"UTC\"))",
+              "output": "DateTime64(9, 'UTC')",
+              "error": null
+            },
+            {
+              "input": "Duration(Nanosecond)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Duration(Nanosecond)"
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "ClickHouseSinkConfig",
@@ -6472,6 +8215,10 @@
       "key": "s3",
       "title": "S3",
       "source": {
+        "type_mapping": {
+          "context": "This source exposes bytes. The selected parser determines Arrow columns; there is no native source column conversion.",
+          "rows": []
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "S3SourceConfig",
@@ -7122,6 +8869,211 @@
         "table_preview": false
       },
       "sink": {
+        "type_mapping": {
+          "context": "JSON serializer examples, evaluated by the production serializer. This transport has no native column types. Selecting Avro, Protobuf, Debezium or another format changes the output contract; inspect that format's configuration and schema.",
+          "rows": [
+            {
+              "input": "Null",
+              "output": null,
+              "error": "Arrow type Null has no JSON serializer representation"
+            },
+            {
+              "input": "Boolean",
+              "output": "JSON boolean",
+              "error": null
+            },
+            {
+              "input": "Int8",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Int16",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Int32",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Int64",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "UInt8",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "UInt16",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "UInt32",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "UInt64",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Float16",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Float32",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Float64",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Utf8",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "LargeUtf8",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Utf8View",
+              "output": null,
+              "error": "Arrow type Utf8View has no JSON serializer representation"
+            },
+            {
+              "input": "Binary",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "BinaryView",
+              "output": null,
+              "error": "Arrow type BinaryView has no JSON serializer representation"
+            },
+            {
+              "input": "FixedSizeBinary(16)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Date32",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Decimal128(18, 4)",
+              "output": null,
+              "error": "Arrow type Decimal128(18, 4) has no JSON serializer representation"
+            },
+            {
+              "input": "Decimal128(38, 9)",
+              "output": null,
+              "error": "Arrow type Decimal128(38, 9) has no JSON serializer representation"
+            },
+            {
+              "input": "Decimal256(76, 18)",
+              "output": null,
+              "error": "Arrow type Decimal256(76, 18) has no JSON serializer representation"
+            },
+            {
+              "input": "List(Field { data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "Arrow type List(Field { data_type: Int32, nullable: true }) has no JSON serializer representation"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "output": null,
+              "error": "Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) has no JSON serializer representation"
+            },
+            {
+              "input": "Dictionary(Int32, Utf8)",
+              "output": null,
+              "error": "Arrow type Dictionary(Int32, Utf8) has no JSON serializer representation"
+            },
+            {
+              "input": "Timestamp(Second, None)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Second, Some(\"UTC\"))",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Duration(Second)",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Millisecond, None)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Millisecond, Some(\"UTC\"))",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Duration(Millisecond)",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, None)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, Some(\"UTC\"))",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Duration(Microsecond)",
+              "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Nanosecond, None)",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Nanosecond, Some(\"UTC\"))",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Duration(Nanosecond)",
+              "output": "JSON number",
+              "error": null
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "S3SinkConfig",
@@ -7612,6 +9564,81 @@
       "key": "iceberg",
       "title": "Apache Iceberg",
       "source": {
+        "type_mapping": {
+          "context": "Evaluated by Iceberg discovery using the native Iceberg schema converter. Concrete primitive examples; nested fields and identifier constraints are preserved by discovery.",
+          "rows": [
+            {
+              "input": "boolean",
+              "output": "Boolean",
+              "error": null
+            },
+            {
+              "input": "int",
+              "output": "Int32",
+              "error": null
+            },
+            {
+              "input": "long",
+              "output": "Int64",
+              "error": null
+            },
+            {
+              "input": "float",
+              "output": "Float32",
+              "error": null
+            },
+            {
+              "input": "double",
+              "output": "Float64",
+              "error": null
+            },
+            {
+              "input": "decimal(18,4)",
+              "output": "Decimal128(18, 4)",
+              "error": null
+            },
+            {
+              "input": "date",
+              "output": "Date32",
+              "error": null
+            },
+            {
+              "input": "time",
+              "output": "Time64(Microsecond)",
+              "error": null
+            },
+            {
+              "input": "timestamp",
+              "output": "Timestamp(Microsecond, None)",
+              "error": null
+            },
+            {
+              "input": "timestamptz",
+              "output": "Timestamp(Microsecond, Some(\"+00:00\"))",
+              "error": null
+            },
+            {
+              "input": "string",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "uuid",
+              "output": "FixedSizeBinary(16)",
+              "error": null
+            },
+            {
+              "input": "fixed[16]",
+              "output": "FixedSizeBinary(16)",
+              "error": null
+            },
+            {
+              "input": "binary",
+              "output": "LargeBinary",
+              "error": null
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "IcebergSourceConfig",
@@ -8229,6 +10256,211 @@
         "table_preview": false
       },
       "sink": {
+        "type_mapping": {
+          "context": "Evaluated by the Iceberg destination schema converter. Non-null columns without source extensions; precision, nested schemas and runtime values are validated by the writer.",
+          "rows": [
+            {
+              "input": "Null",
+              "output": null,
+              "error": "DataInvalid => Cannot visit Arrow data type: Null"
+            },
+            {
+              "input": "Boolean",
+              "output": "boolean",
+              "error": null
+            },
+            {
+              "input": "Int8",
+              "output": "int",
+              "error": null
+            },
+            {
+              "input": "Int16",
+              "output": "int",
+              "error": null
+            },
+            {
+              "input": "Int32",
+              "output": "int",
+              "error": null
+            },
+            {
+              "input": "Int64",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "UInt8",
+              "output": "int",
+              "error": null
+            },
+            {
+              "input": "UInt16",
+              "output": "int",
+              "error": null
+            },
+            {
+              "input": "UInt32",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "UInt64",
+              "output": "decimal(20,0)",
+              "error": null
+            },
+            {
+              "input": "Float16",
+              "output": "float",
+              "error": null
+            },
+            {
+              "input": "Float32",
+              "output": "float",
+              "error": null
+            },
+            {
+              "input": "Float64",
+              "output": "double",
+              "error": null
+            },
+            {
+              "input": "Utf8",
+              "output": "string",
+              "error": null
+            },
+            {
+              "input": "LargeUtf8",
+              "output": "string",
+              "error": null
+            },
+            {
+              "input": "Utf8View",
+              "output": "string",
+              "error": null
+            },
+            {
+              "input": "Binary",
+              "output": "binary",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": "binary",
+              "error": null
+            },
+            {
+              "input": "BinaryView",
+              "output": "binary",
+              "error": null
+            },
+            {
+              "input": "FixedSizeBinary(16)",
+              "output": "fixed(16)",
+              "error": null
+            },
+            {
+              "input": "Date32",
+              "output": "date",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Date64"
+            },
+            {
+              "input": "Decimal128(18, 4)",
+              "output": "decimal(18,4)",
+              "error": null
+            },
+            {
+              "input": "Decimal128(38, 9)",
+              "output": "decimal(38,9)",
+              "error": null
+            },
+            {
+              "input": "Decimal256(76, 18)",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Decimal256(76, 18)"
+            },
+            {
+              "input": "List(Field { data_type: Int32, nullable: true })",
+              "output": "list",
+              "error": null
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "output": "struct<string>",
+              "error": null
+            },
+            {
+              "input": "Dictionary(Int32, Utf8)",
+              "output": "string",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Second, None)",
+              "output": "timestamp",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Second, Some(\"UTC\"))",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Timestamp(s, \"UTC\")"
+            },
+            {
+              "input": "Duration(Second)",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Duration(s)"
+            },
+            {
+              "input": "Timestamp(Millisecond, None)",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Timestamp(ms)"
+            },
+            {
+              "input": "Timestamp(Millisecond, Some(\"UTC\"))",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Timestamp(ms, \"UTC\")"
+            },
+            {
+              "input": "Duration(Millisecond)",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Duration(ms)"
+            },
+            {
+              "input": "Timestamp(Microsecond, None)",
+              "output": "timestamp",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, Some(\"UTC\"))",
+              "output": "timestamptz",
+              "error": null
+            },
+            {
+              "input": "Duration(Microsecond)",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Duration(µs)"
+            },
+            {
+              "input": "Timestamp(Nanosecond, None)",
+              "output": "timestamp_ns",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Nanosecond, Some(\"UTC\"))",
+              "output": "timestamptz_ns",
+              "error": null
+            },
+            {
+              "input": "Duration(Nanosecond)",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Duration(ns)"
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "IcebergSinkConfig",
@@ -8839,6 +11071,156 @@
       "key": "ydb",
       "title": "YDB",
       "source": {
+        "type_mapping": {
+          "context": "Evaluated by YDB discovery's primitive resolver. Source extensions are shown after the Arrow type; Optional preserves nullability. Decimal precision/scale are validated separately.",
+          "rows": [
+            {
+              "input": "Bool",
+              "output": "Boolean",
+              "error": null
+            },
+            {
+              "input": "Int8",
+              "output": "Int8",
+              "error": null
+            },
+            {
+              "input": "Uint8",
+              "output": "UInt8",
+              "error": null
+            },
+            {
+              "input": "Int16",
+              "output": "Int16",
+              "error": null
+            },
+            {
+              "input": "Uint16",
+              "output": "UInt16",
+              "error": null
+            },
+            {
+              "input": "Int32",
+              "output": "Int32",
+              "error": null
+            },
+            {
+              "input": "Uint32",
+              "output": "UInt32",
+              "error": null
+            },
+            {
+              "input": "Int64",
+              "output": "Int64",
+              "error": null
+            },
+            {
+              "input": "Uint64",
+              "output": "UInt64",
+              "error": null
+            },
+            {
+              "input": "Float",
+              "output": "Float32",
+              "error": null
+            },
+            {
+              "input": "Double",
+              "output": "Float64",
+              "error": null
+            },
+            {
+              "input": "Date",
+              "output": "Date32",
+              "error": null
+            },
+            {
+              "input": "Date32",
+              "output": "Date32",
+              "error": null
+            },
+            {
+              "input": "Datetime",
+              "output": "Timestamp(Second, None)",
+              "error": null
+            },
+            {
+              "input": "Datetime64",
+              "output": "Timestamp(Second, None)",
+              "error": null
+            },
+            {
+              "input": "Timestamp",
+              "output": "Timestamp(Microsecond, None)",
+              "error": null
+            },
+            {
+              "input": "Timestamp64",
+              "output": "Timestamp(Microsecond, None)",
+              "error": null
+            },
+            {
+              "input": "Interval",
+              "output": "Duration(Microsecond)",
+              "error": null
+            },
+            {
+              "input": "Interval64",
+              "output": "Duration(Microsecond)",
+              "error": null
+            },
+            {
+              "input": "String",
+              "output": "Binary",
+              "error": null
+            },
+            {
+              "input": "Utf8",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "Yson",
+              "output": "Binary · transferia.ydb.yson",
+              "error": null
+            },
+            {
+              "input": "Json",
+              "output": "Utf8 · arrow.json",
+              "error": null
+            },
+            {
+              "input": "JsonDocument",
+              "output": "Utf8 · arrow.json",
+              "error": null
+            },
+            {
+              "input": "Dynumber",
+              "output": "Utf8 · transferia.ydb.dynumber",
+              "error": null
+            },
+            {
+              "input": "Uuid",
+              "output": "FixedSizeBinary(16) · arrow.uuid",
+              "error": null
+            },
+            {
+              "input": "TzDate",
+              "output": "Utf8 · transferia.ydb.tz_date",
+              "error": null
+            },
+            {
+              "input": "TzDatetime",
+              "output": "Utf8 · transferia.ydb.tz_datetime",
+              "error": null
+            },
+            {
+              "input": "TzTimestamp",
+              "output": "Utf8 · transferia.ydb.tz_timestamp",
+              "error": null
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "YdbSourceConfig",
@@ -9187,6 +11569,211 @@
         "table_preview": false
       },
       "sink": {
+        "type_mapping": {
+          "context": "Evaluated by YDB's YQL type resolver. Non-null columns without extensions. YDB extensions, optionality and primary-key constraints are validated separately.",
+          "rows": [
+            {
+              "input": "Null",
+              "output": null,
+              "error": "unsupported Arrow type Null with extension None for YDB sink"
+            },
+            {
+              "input": "Boolean",
+              "output": "Bool",
+              "error": null
+            },
+            {
+              "input": "Int8",
+              "output": "Int8",
+              "error": null
+            },
+            {
+              "input": "Int16",
+              "output": "Int16",
+              "error": null
+            },
+            {
+              "input": "Int32",
+              "output": "Int32",
+              "error": null
+            },
+            {
+              "input": "Int64",
+              "output": "Int64",
+              "error": null
+            },
+            {
+              "input": "UInt8",
+              "output": "Uint8",
+              "error": null
+            },
+            {
+              "input": "UInt16",
+              "output": "Uint16",
+              "error": null
+            },
+            {
+              "input": "UInt32",
+              "output": "Uint32",
+              "error": null
+            },
+            {
+              "input": "UInt64",
+              "output": "Uint64",
+              "error": null
+            },
+            {
+              "input": "Float16",
+              "output": null,
+              "error": "unsupported Arrow type Float16 with extension None for YDB sink"
+            },
+            {
+              "input": "Float32",
+              "output": "Float",
+              "error": null
+            },
+            {
+              "input": "Float64",
+              "output": "Double",
+              "error": null
+            },
+            {
+              "input": "Utf8",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "LargeUtf8",
+              "output": null,
+              "error": "unsupported Arrow type LargeUtf8 with extension None for YDB sink"
+            },
+            {
+              "input": "Utf8View",
+              "output": null,
+              "error": "unsupported Arrow type Utf8View with extension None for YDB sink"
+            },
+            {
+              "input": "Binary",
+              "output": "String",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": null,
+              "error": "unsupported Arrow type LargeBinary with extension None for YDB sink"
+            },
+            {
+              "input": "BinaryView",
+              "output": null,
+              "error": "unsupported Arrow type BinaryView with extension None for YDB sink"
+            },
+            {
+              "input": "FixedSizeBinary(16)",
+              "output": null,
+              "error": "unsupported Arrow type FixedSizeBinary(16) with extension None for YDB sink"
+            },
+            {
+              "input": "Date32",
+              "output": "Date32",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": null,
+              "error": "unsupported Arrow type Date64 with extension None for YDB sink"
+            },
+            {
+              "input": "Decimal128(18, 4)",
+              "output": "Decimal(18, 4)",
+              "error": null
+            },
+            {
+              "input": "Decimal128(38, 9)",
+              "output": null,
+              "error": "unsupported Arrow type Decimal128(38, 9) with extension None for YDB sink"
+            },
+            {
+              "input": "Decimal256(76, 18)",
+              "output": null,
+              "error": "unsupported Arrow type Decimal256(76, 18) with extension None for YDB sink"
+            },
+            {
+              "input": "List(Field { data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "unsupported Arrow type List(Field { data_type: Int32, nullable: true }) with extension None for YDB sink"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "output": null,
+              "error": "unsupported Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) with extension None for YDB sink"
+            },
+            {
+              "input": "Dictionary(Int32, Utf8)",
+              "output": null,
+              "error": "unsupported Arrow type Dictionary(Int32, Utf8) with extension None for YDB sink"
+            },
+            {
+              "input": "Timestamp(Second, None)",
+              "output": "Datetime64",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Second, Some(\"UTC\"))",
+              "output": null,
+              "error": "unsupported Arrow type Timestamp(Second, Some(\"UTC\")) with extension None for YDB sink"
+            },
+            {
+              "input": "Duration(Second)",
+              "output": null,
+              "error": "unsupported Arrow type Duration(Second) with extension None for YDB sink"
+            },
+            {
+              "input": "Timestamp(Millisecond, None)",
+              "output": null,
+              "error": "unsupported Arrow type Timestamp(Millisecond, None) with extension None for YDB sink"
+            },
+            {
+              "input": "Timestamp(Millisecond, Some(\"UTC\"))",
+              "output": null,
+              "error": "unsupported Arrow type Timestamp(Millisecond, Some(\"UTC\")) with extension None for YDB sink"
+            },
+            {
+              "input": "Duration(Millisecond)",
+              "output": null,
+              "error": "unsupported Arrow type Duration(Millisecond) with extension None for YDB sink"
+            },
+            {
+              "input": "Timestamp(Microsecond, None)",
+              "output": "Timestamp64",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, Some(\"UTC\"))",
+              "output": null,
+              "error": "unsupported Arrow type Timestamp(Microsecond, Some(\"UTC\")) with extension None for YDB sink"
+            },
+            {
+              "input": "Duration(Microsecond)",
+              "output": "Interval64",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Nanosecond, None)",
+              "output": null,
+              "error": "unsupported Arrow type Timestamp(Nanosecond, None) with extension None for YDB sink"
+            },
+            {
+              "input": "Timestamp(Nanosecond, Some(\"UTC\"))",
+              "output": null,
+              "error": "unsupported Arrow type Timestamp(Nanosecond, Some(\"UTC\")) with extension None for YDB sink"
+            },
+            {
+              "input": "Duration(Nanosecond)",
+              "output": null,
+              "error": "unsupported Arrow type Duration(Nanosecond) with extension None for YDB sink"
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "YdbSinkConfig",
@@ -9394,6 +11981,101 @@
       "key": "ytsaurus",
       "title": "YTsaurus",
       "source": {
+        "type_mapping": {
+          "context": "Evaluated by the YTsaurus primitive schema resolver. Complex type_v3 declarations are not implied by these primitive examples.",
+          "rows": [
+            {
+              "input": "int8",
+              "output": "Int8",
+              "error": null
+            },
+            {
+              "input": "int16",
+              "output": "Int16",
+              "error": null
+            },
+            {
+              "input": "int32",
+              "output": "Int32",
+              "error": null
+            },
+            {
+              "input": "int64",
+              "output": "Int64",
+              "error": null
+            },
+            {
+              "input": "uint8",
+              "output": "UInt8",
+              "error": null
+            },
+            {
+              "input": "uint16",
+              "output": "UInt16",
+              "error": null
+            },
+            {
+              "input": "uint32",
+              "output": "UInt32",
+              "error": null
+            },
+            {
+              "input": "uint64",
+              "output": "UInt64",
+              "error": null
+            },
+            {
+              "input": "float",
+              "output": "Float32",
+              "error": null
+            },
+            {
+              "input": "double",
+              "output": "Float64",
+              "error": null
+            },
+            {
+              "input": "boolean",
+              "output": "Boolean",
+              "error": null
+            },
+            {
+              "input": "string",
+              "output": "Binary",
+              "error": null
+            },
+            {
+              "input": "utf8",
+              "output": "Utf8",
+              "error": null
+            },
+            {
+              "input": "date",
+              "output": "Date32",
+              "error": null
+            },
+            {
+              "input": "datetime",
+              "output": "Date64",
+              "error": null
+            },
+            {
+              "input": "timestamp",
+              "output": "Timestamp(Microsecond, None)",
+              "error": null
+            },
+            {
+              "input": "interval",
+              "output": "Int64",
+              "error": null
+            },
+            {
+              "input": "any",
+              "output": null,
+              "error": "unsupported YTsaurus primitive type 'any'"
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "YTsaurusSourceConfig",
@@ -9947,6 +12629,211 @@
         "table_preview": false
       },
       "sink": {
+        "type_mapping": {
+          "context": "Evaluated by the YTsaurus destination schema resolver. Non-null primitive columns; key/value validation is separate.",
+          "rows": [
+            {
+              "input": "Null",
+              "output": null,
+              "error": "Arrow type Null is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Boolean",
+              "output": "boolean",
+              "error": null
+            },
+            {
+              "input": "Int8",
+              "output": "int8",
+              "error": null
+            },
+            {
+              "input": "Int16",
+              "output": "int16",
+              "error": null
+            },
+            {
+              "input": "Int32",
+              "output": "int32",
+              "error": null
+            },
+            {
+              "input": "Int64",
+              "output": "int64",
+              "error": null
+            },
+            {
+              "input": "UInt8",
+              "output": "uint8",
+              "error": null
+            },
+            {
+              "input": "UInt16",
+              "output": "uint16",
+              "error": null
+            },
+            {
+              "input": "UInt32",
+              "output": "uint32",
+              "error": null
+            },
+            {
+              "input": "UInt64",
+              "output": "uint64",
+              "error": null
+            },
+            {
+              "input": "Float16",
+              "output": null,
+              "error": "Arrow type Float16 is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Float32",
+              "output": "float",
+              "error": null
+            },
+            {
+              "input": "Float64",
+              "output": "double",
+              "error": null
+            },
+            {
+              "input": "Utf8",
+              "output": "utf8",
+              "error": null
+            },
+            {
+              "input": "LargeUtf8",
+              "output": "utf8",
+              "error": null
+            },
+            {
+              "input": "Utf8View",
+              "output": null,
+              "error": "Arrow type Utf8View is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Binary",
+              "output": "string",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": "string",
+              "error": null
+            },
+            {
+              "input": "BinaryView",
+              "output": null,
+              "error": "Arrow type BinaryView is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "FixedSizeBinary(16)",
+              "output": null,
+              "error": "Arrow type FixedSizeBinary(16) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Date32",
+              "output": "date",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": "datetime",
+              "error": null
+            },
+            {
+              "input": "Decimal128(18, 4)",
+              "output": null,
+              "error": "Arrow type Decimal128(18, 4) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Decimal128(38, 9)",
+              "output": null,
+              "error": "Arrow type Decimal128(38, 9) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Decimal256(76, 18)",
+              "output": null,
+              "error": "Arrow type Decimal256(76, 18) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "List(Field { data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "Arrow type List(Field { data_type: Int32, nullable: true }) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "output": null,
+              "error": "Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Dictionary(Int32, Utf8)",
+              "output": null,
+              "error": "Arrow type Dictionary(Int32, Utf8) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Timestamp(Second, None)",
+              "output": "timestamp",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Second, Some(\"UTC\"))",
+              "output": null,
+              "error": "Arrow type Timestamp(Second, Some(\"UTC\")) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Duration(Second)",
+              "output": null,
+              "error": "Arrow type Duration(Second) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Timestamp(Millisecond, None)",
+              "output": null,
+              "error": "Arrow type Timestamp(Millisecond, None) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Timestamp(Millisecond, Some(\"UTC\"))",
+              "output": null,
+              "error": "Arrow type Timestamp(Millisecond, Some(\"UTC\")) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Duration(Millisecond)",
+              "output": null,
+              "error": "Arrow type Duration(Millisecond) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Timestamp(Microsecond, None)",
+              "output": "timestamp",
+              "error": null
+            },
+            {
+              "input": "Timestamp(Microsecond, Some(\"UTC\"))",
+              "output": null,
+              "error": "Arrow type Timestamp(Microsecond, Some(\"UTC\")) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Duration(Microsecond)",
+              "output": null,
+              "error": "Arrow type Duration(Microsecond) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Timestamp(Nanosecond, None)",
+              "output": null,
+              "error": "Arrow type Timestamp(Nanosecond, None) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Timestamp(Nanosecond, Some(\"UTC\"))",
+              "output": null,
+              "error": "Arrow type Timestamp(Nanosecond, Some(\"UTC\")) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Duration(Nanosecond)",
+              "output": null,
+              "error": "Arrow type Duration(Nanosecond) is not supported by YTsaurus static tables"
+            }
+          ]
+        },
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "YTsaurusSinkConfig",

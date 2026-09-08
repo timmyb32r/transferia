@@ -5,6 +5,10 @@ mod connector;
 mod document;
 mod mapping;
 
+pub(crate) fn type_mapping() -> transferia_registry::type_mapping::TypeMapping {
+    transferia_registry::type_mapping::destination_mapping("Evaluated by the OpenSearch destination mapping resolver. Plain columns without source extensions; document identity, routing and runtime values are validated separately.", mapping::destination_type)
+}
+
 pub use config::{OpenSearchSinkConfig, RoutedIdentity};
 pub use connector::OpenSearchSinkConnector;
 

@@ -6,6 +6,12 @@ mod src_stream;
 mod transport;
 mod types;
 
+pub(crate) use types::source_type_mapping;
+
+pub(crate) fn sink_type_mapping() -> transferia_registry::type_mapping::TypeMapping {
+    transferia_registry::type_mapping::destination_mapping("Evaluated by YDB's YQL type resolver. Non-null columns without extensions. YDB extensions, optionality and primary-key constraints are validated separately.", sink::yql_type)
+}
+
 pub use config::{
     YdbAuth, YdbConnectionCheckConfig, YdbConnectionConfig, YdbSinkConfig, YdbSourceConfig,
     YdbTableConfig,

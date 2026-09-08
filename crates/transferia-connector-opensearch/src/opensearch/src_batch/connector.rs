@@ -323,7 +323,7 @@ impl SourceConnector for OpenSearchSourceConnector {
     }
 }
 
-fn document_schema() -> DatasetSchema {
+pub(super) fn document_schema() -> DatasetSchema {
     DatasetSchema::new(vec![
         SchemaColumn::new("_id".to_owned(), DataType::Utf8, false).with_constraints(
             true,

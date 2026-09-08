@@ -775,6 +775,7 @@ pub fn fixture() -> anyhow::Result<Value> {
             title: "ClickHouse",
             source: None,
             sink: Some(transferia_registry::EndpointDefinition {
+                type_mapping: None,
                 schema: serde_json::json!({ "type": "object" }),
                 initial: serde_json::json!({}),
                 delivery_modes: vec![

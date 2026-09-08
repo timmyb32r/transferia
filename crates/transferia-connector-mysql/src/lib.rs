@@ -53,6 +53,7 @@ pub fn register(
                 },
             )?
             .source_tuning_parameters(mysql_source_tuning_parameters())?
+            .source_type_mapping(mysql::src_batch::type_mapping())
             .source_record_semantics(vec![
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,
@@ -69,6 +70,7 @@ pub fn register(
                 |config| Ok(Box::new(mysql::MySqlSinkConnector::from_config(config)?)),
             )?
             .sink_tuning_parameters(mysql_sink_tuning_parameters())?
+            .sink_type_mapping(mysql::sink::type_mapping())
             .sink_record_semantics(vec![
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,

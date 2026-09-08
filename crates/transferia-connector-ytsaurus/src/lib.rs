@@ -56,6 +56,7 @@ pub fn register(
                 },
             )?
             .source_tuning_parameters(ytsaurus_source_tuning_parameters())?
+            .source_type_mapping(ytsaurus::source_type_mapping())
             .source_checker::<ytsaurus::YTsaurusSourceConfig, _, _>(check_source_connection)
             .sink_draft::<ytsaurus::YTsaurusSinkConfig, _, _>(
                 || {
@@ -85,6 +86,7 @@ pub fn register(
                 },
             )?
             .sink_tuning_parameters(ytsaurus_sink_tuning_parameters())?
+            .sink_type_mapping(ytsaurus::sink_type_mapping())
             .sink_record_semantics(vec![
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,

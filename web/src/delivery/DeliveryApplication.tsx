@@ -9,6 +9,7 @@ import {
 } from "preact/hooks";
 
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
+import { AboutProvider } from "../ui/CompatibilityMatrixDialog";
 import { DeliveryConfiguration } from "./DeliveryConfiguration";
 import { tableConnectionIdentity } from "./useEndpointActions";
 import { SourceMetadataContext, useSourceMetadata } from "./sourceMetadata";
@@ -695,7 +696,7 @@ export function DeliveryApplication() {
   );
 
   return (
-    <SourceMetadataContext.Provider value={sourceMetadata}><div class="shell">
+    <AboutProvider catalog={catalog}><SourceMetadataContext.Provider value={sourceMetadata}><div class="shell">
       <DeliverySidebar
         deliveries={deliveries}
         selectedId={editor.id}
@@ -852,6 +853,6 @@ export function DeliveryApplication() {
           />
         )}
       </main>
-    </div></SourceMetadataContext.Provider>
+    </div></SourceMetadataContext.Provider></AboutProvider>
   );
 }

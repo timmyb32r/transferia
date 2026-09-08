@@ -113,6 +113,8 @@ pub fn register_with_parsers(
             .sink_record_semantics(
                 serializer::SerializerConfig::SUPPORTED_RECORD_SEMANTICS.to_vec(),
             )?
+            .source_type_mapping(transferia_registry::type_mapping::TypeMapping { context: "This source exposes bytes. The selected parser determines Arrow columns; there is no native source column conversion.".to_owned(), rows: Vec::new() })
+            .sink_type_mapping(serializer::json_type_mapping())
             .sink_checker::<kafka::KafkaSinkConfig, _, _>(|config| async move {
                 kafka::check_sink_connection(&config).await?;
                 Ok(transferia_registry::ConnectionCheckResult::default())

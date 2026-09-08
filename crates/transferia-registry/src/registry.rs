@@ -196,6 +196,20 @@ impl MiddlewareRegistration {
 }
 
 impl ComponentRegistration {
+    /// Publishes examples evaluated by the connector's production type resolver.
+    pub fn source_type_mapping(mut self, mapping: crate::type_mapping::TypeMapping) -> Self {
+        if let Some((definition, _)) = self.source.as_mut() {
+            definition.type_mapping = Some(mapping);
+        }
+        self
+    }
+
+    pub fn sink_type_mapping(mut self, mapping: crate::type_mapping::TypeMapping) -> Self {
+        if let Some((definition, _)) = self.sink.as_mut() {
+            definition.type_mapping = Some(mapping);
+        }
+        self
+    }
     #[must_use]
     pub fn new(key: &'static str, title: &'static str) -> Self {
         Self {
@@ -924,6 +938,7 @@ fn endpoint_definition<C: JsonSchema>(
     let schema = serde_json::to_value(schema_for!(C))?;
     validate_ui_dialect(&schema)?;
     Ok(EndpointDefinition {
+        type_mapping: None,
         schema,
         initial,
         delivery_modes,

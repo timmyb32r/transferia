@@ -7,6 +7,7 @@ import { AppearanceSettings } from "../src/ui/AppearanceSettings";
 import {
   catalogCapabilityGroups,
   CompatibilityMatrixLauncher,
+  AboutProvider,
   CompatibilityMatrixDialog,
   compatibilityRoutes,
 } from "../src/ui/CompatibilityMatrixDialog";
@@ -372,10 +373,10 @@ describe("appearance preferences", () => {
       },
     };
     const view = render(
-      <CompatibilityMatrixLauncher catalog={catalog} />,
+      <AboutProvider catalog={catalog}><CompatibilityMatrixLauncher /></AboutProvider>,
     );
     const launcher = view.getByRole("button", {
-      name: "Matrix",
+      name: "About",
     });
     const previousBodyPadding = document.body.style.paddingRight;
     const previousRootOverflow = document.documentElement.style.overflow;
@@ -385,7 +386,7 @@ describe("appearance preferences", () => {
     fireEvent.click(launcher);
 
     const dialog = view.getByRole("dialog", {
-      name: "Matrix",
+      name: "About",
     });
     expect(dialog).toBeTruthy();
     expect(dialog.parentElement?.parentElement).toBe(document.body);
@@ -469,7 +470,7 @@ describe("appearance preferences", () => {
     ).toContain("S3");
     fireEvent.click(view.getByRole("tab", { name: "Matrix" }));
     expect(document.activeElement).toBe(
-      view.getByRole("button", { name: "Close compatibility matrix" }),
+      view.getByRole("button", { name: "Close About" }),
     );
     expect(
       view

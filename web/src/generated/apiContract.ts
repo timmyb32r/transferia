@@ -163,6 +163,7 @@ export type EndpointDefinition = {
   record_semantics: Array<RecordSemantics>;
   schema: JsonSchema;
   table_preview: boolean;
+  type_mapping?: TypeMapping;
 };
 
 export type EndpointRole = "source" | "sink";
@@ -550,6 +551,17 @@ export type TransformPreviewSource = {
 export type TransformPreviewTable = {
   name: string;
   namespace?: string | null;
+};
+
+export type TypeMapping = {
+  context: string;
+  rows: Array<TypeMappingRow>;
+};
+
+export type TypeMappingRow = {
+  error?: string | null;
+  input: string;
+  output?: string | null;
 };
 
 export type UiCatalog = {

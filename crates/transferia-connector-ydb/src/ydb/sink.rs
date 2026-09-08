@@ -1237,7 +1237,7 @@ fn quote_identifier(value: &str) -> String {
     format!("`{}`", value.replace('`', "``"))
 }
 
-fn yql_type(column: &SchemaColumn) -> anyhow::Result<String> {
+pub(super) fn yql_type(column: &SchemaColumn) -> anyhow::Result<String> {
     Ok(match column_kind(column)? {
         ColumnKind::Bool => "Bool".to_owned(),
         ColumnKind::Int8 => "Int8".to_owned(),

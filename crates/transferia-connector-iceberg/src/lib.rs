@@ -40,6 +40,7 @@ pub fn register(
                 },
             )?
             .source_tuning_parameters(iceberg_source_tuning_parameters())?
+            .source_type_mapping(iceberg::source_type_mapping())
             .source_checker::<IcebergSourceConfig, _, _>(|config| async move {
                 check_source_connection(&config).await?;
                 Ok(transferia_registry::ConnectionCheckResult::default())
@@ -57,6 +58,7 @@ pub fn register(
                 |config| Ok(Box::new(IcebergSinkConnector::from_config(config)?)),
             )?
             .sink_tuning_parameters(iceberg_sink_tuning_parameters())?
+            .sink_type_mapping(iceberg::sink_type_mapping())
             .sink_record_semantics(vec![
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,

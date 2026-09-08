@@ -23,6 +23,9 @@ pub enum DeliveryMode {
     reason = "Endpoint capabilities are independent flags, not mutually exclusive states"
 )]
 pub struct EndpointDefinition {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
+    pub type_mapping: Option<crate::type_mapping::TypeMapping>,
     #[schemars(
         with = "BTreeMap<String, JsonValue>",
         extend("x-typescript-type" = "JsonSchema")

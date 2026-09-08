@@ -49,6 +49,7 @@ pub fn register(
                 },
             )?
             .source_tuning_parameters(postgres_source_tuning_parameters())?
+            .source_type_mapping(postgres::source_type_mapping())
             .source_record_semantics(vec![
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,
@@ -74,6 +75,7 @@ pub fn register(
                 },
             )?
             .sink_tuning_parameters(postgres_sink_tuning_parameters())?
+            .sink_type_mapping(postgres::sink::type_mapping())
             .sink_record_semantics(vec![
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,

@@ -2,6 +2,13 @@ mod config;
 mod connector;
 mod source;
 
+pub(crate) fn type_mapping() -> transferia_registry::type_mapping::TypeMapping {
+    use transferia_registry::type_mapping::{TypeMapping, TypeMappingRow};
+    TypeMapping { context: "OpenSearch preserves a document envelope, not individual index-property types. _source contains the complete JSON document. These rows come from the production document schema.".to_owned(),
+        rows: connector::document_schema().columns.into_iter().map(|c| TypeMappingRow::evaluate(c.name,
+            Ok(format!("{:?}{}{}", c.data_type, if c.nullable { " · nullable" } else { "" }, c.arrow_extension_name.map_or(String::new(), |e| format!(" · {e}")))))).collect() }
+}
+
 pub use config::{IndexConfig, OpenSearchSourceConfig};
 pub use connector::OpenSearchSourceConnector;
 

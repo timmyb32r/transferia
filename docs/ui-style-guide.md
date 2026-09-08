@@ -64,6 +64,17 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
 
 ## Component rules
 
+- About replaces the sidebar Matrix launcher and retains Matrix, Entities and
+  Properties. Source types / Destination types use variant A: a searchable
+  connector rail on the left and a fixed-size mapping viewport on the right.
+  Quiet Type mapping links in endpoint headers open the relevant role/connector.
+  Mapping rows are offline examples evaluated by production Rust resolvers,
+  never a separately authored output table. Keep concrete parameters, rejection
+  reasons and configuration/extension caveats visible; examples are not an
+  exhaustive support guarantee. Parser-defined sources explicitly say so.
+  Filtering and connector selection keep search/action geometry stable;
+  `npm run test:about-layout` covers this with the real catalog in a browser.
+
 - Secondary actions in every form use a **white surface, teal text/icons and a
   visible teal outline** in airy-light. Hover adds the existing soft teal tint;
   press and focus keep their immediate shared feedback without changing geometry.

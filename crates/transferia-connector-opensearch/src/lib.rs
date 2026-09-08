@@ -35,6 +35,7 @@ pub fn register(
                 },
             )?
             .source_tuning_parameters(opensearch_source_tuning_parameters())?
+            .source_type_mapping(opensearch::src_batch::type_mapping())
             .source_checker::<opensearch::OpenSearchConnectionCheckConfig, _, _>(
                 check_opensearch_connection,
             )
@@ -47,6 +48,7 @@ pub fn register(
                 },
             )?
             .sink_tuning_parameters(opensearch_sink_tuning_parameters())?
+            .sink_type_mapping(opensearch::sink::type_mapping())
             .sink_record_semantics(vec![RecordSemantics::AppendOnly])?
             .sink_checker::<opensearch::OpenSearchConnectionCheckConfig, _, _>(
                 check_opensearch_connection,

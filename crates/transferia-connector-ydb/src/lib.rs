@@ -60,6 +60,8 @@ pub fn register(
                 RecordSemantics::AppendOnly,
                 RecordSemantics::Changelog,
             ])?
+            .source_type_mapping(ydb::source_type_mapping())
+            .sink_type_mapping(ydb::sink_type_mapping())
             .source_checker::<ydb::YdbConnectionCheckConfig, _, _>(|config| async move {
                 if config.credentials_complete() {
                     ydb::check_connection(&config.connection()).await?;

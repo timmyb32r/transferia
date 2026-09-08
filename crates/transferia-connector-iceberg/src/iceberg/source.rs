@@ -37,6 +37,21 @@ pub struct IcebergSourceConnector {
     counters: Mutex<HashMap<i64, Arc<SourceCounters>>>,
 }
 
+pub(crate) fn type_mapping() -> transferia_registry::type_mapping::TypeMapping {
+    use transferia_registry::type_mapping::{TypeMapping, TypeMappingRow};
+    TypeMapping { context: "Evaluated by Iceberg discovery using the native Iceberg schema converter. Concrete primitive examples; nested fields and identifier constraints are preserved by discovery.".to_owned(),
+        rows: ["boolean", "int", "long", "float", "double", "decimal(18,4)", "date", "time", "timestamp", "timestamptz", "string", "uuid", "fixed[16]", "binary"]
+            .into_iter().map(|t| {
+                let result = (|| -> anyhow::Result<String> {
+                    let native: iceberg::spec::Schema = serde_json::from_value(serde_json::json!({"type": "struct", "schema-id": 0, "fields": [{"id": 1, "name": "value", "required": true, "type": t}]}))?;
+                    let arrow = iceberg::arrow::schema_to_arrow_schema(&native)?;
+                    let schema = dataset_schema(&arrow, &native);
+                    Ok(format!("{:?}", schema.columns[0].data_type))
+                })();
+                TypeMappingRow::evaluate(t, result)
+            }).collect() }
+}
+
 pub async fn check_connection(config: &IcebergSourceConfig) -> anyhow::Result<()> {
     config.validate()?;
     let catalog = build_catalog(&config.catalog, &config.storage).await?;

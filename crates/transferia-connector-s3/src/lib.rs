@@ -67,6 +67,8 @@ pub fn register(
                 |config| Ok(Box::new(s3::sink::S3SinkConnector::from_config(config)?)),
             )?
             .sink_tuning_parameters(s3_sink_tuning_parameters())?
+            .source_type_mapping(transferia_registry::type_mapping::TypeMapping { context: "This source exposes bytes. The selected parser determines Arrow columns; there is no native source column conversion.".to_owned(), rows: Vec::new() })
+            .sink_type_mapping(serializer::json_type_mapping())
             .sink_checker::<s3::sink::S3SinkConfig, _, _>(|config| async move {
                 config.check_connection().await?;
                 Ok(transferia_registry::ConnectionCheckResult::default())

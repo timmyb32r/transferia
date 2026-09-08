@@ -4468,6 +4468,55 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   min-height: 42px;
   padding: 6px 22px;
   border-bottom: 1px solid var(--line-inner);
+  overflow-x: auto;
+}
+
+.endpoint-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+}
+.endpoint-heading h2 { margin: 0; }
+.type-mapping-link { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.type-mapping-link:hover { color: var(--blue); }
+.type-mapping-browser {
+  display: grid;
+  grid-template-columns: minmax(150px, 230px) minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+.type-mapping-connectors {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 18px;
+  border-right: 1px solid var(--line);
+  background: var(--panel2);
+}
+.type-mapping-connectors input, .type-mapping-detail > input { width: 100%; min-width: 0; }
+.type-mapping-connector-list { overflow-y: auto; scrollbar-gutter: stable; }
+.type-mapping-connector-list button { display: block; width: 100%; text-align: left; min-height: 38px; }
+.type-mapping-connector-list button[aria-pressed="true"] { background: var(--surface-selected); color: var(--blue); }
+.type-mapping-detail { display: grid; grid-template-rows: 48px 100px auto minmax(0, 1fr); gap: 12px; padding: 18px 24px; min-height: 0; min-width: 0; }
+.type-mapping-heading { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; justify-content: space-between; }
+.type-mapping-heading h3 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.type-mapping-heading small { color: var(--muted); }
+.type-mapping-context { margin: 0; color: var(--muted); overflow-y: auto; scrollbar-gutter: stable; font-size: 13px; }
+.type-mapping-table-scroll { overflow: auto; scrollbar-gutter: stable; min-height: 0; border: 1px solid var(--line); border-radius: var(--radius-control); }
+.type-mapping-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.type-mapping-table th, .type-mapping-table td { padding: 12px; text-align: left; vertical-align: top; overflow-wrap: anywhere; border-bottom: 1px solid var(--line); }
+.type-mapping-table thead th { position: sticky; top: 0; background: var(--panel2); }
+.type-mapping-table tbody th { font-weight: normal; }
+.type-mapping-table tr:nth-child(even) { background: var(--surface-soft); }
+.type-mapping-rejected { color: var(--warning-text); }
+.type-mapping-empty { padding: 16px; color: var(--muted); }
+@media (max-width: 650px) {
+  .type-mapping-browser { grid-template-columns: 145px minmax(0, 1fr); }
+  .type-mapping-connectors, .type-mapping-detail { padding: 10px; }
+  .type-mapping-detail { grid-template-rows: 48px 120px auto minmax(0, 1fr); }
 }
 
 .compatibility-tabs button {

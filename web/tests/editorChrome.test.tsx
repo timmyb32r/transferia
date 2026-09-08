@@ -640,12 +640,12 @@ describe("editor chrome", () => {
       sidebarButtons.indexOf(view.getByRole("button", { name: "Data widget" })),
     ).toBeLessThan(
       sidebarButtons.indexOf(
-        view.getByRole("button", { name: "Matrix" }),
+        view.getByRole("button", { name: "About" }),
       ),
     );
     expect(
       sidebarButtons.indexOf(
-        view.getByRole("button", { name: "Matrix" }),
+        view.getByRole("button", { name: "About" }),
       ),
     ).toBeLessThan(
       sidebarButtons.indexOf(view.getByRole("button", { name: /Settings/ })),
@@ -671,7 +671,7 @@ describe("editor chrome", () => {
     const unavailable = view.getByRole("button", {
       name: "Data widget",
     }) as HTMLButtonElement;
-    const matrix = view.getByRole("button", { name: "Matrix" });
+    const matrix = view.getByRole("button", { name: "About" });
     const settings = view.getByRole("button", { name: /Settings/ });
     expect(unavailable.disabled).toBe(true);
     expect(unavailable.classList).not.toContain("data-widget-ready");
@@ -684,7 +684,7 @@ describe("editor chrome", () => {
     expect(available.disabled).toBe(false);
     expect(available.classList).toContain("primary");
     expect(available.classList).toContain("data-widget-ready");
-    expect(view.getByRole("button", { name: "Matrix" })).toBe(
+    expect(view.getByRole("button", { name: "About" })).toBe(
       matrix,
     );
     expect(view.getByRole("button", { name: /Settings/ })).toBe(settings);
