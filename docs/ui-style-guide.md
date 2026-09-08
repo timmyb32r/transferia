@@ -67,7 +67,14 @@ Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
 - About replaces the sidebar Matrix launcher and retains Matrix, Entities and
   Properties. Source types / Destination types use variant A: a searchable
   connector rail on the left and a fixed-size mapping viewport on the right.
-  Quiet Type mapping links in endpoint headers open the relevant role/connector.
+  Type mappings are accessible only from About, not endpoint headers.
+  The matching-mode footer appears only in Matrix. Type tabs have no summary
+  banner or footer; their table fills the remaining height below a compact
+  heading and search. General caveats and connector-specific context live in
+  the heading's native-title help tooltip, with an accessible hidden description.
+  Kafka, Logbroker and S3 show parser/serializer explanations instead of tables
+  and type search. Data generator explains preset-defined synthetic Arrow data;
+  Discard explains that it drops benchmark data without creating a schema.
   Mapping rows are offline examples evaluated by production Rust resolvers,
   never a separately authored output table. Keep concrete parameters, rejection
   reasons and configuration/extension caveats visible; examples are not an

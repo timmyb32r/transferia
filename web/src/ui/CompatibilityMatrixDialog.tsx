@@ -308,20 +308,13 @@ export interface CompatibilityRoute {
   partial: DeliveryMode[];
 }
 
-type AboutTarget = { tab: "matrix" | "source-types" | "sink-types"; connector?: string };
-const AboutContext = createContext<((target: AboutTarget) => void) | undefined>(undefined);
+const AboutContext = createContext<(() => void) | undefined>(undefined);
 
 export function AboutProvider({ catalog, children }: { catalog: UiCatalog; children: ComponentChildren }) {
-  const [target, setTarget] = useState<AboutTarget | undefined>();
-  return <AboutContext.Provider value={setTarget}>{children}{target &&
-    <CompatibilityMatrixDialog catalog={catalog} initialTarget={target} onClose={() => setTarget(undefined)} />}
+  const [open, setOpen] = useState(false);
+  return <AboutContext.Provider value={() => setOpen(true)}>{children}{open &&
+    <CompatibilityMatrixDialog catalog={catalog} onClose={() => setOpen(false)} />}
   </AboutContext.Provider>;
-}
-
-export function TypeMappingLink({ role, connector }: { role: "source" | "sink"; connector: string }) {
-  const open = useContext(AboutContext);
-  if (!open || !connector) return null;
-  return <Button variant="plain" class="type-mapping-link" onClick={() => open({ tab: role === "source" ? "source-types" : "sink-types", connector })}>Type mapping <span aria-hidden="true">↗</span></Button>;
 }
 
 export function CompatibilityMatrixLauncher() {
@@ -331,7 +324,7 @@ export function CompatibilityMatrixLauncher() {
     <>
       <Button variant="plain"
         class="sidebar-tool-button compatibility-launcher"
-        onClick={() => open?.({ tab: "matrix" })}
+        onClick={() => open?.()}
       >
         About
       </Button>
@@ -379,11 +372,9 @@ export function compatibilityRoutes(catalog: UiCatalog): CompatibilityRoute[] {
 export function CompatibilityMatrixDialog({
   catalog,
   onClose,
-  initialTarget,
 }: {
   catalog: UiCatalog;
   onClose: () => void;
-  initialTarget?: AboutTarget;
 }) {
   const dialog = useRef<HTMLElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
@@ -400,7 +391,7 @@ export function CompatibilityMatrixDialog({
   const [matrixSearch, setMatrixSearch] = useState("");
   const [activeTab, setActiveTab] = useState<
     "matrix" | "entities" | "properties" | "source-types" | "sink-types"
-  >(initialTarget?.tab ?? "matrix");
+  >("matrix");
   const [activeProperty, setActiveProperty] = useState<string | null>(null);
   const sources = useMemo(
     () => orderedEndpointConnectors(catalog, "source"),
@@ -531,6 +522,7 @@ export function CompatibilityMatrixDialog({
       <section
         ref={dialog}
         class="compatibility-dialog"
+        data-view={activeTab}
         role="dialog"
         aria-modal="true"
         aria-labelledby="compatibility-title"
@@ -584,9 +576,7 @@ export function CompatibilityMatrixDialog({
           <Button variant="plain" role="tab" aria-selected={activeTab === "sink-types"} onClick={() => setActiveTab("sink-types")}>Destination types</Button>
         </div>
 
-        {activeTab === "source-types" || activeTab === "sink-types" ? (
-          <div class="capability-summary">Concrete examples evaluated by production resolvers, not an exhaustive list. Parameters, extensions and configuration can affect the result.</div>
-        ) : activeTab === "matrix" ? (
+        {activeTab === "source-types" || activeTab === "sink-types" ? null : activeTab === "matrix" ? (
           <div class="compatibility-matrix-tools">
             <label class="compatibility-search">
               <span>Find source or destination</span>
@@ -610,7 +600,7 @@ export function CompatibilityMatrixDialog({
         )}
 
         {activeTab === "source-types" || activeTab === "sink-types" ? (
-          <TypeMappingBrowser key={activeTab} catalog={catalog} role={activeTab === "source-types" ? "source" : "sink"} initialConnector={initialTarget?.connector} />
+          <TypeMappingBrowser key={activeTab} catalog={catalog} role={activeTab === "source-types" ? "source" : "sink"} />
         ) : activeTab === "matrix" ? (
           <div class="compatibility-matrix-viewport" ref={matrixViewport}>
             <div class="compatibility-matrix-content" ref={matrixContent}>
@@ -809,11 +799,11 @@ export function CompatibilityMatrixDialog({
           </div>
         )}
 
-        <footer>
+        {activeTab === "matrix" && <footer>
           Some connectors require a matching mode, such as PostgreSQL
           replication or YTsaurus dynamic tables. Configuration validation is
           authoritative.
-        </footer>
+        </footer>}
       </section>
     </div>,
     document.body,

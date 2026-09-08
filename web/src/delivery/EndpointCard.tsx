@@ -8,7 +8,6 @@ import { firstCompletionIssue } from "../schema/compiler";
 import { revealDetails } from "../schema/revealDetails";
 import { useWidgetRegistry } from "../schema/widgetRegistry";
 import { Button } from "../ui/Button";
-import { TypeMappingLink } from "../ui/CompatibilityMatrixDialog";
 import { SelectControl } from "../ui/SelectControl";
 import type {
   ConnectorDefinition,
@@ -122,7 +121,7 @@ export function EndpointCard(props: {
   return (
     <article class={`card endpoint-card endpoint-card-${props.role}`}>
       <div class="island-form">
-        <div class="endpoint-heading"><h2>{props.title}</h2><TypeMappingLink role={props.role} connector={props.selectedKey} /></div>
+        <h2>{props.title}</h2>
         <div
           class={[
             !props.readOnly && props.selectedKey === ""
