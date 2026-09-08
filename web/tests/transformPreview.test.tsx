@@ -21,7 +21,7 @@ const response = {
 };
 
 it("renders an unavailable preview without crashing before a supported source is selected", () => {
-  const view = render(<TransformPreview entries={entries} index={0} source={undefined} />);
+  const view = render(<TransformPreview entries={entries} index={0} source={undefined} matchedTables={undefined} />);
   expect((view.getByRole("button", { name: "Run preview" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
@@ -31,7 +31,7 @@ function setup() {
   const controlPlane = { ...httpControlPlane, checkConnection, previewTransforms };
   const component = (steps = entries) => <ApplicationServicesProvider services={{ controlPlane }}>
     <TableCatalogContext.Provider value={{ tables: [table], preview: controlPlane.previewTables }}>
-    <TransformPreview entries={steps} index={0} source={source} />
+    <TransformPreview entries={steps} index={0} source={source} matchedTables={[table]} />
     </TableCatalogContext.Provider>
   </ApplicationServicesProvider>;
   return { checkConnection, previewTransforms, component, view: render(component()) };
@@ -49,14 +49,55 @@ it("does not connect or sample until explicitly requested", () => {
   expect(previewTransforms).not.toHaveBeenCalled();
 });
 
-it("uses only the shared verified catalog and invalidates selection when that catalog changes", async () => {
+it("defaults to the first All matched tables option and samples each table separately", async () => {
+  const other = { namespace: "public", name: "other" };
+  const previewTransforms = vi.fn().mockImplementation(async request => ({
+    ...response, before: { ...response.before, table: request.table }, after: { ...response.after, table: request.table },
+  }));
+  const view = render(<ApplicationServicesProvider services={{ controlPlane: { ...httpControlPlane, previewTransforms } }}>
+    <TransformPreview entries={entries} index={0} source={source} matchedTables={[table, other]} />
+  </ApplicationServicesProvider>);
+  const picker = view.getByRole("button", { name: "Sample table" });
+  expect(picker.textContent).toContain("All matched tables");
+  expect(previewTransforms).not.toHaveBeenCalled();
+  fireEvent.click(picker);
+  expect(view.getAllByRole("option")[0]?.textContent).toContain("All matched tables");
+  fireEvent.click(view.getByRole("option", { name: "All matched tables" }));
+  const run = view.getByRole("button", { name: "Run preview" });
+  const output = view.getByRole("tabpanel");
+  fireEvent.click(run);
+  fireEvent.click(run);
+  expect(run.getAttribute("aria-busy")).toBe("true");
+  await waitFor(() => expect(run.getAttribute("aria-busy")).toBe("false"));
+  expect(previewTransforms).toHaveBeenCalledTimes(2);
+  for (const [index, candidate] of [table, other].entries()) {
+    expect(previewTransforms.mock.calls[index]?.[0]).toEqual(expect.objectContaining({ table: candidate, row_limit: 20 }));
+  }
+  expect(view.getByRole("heading", { name: "public.reports" })).toBeTruthy();
+  expect(view.getByRole("heading", { name: "public.other" })).toBeTruthy();
+  expect(view.getByRole("button", { name: "Sample table" })).toBe(picker);
+  expect(view.getByRole("tabpanel")).toBe(output);
+});
+
+it("stops all-table sampling on a failure and identifies the failed table", async () => {
+  const previewTransforms = vi.fn().mockRejectedValue(new Error("Read failed"));
+  const view = render(<ApplicationServicesProvider services={{ controlPlane: { ...httpControlPlane, previewTransforms } }}>
+    <TransformPreview entries={entries} index={0} source={source} matchedTables={[table, { namespace: "public", name: "other" }]} />
+  </ApplicationServicesProvider>);
+  fireEvent.click(view.getByRole("button", { name: "Run preview" }));
+  await waitFor(() => expect(view.getByRole("status").textContent).toContain("public.reports: Read failed"));
+  expect(previewTransforms).toHaveBeenCalledTimes(1);
+  expect(view.queryByText("amount")).toBeNull();
+});
+
+it("uses only matched tables and invalidates selection when matches change", async () => {
   const other = { namespace: "public", name: "new_reports" };
   const checkConnection = vi.fn().mockResolvedValue({ status: "verified", options: {}, tables: [other] });
   const api = { ...httpControlPlane, checkConnection };
   const initial = [table];
   const component = (tables: typeof initial) => <ApplicationServicesProvider services={{ controlPlane: api }}>
-    <TableCatalogContext.Provider value={{ tables, preview: api.previewTables }}>
-      <TransformPreview entries={entries} index={0} source={source} />
+    <TableCatalogContext.Provider value={{ tables: [table, other], preview: api.previewTables }}>
+      <TransformPreview entries={entries} index={0} source={source} matchedTables={tables} />
     </TableCatalogContext.Provider>
   </ApplicationServicesProvider>;
   const view = render(component(initial));
@@ -67,6 +108,14 @@ it("uses only the shared verified catalog and invalidates selection when that ca
   view.rerender(component([other]));
   expect((view.getByRole("button", { name: "Run preview" }) as HTMLButtonElement).disabled).toBe(true);
   expect(checkConnection).not.toHaveBeenCalled();
+});
+
+it.each([undefined, []])("never falls back to all tables while matches are unavailable or empty (%s)", matchedTables => {
+  const view = render(<TableCatalogContext.Provider value={{ tables: [table], preview: httpControlPlane.previewTables }}>
+    <TransformPreview entries={entries} index={0} source={source} matchedTables={matchedTables} />
+  </TableCatalogContext.Provider>);
+  expect((view.getByRole("button", { name: "Sample table" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((view.getByRole("button", { name: "Run preview" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 it("loads actual source tables and runs the prefix against a bounded typed sample", async () => {
@@ -103,6 +152,36 @@ it("marks pending immediately and deduplicates preview activation", async () => 
   expect(view.getByRole("tabpanel")).toBe(output);
 });
 
+it("cancels an in-flight sample when its table stops matching without remounting controls", async () => {
+  const previewTransforms = vi.fn();
+  let finish!: (result: typeof response) => void;
+  previewTransforms.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const component = (matchedTables: typeof table[] | undefined) =>
+    <ApplicationServicesProvider services={{ controlPlane: { ...httpControlPlane, previewTransforms } }}>
+      <TransformPreview entries={entries} index={0} source={source} matchedTables={matchedTables} />
+    </ApplicationServicesProvider>;
+  const view = render(component([table]));
+  await chooseTable(view);
+  const picker = view.getByRole("button", { name: "Sample table" });
+  const run = view.getByRole("button", { name: "Run preview" }) as HTMLButtonElement;
+  const status = view.getByRole("status");
+  const output = view.getByRole("tabpanel");
+  fireEvent.click(run);
+  const signal = previewTransforms.mock.calls[0]?.[1] as AbortSignal;
+  view.rerender(component(undefined));
+  expect(run.disabled).toBe(true);
+  await waitFor(() => expect(signal.aborted).toBe(true));
+  finish(response);
+  view.rerender(component([]));
+  expect(view.getByRole("button", { name: "Sample table" })).toBe(picker);
+  expect(view.getByRole("button", { name: "Run preview" })).toBe(run);
+  expect(view.getByRole("status")).toBe(status);
+  expect(view.getByRole("tabpanel")).toBe(output);
+  expect(view.queryByText("amount")).toBeNull();
+  fireEvent.click(run);
+  expect(previewTransforms).toHaveBeenCalledTimes(1);
+});
+
 it("invalidates an in-flight result after a transform edit", async () => {
   const { view, component, previewTransforms } = setup();
   await chooseTable(view);
@@ -136,14 +215,16 @@ it("does not substitute a default for an invalid sample row limit", async () => 
   expect(view.getByRole("status").textContent).toContain("positive integer");
 });
 
-it("exposes preview budgets and rejects invalid limits without source reads", async () => {
+it("hides preview limit controls while retaining execution budgets", async () => {
   const { view, previewTransforms } = setup();
   await chooseTable(view);
-  fireEvent.click(view.getByRole("button", { name: "Preview limits" }));
-  const memory = view.getByRole("spinbutton", { name: "SQL memory (MiB)" });
-  expect((memory as HTMLInputElement).value).toBe("256");
-  fireEvent.input(memory, { target: { value: "0" } });
+  expect(view.queryByRole("button", { name: "Preview limits" })).toBeNull();
+  for (const name of ["Source sample (MiB)", "SQL memory (MiB)", "Timeout (seconds)"]) {
+    expect(view.queryByRole("spinbutton", { name })).toBeNull();
+  }
   fireEvent.click(view.getByRole("button", { name: "Run preview" }));
-  expect(previewTransforms).not.toHaveBeenCalled();
-  expect(view.getByRole("status").textContent).toContain("positive integers");
+  await waitFor(() => expect(previewTransforms).toHaveBeenCalledOnce());
+  expect(previewTransforms).toHaveBeenCalledWith(expect.objectContaining({
+    max_sample_bytes: 16 * 1024 * 1024, memory_limit_bytes: 256 * 1024 * 1024, timeout_ms: 30000,
+  }), expect.any(AbortSignal));
 });

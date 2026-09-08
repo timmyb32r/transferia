@@ -5,7 +5,8 @@ import { isObject } from "../../schema/value";
 import type { JsonObject, JsonValue } from "../../types";
 import { Button } from "../../ui/Button";
 import { CopyIcon } from "../../ui/CopyButton";
-import { AutofillResistantInput, AutofillResistantTextarea } from "../../ui/AutofillResistantField";
+import { AutofillResistantInput } from "../../ui/AutofillResistantField";
+import { SqlEditor } from "../../ui/SqlEditor";
 import { SelectControl } from "../../ui/SelectControl";
 import { DragHandleIcon, TrashIcon } from "../../ui/icons";
 import { exactPattern } from "../tableSelection/model";
@@ -212,8 +213,8 @@ function TransformStrip({ entry, entries, source, needsCatalog, catalogUnavailab
           <label><span>Equals</span><AutofillResistantInput type="text" value={typeof raw.value === "string" ? raw.value : ""}
             disabled={disabled} onInput={event => updateRaw({ value: event.currentTarget.value })} /></label>
         </div> : kind === "datafusion" ? <label class="middleware-sql-field"><span>SQL over table <code>input</code></span>
-          <AutofillResistantTextarea value={typeof raw.sql === "string" ? raw.sql : ""} disabled={disabled}
-            onInput={event => updateRaw({ sql: event.currentTarget.value })} />
+          <SqlEditor value={typeof raw.sql === "string" ? raw.sql : ""} disabled={disabled}
+            onChange={sql => updateRaw({ sql })} />
         </label> : null}
       </>}
       <div class="middleware-preview">
@@ -224,7 +225,7 @@ function TransformStrip({ entry, entries, source, needsCatalog, catalogUnavailab
           <span class={`middleware-chevron ${preview ? "open" : ""}`} aria-hidden="true" />Preview
           <span class="middleware-preview-hint">Before / after this step</span>
         </Button>
-        {preview && !unselected && <div id={`${id}-preview`}><TransformPreview entries={entries} index={index} source={source} /></div>}
+        {preview && !unselected && <div id={`${id}-preview`}><TransformPreview entries={entries} index={index} source={source} matchedTables={matches?.tables} /></div>}
       </div>
     </div>}
   </article>;

@@ -16,6 +16,26 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("overlays SQL highlighting with identical metrics and no content-driven layout changes", () => {
+    const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
+    const shared = rule(".sql-code-editor > pre, .sql-code-editor > textarea");
+    expect(shared).toContain("font: 12px/1.5 var(--font-code)");
+    expect(shared).toContain("white-space: pre; overflow: scroll; tab-size: 2;");
+    expect(shared).toContain("box-sizing: border-box;");
+    expect(rule(".sql-code-editor > pre")).toContain("position: absolute;");
+    expect(rule(".sql-code-editor > pre")).toContain("pointer-events: none;");
+    expect(rule(".sql-code-editor > textarea")).toContain("min-height: 116px;");
+    expect(rule(".sql-code-editor > textarea:focus")).toContain("outline: 2px solid var(--focus-ring);");
+    expect(rule(".sql-code-editor > textarea:focus")).not.toMatch(/(?:height|width|padding|margin)\s*:/);
+  });
+  it("themes browser focus fallbacks for every focusable element without changing geometry", () => {
+    const fallback = styles.split(":where(:focus-visible) {")[1]?.split("}")[0];
+    expect(fallback).toContain("outline: 2px solid var(--focus-ring);");
+    expect(fallback).toContain("outline-offset: 2px;");
+    expect(fallback).not.toMatch(/(?:border|padding|margin|height|width|transform)\s*:/);
+    expect(styles.split("\n:focus {")[1]?.split("}")[0]).toContain("outline-color: var(--focus-ring);");
+    expect(styles).toContain("accent-color: var(--blue);");
+  });
   it("keeps transform naming overlays out of flow and reserves one title line", () => {
     const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
     expect(rule(".middleware-name-menu, .middleware-name-dialog")).toContain("position: fixed;");

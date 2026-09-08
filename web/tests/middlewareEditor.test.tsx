@@ -369,6 +369,30 @@ describe("ordered transform strips", () => {
     expect(view.queryByLabelText("Table found")).toBeNull();
   });
 
+  it("shares each transform's matched tables with its sample picker, excluding other catalog entries", async () => {
+    const selected = { namespace: "public", name: "reports_daily" };
+    const excluded = { namespace: "public", name: "reports_test" };
+    const unrelated = { namespace: "public", name: "users" };
+    const preview = vi.fn().mockResolvedValue({ cards: [{ selected: [selected], excluded: [excluded] }], issues: [] });
+    const view = render(<TableCatalogContext.Provider value={{ tables: [selected, excluded, unrelated], preview }}>
+      <MiddlewareEditor value={[step]} disabled={false} onChange={() => {}}
+        source={{ connector: "postgres", config: { tables: { type: "all" } } }} />
+    </TableCatalogContext.Provider>);
+    fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
+    fireEvent.click(view.getByRole("button", { name: "Preview transform 1" }));
+    const picker = view.getByRole("button", { name: "Sample table" }) as HTMLButtonElement;
+    const run = view.getByRole("button", { name: "Run preview" });
+    expect(picker.disabled).toBe(true);
+    await waitFor(() => expect(picker.disabled).toBe(false));
+    expect(view.getByRole("button", { name: "Sample table" })).toBe(picker);
+    expect(view.getByRole("button", { name: "Run preview" })).toBe(run);
+    fireEvent.click(picker);
+    expect(view.getByRole("option", { name: "public.reports_daily" })).toBeTruthy();
+    expect(view.queryByRole("option", { name: "public.reports_test" })).toBeNull();
+    expect(view.queryByRole("option", { name: "public.users" })).toBeNull();
+    expect(preview).toHaveBeenCalledTimes(1);
+  });
+
   it("withdraws stale exact-name matches without replacing an open transform disclosure", async () => {
     const tables = [{ namespace: "public", name: "reports_daily" }];
     const preview = vi.fn().mockResolvedValue({ cards: [{ selected: tables, excluded: [] }], issues: [] });

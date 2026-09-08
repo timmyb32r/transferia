@@ -765,6 +765,19 @@ textarea,
 select {
   font: inherit;
 }
+/* Cover native controls and any focusable element, including links, dialogs
+   and tabindex regions. Component-specific focus treatments remain in charge;
+   the browser fallback must never introduce its own blue accent. */
+:root {
+  accent-color: var(--blue);
+}
+:where(:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+:focus {
+  outline-color: var(--focus-ring);
+}
 .shell {
   min-height: 100vh;
   display: grid;
@@ -3134,13 +3147,13 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .syntax-code {
   font: inherit;
 }
-.syntax-key {
+.syntax-key, .syntax-keyword {
   color: #5ea7ff;
 }
 .syntax-string {
   color: #7fcfa4;
 }
-.syntax-number {
+.syntax-number, .syntax-function {
   color: #d7a4ff;
 }
 .syntax-boolean,
@@ -3151,13 +3164,13 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   color: var(--muted);
   font-style: italic;
 }
-:root[data-theme="light"] .syntax-key {
+:root[data-theme="light"] .syntax-key, :root[data-theme="light"] .syntax-keyword {
   color: #0969b3;
 }
 :root[data-theme="light"] .syntax-string {
   color: #16784a;
 }
-:root[data-theme="light"] .syntax-number {
+:root[data-theme="light"] .syntax-number, :root[data-theme="light"] .syntax-function {
   color: #7a3eab;
 }
 :root[data-theme="light"] .syntax-boolean,
@@ -3408,7 +3421,27 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .middleware-action-field { display: grid; gap: 6px; width: min(100%, 300px); }
 .middleware-action-field > label, .middleware-filter-fields label > span, .middleware-sql-field > span { font-size: 12px; font-weight: 600; }
 .middleware-filter-fields label, .middleware-sql-field { display: grid; min-width: 0; gap: 6px; }
-.middleware-sql-field textarea, .multiline-input { min-height: 116px; resize: vertical; font-family: var(--font-code); font-size: 12px; line-height: 1.5; }
+.multiline-input { min-height: 116px; resize: vertical; font-family: var(--font-code); font-size: 12px; line-height: 1.5; }
+.sql-code-editor { position: relative; min-width: 0; background: var(--control); border-radius: var(--radius-control); }
+.sql-code-editor > pre, .sql-code-editor > textarea {
+  box-sizing: border-box; width: 100%; margin: 0; padding: 9px;
+  border: 1px solid var(--field-border); border-radius: var(--radius-control);
+  font: 12px/1.5 var(--font-code); font-variant-ligatures: none;
+  white-space: pre; overflow: scroll; tab-size: 2;
+}
+.sql-code-editor > pre { position: absolute; inset: 0; height: 100%; pointer-events: none; color: var(--text-primary); }
+.sql-code-editor .syntax-code, .sql-code-editor .syntax-code span { font: inherit; }
+.sql-code-editor > textarea {
+  position: relative; display: block; min-height: 116px; resize: vertical;
+  background: transparent; color: transparent; -webkit-text-fill-color: transparent;
+  caret-color: var(--text-primary);
+}
+.sql-code-editor > textarea:focus { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.sql-code-editor > textarea::selection { background: color-mix(in srgb, var(--blue) 35%, transparent); }
+@media (forced-colors: active) {
+  .sql-code-editor > pre { visibility: hidden; }
+  .sql-code-editor > textarea { color: CanvasText; -webkit-text-fill-color: CanvasText; }
+}
 .middleware-preview { min-width: 0; border-top: 1px solid var(--line-inner); padding-top: 8px; }
 .transform-schema-loader { display: grid; grid-template-columns: minmax(0, 1fr) 126px; align-items: center; gap: 12px; height: 38px; min-width: 0; }
 .transform-schema-loader > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
@@ -3418,8 +3451,6 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .middleware-preview-hint { margin-left: auto; color: var(--muted); font-size: 11px; }
 :root .middleware-add { display: inline-flex; align-items: center; justify-self: start; gap: 8px; width: auto; min-width: 0; height: 34px; margin: 0; padding: 0 12px; font-size: 12px; }
 .transform-preview-content { display: grid; gap: 10px; padding-top: 10px; min-width: 0; }
-.transform-preview-budget-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 10px; padding: 6px 0; }
-.transform-preview-budget-fields label { display: grid; gap: 6px; font-size: 12px; }
 .transform-preview-controls { display: grid; grid-template-columns: minmax(0, 1fr) 90px max-content; gap: 10px; align-items: end; }
 .transform-preview-controls label { display: grid; gap: 6px; min-width: 0; font-size: 12px; }
 :root .transform-preview-controls > button { height: 36px; min-width: 110px; margin: 0; }

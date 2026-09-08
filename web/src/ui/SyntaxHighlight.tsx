@@ -1,6 +1,6 @@
 import { Fragment } from "preact";
 
-type SyntaxLanguage = "json" | "yaml";
+type SyntaxLanguage = "json" | "yaml" | "sql";
 
 interface Token {
   text: string;
@@ -16,7 +16,7 @@ export function SyntaxHighlight({
   language: SyntaxLanguage;
   class?: string;
 }) {
-  const tokens = language === "json" ? jsonTokens(value) : yamlTokens(value);
+  const tokens = language === "json" ? jsonTokens(value) : language === "sql" ? sqlTokens(value) : yamlTokens(value);
   return (
     <code class={["syntax-code", className].filter(Boolean).join(" ")}>
       {tokens.map((token, index) => (
@@ -61,17 +61,43 @@ function yamlTokens(value: string): Token[] {
   );
 }
 
+// Lexical coloring only: DataFusion remains authoritative for SQL validation,
+// function resolution and types. Unknown/UDF function calls are colored too.
+const SQL_KEYWORDS = new Set(`ALL AND ANY ARRAY AS ASC BETWEEN BIGINT BOOLEAN BY CASE CAST CHAR CROSS
+CURRENT_DATE CURRENT_TIME CURRENT_TIMESTAMP DATE DECIMAL DESC DISTINCT DOUBLE ELSE END ESCAPE EXCEPT
+EXISTS EXPLAIN EXTRACT FALSE FETCH FILTER FIRST FLOAT FOLLOWING FOR FROM FULL GROUP GROUPING HAVING
+ILIKE IN INNER INT INTEGER INTERSECT INTERVAL INTO IS JOIN LAST LATERAL LEADING LEFT LIKE LIMIT
+NOT NULL NULLS OFFSET ON OR ORDER OUTER OVER PARTITION PRECEDING RANGE REAL RECURSIVE RIGHT ROW ROWS
+SELECT SMALLINT SOME STRING STRUCT THEN TIME TIMESTAMP TRAILING TRUE TRY_CAST UNBOUNDED UNION
+UNNEST USING VALUES VARCHAR WHEN WHERE WINDOW WITH`.split(/\s+/));
+
+function sqlTokens(value: string): Token[] {
+  return tokenize(value,
+    /--[^\r\n]*|\/\*[\s\S]*?(?:\*\/|$)|\$(\w*)\$[\s\S]*?\$\1\$|'(?:''|[^'])*(?:'|$)|"(?:""|[^"])*(?:"|$)|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[\p{L}_][\p{L}\p{N}_$]*/gu,
+    (text, offset) => {
+      if (text.startsWith("--") || text.startsWith("/*")) return "comment";
+      if (text.startsWith("'") || text.startsWith("$")) return "string";
+      if (text.startsWith('"')) return "identifier";
+      if (/^[\d.]/.test(text)) return "number";
+      if (/^(true|false)$/i.test(text)) return "boolean";
+      if (/^null$/i.test(text)) return "null";
+      if (SQL_KEYWORDS.has(text.toUpperCase())) return "keyword";
+      if (/^\s*\(/.test(value.slice(offset + text.length))) return "function";
+      return "identifier";
+    });
+}
+
 function tokenize(
   value: string,
   pattern: RegExp,
-  classify: (text: string) => string,
+  classify: (text: string, offset: number) => string,
 ): Token[] {
   const tokens: Token[] = [];
   let offset = 0;
   for (const match of value.matchAll(pattern)) {
     const index = match.index ?? 0;
     if (index > offset) tokens.push({ text: value.slice(offset, index) });
-    tokens.push({ text: match[0], kind: classify(match[0]) });
+    tokens.push({ text: match[0], kind: classify(match[0], index) });
     offset = index + match[0].length;
   }
   if (offset < value.length) tokens.push({ text: value.slice(offset) });

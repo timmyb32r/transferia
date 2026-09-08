@@ -61,8 +61,20 @@ stays fixed across preview updates; close/reopen returns to compact height.
 
 Focus rings use `--focus-ring` (teal at 42% opacity). Shadows use `--shadow`
 (near-black slate at 12% opacity), not green-tinted shadows.
+Every focusable element receives the shared focus fallback, including textareas,
+links, native selects and tabindex regions. Native controls use the theme accent;
+never leave their focus color to the browser. Component-specific treatments may
+override the fallback, but must preserve visible keyboard focus without resizing
+the control. Error and warning semantics remain distinct.
 
 ## Component rules
+
+- Transform SQL uses a native autofill-resistant textarea over an aria-hidden
+  SQL highlight layer. Preserve authored text, undo, selection and IME behavior;
+  this is lexical coloring, not DataFusion validation or formatting. Both layers
+  share typography, padding, tab stops and scroll positions; highlighting cannot
+  resize the editor or move following controls. Focus remains teal. Reuse the
+  syntax palette for keywords, function calls, literals and comments in both themes.
 
 - About replaces the sidebar Matrix launcher and retains Matrix, Entities and
   Properties. Source types / Destination types use variant A: a searchable

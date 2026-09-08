@@ -7,31 +7,31 @@ import { AutofillResistantInput } from "../../ui/AutofillResistantField";
 import { Button } from "../../ui/Button";
 import { SelectControl } from "../../ui/SelectControl";
 import { qualifiedName } from "../tableSelection/model";
-import { useTableCatalog } from "../../schema/tableCatalog";
 import { useSourceMetadataContext } from "../../delivery/sourceMetadata";
 
-export function TransformPreview({ entries, index, source }: {
+export function TransformPreview({ entries, index, source, matchedTables }: {
   entries: JsonValue[]; index: number; source: TransformPreviewSource | undefined;
+  matchedTables: TableIdentity[] | undefined;
 }) {
   const api = useControlPlane();
-  const verifiedCatalog = useTableCatalog();
   const metadata = useSourceMetadataContext()?.metadata;
   const id = useId();
   const sourceKey = JSON.stringify(source ?? null);
   const [selected, setSelected] = useState<{ key: string; table: TableIdentity }>();
   const [rowLimit, setRowLimit] = useState("20");
-  const [limitsOpen, setLimitsOpen] = useState(false);
-  const [limits, setLimits] = useState({ sampleMiB: "16", memoryMiB: "256", timeoutSeconds: "30" });
+  const limits = { sampleMiB: "16", memoryMiB: "256", timeoutSeconds: "30" };
   const [tab, setTab] = useState<"before" | "after">("after");
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState<{ key: string; text: string; error?: boolean }>();
-  const [result, setResult] = useState<{ key: string; value: TransformPreviewResult }>();
+  const [result, setResult] = useState<{ key: string; value: TransformPreviewResult[] }>();
   const previewRequest = useRef<AbortController>();
-  const tables = verifiedCatalog?.tables ?? [];
+  const tables = matchedTables ?? [];
   const table = selected?.key === sourceKey && tables.some(candidate => candidate.namespace === selected.table.namespace && candidate.name === selected.table.name)
     ? selected.table : undefined;
-  const schemaReady = !metadata || metadata.loaded.some(loaded => loaded.namespace === table?.namespace && loaded.name === table?.name);
-  const resultKey = JSON.stringify([sourceKey, metadata?.id, entries.slice(0, index + 1), index, table, rowLimit, limits]);
+  const allTables = selected === undefined || selected.key !== sourceKey;
+  const sampleTables = allTables ? tables : table ? [table] : [];
+  const schemaReady = !metadata || sampleTables.every(candidate => metadata.loaded.some(loaded => loaded.namespace === candidate.namespace && loaded.name === candidate.name));
+  const resultKey = JSON.stringify([sourceKey, metadata?.id, entries.slice(0, index + 1), index, sampleTables, rowLimit, limits]);
   const live = useRef({ sourceKey, resultKey });
   live.current = { sourceKey, resultKey };
 
@@ -44,7 +44,7 @@ export function TransformPreview({ entries, index, source }: {
 
 
   const run = async () => {
-    if (!source || !table || !schemaReady || previewRequest.current) return;
+    if (!source || sampleTables.length === 0 || !schemaReady || previewRequest.current) return;
     const row_limit = Number(rowLimit);
     if (!/^\d+$/.test(rowLimit) || !Number.isSafeInteger(row_limit) || row_limit <= 0) {
       setStatus({ key: resultKey, text: "Sample rows must be a positive integer.", error: true });
@@ -62,60 +62,58 @@ export function TransformPreview({ entries, index, source }: {
     previewRequest.current = request;
     setRunning(true);
     setStatus(undefined);
+    setResult(undefined);
+    let activeTable: TableIdentity | undefined;
     try {
-      const value = await api.previewTransforms({
-        metadata_id: metadata?.id ?? null,
-        source, table, row_limit, middlewares: entries, through_step: index,
-        max_sample_bytes, memory_limit_bytes, timeout_ms,
-      }, request.signal);
+      const value: TransformPreviewResult[] = [];
+      // One bounded source read at a time; never fan out across a large catalog.
+      for (const candidate of sampleTables) {
+        if (request.signal.aborted || live.current.resultKey !== resultKey) return;
+        activeTable = candidate;
+        value.push(await api.previewTransforms({
+          metadata_id: metadata?.id ?? null,
+          source, table: candidate, row_limit, middlewares: entries, through_step: index,
+          max_sample_bytes, memory_limit_bytes, timeout_ms,
+        }, request.signal));
+      }
       if (request.signal.aborted || live.current.resultKey !== resultKey) return;
       setResult({ key: resultKey, value });
       setTab("after");
-      setStatus({ key: resultKey, text: value.applied
+      setStatus({ key: resultKey, text: allTables
+        ? `Previewed ${value.length} matched tables, up to ${row_limit} source rows per table.`
+        : value[0]?.applied
         ? `Applied step ${index + 1}. Preview uses up to ${row_limit} source rows, not the full table.`
         : `Step ${index + 1} does not match this table; it passes through unchanged.` });
     } catch (error) {
       if (!request.signal.aborted && live.current.resultKey === resultKey)
-        setStatus({ key: resultKey, text: error instanceof Error ? error.message : String(error), error: true });
+        setStatus({ key: resultKey, text: `${activeTable ? `${qualifiedName(activeTable)}: ` : ""}${error instanceof Error ? error.message : String(error)}`, error: true });
     } finally {
       if (previewRequest.current === request) { previewRequest.current = undefined; setRunning(false); }
     }
   };
 
   const current = result?.key === resultKey ? result.value : undefined;
-  const frame = current?.[tab];
+  const frames = current?.map(value => value[tab]);
   const feedback = status?.key === resultKey || status?.key === sourceKey ? status : undefined;
   const note = source ? "Table-row sample only; transport / CDC metadata is unavailable. Preview never writes to the destination."
     : "Select a source that supports table preview to load sample rows.";
   return <section class="transform-preview-content" aria-label={`Preview data for transform ${index + 1}`}>
     <div class="transform-preview-controls">
       <label for={`${id}-table`}><span>Sample table</span>
-        <SelectControl id={`${id}-table`} value={table ? JSON.stringify(table) : ""} placeholder="Choose a table"
+        <SelectControl id={`${id}-table`} value={allTables ? "all" : table ? JSON.stringify(table) : ""} placeholder="Choose a table"
           disabled={!source || tables.length === 0 || running} clearable={false}
-          options={tables.map(value => ({ value: JSON.stringify(value), label: qualifiedName(value) }))}
+          options={[{ value: "all", label: "All matched tables" }, ...tables.map(value => ({ value: JSON.stringify(value), label: qualifiedName(value) }))]}
           onChange={value => {
+            if (value === "all") { setSelected(undefined); return; }
             const chosen = tables.find(candidate => JSON.stringify(candidate) === value);
             if (chosen) setSelected({ key: sourceKey, table: chosen });
           }} />
       </label>
-      <label><span>Sample rows</span><AutofillResistantInput type="number" min={1} step={1} value={rowLimit}
+      <label title="Maximum source rows per sampled table"><span>Sample rows</span><AutofillResistantInput type="number" min={1} step={1} value={rowLimit}
         disabled={!source || running} onInput={event => setRowLimit(event.currentTarget.value)} /></label>
-      <Button variant="primary" pending={running} disabled={!source || !table || !schemaReady}
+      <Button variant="primary" pending={running} disabled={!source || sampleTables.length === 0 || !schemaReady}
         title={schemaReady ? "Read sample rows" : "Load this transform's schemas first"}
         onClick={() => { void run(); }}>Run preview</Button>
-    </div>
-    <div class="transform-preview-limits">
-      <Button variant="plain" class="middleware-preview-toggle" aria-expanded={limitsOpen} aria-controls={`${id}-limits`}
-        title="Preview only. Exceeding a limit fails preview; values are never silently truncated. SQL memory limits tracked engine allocations and retained results, not total process memory. Timeout cancels asynchronous work; it is not CPU isolation. Table samples do not contain generated transport or CDC metadata."
-        onClick={() => setLimitsOpen(!limitsOpen)}>
-        <span class={`middleware-chevron ${limitsOpen ? "open" : ""}`} aria-hidden="true" />Preview limits
-      </Button>
-      {limitsOpen && <div class="transform-preview-budget-fields" id={`${id}-limits`}>
-        {([ ["sampleMiB", "Source sample (MiB)"], ["memoryMiB", "SQL memory (MiB)"], ["timeoutSeconds", "Timeout (seconds)"] ] as const).map(([key, label]) =>
-          <label key={key}><span>{label}</span><AutofillResistantInput type="number" min={1} step={1}
-            value={limits[key]} disabled={!source || running}
-            onInput={event => setLimits({ ...limits, [key]: event.currentTarget.value })} /></label>)}
-      </div>}
     </div>
     <p class={`transform-preview-status ${feedback?.error ? "error" : ""}`} role="status" aria-live="polite" aria-atomic="true">
       {running ? "Reading source rows and applying preceding transforms…" : feedback?.text ?? note}
@@ -130,10 +128,13 @@ export function TransformPreview({ entries, index, source }: {
           const next = event.key === "Home" ? "before" : event.key === "End" ? "after" : tab === "before" ? "after" : "before";
           setTab(next); document.getElementById(`${id}-${next}`)?.focus();
         }}>{value === "before" ? "Before step" : "After step"}</Button>)}
-      <span class="transform-preview-row-count">{frame ? `${frame.rows.length} rows` : ""}</span>
+      <span class="transform-preview-row-count">{frames ? `${frames.reduce((count, frame) => count + frame.rows.length, 0)} rows` : ""}</span>
     </div>
     <div class="transform-preview-output" role="tabpanel" id={`${id}-data`} aria-labelledby={`${id}-${tab}`} aria-busy={running} tabIndex={0}>
-      {frame ? <PreviewTable frame={frame} /> : <p>Run preview to see the table before and after this step.</p>}
+      {frames ? frames.map((frame, index) => <section key={index}>
+        {allTables && <h4>{qualifiedName({ namespace: frame.table.namespace ?? "", name: frame.table.name })}</h4>}
+        <PreviewTable frame={frame} />
+      </section>) : <p>Run preview to see the table before and after this step.</p>}
     </div>
   </section>;
 }
