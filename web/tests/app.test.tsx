@@ -409,7 +409,7 @@ describe("App request orchestration", () => {
     expect(app.getByText("Database")).toBeTruthy();
     scrollIntoView.mockClear();
 
-    fireEvent.click(app.getByRole("tab", { name: "Data schema" }));
+    fireEvent.click(app.getByRole("button", { name: "Data schema" }));
 
     await waitFor(() =>
       expect(
@@ -462,6 +462,76 @@ describe("App request orchestration", () => {
     expect(api.validate).not.toHaveBeenCalled();
   });
 
+  it("opens Data schema from the sidebar without replacing the editor", async () => {
+    installApiMocks([]);
+    vi.mocked(api.catalog).mockResolvedValue({ ...CATALOG, connectors: [
+      connector("source", "Test source", { source: endpoint(["batch"], ["append_only"]) }),
+    ] });
+    vi.mocked(api.discover).mockResolvedValue({ ...discovery(), datasets: [
+      { name: "events", role: "Main", intermediate_columns: [], final_columns: [] },
+    ] });
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByRole("heading", { name: "Untitled delivery" });
+    chooseFromSelect(app, "Delivery type", "Batch");
+    chooseFromSelect(app, "Source", "Test source");
+    const button = app.getByRole("button", { name: "Data schema" });
+    await waitFor(() => expect(button.getAttribute("aria-disabled")).toBe("false"));
+    const sourceHeading = app.getByRole("heading", { name: "Source" });
+    expect(app.queryByRole("tab", { name: "Data schema" })).toBeNull();
+    button.focus(); fireEvent.click(button);
+    expect(app.getByRole("dialog", { name: "Data schema" })).toBeTruthy();
+    expect(app.getByRole("heading", { name: "Source" })).toBe(sourceHeading);
+    expect(app.getByRole("tab", { name: "UI" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(app.getByRole("button", { name: "Close Data schema" }));
+    expect(app.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(button);
+  });
+
+  it.each(["success", "failure"])("applies YAML before opening Data schema: %s", async outcome => {
+    installApiMocks([]);
+    vi.mocked(api.catalog).mockResolvedValue({ ...CATALOG, connectors: [
+      connector("source", "Test source", { source: endpoint(["batch"], ["append_only"]) }),
+    ] });
+    const original = { ...discovery(), datasets: [
+      { name: "old_table", role: "Main" as const, intermediate_columns: [], final_columns: [] },
+    ] };
+    vi.mocked(api.discover).mockResolvedValue(original);
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByRole("heading", { name: "Untitled delivery" });
+    chooseFromSelect(app, "Delivery type", "Batch");
+    chooseFromSelect(app, "Source", "Test source");
+    const button = app.getByRole("button", { name: "Data schema" });
+    await waitFor(() => expect(button.getAttribute("aria-disabled")).toBe("false"));
+    fireEvent.click(app.getByRole("tab", { name: "YAML" }));
+    const yaml = await app.findByLabelText("YAML configuration");
+    fireEvent.input(yaml, { target: { value: "authored: YAML" } });
+    let resolve!: (value: Awaited<ReturnType<typeof api.parseYaml>>) => void;
+    let reject!: (reason: Error) => void;
+    vi.mocked(api.parseYaml).mockImplementation(() => new Promise((yes, no) => { resolve = yes; reject = no; }));
+    vi.mocked(api.discover).mockImplementation(() => new Promise(() => {}));
+    button.focus(); fireEvent.click(button); fireEvent.click(button);
+    expect(api.parseYaml).toHaveBeenCalledOnce();
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(app.queryByRole("dialog", { name: "Data schema" })).toBeNull();
+    await act(async () => {
+      if (outcome === "failure") reject(new Error("Invalid authored YAML"));
+      else resolve({ config: { delivery_type: "batch", source: { source: {} } } });
+    });
+    expect(app.getByRole("tab", { name: "YAML" }).getAttribute("aria-selected")).toBe("true");
+    expect(app.getByLabelText("YAML configuration")).toBe(yaml);
+    expect((yaml as HTMLTextAreaElement).value).toBe("authored: YAML");
+    if (outcome === "failure") {
+      expect(app.queryByRole("dialog", { name: "Data schema" })).toBeNull();
+      expect(await app.findByText("Invalid authored YAML")).toBeTruthy();
+    } else {
+      const dialog = app.getByRole("dialog", { name: "Data schema" });
+      expect(within(dialog).queryByText("old_table")).toBeNull();
+      expect(within(dialog).getByRole("status").textContent).toContain("Discovering");
+    }
+  });
+
   it("shows the actual discovery failure on Data schema without inventing a YAML configuration error", async () => {
     installApiMocks([]);
     vi.mocked(api.catalog).mockResolvedValue({ ...CATALOG, connectors: [
@@ -474,14 +544,14 @@ describe("App request orchestration", () => {
     await app.findByRole("heading", { name: "Untitled delivery" });
     chooseFromSelect(app, "Delivery type", "Batch");
     chooseFromSelect(app, "Source", "Test source");
-    const tab = app.getByRole("tab", { name: "Data schema" });
+    const tab = app.getByRole("button", { name: "Data schema" });
     const source = app.getByRole("heading", { name: "Source" });
     await waitFor(() => expect(tab.closest(".instant-tooltip-host")?.textContent).toContain(reason));
     fireEvent.click(tab);
     await waitFor(() => expect(app.getByRole("alert").textContent).toContain(reason));
     expect(app.queryByText(/Open the YAML view to correct it/)).toBeNull();
     expect(view.container.querySelector(".required-missing")).toBeNull();
-    expect(app.getByRole("tab", { name: "Data schema" })).toBe(tab);
+    expect(app.getByRole("button", { name: "Data schema" })).toBe(tab);
     expect(app.getByRole("heading", { name: "Source" })).toBe(source);
   });
 

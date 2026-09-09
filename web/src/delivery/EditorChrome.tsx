@@ -271,6 +271,7 @@ export function DeliverySidebar({
   dataWidgetVisible,
   onToggleDataWidget,
   dataViewer,
+  dataSchema,
 }: {
   deliveries: DeliverySummary[];
   selectedId: string | undefined;
@@ -284,6 +285,7 @@ export function DeliverySidebar({
   dataWidgetVisible: boolean;
   onToggleDataWidget: () => void;
   dataViewer?: { available: boolean; visible: boolean; pending: boolean; reason?: string | undefined; onOpen: () => void } | undefined;
+  dataSchema?: { available: boolean; visible: boolean; pending: boolean; reason?: string | undefined; onOpen: () => void } | undefined;
 }) {
   return (
     <aside class="sidebar">
@@ -322,6 +324,12 @@ export function DeliverySidebar({
         )}
       </nav>
       <div class="sidebar-tools">
+        <InstantTooltip class="sidebar-tool-tooltip" content={dataSchema?.reason ?? "Open the discovered data schema"}>
+          <Button class={`sidebar-tool-button ${dataSchema?.available ? "" : "diagnostic-disabled"}`}
+            variant={dataSchema?.available ? "primary" : "plain"} pending={dataSchema?.pending ?? false}
+            aria-pressed={dataSchema?.visible ?? false} aria-disabled={!dataSchema?.available || dataSchema.pending}
+            onClick={dataSchema?.onOpen}>Data schema</Button>
+        </InstantTooltip>
         <InstantTooltip
           class="sidebar-tool-tooltip"
           content={
@@ -364,15 +372,11 @@ export function DeliverySidebar({
 export function EditorTabs({
   active,
   disabled,
-  dataSchemaAvailable,
-  dataSchemaUnavailableReason,
   speedtestAvailable = false,
   speedtestUnavailableReason,
   performanceAdviceCount,
   onUi,
   onYaml,
-  onDataSchema,
-  onDataSchemaUnavailable,
   onSpeedtest,
   onSpeedtestUnavailable,
   onPerformanceAdvice,
@@ -380,15 +384,11 @@ export function EditorTabs({
 }: {
   active: EditorView;
   disabled: boolean;
-  dataSchemaAvailable: boolean;
-  dataSchemaUnavailableReason?: string | undefined;
   speedtestAvailable?: boolean;
   speedtestUnavailableReason?: string | undefined;
   performanceAdviceCount?: number | undefined;
   onUi: () => void;
   onYaml: () => void;
-  onDataSchema: () => void;
-  onDataSchemaUnavailable?: (() => void) | undefined;
   onSpeedtest?: (() => void) | undefined;
   onSpeedtestUnavailable?: (() => void) | undefined;
   onPerformanceAdvice: () => void;
@@ -430,35 +430,6 @@ export function EditorTabs({
         >
           YAML
         </Button>
-        <InstantTooltip
-          class="editor-tab-tooltip"
-          content={
-            dataSchemaAvailable
-              ? "Open the discovered data schema"
-              : (dataSchemaUnavailableReason ??
-                "Data schema becomes available after discovery has produced a table")
-          }
-        >
-          <Button variant="plain"
-            role="tab"
-            aria-selected={active === "data_schema"}
-            aria-disabled={!dataSchemaAvailable}
-            class={[
-              active === "data_schema" ? "active" : "",
-              !dataSchemaAvailable ? "diagnostic-disabled" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            disabled={disabled}
-            onClick={
-              dataSchemaAvailable
-                ? onDataSchema
-                : (onDataSchemaUnavailable ?? onDataSchema)
-            }
-          >
-            Data schema
-          </Button>
-        </InstantTooltip>
         <InstantTooltip
           class="editor-tab-tooltip"
           content={

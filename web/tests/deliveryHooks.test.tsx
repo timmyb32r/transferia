@@ -527,9 +527,11 @@ describe("delivery controllers", () => {
     expect(result.current.sourceDiscovery).toBeUndefined();
     await act(async () => { await vi.advanceTimersByTimeAsync(450); });
     expect(result.current.sourceDiscovery).toBe(discovered);
+    expect(result.current.currentDiscovery).toBe(discovered);
     rerender({ editor: { ...initial, localRevision: 1,
       config: { ...initial.config, middlewares: [{ tables: { include: "events" } }] } }, complete: true });
     expect(result.current.sourceDiscovery).toBe(discovered);
+    expect(result.current.currentDiscovery).toBeUndefined();
     const renamed = { ...initial, localRevision: 2, config: {
       ...initial.config, source: { logbroker: { parser: { table_name: "renamed" } } },
     } };
@@ -541,6 +543,7 @@ describe("delivery controllers", () => {
     const updated = { ...discovered, datasets: [{ ...discovered.datasets[0]!, name: "renamed" }] };
     await act(async () => { resolveRefresh(updated); });
     expect(result.current.sourceDiscovery).toBe(updated);
+    expect(result.current.currentDiscovery).toBe(updated);
     rerender({ editor: { ...renamed, localRevision: 3 }, complete: true });
     await act(async () => { await vi.advanceTimersByTimeAsync(450); });
     expect(result.current.sourceDiscovery).toBeUndefined();
@@ -549,7 +552,7 @@ describe("delivery controllers", () => {
     expect(result.current.sourceDiscovery).toBeUndefined();
   });
 
-  it("round-trips the current YAML draft through its controller", async () => {
+  it.each(["ui", "yaml"])("round-trips the current YAML draft and keeps the requested %s view", async (target) => {
     vi.useFakeTimers();
     vi.spyOn(api, "yaml").mockResolvedValue({ yaml: "source: {}" });
     vi.spyOn(api, "parseYaml").mockResolvedValue({
@@ -577,7 +580,7 @@ describe("delivery controllers", () => {
     act(() => result.current.editYaml("source: {}"));
     let outcome;
     await act(async () => {
-      outcome = await result.current.applyYamlAndShowUi();
+      outcome = await (target === "yaml" ? result.current.applyYaml() : result.current.applyYamlAndShowUi());
     });
 
     expect(applyConfig).toHaveBeenCalledWith({ source: {} });
@@ -585,7 +588,8 @@ describe("delivery controllers", () => {
       status: "applied",
       context: { sessionId: "session", localRevision: 2 },
     });
-    expect(result.current.activeView).toBe("ui");
+    expect(result.current.activeView).toBe(target);
+    expect(result.current.yamlDraft).toBe("source: {}");
   });
 
   it("switches a read-only YAML view back to UI without parsing it", async () => {

@@ -14,6 +14,7 @@ import { DeliveryConfiguration } from "./DeliveryConfiguration";
 import { tableConnectionIdentity } from "./useEndpointActions";
 import { SourceMetadataContext, useSourceMetadata } from "./sourceMetadata";
 import { SourceDataViewer } from "./SourceDataViewer";
+import { DataSchemaDialog } from "./DataSchemaDialog";
 import type { DeliveryType } from "../generated/apiContract";
 import { DeliveryLogs } from "./DeliveryLogs";
 import { PerformanceAdviceWorkspace } from "./PerformanceAdviceWorkspace";
@@ -31,7 +32,6 @@ import {
 } from "../application/operations";
 import {
   DataSchemaInspector,
-  DataSchemaWorkspace,
   StatusPill,
 } from "./EditorViews";
 import { YamlEditorPanel } from "./YamlEditorPanel";
@@ -145,6 +145,8 @@ export function DeliveryApplication() {
     useState<ValidatedDiscoverySnapshot>();
   const [schemaInspectorVisible, setSchemaInspectorVisible] = useState(false);
   const [dataViewerKey, setDataViewerKey] = useState<string>();
+  const [dataSchemaSession, setDataSchemaSession] = useState<EditorSessionId>();
+  const openingDataSchema = useRef(false);
   const [pendingRuntimeAction, setPendingRuntimeAction] =
     useState<PendingRuntimeAction>();
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_STATE);
@@ -314,6 +316,7 @@ export function DeliveryApplication() {
   );
   const {
     discovery,
+    currentDiscovery,
     sourceDiscovery,
     clearDiscovery,
     error: discoveryError,
@@ -383,6 +386,7 @@ export function DeliveryApplication() {
   useEffect(() => {
     if (!dataSchemaAvailable) setSchemaInspectorVisible(false);
   }, [dataSchemaAvailable]);
+  useLayoutEffect(() => { setDataSchemaSession(undefined); }, [editor.sessionId]);
   const yamlEditor = useYamlEditor({
     enabled: catalog !== undefined,
     editable: !isReadOnly(editor),
@@ -446,7 +450,7 @@ export function DeliveryApplication() {
     editYaml,
     showYaml,
     applyYamlAndShowUi,
-    showDataSchema,
+    applyYaml,
     showSpeedtest,
     showPerformanceAdvice,
     showLogs,
@@ -621,6 +625,25 @@ export function DeliveryApplication() {
   };
   const revealMissingRequiredFields = (scope: "source" | "all" = "all") =>
     runAfterYaml({ kind: "reveal", scope });
+  const openDataSchema = async () => {
+    if (openingDataSchema.current || blockingOperation) return;
+    if (!dataSchemaAvailable) {
+      if (discoveryError === undefined && selection?.source !== undefined && !sourceSchemaComplete) {
+        revealMissingRequiredFields("source");
+      } else if (!isOperationPending(operations.discovery) && dataSchemaUnavailableReason !== undefined) {
+        const requestId = beginOperation("discovery");
+        finishOperation("discovery", requestId, dataSchemaUnavailableReason);
+      }
+      return;
+    }
+    if (activeView !== "yaml") { setDataSchemaSession(editor.sessionId); return; }
+    openingDataSchema.current = true;
+    try {
+      const result = await applyYaml();
+      if (result.status !== "failed" && currentEditorContext.current.sessionId === editor.sessionId)
+        setDataSchemaSession(editor.sessionId);
+    } finally { openingDataSchema.current = false; }
+  };
   const openSpeedtest = () => {
     void showSpeedtest(
       (config) => speedtestAvailability(catalog, config, widgets).available,
@@ -731,6 +754,8 @@ export function DeliveryApplication() {
             if (!viewerAvailable) return;
             setDataViewerKey(viewerKey);
           } }}
+        dataSchema={{ available: dataSchemaAvailable, visible: dataSchemaSession === editor.sessionId,
+          pending: blockingOperation, reason: dataSchemaUnavailableReason, onOpen: () => { void openDataSchema(); } }}
         onNew={() => {
           jobs.cancelEditorJobs();
           resetOperations({});
@@ -792,22 +817,11 @@ export function DeliveryApplication() {
         <EditorTabs
           active={activeView}
           disabled={blockingOperation}
-          dataSchemaAvailable={dataSchemaAvailable}
-          dataSchemaUnavailableReason={dataSchemaUnavailableReason}
           speedtestAvailable={speedtest.available}
           speedtestUnavailableReason={speedtest.reason}
           performanceAdviceCount={performanceAdviceCount}
           onUi={() => void applyYamlAndShowUi()}
           onYaml={() => void showYaml()}
-          onDataSchema={() => void showDataSchema()}
-          onDataSchemaUnavailable={() => {
-            if (discoveryError === undefined && selection?.source !== undefined && !sourceSchemaComplete) {
-              revealMissingRequiredFields("source");
-            } else if (!isOperationPending(operations.discovery) && dataSchemaUnavailableReason !== undefined) {
-              const requestId = beginOperation("discovery");
-              finishOperation("discovery", requestId, dataSchemaUnavailableReason);
-            }
-          }}
           onSpeedtest={openSpeedtest}
           onSpeedtestUnavailable={openSpeedtest}
           onPerformanceAdvice={() =>
@@ -844,8 +858,6 @@ export function DeliveryApplication() {
             disabled={readOnly}
             onChange={editYaml}
           />
-        ) : activeView === "data_schema" && discovery !== undefined ? (
-          <DataSchemaWorkspace result={discovery} />
         ) : activeView === "speedtest" ? (
           <SpeedtestWorkspace
             config={editor.config}
@@ -869,6 +881,9 @@ export function DeliveryApplication() {
         ) : null}
         {viewerSource && viewerAvailable && dataViewerKey === viewerKey && <SourceDataViewer key={viewerKey}
           source={viewerSource} mode={messageViewer ? "parsed" : "tables"} onClose={() => setDataViewerKey(undefined)} />}
+        {dataSchemaSession === editor.sessionId && <DataSchemaDialog result={currentDiscovery}
+          error={currentDiscovery ? undefined : discoveryError ?? (!sourceSchemaComplete ? dataSchemaUnavailableReason : undefined)}
+          onClose={() => setDataSchemaSession(undefined)} />}
         {schemaInspectorVisible && discovery !== undefined && (
           <DataSchemaInspector
             result={discovery}

@@ -16,7 +16,8 @@
     "test:row-reorder": "node scripts/check-row-reorder.mjs",
     "test:parser-layout": "node scripts/check-parser-layout.mjs",
     "test:about-layout": "node scripts/check-about-layout.mjs",
-    "test:data-viewer": "node scripts/check-source-data-viewer.mjs"
+    "test:data-viewer": "node scripts/check-source-data-viewer.mjs",
+    "test:data-schema": "node scripts/check-data-schema-dialog.mjs"
   },
   "dependencies": {
     "preact": "10.29.8"

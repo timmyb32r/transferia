@@ -96,7 +96,6 @@ export function ContractView({ result }: { result: DiscoveryResult }) {
   return (
     <section class="card contract">
       <div class="card-heading">
-        <h2>Data schema</h2>
         <span>
           {result.source} → {result.sink}
           {result.pipeline_count > 1 && ` · ${result.pipeline_count} pipelines`}
@@ -145,23 +144,6 @@ export function ContractView({ result }: { result: DiscoveryResult }) {
       <Disclosure label="Destination limits" class="sink-limits">
         <pre>{JSON.stringify(result.sink_limits, null, 2)}</pre>
       </Disclosure>
-    </section>
-  );
-}
-
-export function DataSchemaWorkspace({ result }: { result: DiscoveryResult }) {
-  return (
-    <section class="data-schema-workspace" role="tabpanel">
-      <header class="data-schema-toolbar">
-        <div>
-          <h2>Data schema</h2>
-          <p>
-            Final discovered table schemas update with the delivery
-            configuration.
-          </p>
-        </div>
-      </header>
-      <ContractView result={result} />
     </section>
   );
 }

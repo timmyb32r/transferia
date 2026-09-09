@@ -69,6 +69,16 @@ the control. Error and warning semantics remain distinct.
 
 ## Component rules
 
+- `Data schema` opens from the bottom-left sidebar tools, not the editor tabs.
+  It is a fixed-size popup with a stationary Close action and a scrolling schema
+  report: table selection, intermediate Arrow types, destination types and limits.
+  Keep the underlying editor mounted and on its current tab. Apply authored YAML
+  before opening, preserving its draft and tab; parsing errors do not open the popup.
+  Never show a previous configuration's discovery while the new schema is pending.
+  Escape dismisses a nested picker first, then the popup. Trap keyboard focus,
+  restore it to the launcher without scrolling, and close on delivery changes.
+  Keep sidebar spacing and popup geometry unchanged across loading/result/error states.
+
 - Sidebar `Data viewer` sits next to `Schema widget`. Route by source preview
   capabilities: queues and S3 show output from the configured production parser
   (or native Parquet reader), including DLQ; Scan remains a separate detection tool.

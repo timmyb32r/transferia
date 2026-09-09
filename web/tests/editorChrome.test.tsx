@@ -31,8 +31,8 @@ describe("editor chrome", () => {
   it("keeps UI and YAML tabs mounted and pending rather than natively disabled during YAML application", () => {
     const onUi = vi.fn();
     const onYaml = vi.fn();
-    const props = { active: "yaml" as const, dataSchemaAvailable: false,
-      onUi, onYaml, onDataSchema: vi.fn(), onPerformanceAdvice: vi.fn(), onLogs: vi.fn() };
+    const props = { active: "yaml" as const,
+      onUi, onYaml, onPerformanceAdvice: vi.fn(), onLogs: vi.fn() };
     const view = render(<EditorTabs {...props} disabled={false} />);
     const tabs = ["UI", "YAML"].map((name) => view.getByRole("tab", { name }) as HTMLButtonElement);
     view.rerender(<EditorTabs {...props} disabled />);
@@ -138,8 +138,7 @@ describe("editor chrome", () => {
     expect(dismiss).toHaveBeenCalledWith("validate", 2);
   });
 
-  it("exposes Data schema as a peer configuration view", () => {
-    const onDataSchema = vi.fn();
+  it("keeps Data schema out of the configuration tabs", () => {
     const onSpeedtest = vi.fn();
     const onPerformanceAdvice = vi.fn();
     const onLogs = vi.fn();
@@ -147,21 +146,17 @@ describe("editor chrome", () => {
       <EditorTabs
         active="ui"
         disabled={false}
-        dataSchemaAvailable
         speedtestAvailable
         performanceAdviceCount={3}
         onUi={() => undefined}
         onYaml={() => undefined}
-        onDataSchema={onDataSchema}
         onSpeedtest={onSpeedtest}
         onPerformanceAdvice={onPerformanceAdvice}
         onLogs={onLogs}
       />,
     );
 
-    fireEvent.click(view.getByRole("tab", { name: "Data schema" }));
-
-    expect(onDataSchema).toHaveBeenCalledOnce();
+    expect(view.queryByRole("tab", { name: "Data schema" })).toBeNull();
     fireEvent.click(view.getByRole("tab", { name: "Speedtest" }));
     expect(onSpeedtest).toHaveBeenCalledOnce();
     fireEvent.click(
@@ -178,11 +173,9 @@ describe("editor chrome", () => {
       <EditorTabs
         active="ui"
         disabled={disabled}
-        dataSchemaAvailable={false}
         performanceAdviceCount={count}
         onUi={() => undefined}
         onYaml={() => undefined}
-        onDataSchema={() => undefined}
         onPerformanceAdvice={onPerformanceAdvice}
         onLogs={() => undefined}
       />
@@ -241,12 +234,10 @@ describe("editor chrome", () => {
       <EditorTabs
         active="ui"
         disabled={false}
-        dataSchemaAvailable={false}
         speedtestAvailable={false}
         speedtestUnavailableReason="Fill required destination field: Database"
         onUi={() => undefined}
         onYaml={() => undefined}
-        onDataSchema={() => undefined}
         onSpeedtest={() => undefined}
         onSpeedtestUnavailable={onSpeedtestUnavailable}
         onPerformanceAdvice={() => undefined}
@@ -265,19 +256,16 @@ describe("editor chrome", () => {
   it("lets unavailable Data schema reveal missing source fields", () => {
     const onDataSchemaUnavailable = vi.fn();
     const view = render(
-      <EditorTabs
-        active="ui"
-        disabled={false}
-        dataSchemaAvailable={false}
-        dataSchemaUnavailableReason="Complete the required parser settings"
-        onUi={() => undefined}
-        onYaml={() => undefined}
-        onDataSchema={() => undefined}
-        onDataSchemaUnavailable={onDataSchemaUnavailable}
-        onPerformanceAdvice={() => undefined}
+      <DeliverySidebar
+        catalog={{ common_schema: {}, initial: {}, connectors: [] }} deliveries={[]} selectedId={undefined}
+        appearance={{ design: "airy-v0", theme: "light" }} onAppearance={() => undefined}
+        dataWidgetAvailable={false} dataWidgetVisible={false} onToggleDataWidget={() => undefined}
+        onNew={() => undefined} onOpen={() => undefined}
+        dataSchema={{ available: false, visible: false, pending: false,
+          reason: "Complete the required parser settings", onOpen: onDataSchemaUnavailable }}
       />,
     );
-    const tab = view.getByRole("tab", {
+    const tab = view.getByRole("button", {
       name: "Data schema",
     }) as HTMLButtonElement;
     expect(tab.disabled).toBe(false);
@@ -589,6 +577,7 @@ describe("editor chrome", () => {
     const onOpen = vi.fn();
     const onToggleDataWidget = vi.fn();
     const onDataViewer = vi.fn();
+    const onDataSchema = vi.fn();
     const view = render(
       <DeliverySidebar
         catalog={{ common_schema: {}, initial: {}, connectors: [] }}
@@ -613,6 +602,7 @@ describe("editor chrome", () => {
         dataWidgetVisible={false}
         onToggleDataWidget={onToggleDataWidget}
         dataViewer={{ available: true, visible: false, pending: false, onOpen: onDataViewer }}
+        dataSchema={{ available: true, visible: false, pending: false, onOpen: onDataSchema }}
         onNew={onNew}
         onOpen={onOpen}
       />,
@@ -626,6 +616,9 @@ describe("editor chrome", () => {
     fireEvent.click(view.getByRole("button", { name: "Schema widget" }));
     fireEvent.click(view.getByRole("button", { name: "Data viewer" }));
     expect(onDataViewer).toHaveBeenCalledOnce();
+    fireEvent.click(view.getByRole("button", { name: "Data schema" }));
+    expect(onDataSchema).toHaveBeenCalledOnce();
+    expect(view.getByRole("button", { name: "Data schema" }).closest(".sidebar-tools")).toBeTruthy();
 
     expect(
       view.getByRole("button", { name: "Schema widget" }).classList,

@@ -11,7 +11,6 @@ type Operations = ReturnType<typeof useOperations>;
 export type EditorView =
   | "ui"
   | "yaml"
-  | "data_schema"
   | "speedtest"
   | "performance_advice"
   | "logs";
@@ -119,7 +118,7 @@ export function useYamlEditor({
   };
 
   const applyYamlAndShow = async (
-    target: Exclude<EditorView, "yaml">,
+    target: Exclude<EditorView, "yaml"> | undefined,
     isAvailable: (config: JsonObject) => boolean = () => true,
   ): Promise<ApplyYamlResult> => {
     if (activeView === target) return { status: "current" };
@@ -134,12 +133,12 @@ export function useYamlEditor({
           },
         };
       }
-      setActiveView(target);
+      if (target !== undefined) setActiveView(target);
       return { status: "current" };
     }
     if (!editable) {
       yamlEditing.current = false;
-      setActiveView(target);
+      if (target !== undefined) setActiveView(target);
       return { status: "current" };
     }
     const requestId = operations.beginOperation("parseYaml", "Applying YAML…");
@@ -156,7 +155,7 @@ export function useYamlEditor({
         return { status: "failed" };
       }
       applyConfig(result.value.config);
-      yamlEditing.current = false;
+      yamlEditing.current = target === undefined;
       const contextAfterApply = {
         sessionId: result.context.sessionId,
         localRevision: result.context.localRevision + 1,
@@ -166,7 +165,7 @@ export function useYamlEditor({
         operations.finishOperation("parseYaml", requestId);
         return { status: "unavailable", context: contextAfterApply };
       }
-      setActiveView(target);
+      if (target !== undefined) setActiveView(target);
       operations.finishOperation("parseYaml", requestId);
       return {
         status: "applied",
@@ -194,7 +193,7 @@ export function useYamlEditor({
     editYaml,
     showYaml,
     applyYamlAndShowUi: () => applyYamlAndShow("ui"),
-    showDataSchema: () => applyYamlAndShow("data_schema"),
+    applyYaml: () => applyYamlAndShow(undefined),
     showSpeedtest: (isAvailable: (config: JsonObject) => boolean) =>
       applyYamlAndShow("speedtest", isAvailable),
     showPerformanceAdvice: (isAvailable: (config: JsonObject) => boolean) =>

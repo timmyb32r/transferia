@@ -2,7 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import type { EditorState } from "../state";
-import type { DiscoveryResult } from "../types";
+import type { DiscoveryResult, JsonObject } from "../types";
 import type { MetadataStatus } from "../generated/apiContract";
 import type { EditorRequestContext, useDeliveryJobs } from "./useDeliveryJobs";
 import type { useOperations } from "./useOperations";
@@ -32,12 +32,14 @@ export function useDiscovery({
 }) {
   const api = useControlPlane();
   const [snapshot, setSnapshot] = useState<{
-    value: DiscoveryResult; sessionId: EditorState["sessionId"]; sourceKey: string;
+    value: DiscoveryResult; sessionId: EditorState["sessionId"]; sourceKey: string; config: JsonObject;
   }>();
   // Sink/transform edits do not change parser outputs. Source edits invalidate
   // the usable catalog immediately, including during the discovery debounce.
   const sourceKey = JSON.stringify([editor.config.delivery_type, editor.config.source]);
   const discovery = snapshot?.value;
+  const currentDiscovery = structurallyComplete && snapshot?.sessionId === editor.sessionId
+    && snapshot.config === editor.config ? snapshot.value : undefined;
   const sourceDiscovery = structurallyComplete && snapshot?.sessionId === editor.sessionId
     && snapshot.sourceKey === sourceKey ? snapshot.value : undefined;
   const clearDiscovery = () => setSnapshot(undefined);
@@ -73,7 +75,7 @@ export function useDiscovery({
         )
         .then((result) => {
           if (result !== undefined && isCurrentContext(result.context)) {
-            setSnapshot({ value: result.value, sessionId: context.sessionId, sourceKey });
+            setSnapshot({ value: result.value, sessionId: context.sessionId, sourceKey, config: editor.config });
           }
           operations.finishOperation("discovery", requestId);
         })
@@ -101,7 +103,7 @@ export function useDiscovery({
     metadata?.errors.length,
   ]);
 
-  return { discovery, sourceDiscovery, clearDiscovery, error };
+  return { discovery, currentDiscovery, sourceDiscovery, clearDiscovery, error };
 }
 
 function errorMessage(reason: unknown): string {

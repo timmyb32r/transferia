@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ContractView,
   DataSchemaInspector,
-  DataSchemaWorkspace,
 } from "../src/delivery/EditorViews";
 import type { DiscoveryResult } from "../src/types";
 
@@ -147,10 +146,6 @@ describe("data schema view", () => {
     );
     expect(onHide).toHaveBeenCalledOnce();
 
-    const workspace = render(<DataSchemaWorkspace result={result} />);
-    expect(
-      workspace.queryByRole("button", { name: "Show schema inspector" }),
-    ).toBeNull();
   });
 
   it("positions the draggable inspector without transforming dropdown coordinates", () => {
