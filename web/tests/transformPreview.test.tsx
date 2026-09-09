@@ -64,17 +64,18 @@ it("shows renamed choices but samples the physical source table", async () => {
   expect(previewTransforms.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ table }));
 });
 
-it("does not sample when a current name has ambiguous source lineage", () => {
+it("samples every physical origin when a current table is a merge", async () => {
   const renamed = { ...table, name: "archive" };
-  const previewTransforms = vi.fn();
+  const previewTransforms = vi.fn().mockResolvedValue(response);
   const view = render(<ApplicationServicesProvider services={{ controlPlane: { ...httpControlPlane, previewTransforms } }}>
     <TransformPreview entries={entries} index={0} source={source} matchedTables={[renamed]}
       lineage={[{ source: table, current: renamed }, { source: { ...table, name: "other" }, current: renamed }]} />
   </ApplicationServicesProvider>);
   const run = view.getByRole("button", { name: "Run preview" }) as HTMLButtonElement;
-  expect(run.disabled).toBe(true);
+  expect(run.disabled).toBe(false);
   fireEvent.click(run);
-  expect(previewTransforms).not.toHaveBeenCalled();
+  await waitFor(() => expect(previewTransforms).toHaveBeenCalledTimes(2));
+  expect(previewTransforms.mock.calls.map(call => call[0].table)).toEqual([table, { ...table, name: "other" }]);
 });
 
 it("defaults to the first All matched tables option and samples each table separately", async () => {

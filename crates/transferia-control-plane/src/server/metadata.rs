@@ -30,6 +30,7 @@ pub(super) struct MetadataSession {
     active_loads: AtomicUsize,
     cancellation: CancellationToken,
     validation: Mutex<Option<(MetadataValidationProgress, Vec<TableIdentity>)>>,
+    preview_validation: Mutex<Option<Value>>,
     pub(super) validation_gate: Arc<Mutex<()>>,
 }
 
@@ -120,6 +121,57 @@ impl MetadataSession {
                 .sample_table(table, limits, cancellation.child_token()),
         )
         .await
+    }
+
+    pub(super) async fn preview_discovery(
+        &self,
+        source: &transferia_server_contracts::api::TransformPreviewSource,
+        cancellation: &CancellationToken,
+    ) -> anyhow::Result<DeliveryDiscovery> {
+        let selected = self.selected_for_preview(source)?;
+        let _loading = Loading::new(&self.active_loads);
+        self.run(cancellation, self.ensure_tables(&selected)).await?;
+        self.run(cancellation, self.reader.discovery(
+            selected,
+            DeliveryDiscoveryRequest { keep_system_columns: true },
+            cancellation.child_token(),
+        )).await
+    }
+
+    pub(super) async fn validate_transform_preview(
+        &self,
+        source: &transferia_server_contracts::api::TransformPreviewSource,
+        middlewares: &[Box<dyn transferia_delivery_contracts::middleware::Middleware>],
+        key: Value,
+        cancellation: &CancellationToken,
+    ) -> anyhow::Result<()> {
+        let selected = self.selected_for_preview(source)?;
+        let mut cached = self.run(cancellation, async { Ok(self.preview_validation.lock().await) }).await?;
+        if cached.as_ref() == Some(&key) { return Ok(()); }
+        let last = middlewares.len() - 1;
+        if middlewares[last].requires_preview_identity_validation() {
+            for table in selected {
+                tokio::task::yield_now().await;
+                self.ensure_active()?;
+                let mut namespace = (!table.namespace.is_empty()).then(|| Arc::<str>::from(table.namespace));
+                let mut name = Arc::<str>::from(table.name);
+                for (index, middleware) in middlewares.iter().enumerate() {
+                    if index == last {
+                        middleware.validate_preview_identity(namespace.as_deref(), &name)
+                            .with_context(|| format!("transform step {}", index + 1))?;
+                    } else {
+                        (namespace, name) = middleware.output_table_identity(namespace.as_deref(), &name)?;
+                    }
+                }
+            }
+        }
+        let discovery = self.preview_discovery(source, cancellation).await?;
+        transferia_delivery::delivery::preparation::validate_middlewares(middlewares, discovery).await?;
+        self.ensure_active()?;
+        // One successful prefix per immutable metadata session: all-table
+        // sampling must not replan every table's SQL for each sampled table.
+        *cached = Some(key);
+        Ok(())
     }
     fn selected(&self, config: &Value) -> anyhow::Result<Vec<TableIdentity>> {
         let selection: TableSelection = serde_json::from_value(
@@ -479,6 +531,7 @@ impl ControlPlane {
             active_loads: AtomicUsize::new(0),
             cancellation: self.shutdown.child_token(),
             validation: Mutex::new(None),
+            preview_validation: Mutex::new(None),
             validation_gate: Arc::new(Mutex::new(())),
         });
         self.metadata_sessions

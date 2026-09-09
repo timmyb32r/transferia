@@ -404,12 +404,24 @@ middlewares:
       last_part_only: true
 ```
 
-Distinct source tables must retain distinct destination names, including across
-namespaces; a rename cannot implicitly merge tables. Collisions fail before
-destination preparation, including dynamically admitted tables. Following steps
-browse and match the renamed catalog. Schema cache access and preview sampling
-still use the original physical source identity; the server projects names using
-the production middleware, not a separately implemented browser regex.
+An explicit rename may combine tables into one qualified identity only when their
+schemas and record semantics are identical (column order, Arrow types, nullability,
+keys, extensions, system columns and update policy). No casts, missing-column
+fills or row deduplication are performed. Primary-key merges remain rejected until
+cross-source key-conflict validation is supported; matching schemas cannot prove
+that keys do not overlap. Different namespaces sharing an unqualified destination
+name still fail because destination routing uses that name.
+Compatible destination declarations are prepared once, including during dynamic
+admission; existing tables are never re-prepared by a merge. Following steps browse
+the merged identity while retaining all physical origins for schema loading and
+sampling, never choosing one origin arbitrarily.
+
+Run preview uses the same schema validation as preparation on the entire prefix
+through the selected step before reading rows, including unsampled tables. It does
+not validate later steps or destination settings, nor prove properties of unsampled
+row values. Successful prefix validation is cached once per immutable metadata
+session/configuration, so all-table sampling does not repeat SQL schema planning.
+Changing the prefix or source selection invalidates that result.
 
 **Preview** loads a user-selected table from PostgreSQL, MySQL, or ClickHouse
 without launching a delivery or preparing a destination. It runs the actual

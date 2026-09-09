@@ -7,6 +7,7 @@ use transferia_core::{
 
 #[derive(Default)]
 struct Reader {
+    different_schema: bool,
     loads: AtomicUsize,
     assemblies: AtomicUsize,
     samples: AtomicUsize,
@@ -86,7 +87,7 @@ impl SourceMetadataReader for Reader {
                     .into_iter()
                     .map(|table| {
                         let schema = DatasetSchema::new(vec![SchemaColumn::new(
-                            "id".into(),
+                            if self.different_schema && table.name == "other" { "other_column" } else { "id" }.into(),
                             arrow::datatypes::DataType::Int64,
                             false,
                         )]);
@@ -143,6 +144,7 @@ fn session(id: &str, catalog: Vec<TableIdentity>, reader: Arc<Reader>) -> Arc<Me
         active_loads: AtomicUsize::new(0),
         cancellation: CancellationToken::new(),
         validation: Mutex::new(None),
+        preview_validation: Mutex::new(None),
         validation_gate: Arc::new(Mutex::new(())),
     })
 }
@@ -246,6 +248,76 @@ async fn rename_preview_rejects_invalid_outputs_in_unsampled_tables_and_source_m
 
 fn config() -> Value {
     serde_json::json!({"delivery_type":"batch", "source":{"postgres":source()}, "sink":{"discard":{}}})
+}
+
+#[tokio::test]
+async fn preview_and_preparation_reject_the_same_unsampled_schema_errors() -> anyhow::Result<()> {
+    for action in [
+        serde_json::json!({"rename_table":{"mode":"exact", "name":"united"}}),
+        serde_json::json!({"rename_table":{"mode":"regex", "pattern":".*", "replacement":"united"}}),
+        serde_json::json!({"datafusion":{"sql":"SELECT id FROM input"}}),
+    ] {
+        let reader = Arc::new(Reader { different_schema: true, ..Reader::default() });
+        let session = session("cache", vec![table("events"), table("other")], reader.clone());
+        let request = rename_preview_request(serde_json::json!([action.clone()]), source())?;
+        let error = ControlPlane::preview_transforms_with(
+            &Transferia::public()?, request, CancellationToken::new(), Some(session.clone()),
+        ).await.unwrap_err();
+        assert_eq!(reader.samples.load(Ordering::SeqCst), 0, "must not sample the valid table before checking other");
+        let discovery = session.preview_discovery(&transferia_server_contracts::api::TransformPreviewSource {
+            connector: "postgres".into(), config: source(),
+        }, &CancellationToken::new()).await?;
+        let registry = Transferia::public()?.build_registry(&Arc::new(transferia_connectors::metrics::MetricsRegistry::new()))?;
+        let middleware = transferia_delivery::middleware::build_middlewares(&registry, &[serde_json::from_value(action)?])?;
+        let validation = transferia_delivery::delivery::preparation::validate_middlewares(&middleware, discovery).await.unwrap_err();
+        assert!(error.to_string().contains(&format!("{validation:#}")), "preview: {error}; validate: {validation:#}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn preview_accepts_equal_schema_merge_and_reads_the_requested_physical_table() -> anyhow::Result<()> {
+    let reader = Arc::new(Reader::default());
+    let session = session("cache", vec![table("events"), table("other")], reader.clone());
+    let result = ControlPlane::preview_transforms_with(&Transferia::public()?,
+        rename_preview_request(serde_json::json!([{"rename_table":{"mode":"exact", "name":"united"}}]), source())?,
+        CancellationToken::new(), Some(session),
+    ).await?;
+    assert_eq!(result.after.table.name, "united");
+    assert_eq!(reader.samples.load(Ordering::SeqCst), 1);
+    assert_eq!(reader.loads.load(Ordering::SeqCst), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn preview_reuses_successful_schema_validation_but_revalidates_changed_configuration() -> anyhow::Result<()> {
+    let reader = Arc::new(Reader::default());
+    let session = session("cache", vec![table("events"), table("other")], reader.clone());
+    for target in ["united", "united", "renamed"] {
+        ControlPlane::preview_transforms_with(&Transferia::public()?,
+            rename_preview_request(serde_json::json!([{"rename_table":{"mode":"exact", "name":target}}]), source())?,
+            CancellationToken::new(), Some(session.clone()),
+        ).await?;
+    }
+    assert_eq!(reader.samples.load(Ordering::SeqCst), 3);
+    assert_eq!(reader.loads.load(Ordering::SeqCst), 2);
+    assert_eq!(reader.assemblies.load(Ordering::SeqCst), 2, "same prefix is validated once, changed prefix is revalidated");
+    Ok(())
+}
+
+#[tokio::test]
+async fn merge_compares_schemas_after_preceding_sql_not_original_source_schemas() -> anyhow::Result<()> {
+    let reader = Arc::new(Reader { different_schema: true, ..Reader::default() });
+    let session = session("cache", vec![table("events"), table("other")], reader.clone());
+    let result = ControlPlane::preview_transforms_with(&Transferia::public()?,
+        rename_preview_request(serde_json::json!([
+            {"datafusion":{"sql":"SELECT 1 AS id FROM input"}},
+            {"rename_table":{"mode":"exact", "name":"united"}},
+        ]), source())?, CancellationToken::new(), Some(session),
+    ).await?;
+    assert_eq!(result.after.table.name, "united");
+    assert_eq!(reader.samples.load(Ordering::SeqCst), 1);
+    Ok(())
 }
 
 #[tokio::test]

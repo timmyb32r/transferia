@@ -24,12 +24,19 @@ impl transferia_pipeline::DatasetAdmission for AdmissionCoordinator {
             retain_system_columns(&mut dataset, self.context.keep_system_columns);
             let mut added = self.context.discovery.as_ref().clone();
             added.datasets = vec![dataset];
-            let added =
+            let mut added =
                 crate::delivery::preparation::validate_middlewares(&self.middlewares, added)
                     .await
                     .map_err(DataPlaneFailure::fatal)?;
             let mut combined = self.context.discovery.as_ref().clone();
             combined.datasets.extend(added.datasets.iter().cloned());
+            // The new table can also be the unchanged side of an earlier merge.
+            if !self.middlewares.is_empty() {
+                crate::delivery::preparation::merge_compatible_datasets(&mut combined.datasets)
+                    .map_err(DataPlaneFailure::fatal)?;
+                added.datasets.retain(|dataset| !self.context.discovery.datasets.iter().any(|existing|
+                    existing.namespace == dataset.namespace && existing.name == dataset.name && existing.role == dataset.role));
+            }
             crate::delivery::preparation::validate_discovered_pipeline(
                 &self.source,
                 &self.sink.compatibility(),

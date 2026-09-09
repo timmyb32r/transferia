@@ -31,14 +31,14 @@ export function TransformPreview({ entries, index, source, matchedTables, lineag
     ? selected.table : undefined;
   const allTables = selected === undefined || selected.key !== sourceKey;
   const sampleTables = allTables ? tables : table ? [table] : [];
-  const sourceTable = (candidate: TableIdentity) => {
-    if (lineage === undefined) return candidate;
+  const sourceTables = (candidate: TableIdentity) => {
+    if (lineage === undefined) return [candidate];
     const origins = lineage.filter(item => item.current.namespace === candidate.namespace && item.current.name === candidate.name);
-    return origins.length === 1 ? origins[0]?.source : undefined;
+    return origins.map(item => item.source);
   };
   const schemaReady = sampleTables.every(candidate => {
-    const original = sourceTable(candidate);
-    return original !== undefined && (!metadata || metadata.loaded.some(loaded => loaded.namespace === original.namespace && loaded.name === original.name));
+    const originals = sourceTables(candidate);
+    return originals.length > 0 && originals.every(original => !metadata || metadata.loaded.some(loaded => loaded.namespace === original.namespace && loaded.name === original.name));
   });
   const resultKey = JSON.stringify([sourceKey, metadata?.id, entries.slice(0, index + 1), index, sampleTables, lineage, rowLimit, limits]);
   const live = useRef({ sourceKey, resultKey });
@@ -79,13 +79,16 @@ export function TransformPreview({ entries, index, source, matchedTables, lineag
       for (const candidate of sampleTables) {
         if (request.signal.aborted || live.current.resultKey !== resultKey) return;
         activeTable = candidate;
-        const original = sourceTable(candidate);
-        if (!original) throw new Error("Source table mapping is unavailable; refresh table matches");
+        const originals = sourceTables(candidate);
+        if (!originals.length) throw new Error("Source table mapping is unavailable; refresh table matches");
+        for (const original of originals) {
+        if (request.signal.aborted || live.current.resultKey !== resultKey) return;
         value.push(await api.previewTransforms({
           metadata_id: metadata?.id ?? null,
           source, table: original, row_limit, middlewares: entries, through_step: index,
           max_sample_bytes, memory_limit_bytes, timeout_ms,
         }, request.signal));
+        }
       }
       if (request.signal.aborted || live.current.resultKey !== resultKey) return;
       setResult({ key: resultKey, value });
@@ -127,7 +130,7 @@ export function TransformPreview({ entries, index, source, matchedTables, lineag
         onClick={() => { void run(); }}>Run preview</Button>
     </div>
     <p class={`transform-preview-status ${feedback?.error ? "error" : ""}`} role="status" aria-live="polite" aria-atomic="true">
-      {running ? "Reading source rows and applying preceding transforms…" : feedback?.text ?? note}
+      {running ? "Validating transform schemas and reading source rows…" : feedback?.text ?? note}
     </p>
     <div class="transform-preview-tabs editor-view-tabs" role="tablist" aria-label="Transform preview view">
       {(["before", "after"] as const).map(value => <Button variant="plain" key={value} role="tab" id={`${id}-${value}`}

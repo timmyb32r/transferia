@@ -465,7 +465,6 @@ async fn table_selection_reports_rename_errors_and_collisions_without_choosing_a
         (serde_json::json!({"mode":"regex","pattern":"[","replacement":"x"}), "regex"),
         (serde_json::json!({"mode":"regex","pattern":"(.*)","replacement":"$2"}), "unknown capture"),
         (serde_json::json!({"mode":"regex","pattern":"^.*$","replacement":""}), "must not be empty"),
-        (serde_json::json!({"mode":"exact","name":"same"}), "same current identity"),
     ] {
         let request = serde_json::json!({
             "catalog":[{"namespace":"public","name":"one"},{"namespace":"public","name":"two"}],

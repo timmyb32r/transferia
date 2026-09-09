@@ -80,6 +80,13 @@ pub trait Middleware: Send + Sync {
         let mut output = dataset.clone();
         (output.namespace, output.name) = self.output_table_identity(dataset.namespace.as_deref(), &dataset.name)?;
         output.stored_schema = self.output_schema(&dataset.stored_schema).await?;
+        // Compare the actual post-transform sink input, not a stale source
+        // schema, when subsequent renames combine otherwise different inputs.
+        output.incoming_schema = if dataset.incoming_schema == dataset.stored_schema {
+            output.stored_schema.clone()
+        } else {
+            self.output_schema(&dataset.incoming_schema).await?
+        };
         Ok(output)
     }
 

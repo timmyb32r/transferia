@@ -146,9 +146,11 @@ function TransformStrip({ entry, entries, source, needsCatalog, catalogUnavailab
     if (!projectsNames || !matches?.lineage) return catalog;
     const current = new Map(matches.lineage.map(item => [JSON.stringify([item.source.namespace, item.source.name]), item.current]));
     const projected = (table: { namespace: string; name: string }) => current.get(JSON.stringify([table.namespace, table.name]));
-    return { ...catalog, tables: matches.lineage.map(item => item.current),
+    const merged = [...new Map(matches.lineage.map(item => [JSON.stringify(item.current), item.current])).values()];
+    return { ...catalog, tables: merged,
       metadata: catalog.metadata ? { ...catalog.metadata,
-        loaded: catalog.metadata.loaded.flatMap(table => { const next = projected(table); return next ? [next] : []; }),
+        loaded: merged.filter(table => matches.lineage!.filter(item => item.current.namespace === table.namespace && item.current.name === table.name)
+          .every(item => catalog.metadata!.loaded.some(loaded => loaded.namespace === item.source.namespace && loaded.name === item.source.name))),
         errors: catalog.metadata.errors.flatMap(error => { const next = projected(error.table); return next ? [{ ...error, table: next }] : []; }),
       } : undefined };
   }, [catalog, projectsNames, matches?.lineage]);

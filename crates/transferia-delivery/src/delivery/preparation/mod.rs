@@ -373,11 +373,20 @@ pub fn validate_discovered_pipeline(
         discovery.keep_system_columns == keep_system_columns,
         "delivery discovery system-column policy differs from pipeline configuration"
     );
+    validate_dataset_names(&discovery.datasets)?;
+    let semantics = validate_pipeline(source, sink, discovery, keep_system_columns);
+    semantics.ensure_valid()?;
+    limits
+        .validate_discovery(discovery)
+        .context("delivery violates sink limits")?;
+    Ok(semantics)
+}
+
+fn validate_dataset_names(datasets: &[transferia_core::DiscoveredDataset]) -> anyhow::Result<()> {
     // Runtime batches route by table name, not by an encoded namespace/name.
     // Reject ambiguous identities before any destination can be prepared.
     let mut names = std::collections::HashMap::new();
-    for dataset in discovery
-        .datasets
+    for dataset in datasets
         .iter()
         .filter(|dataset| dataset.role == DatasetRole::Main)
     {
@@ -388,29 +397,19 @@ pub fn validate_discovered_pipeline(
             );
         }
     }
-    let semantics = validate_pipeline(source, sink, discovery, keep_system_columns);
-    semantics.ensure_valid()?;
-    limits
-        .validate_discovery(discovery)
-        .context("delivery violates sink limits")?;
-    Ok(semantics)
+    Ok(())
 }
 
-pub(crate) async fn validate_middlewares(
+pub async fn validate_middlewares(
     middlewares: &[Box<dyn Middleware>],
     mut discovery: DeliveryDiscovery,
 ) -> anyhow::Result<DeliveryDiscovery> {
     if middlewares.is_empty() {
         return Ok(discovery);
     }
-    let mut found_main = false;
-    for main in discovery
-        .datasets
-        .iter_mut()
-        .filter(|dataset| dataset.role == DatasetRole::Main)
-    {
-        found_main = true;
-        for (index, middleware) in middlewares.iter().enumerate() {
+    let found_main = discovery.datasets.iter().any(|dataset| dataset.role == DatasetRole::Main);
+    for (index, middleware) in middlewares.iter().enumerate() {
+        for main in discovery.datasets.iter_mut().filter(|dataset| dataset.role == DatasetRole::Main) {
             *main = middleware.output_dataset(main).await.with_context(|| {
                 format!(
                     "middleware {index} is incompatible with dataset {:?}",
@@ -418,9 +417,52 @@ pub(crate) async fn validate_middlewares(
                 )
             })?;
         }
+        merge_compatible_datasets(&mut discovery.datasets)
+            .with_context(|| format!("transform step {}", index + 1))?;
     }
     anyhow::ensure!(found_main, "middlewares require a discovered main dataset");
+    validate_dataset_names(&discovery.datasets)?;
     Ok(discovery)
+}
+
+/// Coalesce destination declarations, never data rows. Called only after explicit
+/// middleware projection; ordinary source name collisions still fail validation.
+pub(crate) fn merge_compatible_datasets(datasets: &mut Vec<transferia_core::DiscoveredDataset>) -> anyhow::Result<()> {
+    let mut identities = std::collections::BTreeMap::new();
+    let mut retained = Vec::with_capacity(datasets.len());
+    for (index, dataset) in datasets.iter().enumerate() {
+        if dataset.role != DatasetRole::Main {
+            retained.push(index);
+            continue;
+        }
+        let key = (dataset.namespace.as_deref(), dataset.name.as_ref());
+        if let Some(&previous_index) = identities.get(&key) {
+            let previous: &transferia_core::DiscoveredDataset = &datasets[previous_index];
+            anyhow::ensure!(previous.stored_schema == dataset.stored_schema
+                && previous.incoming_schema == dataset.incoming_schema
+                && previous.system_columns == dataset.system_columns
+                && previous.update_policy == dataset.update_policy,
+                "Cannot merge tables into {:?}.{:?}: incompatible output schemas or record semantics; column order, types, nullability, keys and metadata must be identical",
+                dataset.namespace, dataset.name);
+            anyhow::ensure!(!dataset.stored_schema.columns.iter().any(|column| column.primary_key),
+                "Cannot merge tables into {:?}.{:?}: primary-key tables require cross-source key conflict validation; equal schemas alone cannot guarantee preservation of rows",
+                dataset.namespace, dataset.name);
+        } else {
+            identities.insert(key, index);
+            retained.push(index);
+        }
+    }
+    // All validation completes before changing the discovery.
+    let mut index = 0;
+    let mut retained = retained.into_iter().peekable();
+    datasets.retain(|_| {
+        let keep = retained.peek() == Some(&index);
+        if keep { retained.next(); }
+        index += 1;
+        keep
+    });
+    Ok(())
+
 }
 
 #[cfg(test)]

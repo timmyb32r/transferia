@@ -163,20 +163,13 @@ impl ControlPlane {
                     table.name = name.to_string();
                 }
             }
-            // A current identity must identify exactly one physical source for
-            // schema loading and preview sampling. Never pick a collision winner.
-            let mut identities = std::collections::BTreeSet::new();
-            for table in &catalog {
-                if !identities.insert((&table.namespace, &table.name)) {
-                    return Err(ServiceError::Validation(format!(
-                        "Multiple source tables map to the same current identity: {:?}.{:?}",
-                        table.namespace, table.name,
-                    )));
-                }
-            }
+            // Keep every physical origin; schema compatibility is checked by
+            // preparation/Run preview, not guessed from names alone.
             Some(request.catalog.into_iter().zip(catalog.iter().cloned())
                 .map(|(source, current)| TableLineage { source, current }).collect())
         };
+        let mut identities = std::collections::BTreeSet::new();
+        catalog.retain(|table| identities.insert(table.clone()));
         let selection = request.selection.compile().map_err(anyhow::Error::from).and_then(|selection| selection.resolve(&catalog))
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
         Ok(TableSelectionPreviewResult { selection, lineage })
@@ -779,6 +772,7 @@ impl ControlPlane {
                 "source preview requires a table name".into(),
             ));
         }
+        let validation_key = serde_json::json!([&request.source.connector, &request.source.config, &request.middlewares[..=request.through_step]]);
         let entries = request
             .middlewares
             .into_iter()
@@ -801,30 +795,8 @@ impl ControlPlane {
             name: request.table.name.clone(),
         };
         let sample = if let Some(metadata) = metadata {
-            if middlewares[request.through_step].requires_preview_identity_validation() {
-                let selected = metadata.selected_for_preview(&request.source)
-                    .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
-                // Validate the entire authenticated scope, even when the user samples
-                // just one table. Earlier steps may change both namespace and name.
-                for source_table in selected {
-                    // Large catalogs must not suppress the preview deadline/cancel.
-                    tokio::task::yield_now().await;
-                    metadata.ensure_active()
-                        .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
-                    let mut namespace = (!source_table.namespace.is_empty())
-                        .then(|| Arc::<str>::from(source_table.namespace));
-                    let mut name = Arc::<str>::from(source_table.name);
-                    for (index, middleware) in middlewares.iter().enumerate() {
-                        if index == request.through_step {
-                            middleware.validate_preview_identity(namespace.as_deref(), &name)
-                                .map_err(|error| ServiceError::Validation(format!("transform step {}: {error:#}", index + 1)))?;
-                        } else {
-                            (namespace, name) = middleware.output_table_identity(namespace.as_deref(), &name)
-                                .map_err(|error| ServiceError::Validation(format!("transform step {}: {error:#}", index + 1)))?;
-                        }
-                    }
-                }
-            }
+            metadata.validate_transform_preview(&request.source, &middlewares, validation_key, &cancellation).await
+                .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
             metadata
                 .sample(
                     &request.source,

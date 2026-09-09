@@ -382,7 +382,7 @@ async fn dataset_admission_prepares_only_new_tables_and_rejects_collisions_befor
 }
 
 #[tokio::test]
-async fn dynamic_rename_collision_fails_before_destination_prepare_or_build() {
+async fn dynamic_rename_merge_does_not_reprepare_and_schema_conflicts_fail_before_side_effects() {
     use transferia_pipeline::DatasetAdmission;
     use transferia_middleware_rename_table::{RenameTableConfig, RenameTableMiddleware};
     let sink = Arc::new(AdmissionSink::default());
@@ -405,9 +405,13 @@ async fn dynamic_rename_collision_fails_before_destination_prepare_or_build() {
             discovery: Arc::new(discovery), durable: transferia_test_support::durable_context(),
         },
     };
+    let _actor = coordinator.prepare(added.clone()).await.unwrap();
+    assert!(sink.prepared.lock().unwrap().is_empty());
+    assert_eq!(*sink.built.lock().unwrap(), vec![vec![Arc::<str>::from("events")]]);
+    added.stored_schema.columns.push(transferia_core::SchemaColumn::new("extra".into(), arrow::datatypes::DataType::Int64, false));
     assert!(coordinator.prepare(added).await.is_err());
     assert!(sink.prepared.lock().unwrap().is_empty());
-    assert!(sink.built.lock().unwrap().is_empty());
+    assert_eq!(sink.built.lock().unwrap().len(), 1);
 }
 
 impl Sink for PhaseSink {

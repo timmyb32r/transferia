@@ -107,7 +107,7 @@ struct RecordingLimits {
 }
 
 #[tokio::test]
-async fn renamed_tables_cannot_merge_with_each_other_or_passthrough_tables() -> anyhow::Result<()> {
+async fn renamed_tables_merge_only_identical_schemas_into_one_destination_declaration() -> anyhow::Result<()> {
     use transferia_middleware_rename_table::{RenameTableConfig, RenameTableMiddleware};
     for config in [
         RenameTableConfig::Exact { name: "events".into(), last_part_only: true },
@@ -127,14 +127,54 @@ async fn renamed_tables_cannot_merge_with_each_other_or_passthrough_tables() -> 
             }).collect(),
             performance_advice: Vec::new(),
         };
-        let transformed = validate_middlewares(&[Box::new(RenameTableMiddleware::new(config)?)], discovery).await?;
+        let middleware: Vec<Box<dyn Middleware>> = vec![Box::new(RenameTableMiddleware::new(config)?)];
+        let transformed = validate_middlewares(&middleware, discovery.clone()).await?;
+        assert_eq!(transformed.datasets.len(), 1);
         let limits = RecordingLimits { called: AtomicBool::new(false) };
         let endpoint = transferia_delivery_contracts::semantics::EndpointDescriptor::ClickHouse;
-        let error = validate_discovered_pipeline(&endpoint, &endpoint, &limits, &transformed, false).unwrap_err();
-        assert!(error.to_string().contains("same name"));
-        assert!(!limits.called.load(Ordering::SeqCst));
+        validate_discovered_pipeline(&endpoint, &endpoint, &limits, &transformed, false)?;
+        assert!(limits.called.load(Ordering::SeqCst));
+        let mut incompatible = discovery;
+        incompatible.datasets[1].stored_schema.columns.push(transferia_core::SchemaColumn::new("extra".into(), arrow::datatypes::DataType::Utf8, true));
+        let error = validate_middlewares(&middleware, incompatible).await.unwrap_err();
+        assert!(format!("{error:#}").contains("incompatible output schemas"));
     }
     Ok(())
+}
+
+#[test]
+fn merge_schema_comparison_preserves_every_column_attribute_and_order() {
+    use transferia_core::{DatasetSchema, SchemaColumn, DiscoveredDataset};
+    use arrow::datatypes::DataType;
+    let column = SchemaColumn::new("value".into(), DataType::Int64, false);
+    let original = DiscoveredDataset {
+        namespace: None, name: Arc::from("united"), role: DatasetRole::Main,
+        update_policy: transferia_core::delivery::UpdatePolicy::Strict,
+        incoming_schema: DatasetSchema::new(vec![column.clone()]),
+        stored_schema: DatasetSchema::new(vec![column]), system_columns: vec![],
+    };
+    for attribute in 0..10 {
+        let mut changed = original.clone();
+        let column = &mut changed.stored_schema.columns[0];
+        match attribute {
+            0 => column.name = "other".into(),
+            1 => column.data_type = DataType::UInt64,
+            2 => column.nullable = true,
+            3 => column.primary_key = true,
+            4 => column.low_cardinality = true,
+            5 => column.max_length = Some(5),
+            6 => column.arrow_extension_name = Some("extension"),
+            7 => column.arrow_extension_metadata = Some("metadata".into()),
+            8 => column.system_role = Some("role".into()),
+            _ => changed.incoming_schema.columns[0].nullable = true,
+        }
+        let mut datasets = vec![original.clone(), changed];
+        assert!(merge_compatible_datasets(&mut datasets).is_err(), "attribute {attribute}");
+        assert_eq!(datasets.len(), 2, "failed validation must not mutate the declarations");
+    }
+    let mut keyed = original.clone();
+    keyed.stored_schema.columns[0].primary_key = true;
+    assert!(merge_compatible_datasets(&mut vec![keyed.clone(), keyed]).unwrap_err().to_string().contains("primary-key"));
 }
 
 impl SinkLimits for RecordingLimits {

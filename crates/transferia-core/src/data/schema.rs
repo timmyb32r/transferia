@@ -34,7 +34,7 @@ pub const META_OLD_KEY_OF: &str = "transferia.old_key_of";
 pub const ARROW_JSON_EXTENSION_NAME: &str = "arrow.json";
 
 /// Sink-neutral runtime schema exchanged between source and sink connectors.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DatasetSchema {
     pub columns: Vec<SchemaColumn>,
 }
@@ -47,7 +47,7 @@ impl DatasetSchema {
 }
 
 /// One logical column expressed in Arrow types, before sink-specific mapping.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaColumn {
     pub name: String,
     pub data_type: DataType,
