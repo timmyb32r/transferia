@@ -15,6 +15,7 @@ import { SelectControl } from "../src/ui/SelectControl";
 import type { CompiledNode } from "../src/schema/compiler";
 import type { JsonValue } from "../src/types";
 import { render } from "./support/render";
+import { reorderPointer } from "./support/reorderPointer";
 
 afterEach(cleanup);
 
@@ -1904,25 +1905,7 @@ describe("schema form", () => {
     }
     const { container } = render(<Harness />);
     const form = within(container as HTMLElement);
-    const rows = container.querySelectorAll(".config-table-row");
-    const dataTransfer = {
-      dropEffect: "none",
-      effectAllowed: "none",
-      setData: () => undefined,
-      setDragImage: (image: Element) => {
-        expect(image.classList.contains("column-drag-preview")).toBe(true);
-        expect(
-          image.querySelector<HTMLInputElement>('input[type="text"]')?.value,
-        ).toBe("id");
-      },
-    };
-    fireEvent.dragStart(
-      form.getByRole("button", { name: "Move output column 1" }),
-      { dataTransfer },
-    );
-    fireEvent.dragOver(rows[1]!, { dataTransfer, clientY: 9 });
-    const dragTarget = container.querySelectorAll(".config-table-row")[1]!;
-    fireEvent.drop(dragTarget, { dataTransfer, clientY: 9 });
+    reorderPointer(form.getByRole("button", { name: "Move output column 1" }), 9);
 
     const values = [
       ...container.querySelectorAll<HTMLInputElement>(

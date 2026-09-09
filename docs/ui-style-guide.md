@@ -69,6 +69,16 @@ the control. Error and warning semantics remain distinct.
 
 ## Component rules
 
+- Parser columns (JSON/TSKV) and transforms use shared pointer-driven row
+  reordering from the dot handle, not native browser drag images. The full row
+  follows even a one-pixel movement; its original footprint stays reserved.
+  A teal overlay line marks insertion slots, including gaps. Only release commits;
+  Escape, pointer cancellation, lost capture and window blur discard the gesture.
+  Scroll near container/viewport edges without moving other controls unexpectedly.
+  Arrow keys on the handle reorder without a pointer. Readonly handles stay disabled.
+  `npm run test:row-reorder` checks real pointer motion and geometry in all three
+  editors; it accepts the same Playwright/browser overrides as transform-scroll.
+
 - Transform SQL uses a native autofill-resistant textarea over an aria-hidden
   SQL highlight layer. Preserve authored text, undo, selection and IME behavior;
   this is lexical coloring, not DataFusion validation or formatting. Both layers

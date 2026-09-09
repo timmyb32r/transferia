@@ -114,17 +114,6 @@ export function useColumnMappings({
     resetTransientRows();
     onChange(columns, keys);
   };
-  const moveColumnToSlot = (from: number, slot: number) => {
-    if (value[from] === undefined || slot < 0 || slot > value.length) return;
-    const target = slot > from ? slot - 1 : slot;
-    if (target === from) return;
-    const columns = [...value];
-    const [column] = columns.splice(from, 1);
-    columns.splice(target, 0, column!);
-    rowIds.move(from, target);
-    resetTransientRows();
-    onChange(columns, keys);
-  };
 
   return {
     expandedSettings,
@@ -138,7 +127,6 @@ export function useColumnMappings({
     selectAllRows,
     deleteSelectedRows,
     moveColumn,
-    moveColumnToSlot,
   };
 }
 

@@ -3797,38 +3797,29 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   fill: currentColor;
 }
 .config-table-row:hover .drag-handle,
-.drag-handle:focus-visible,
-.config-table-row.dragged .drag-handle {
+.drag-handle:focus-visible {
   color: var(--text-secondary);
 }
-.config-table-row.dragged td {
-  position: relative;
-  z-index: 1;
-  background: var(--surface-hover);
-  box-shadow: 0 5px 14px var(--shadow);
-  opacity: 0.72;
-}
-.column-drag-preview {
+.row-reorder-overlay {
   position: fixed;
   z-index: 1000;
-  top: -10000px;
-  left: -10000px;
   overflow: hidden;
   pointer-events: none;
   background: var(--panel);
-  border: 1px solid color-mix(in srgb, var(--blue), transparent 30%);
+  outline: 1px solid var(--blue);
   border-radius: 6px;
   box-shadow: 0 14px 36px var(--shadow);
-  opacity: 0.96;
 }
-.column-drag-preview td {
-  background: var(--panel);
+.row-reorder-marker {
+  position: fixed;
+  z-index: 1001;
+  height: 2px;
+  background: var(--blue);
+  pointer-events: none;
 }
-.config-table-row.drag-before td {
-  box-shadow: inset 0 2px 0 var(--blue);
-}
-.config-table-row.drag-after td {
-  box-shadow: inset 0 -2px 0 var(--blue);
+.middleware-drag, .drag-handle {
+  touch-action: none;
+  user-select: none;
 }
 .column-table .selection-column input {
   margin-inline: auto;

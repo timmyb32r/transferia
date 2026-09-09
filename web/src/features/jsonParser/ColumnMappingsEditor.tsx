@@ -1,15 +1,12 @@
 import { Fragment } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useState } from "preact/hooks";
 
 import type { JsonValue } from "../../json";
 import { AutofillResistantInput } from "../../ui/AutofillResistantField";
 import { Button } from "../../ui/Button";
 import { DragHandleIcon, TrashIcon } from "../../ui/icons";
 import { ColumnActions } from "./ColumnActions";
-import {
-  createColumnDragPreview,
-  insertionSlot,
-} from "../../schema/columnDrag";
+import { useRowReorder } from "../../ui/useRowReorder";
 import {
   createValue,
   isComplete,
@@ -53,9 +50,6 @@ export function ColumnMappingsEditor({
   PropertyEditor: PropertyEditorComponent;
 }) {
   const [systemColumnsOpen, setSystemColumnsOpen] = useState(false);
-  const [draggedRow, setDraggedRow] = useState<number>();
-  const [dragTargetSlot, setDragTargetSlot] = useState<number>();
-  const dragPreview = useRef<HTMLTableElement | null>(null);
   const mappings = useColumnMappings({ value, keys, onChange });
   const {
     expandedSettings,
@@ -68,24 +62,9 @@ export function ColumnMappingsEditor({
     toggleRowSelection,
     selectAllRows,
     deleteSelectedRows,
-    moveColumn: moveColumnModel,
-    moveColumnToSlot: moveColumnToSlotModel,
+    moveColumn,
   } = mappings;
-  const moveColumn = (from: number, to: number) => {
-    setDraggedRow(undefined);
-    setDragTargetSlot(undefined);
-    moveColumnModel(from, to);
-  };
-  const moveColumnToSlot = (from: number, slot: number) => {
-    setDraggedRow(undefined);
-    setDragTargetSlot(undefined);
-    moveColumnToSlotModel(from, slot);
-  };
-  const removeDragPreview = () => {
-    dragPreview.current?.remove();
-    dragPreview.current = null;
-  };
-  useEffect(() => removeDragPreview, []);
+  const startReorder = useRowReorder({ disabled, revision: value, onMove: moveColumn });
   if (node.kind !== "object")
     return (
       <NodeEditor
@@ -280,56 +259,15 @@ export function ColumnMappingsEditor({
               return (
                 <Fragment key={rowIds.values[index]}>
                   <tr
-                    class={`config-table-row ${selected ? "selected" : ""} ${draggedRow === index ? "dragged" : ""} ${dragTargetSlot === index && draggedRow !== index ? "drag-before" : ""} ${dragTargetSlot === value.length && index === value.length - 1 && draggedRow !== index ? "drag-after" : ""}`}
-                    onDragOver={(event) => {
-                      if (draggedRow === undefined) return;
-                      event.preventDefault();
-                      if (event.dataTransfer)
-                        event.dataTransfer.dropEffect = "move";
-                      setDragTargetSlot(insertionSlot(event, index));
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      removeDragPreview();
-                      if (draggedRow !== undefined)
-                        moveColumnToSlot(
-                          draggedRow,
-                          insertionSlot(event, index),
-                        );
-                    }}
+                    class={`config-table-row ${selected ? "selected" : ""}`}
                   >
                     <td class="drag-column">
                       <Button variant="plain"
                         class="drag-handle"
-                        draggable={!disabled}
                         disabled={disabled}
                         aria-label={`Move output column ${index + 1}`}
                         title="Drag to reorder; use arrow keys for keyboard control"
-                        onDragStart={(event) => {
-                          if (event.dataTransfer) {
-                            removeDragPreview();
-                            event.dataTransfer.effectAllowed = "move";
-                            event.dataTransfer.setData(
-                              "text/plain",
-                              String(index),
-                            );
-                            const row = event.currentTarget.closest("tr");
-                            if (row instanceof HTMLTableRowElement)
-                              dragPreview.current = createColumnDragPreview(
-                                row,
-                                event.dataTransfer,
-                                event.clientX,
-                                event.clientY,
-                              );
-                          }
-                          setDraggedRow(index);
-                          setDragTargetSlot(index);
-                        }}
-                        onDragEnd={() => {
-                          removeDragPreview();
-                          setDraggedRow(undefined);
-                          setDragTargetSlot(undefined);
-                        }}
+                        onPointerDown={event => startReorder(event, ".config-table-row")}
                         onKeyDown={(event) => {
                           if (event.key === "ArrowUp" && index > 0) {
                             event.preventDefault();

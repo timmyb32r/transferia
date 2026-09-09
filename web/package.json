@@ -13,6 +13,7 @@
     "pretest": "npm run check:source",
     "test": "vitest run",
     "test:transform-scroll": "node scripts/check-transform-scroll.mjs",
+    "test:row-reorder": "node scripts/check-row-reorder.mjs",
     "test:parser-layout": "node scripts/check-parser-layout.mjs",
     "test:about-layout": "node scripts/check-about-layout.mjs"
   },

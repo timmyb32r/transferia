@@ -1,4 +1,6 @@
 import { flushSync } from "preact/compat";
+import type { JSX } from "preact";
+import { useRowReorder } from "../../ui/useRowReorder";
 import { useId, useMemo, useRef, useState } from "preact/hooks";
 
 import { isObject } from "../../schema/value";
@@ -56,7 +58,6 @@ export function MiddlewareEditor({ value, disabled, onChange, source, catalogUna
   }
   const ids = identity.current.ids;
   const [newStep, setNewStep] = useState<number>();
-  const drag = useRef<number>();
   const commit = (next: JsonValue[], nextIds: number[]) => {
     if (disabled) return;
     identity.current = { fingerprint: JSON.stringify(next), ids: nextIds };
@@ -70,6 +71,7 @@ export function MiddlewareEditor({ value, disabled, onChange, source, catalogUna
     next.splice(to, 0, entry); nextIds.splice(to, 0, id);
     commit(next, nextIds);
   };
+  const startReorder = useRowReorder({ disabled, revision: fingerprint, onMove: move });
   return <section class="middleware-editor" aria-label="Transforms">
     <header class="middleware-heading">
       <h2>Transforms <span class="middleware-count">{entries.length}</span></h2>
@@ -92,13 +94,8 @@ export function MiddlewareEditor({ value, disabled, onChange, source, catalogUna
           if (!window.confirm(`Delete transform ${index + 1}?`)) return;
           commit(entries.filter((_, offset) => offset !== index), ids.filter((_, offset) => offset !== index));
         }}
-        onDragStart={() => { drag.current = ids[index]; }}
-        onDragEnd={() => { drag.current = undefined; }}
-        onDrop={() => {
-          const from = ids.indexOf(drag.current ?? -1);
-          drag.current = undefined;
-          move(from, index);
-        }}
+        onReorderStart={event => startReorder(event, ".middleware-strip")}
+        onMove={to => move(index, to)}
       />)}
     </div>
     <InstantTooltip class="middleware-add-hint" content={needsCatalog
@@ -113,12 +110,12 @@ export function MiddlewareEditor({ value, disabled, onChange, source, catalogUna
   </section>;
 }
 
-function TransformStrip({ entry, entries, source, needsCatalog, catalogUnavailableReason, index, disabled, initiallyOpen, onChange, onClone, onDelete, onDragStart, onDragEnd, onDrop }: {
+function TransformStrip({ entry, entries, source, needsCatalog, catalogUnavailableReason, index, disabled, initiallyOpen, onChange, onClone, onDelete, onReorderStart, onMove }: {
   entry: JsonValue; index: number; disabled: boolean; initiallyOpen: boolean;
   entries: JsonValue[]; source: TransformPreviewSource | undefined;
   needsCatalog: boolean; catalogUnavailableReason: string;
   onChange: (entry: JsonValue) => void; onClone: () => void; onDelete: () => void;
-  onDragStart: () => void; onDragEnd: () => void; onDrop: () => void;
+  onReorderStart: (event: JSX.TargetedPointerEvent<HTMLButtonElement>) => void; onMove: (to: number) => void;
 }) {
   const [expanded, setExpanded] = useState(initiallyOpen);
   const [preview, setPreview] = useState(false);
@@ -159,17 +156,16 @@ function TransformStrip({ entry, entries, source, needsCatalog, catalogUnavailab
   const title = unselected ? "Not selected" : ACTIONS.find(option => option.value === kind)?.label ?? kind ?? "Invalid transform";
   const description = unselected ? "Choose a transformation" : summary(kind, raw);
   return <article class={`middleware-strip ${expanded ? "expanded" : ""}${unselected && !disabled ? " required-incomplete" : ""}`}
-    data-required-guidance="structural"
-    onDragOver={event => { if (!disabled) event.preventDefault(); }}
-    onDrop={event => { event.preventDefault(); if (!disabled) onDrop(); }}>
+    data-required-guidance="structural">
     <div class="middleware-strip-heading">
-      <Button variant="plain" shape="icon" class="middleware-drag" disabled={disabled} draggable={!disabled}
-        aria-label={`Reorder transform ${index + 1}`} title="Drag to reorder"
-        onDragStart={event => {
-          event.dataTransfer?.setData("text/plain", String(index));
-          if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-          onDragStart();
-        }} onDragEnd={onDragEnd}><DragHandleIcon /></Button>
+      <Button variant="plain" shape="icon" class="middleware-drag" disabled={disabled}
+        aria-label={`Reorder transform ${index + 1}`} title="Drag to reorder; arrow keys move; Escape cancels"
+        onPointerDown={onReorderStart}
+        onKeyDown={event => {
+          if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+            event.preventDefault(); onMove(index + (event.key === "ArrowUp" ? -1 : 1));
+          }
+        }}><DragHandleIcon /></Button>
       <Button variant="plain" class="middleware-strip-toggle" aria-expanded={expanded} aria-controls={`${id}-settings`}
         data-required-control={unselected && !expanded && !disabled ? true : undefined}
         aria-label={`${expanded ? "Collapse" : "Expand"} transform ${index + 1}`}

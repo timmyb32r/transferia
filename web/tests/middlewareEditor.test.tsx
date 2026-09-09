@@ -9,6 +9,7 @@ import { TableCatalogContext } from "../src/schema/tableCatalog";
 import { nextRequiredTarget, REQUIRED_CONTROL_SELECTOR } from "../src/ui/requiredGuidance";
 import type { JsonValue } from "../src/types";
 import { render } from "./support/render";
+import { reorderPointer } from "./support/reorderPointer";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -163,8 +164,7 @@ describe("ordered transform strips", () => {
     expect(view.getAllByText("My SQL")).toHaveLength(2);
     expect(view.container.querySelectorAll(".middleware-strip-type")[1]?.textContent).toBe("Not selected");
     expect(view.queryByRole("alert")).toBeNull();
-    fireEvent.dragStart(view.getByRole("button", { name: "Reorder transform 2" }));
-    fireEvent.drop(view.getAllByRole("article")[0]!);
+    reorderPointer(view.getByRole("button", { name: "Reorder transform 2" }), -1);
     expect(view.container.querySelector(".middleware-strip-type")?.textContent).toBe("Not selected");
     expect(view.getAllByText("My SQL")).toHaveLength(2);
   });
@@ -608,8 +608,7 @@ describe("ordered transform strips", () => {
   it("keeps open state attached to the original step after reordering", () => {
     const view = render(<Editor value={[step, { tables: { include: "*" }, filter: { field: "country", value: "DE" } }]} />);
     fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
-    fireEvent.dragStart(view.getByRole("button", { name: "Reorder transform 1" }));
-    fireEvent.drop(view.getAllByRole("article")[1]!);
+    reorderPointer(view.getByRole("button", { name: "Reorder transform 1" }), 1);
     const strips = view.getAllByRole("article");
     expect(within(strips[0]!).queryByRole("textbox")).toBeNull();
     expect(within(strips[1]!).getByDisplayValue("SELECT id FROM input")).toBeTruthy();
