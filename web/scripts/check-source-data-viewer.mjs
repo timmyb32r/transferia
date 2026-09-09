@@ -15,22 +15,42 @@ try {
   await server.listen();
   browser = await chromium.launch({ headless: true,
     ...(process.env.TRANSFERIA_BROWSER_EXECUTABLE ? { executablePath: process.env.TRANSFERIA_BROWSER_EXECUTABLE } : {}) });
-  for (const available of [true, false]) for (const width of [1440, 800, 390]) {
+  for (const width of [1440, 800, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
-    await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/tests/fixtures/source-data-viewer-smoke.html?available=${available}`);
+    await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/tests/fixtures/source-data-viewer-smoke.html`);
     await page.evaluate(() => document.fonts.ready);
-    const boxes = [];
-    for (const name of ["Schema widget", "Data viewer", "About"]) {
-      const button = page.getByRole("button", { name, exact: true });
-      assert.equal(await button.isDisabled(), name !== "About" && !available);
-      const box = await button.boundingBox();
-      assert(box, `${name}: missing target`);
-      boxes.push(box);
+    const names = ["Data viewer", "Schema viewer", "Schema widget", "About"];
+    const buttons = names.map(name => page.getByRole("button", { name, exact: true }));
+    const boxes = await Promise.all(buttons.map(button => button.boundingBox()));
+    assert(boxes.every(Boolean), "all sidebar tools must be visible");
+    const [data, schema, widget, about] = boxes;
+    const near = (a, b, message) => assert(Math.abs(a - b) < 0.7, `${width}: ${message}`);
+    near(data.x, schema.x, "viewers share the left edge");
+    near(data.x + data.width, widget.x + widget.width, "widget completes the full-width schema row");
+    near(schema.y, widget.y, "schema actions share one row");
+    near(schema.height, widget.height, "schema actions have equal height");
+    near(widget.width, widget.height, "widget button is square");
+    near(data.x, about.x, "About stays full-width");
+    near(data.width, about.width, "Data viewer occupies the full tools width");
+    const gap = schema.y - data.y - data.height;
+    assert(gap > 0, "viewer rows must be separated");
+    near(widget.x - schema.x - schema.width, gap, "schema buttons use the common gap");
+    near(about.y - schema.y - schema.height, gap, "About uses the common vertical gap");
+    const icon = buttons[2].locator(".schema-widget-icon");
+    const iconBox = await icon.boundingBox();
+    assert(iconBox, "widget icon must be visible");
+    near(iconBox.x + iconBox.width / 2, widget.x + widget.width / 2, "widget icon is horizontally centered");
+    near(iconBox.y + iconBox.height / 2, widget.y + widget.height / 2, "widget icon is vertically centered");
+    for (const state of [{ available: false, pending: false }, { available: true, pending: true }, { available: true, pending: false }]) {
+      await page.evaluate(state => window.dispatchEvent(new CustomEvent("sidebar-fixture-state", { detail: state })), state);
+      await page.waitForFunction(state => {
+        const button = document.querySelector(".sidebar-tools > .sidebar-tool-tooltip > button");
+        return button?.disabled === !state.available && button.getAttribute("aria-busy") === String(state.pending);
+      }, state);
+      for (let i = 0; i < buttons.length; i++) stable(boxes[i], await buttons[i].boundingBox(), `${width}/${names[i]}/${JSON.stringify(state)}`);
+      assert.equal(await buttons[1].isDisabled(), !state.available || state.pending, "Schema viewer exposes its diagnostic/pending state");
+      assert.equal(await buttons[2].isDisabled(), !state.available);
     }
-    const firstGap = boxes[1].y - boxes[0].y - boxes[0].height;
-    const secondGap = boxes[2].y - boxes[1].y - boxes[1].height;
-    assert(firstGap > 0, "sidebar actions must be separated");
-    assert(Math.abs(firstGap - secondGap) < 0.7, `${width}/${available}: sidebar action gaps must be equal`);
     await page.close();
   }
   for (const mode of ["tables", "parsed"]) for (const width of [1440, 800, 390]) {
@@ -94,7 +114,7 @@ try {
     assert.deepEqual(errors, []);
     await page.close();
   }
-  console.log("PASS: Equal sidebar action spacing, Data viewer automatic opening/table loads, stable geometry and duplicate-activation protection.");
+  console.log("PASS: Two-row sidebar viewers, stable readiness/pending geometry, Data viewer automatic opening/table loads and duplicate-activation protection.");
 } finally {
   await browser?.close();
   await server.close();

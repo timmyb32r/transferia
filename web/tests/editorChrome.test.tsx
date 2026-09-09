@@ -138,7 +138,7 @@ describe("editor chrome", () => {
     expect(dismiss).toHaveBeenCalledWith("validate", 2);
   });
 
-  it("keeps Data schema out of the configuration tabs", () => {
+  it("keeps Schema viewer out of the configuration tabs", () => {
     const onSpeedtest = vi.fn();
     const onPerformanceAdvice = vi.fn();
     const onLogs = vi.fn();
@@ -156,7 +156,7 @@ describe("editor chrome", () => {
       />,
     );
 
-    expect(view.queryByRole("tab", { name: "Data schema" })).toBeNull();
+    expect(view.queryByRole("tab", { name: "Schema viewer" })).toBeNull();
     fireEvent.click(view.getByRole("tab", { name: "Speedtest" }));
     expect(onSpeedtest).toHaveBeenCalledOnce();
     fireEvent.click(
@@ -253,7 +253,7 @@ describe("editor chrome", () => {
     expect(onSpeedtestUnavailable).toHaveBeenCalledOnce();
   });
 
-  it("lets unavailable Data schema reveal missing source fields", () => {
+  it("lets unavailable Schema viewer reveal missing source fields", () => {
     const onDataSchemaUnavailable = vi.fn();
     const view = render(
       <DeliverySidebar
@@ -266,7 +266,7 @@ describe("editor chrome", () => {
       />,
     );
     const tab = view.getByRole("button", {
-      name: "Data schema",
+      name: "Schema viewer",
     }) as HTMLButtonElement;
     expect(tab.disabled).toBe(false);
     expect(tab.getAttribute("aria-disabled")).toBe("true");
@@ -616,9 +616,9 @@ describe("editor chrome", () => {
     fireEvent.click(view.getByRole("button", { name: "Schema widget" }));
     fireEvent.click(view.getByRole("button", { name: "Data viewer" }));
     expect(onDataViewer).toHaveBeenCalledOnce();
-    fireEvent.click(view.getByRole("button", { name: "Data schema" }));
+    fireEvent.click(view.getByRole("button", { name: "Schema viewer" }));
     expect(onDataSchema).toHaveBeenCalledOnce();
-    expect(view.getByRole("button", { name: "Data schema" }).closest(".sidebar-tools")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Schema viewer" }).closest(".sidebar-tools")).toBeTruthy();
 
     expect(
       view.getByRole("button", { name: "Schema widget" }).classList,
@@ -633,12 +633,18 @@ describe("editor chrome", () => {
     expect(onOpen).toHaveBeenNthCalledWith(2, "delivery-1");
     expect(onToggleDataWidget).toHaveBeenCalledOnce();
     const sidebarButtons = view.getAllByRole("button");
-    expect(
-      sidebarButtons.indexOf(view.getByRole("button", { name: "Schema widget" })),
-    ).toBeLessThan(
-      sidebarButtons.indexOf(view.getByRole("button", { name: "Data viewer" })),
-    );
-    expect(sidebarButtons.indexOf(view.getByRole("button", { name: "Data viewer" }))).toBeLessThan(
+    const dataViewer = view.getByRole("button", { name: "Data viewer" });
+    const schemaViewer = view.getByRole("button", { name: "Schema viewer" });
+    const schemaWidget = view.getByRole("button", { name: "Schema widget" });
+    const schemaRow = schemaViewer.closest(".sidebar-schema-tools");
+    expect(schemaRow).toBeTruthy();
+    expect(schemaWidget.closest(".sidebar-schema-tools")).toBe(schemaRow);
+    expect(dataViewer.closest(".sidebar-schema-tools")).toBeNull();
+    expect(schemaWidget.textContent).toBe("");
+    expect(schemaWidget.querySelector(".schema-widget-icon")?.getAttribute("aria-hidden")).toBe("true");
+    expect(sidebarButtons.indexOf(dataViewer)).toBeLessThan(sidebarButtons.indexOf(schemaViewer));
+    expect(sidebarButtons.indexOf(schemaViewer)).toBeLessThan(sidebarButtons.indexOf(schemaWidget));
+    expect(sidebarButtons.indexOf(schemaWidget)).toBeLessThan(
       sidebarButtons.indexOf(
         view.getByRole("button", { name: "About" }),
       ),

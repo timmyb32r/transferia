@@ -30,7 +30,7 @@ export function DataSchemaDialog({ result, error, onClose }: {
           else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus({ preventScroll: true }); }
         }
       }}>
-      <header><h2 id={`${id}-title`}>Data schema</h2><Button shape="icon" aria-label="Close Data schema" onClick={onClose}>×</Button></header>
+      <header><h2 id={`${id}-title`}>Schema viewer</h2><Button shape="icon" aria-label="Close Schema viewer" onClick={onClose}>×</Button></header>
       <div class="data-schema-dialog-content" tabIndex={0} aria-label="Discovered schemas" aria-busy={!result && !error}>
         {result ? <ContractView result={result} /> : <p role="status" aria-live="polite" class={error ? "error" : ""}>
           {error ?? "Discovering the data schema…"}

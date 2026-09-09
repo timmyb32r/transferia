@@ -21,13 +21,13 @@ try {
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/tests/fixtures/data-schema-dialog-smoke.html`);
     await page.evaluate(() => document.fonts.ready);
-    const launcher = page.getByRole("button", { name: "Data schema", exact: true });
+    const launcher = page.getByRole("button", { name: "Schema viewer", exact: true });
     const editor = page.getByRole("button", { name: "Editor target" });
     const launcherBox = await launcher.boundingBox(), editorBox = await editor.boundingBox();
-    assert.equal(await page.getByRole("tab", { name: "Data schema" }).count(), 0);
+    assert.equal(await page.getByRole("tab", { name: "Schema viewer" }).count(), 0);
     await launcher.click();
-    const dialog = page.getByRole("dialog", { name: "Data schema" });
-    const close = page.getByRole("button", { name: "Close Data schema" });
+    const dialog = page.getByRole("dialog", { name: "Schema viewer" });
+    const close = page.getByRole("button", { name: "Close Schema viewer" });
     await dialog.waitFor();
     const targets = [dialog, close, page.getByLabel("Discovered schemas")];
     const boxes = await Promise.all(targets.map(target => target.boundingBox()));
@@ -65,7 +65,7 @@ try {
     assert.deepEqual(errors, []);
     await page.close();
   }
-  console.log("PASS: Data schema popup geometry, editor preservation and keyboard focus.");
+  console.log("PASS: Schema viewer popup geometry, editor preservation and keyboard focus.");
 } finally {
   await browser?.close();
   await server.close();

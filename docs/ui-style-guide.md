@@ -69,7 +69,7 @@ the control. Error and warning semantics remain distinct.
 
 ## Component rules
 
-- `Data schema` opens from the bottom-left sidebar tools, not the editor tabs.
+- `Schema viewer` opens from the bottom-left sidebar tools, not the editor tabs.
   It is a fixed-size popup with a stationary Close action and a scrolling schema
   report: table selection, intermediate Arrow types, destination types and limits.
   Keep the underlying editor mounted and on its current tab. Apply authored YAML
@@ -79,7 +79,11 @@ the control. Error and warning semantics remain distinct.
   restore it to the launcher without scrolling, and close on delivery changes.
   Keep sidebar spacing and popup geometry unchanged across loading/result/error states.
 
-- Sidebar `Data viewer` sits next to `Schema widget`. Route by source preview
+- Sidebar tools have two rows: full-width `Data viewer`, then `Schema viewer`
+  beside a square, icon-only `Schema widget` toggle. Keep equal gaps, a centered
+  overlapping-window glyph, accessible names and tooltips; About stays below.
+  Readiness, pending and pressed states never resize or move these controls.
+  Route `Data viewer` by source preview
   capabilities: queues and S3 show output from the configured production parser
   (or native Parquet reader), including DLQ; Scan remains a separate detection tool.
   Both parsed and table sources use a fixed-size sample dialog. Parsed samples

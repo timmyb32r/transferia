@@ -324,41 +324,41 @@ export function DeliverySidebar({
         )}
       </nav>
       <div class="sidebar-tools">
-        <InstantTooltip class="sidebar-tool-tooltip" content={dataSchema?.reason ?? "Open the discovered data schema"}>
-          <Button class={`sidebar-tool-button ${dataSchema?.available ? "" : "diagnostic-disabled"}`}
-            variant={dataSchema?.available ? "primary" : "plain"} pending={dataSchema?.pending ?? false}
-            aria-pressed={dataSchema?.visible ?? false} aria-disabled={!dataSchema?.available || dataSchema.pending}
-            onClick={dataSchema?.onOpen}>Data schema</Button>
-        </InstantTooltip>
-        <InstantTooltip
-          class="sidebar-tool-tooltip"
-          content={
-            dataWidgetAvailable
-              ? dataWidgetVisible
-                ? "Hide the schema widget"
-                : "Show the schema widget"
-              : (dataWidgetUnavailableReason ?? "No data schema is available")
-          }
-        >
-          <Button
-            variant={dataWidgetAvailable ? "primary" : "plain"}
-            class={
-              dataWidgetAvailable
-                ? "sidebar-tool-button data-widget-ready"
-                : "sidebar-tool-button"
-            }
-            aria-pressed={dataWidgetVisible}
-            disabled={!dataWidgetAvailable}
-            onClick={onToggleDataWidget}
-          >
-            Schema widget
-          </Button>
-        </InstantTooltip>
         <InstantTooltip class="sidebar-tool-tooltip" content={dataViewer?.reason ?? "View source data"}>
           <Button class="sidebar-tool-button" variant={dataViewer?.available ? "primary" : "plain"}
             disabled={!dataViewer?.available} pending={dataViewer?.pending ?? false}
             aria-pressed={dataViewer?.visible ?? false} onClick={dataViewer?.onOpen}>Data viewer</Button>
         </InstantTooltip>
+        <div class="sidebar-schema-tools">
+          <InstantTooltip class="sidebar-tool-tooltip" content={dataSchema?.reason ?? "Open the discovered data schema"}>
+            <Button class={`sidebar-tool-button ${dataSchema?.available ? "" : "diagnostic-disabled"}`}
+              variant={dataSchema?.available ? "primary" : "plain"} pending={dataSchema?.pending ?? false}
+              aria-pressed={dataSchema?.visible ?? false} aria-disabled={!dataSchema?.available || dataSchema.pending}
+              onClick={dataSchema?.onOpen}>Schema viewer</Button>
+          </InstantTooltip>
+          <InstantTooltip
+            class="sidebar-tool-tooltip"
+            content={
+              dataWidgetAvailable
+                ? dataWidgetVisible
+                  ? "Hide the schema widget"
+                  : "Show the schema widget"
+                : (dataWidgetUnavailableReason ?? "No data schema is available")
+            }
+          >
+            <Button
+              variant={dataWidgetAvailable ? "primary" : "plain"}
+              shape="icon"
+              class={`sidebar-tool-button sidebar-widget-button${dataWidgetAvailable ? " data-widget-ready" : ""}`}
+              aria-label="Schema widget"
+              aria-pressed={dataWidgetVisible}
+              disabled={!dataWidgetAvailable}
+              onClick={onToggleDataWidget}
+            >
+              <span class="ui-icon schema-widget-icon" aria-hidden="true" />
+            </Button>
+          </InstantTooltip>
+        </div>
         <CompatibilityMatrixLauncher />
       </div>
       <AppearanceSettings
