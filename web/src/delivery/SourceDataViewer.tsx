@@ -34,9 +34,8 @@ export function SourceDataViewer({ source, mode = "tables", onClose }: {
   }, [selectionKey, mode, api]);
   const [chosen, setChosen] = useState("");
   const table = tables.find(item => JSON.stringify(item) === chosen) ?? tables[0];
+  const sampleKey = JSON.stringify([source, mode, mode === "tables" ? metadata?.id : null, mode === "tables" ? table : null]);
   const [rows, setRows] = useState("20");
-  const [maxMiB, setMaxMiB] = useState("16");
-  const [seconds, setSeconds] = useState("30");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<SourcePreviewResult>();
   const [error, setError] = useState<string>();
@@ -57,19 +56,19 @@ export function SourceDataViewer({ source, mode = "tables", onClose }: {
   useLayoutEffect(() => {
     request.current?.abort(); request.current = undefined; setRunning(false); setResult(undefined); setError(undefined);
     return () => { request.current?.abort(); };
-  }, [JSON.stringify([source, metadata?.id, table, rows, maxMiB, seconds, mode])]);
+  }, [sampleKey, rows]);
   const run = async () => {
     if ((mode === "tables" && (!table || !metadata)) || request.current) return;
-    const row_limit = Number(rows), max_sample_bytes = Number(maxMiB) * 1024 * 1024, timeout_ms = Number(seconds) * 1000;
-    if ([rows, maxMiB, seconds].some(value => !/^\d+$/.test(value)) ||
-        [row_limit, max_sample_bytes, timeout_ms].some(value => !Number.isSafeInteger(value) || value <= 0)) {
-      setError("Sample limits must be positive integers."); return;
+    const row_limit = Number(rows);
+    if (!/^\d+$/.test(rows) || !Number.isSafeInteger(row_limit) || row_limit <= 0) {
+      setError("Sample rows must be a positive integer."); return;
     }
     const controller = new AbortController(); request.current = controller;
     setRunning(true); setResult(undefined); setError(undefined);
     try {
       const sample = await api.previewSource({ metadata_id: mode === "tables" ? metadata!.id : null,
-        source, table: mode === "tables" ? table! : null, row_limit, max_sample_bytes, timeout_ms }, controller.signal);
+        source, table: mode === "tables" ? table! : null, row_limit,
+        max_sample_bytes: 16 * 1024 * 1024, timeout_ms: 30_000 }, controller.signal);
       if (request.current === controller && !controller.signal.aborted) setResult(sample);
     } catch (reason) {
       if (request.current === controller && !controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason));
@@ -77,6 +76,8 @@ export function SourceDataViewer({ source, mode = "tables", onClose }: {
       if (request.current === controller) { request.current = undefined; setRunning(false); }
     }
   };
+  // Only a new preview target loads automatically; row edits wait for Load sample.
+  useLayoutEffect(() => { void run(); }, [sampleKey]);
   return <div class="message-preview-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section ref={dialog} class="source-data-viewer" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`}
       onKeyDown={event => {
@@ -91,15 +92,11 @@ export function SourceDataViewer({ source, mode = "tables", onClose }: {
       }}>
       <header><h2 id={`${id}-title`}>Data viewer</h2><Button shape="icon" aria-label="Close data viewer" onClick={onClose}>×</Button></header>
       <div class="source-data-viewer-controls">
-        {mode === "tables" ? <label><span>Sample table</span><SelectControl value={table ? JSON.stringify(table) : ""} disabled={running || !tables.length}
+        {mode === "tables" ? <label><span>Sample table</span><SelectControl value={table ? JSON.stringify(table) : ""} disabled={!tables.length}
           searchable clearable={false} placeholder="No selected tables" options={tables.map(item => ({ value: JSON.stringify(item), label: qualifiedName(item) }))}
           onChange={setChosen} /></label> : <p class="source-data-viewer-parser">Source output · configured parser<br /><small>One complete message/object · row limit applies per table, including DLQ</small></p>}
         <label><span>Sample rows</span><AutofillResistantInput type="number" min={1} value={rows} disabled={running} onInput={event => setRows(event.currentTarget.value)} /></label>
         <Button variant="primary" pending={running} disabled={mode === "tables" && (!table || !metadata)} onClick={() => { void run(); }}>Load sample</Button>
-      </div>
-      <div class="source-data-viewer-limits">
-        <label>Max sample MiB<AutofillResistantInput type="number" min={1} value={maxMiB} disabled={running} onInput={event => setMaxMiB(event.currentTarget.value)} /></label>
-        <label>Timeout seconds<AutofillResistantInput type="number" min={1} value={seconds} disabled={running} onInput={event => setSeconds(event.currentTarget.value)} /></label>
       </div>
       <p class={`transform-preview-status ${error || selectionError ? "error" : ""}`} role="status" aria-live="polite">{running ? "Reading source data…" : error ?? selectionError ?? (result
         ? `${result.frames.reduce((count, frame) => count + frame.rows.length, 0)} sample rows. ${mode === "parsed" ? "Configured parser applied; main and DLQ output included. " : ""}No transforms or destination writes.`

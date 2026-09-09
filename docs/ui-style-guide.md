@@ -77,8 +77,11 @@ the control. Error and warning semantics remain distinct.
   an oversized object fails explicitly instead of parsing a truncated prefix.
   Table viewing uses only source-selected tables and loads only the requested
   schema/sample, without executing transforms or preparing/writing a destination.
-  Row/byte/time limits are explicit controls. Pending feedback is immediate and
-  duplicate requests are suppressed. Closing or changing source aborts reads;
+  Load automatically on opening and choosing a different table. Row-limit edits
+  wait for the manual `Load sample` action. Keep the existing 16 MiB / 30-second
+  request limits without displaying their fields. Pending feedback is immediate
+  and duplicate requests are suppressed. Table selection stays usable while
+  loading; changing it cancels the previous read. Closing or changing source aborts reads;
   results/errors stay inside reserved regions and never move sidebar controls.
   Unsupported sampling and missing discovery have explicit disabled explanations.
 

@@ -15,11 +15,30 @@ try {
   await server.listen();
   browser = await chromium.launch({ headless: true,
     ...(process.env.TRANSFERIA_BROWSER_EXECUTABLE ? { executablePath: process.env.TRANSFERIA_BROWSER_EXECUTABLE } : {}) });
+  for (const available of [true, false]) for (const width of [1440, 800, 390]) {
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/tests/fixtures/source-data-viewer-smoke.html?available=${available}`);
+    await page.evaluate(() => document.fonts.ready);
+    const boxes = [];
+    for (const name of ["Schema widget", "Data viewer", "About"]) {
+      const button = page.getByRole("button", { name, exact: true });
+      assert.equal(await button.isDisabled(), name !== "About" && !available);
+      const box = await button.boundingBox();
+      assert(box, `${name}: missing target`);
+      boxes.push(box);
+    }
+    const firstGap = boxes[1].y - boxes[0].y - boxes[0].height;
+    const secondGap = boxes[2].y - boxes[1].y - boxes[1].height;
+    assert(firstGap > 0, "sidebar actions must be separated");
+    assert(Math.abs(firstGap - secondGap) < 0.7, `${width}/${available}: sidebar action gaps must be equal`);
+    await page.close();
+  }
   for (const mode of ["tables", "parsed"]) for (const width of [1440, 800, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
     let receive;
+    let next = new Promise(resolve => { receive = resolve; });
     let count = 0;
     await page.route("**/api/v1/source/preview", route => { count++; receive(route); });
     await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/tests/fixtures/source-data-viewer-smoke.html?mode=${mode}`);
@@ -34,12 +53,25 @@ try {
     const sample = page.getByRole("button", { name: "Load sample", exact: true });
     const close = page.getByRole("button", { name: "Close data viewer", exact: true });
     if (mode === "tables") await page.getByRole("button", { name: /public\.events/ }).waitFor();
+    assert.equal(await page.getByLabel("Max sample MiB").count(), 0);
+    assert.equal(await page.getByLabel("Timeout seconds").count(), 0);
     const targets = [dialog, sample, close, page.getByLabel("Sample rows"), page.getByLabel("Source sample")];
+    if (mode === "tables") targets.push(page.locator(".source-data-viewer-controls .select-trigger"));
     const boxes = await Promise.all(targets.map(target => target.boundingBox()));
     for (const state of ["success", "error"]) {
-      const next = new Promise(resolve => { receive = resolve; });
-      await sample.click();
+      if (state === "error") {
+        next = new Promise(resolve => { receive = resolve; });
+        if (mode === "tables") {
+          await page.getByRole("button", { name: "public.events", exact: true }).click();
+          await page.getByRole("option", { name: "public.users", exact: true }).click();
+        } else {
+          await page.getByLabel("Sample rows").fill("42");
+          assert.equal(count, 1, "row edits must not load automatically");
+          await sample.click();
+        }
+      }
       const route = await next;
+      assert.equal(route.request().postDataJSON().table?.name, mode === "tables" ? state === "success" ? "events" : "users" : undefined);
       assert.equal(await sample.getAttribute("aria-busy"), "true");
       await sample.evaluate(element => element.click());
       assert.equal(count, state === "success" ? 1 : 2, "pending requests must be deduplicated");
@@ -62,7 +94,7 @@ try {
     assert.deepEqual(errors, []);
     await page.close();
   }
-  console.log("PASS: Data viewer pending/result/error geometry and duplicate-activation protection.");
+  console.log("PASS: Equal sidebar action spacing, Data viewer automatic opening/table loads, stable geometry and duplicate-activation protection.");
 } finally {
   await browser?.close();
   await server.close();

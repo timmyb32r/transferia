@@ -321,36 +321,38 @@ export function DeliverySidebar({
           <p class="empty-list">No saved deliveries yet.</p>
         )}
       </nav>
-      <InstantTooltip
-        class="sidebar-tool-tooltip"
-        content={
-          dataWidgetAvailable
-            ? dataWidgetVisible
-              ? "Hide the schema widget"
-              : "Show the schema widget"
-            : (dataWidgetUnavailableReason ?? "No data schema is available")
-        }
-      >
-        <Button
-          variant={dataWidgetAvailable ? "primary" : "plain"}
-          class={
+      <div class="sidebar-tools">
+        <InstantTooltip
+          class="sidebar-tool-tooltip"
+          content={
             dataWidgetAvailable
-              ? "sidebar-tool-button data-widget-ready"
-              : "sidebar-tool-button"
+              ? dataWidgetVisible
+                ? "Hide the schema widget"
+                : "Show the schema widget"
+              : (dataWidgetUnavailableReason ?? "No data schema is available")
           }
-          aria-pressed={dataWidgetVisible}
-          disabled={!dataWidgetAvailable}
-          onClick={onToggleDataWidget}
         >
-          Schema widget
-        </Button>
-      </InstantTooltip>
-      <InstantTooltip class="sidebar-tool-tooltip" content={dataViewer?.reason ?? "View source data"}>
-        <Button class="sidebar-tool-button" variant={dataViewer?.available ? "primary" : "plain"}
-          disabled={!dataViewer?.available} pending={dataViewer?.pending ?? false}
-          aria-pressed={dataViewer?.visible ?? false} onClick={dataViewer?.onOpen}>Data viewer</Button>
-      </InstantTooltip>
-      <CompatibilityMatrixLauncher />
+          <Button
+            variant={dataWidgetAvailable ? "primary" : "plain"}
+            class={
+              dataWidgetAvailable
+                ? "sidebar-tool-button data-widget-ready"
+                : "sidebar-tool-button"
+            }
+            aria-pressed={dataWidgetVisible}
+            disabled={!dataWidgetAvailable}
+            onClick={onToggleDataWidget}
+          >
+            Schema widget
+          </Button>
+        </InstantTooltip>
+        <InstantTooltip class="sidebar-tool-tooltip" content={dataViewer?.reason ?? "View source data"}>
+          <Button class="sidebar-tool-button" variant={dataViewer?.available ? "primary" : "plain"}
+            disabled={!dataViewer?.available} pending={dataViewer?.pending ?? false}
+            aria-pressed={dataViewer?.visible ?? false} onClick={dataViewer?.onOpen}>Data viewer</Button>
+        </InstantTooltip>
+        <CompatibilityMatrixLauncher />
+      </div>
       <AppearanceSettings
         value={appearance}
         onChange={onAppearance}
