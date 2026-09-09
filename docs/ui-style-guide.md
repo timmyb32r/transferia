@@ -71,8 +71,10 @@ the control. Error and warning semantics remain distinct.
 
 - Parser columns (JSON/TSKV) and transforms use shared pointer-driven row
   reordering from the dot handle, not native browser drag images. The full row
-  follows even a one-pixel movement; its original footprint stays reserved.
-  A teal overlay line marks insertion slots, including gaps. Only release commits;
+  follows even a one-pixel movement. Neighbours slide aside as the pointer crosses
+  their original midpoints, leaving a row-sized gap at the prospective position.
+  There is no insertion line. The list footprint stays fixed; reduced-motion
+  preferences disable neighbour animation. Only release commits;
   Escape, pointer cancellation, lost capture and window blur discard the gesture.
   Scroll near container/viewport edges without moving other controls unexpectedly.
   Arrow keys on the handle reorder without a pointer. Readonly handles stay disabled.

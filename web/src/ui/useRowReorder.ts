@@ -41,14 +41,24 @@ export function useRowReorder({ disabled, revision, onMove }: {
     const rows = Array.from(parent.children).filter((child): child is HTMLElement => child instanceof HTMLElement && child.matches(selector));
     const from = rows.indexOf(row);
     if (from < 0) return;
+    // A parser row can have a separate expanded-settings <tr>. Move that
+    // companion with its owner, not independently of the column it describes.
+    const groups = rows.map(item => {
+      const members = [item];
+      for (let sibling = item.nextElementSibling; sibling && !sibling.matches(selector); sibling = sibling.nextElementSibling) {
+        if (sibling instanceof HTMLElement) members.push(sibling);
+      }
+      return members;
+    });
     event.preventDefault();
     handle.focus({ preventScroll: true });
     const bounds = row.getBoundingClientRect();
+    const groupBottom = groups[from]!.at(-1)!.getBoundingClientRect().bottom;
     const overlay = document.createElement("div");
     overlay.className = "row-reorder-overlay";
     overlay.setAttribute("aria-hidden", "true");
     overlay.inert = true;
-    Object.assign(overlay.style, { left: `${bounds.left}px`, top: `${bounds.top}px`, width: `${bounds.width}px`, height: `${bounds.height}px` });
+    Object.assign(overlay.style, { left: `${bounds.left}px`, top: `${bounds.top}px`, width: `${bounds.width}px`, height: `${groupBottom - bounds.top}px` });
     const clone = snapshot(row);
     if (row instanceof HTMLTableRowElement) {
       const table = document.createElement("table");
@@ -58,14 +68,23 @@ export function useRowReorder({ disabled, revision, onMove }: {
         const copy = (clone as HTMLTableRowElement).cells[index]!;
         copy.style.width = `${cell.getBoundingClientRect().width}px`;
       });
-      body.append(clone); table.append(body); overlay.append(table);
+      body.append(clone);
+      groups[from]!.slice(1).forEach(item => body.append(snapshot(item)));
+      table.append(body); overlay.append(table);
     } else overlay.append(clone);
-    const marker = document.createElement("div");
-    marker.className = "row-reorder-marker";
-    marker.setAttribute("aria-hidden", "true");
-    document.body.append(overlay, marker);
-    const opacity = row.style.opacity;
-    row.style.opacity = "0";
+    document.body.append(overlay);
+    // Hit testing uses the original geometry, never the animated rectangles.
+    // Otherwise a displaced neighbour can cross the pointer again and oscillate.
+    const initialRects = rows.map(item => item.getBoundingClientRect());
+    const parentTop = parent.getBoundingClientRect().top;
+    const parentScroll = parent.scrollTop;
+    const members = groups.flat();
+    const styles = members.map(item => ({ translate: item.style.translate, transition: item.style.transition, opacity: item.style.opacity }));
+    members.forEach(item => item.classList.add("row-reorder-neighbour"));
+    const gap = from + 1 < rows.length ? initialRects[from + 1]!.top - groupBottom
+      : from > 0 ? bounds.top - groups[from - 1]!.at(-1)!.getBoundingClientRect().bottom : 0;
+    const displacement = groupBottom - bounds.top + gap;
+    groups[from]!.forEach(item => { item.style.opacity = "0"; });
     const cursor = document.documentElement.style.cursor;
     document.documentElement.style.cursor = "grabbing";
     handle.setPointerCapture(event.pointerId);
@@ -78,10 +97,15 @@ export function useRowReorder({ disabled, revision, onMove }: {
     if (scroller && !scrollParents.includes(scroller)) scrollParents.push(scroller);
     const draw = () => {
       overlay.style.transform = `translate(${x - event.clientX}px, ${y - event.clientY}px)`;
-      slot = rows.findIndex(item => { const rect = item.getBoundingClientRect(); return y < rect.top + rect.height / 2; });
+      const scrollOffset = parent.getBoundingClientRect().top - parentTop - (parent.scrollTop - parentScroll);
+      slot = initialRects.findIndex(rect => y < rect.top + scrollOffset + rect.height / 2);
       if (slot < 0) slot = rows.length;
-      const target = rows[Math.min(slot, rows.length - 1)]!.getBoundingClientRect();
-      Object.assign(marker.style, { left: `${target.left}px`, top: `${slot === rows.length ? target.bottom : target.top}px`, width: `${target.width}px` });
+      const to = slot > from ? slot - 1 : slot;
+      groups.forEach((group, index) => {
+        const offset = index > from && index <= to ? -displacement
+          : index < from && index >= to ? displacement : 0;
+        group.forEach(item => { item.style.translate = `0 ${offset}px`; });
+      });
     };
     const tick = () => {
       if (moved) {
@@ -106,9 +130,17 @@ export function useRowReorder({ disabled, revision, onMove }: {
       window.removeEventListener("blur", cleanup);
       handle.removeEventListener("lostpointercapture", cleanup);
       if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
-      row.style.opacity = opacity;
       document.documentElement.style.cursor = cursor;
-      overlay.remove(); marker.remove();
+      // Reset without animating back before the keyed DOM reorder is committed.
+      members.forEach((item, index) => {
+        item.style.opacity = styles[index]!.opacity;
+        item.style.transition = "none";
+        item.style.translate = styles[index]!.translate;
+        item.classList.remove("row-reorder-neighbour");
+      });
+      void parent.offsetHeight;
+      members.forEach((item, index) => { item.style.transition = styles[index]!.transition; });
+      overlay.remove();
     };
     const move = (next: PointerEvent) => {
       if (next.pointerId !== event.pointerId) return;

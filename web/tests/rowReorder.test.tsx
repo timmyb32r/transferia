@@ -40,9 +40,14 @@ describe("pointer row reordering", () => {
     expect(overlay.style.transform).toBe("translate(1px, 1px)");
     expect(view.onMove).not.toHaveBeenCalled();
     pointer(document, "pointermove", 10, 210); // Gap after Second.
+    expect(view.rows[1]!.style.translate).toBe("0 -60px");
+    expect(view.rows[2]!.style.translate).toBe("0 0px");
+    expect(document.querySelector(".row-reorder-marker")).toBeNull();
+    expect(view.onMove).not.toHaveBeenCalled();
     pointer(document, "pointerup", 10, 210);
     expect(view.onMove).toHaveBeenCalledExactlyOnceWith(0, 1);
     expect(view.rows[0]!.style.opacity).toBe("");
+    expect(view.rows[1]!.style.translate).toBe("");
     expect(document.querySelector(".row-reorder-overlay")).toBeNull();
     expect(document.querySelector(".row-reorder-marker")).toBeNull();
   });
@@ -60,9 +65,27 @@ describe("pointer row reordering", () => {
       if (reason === "unmount") view.unmount();
       pointer(document, "pointerup", 1, 300);
       expect(view.onMove).not.toHaveBeenCalled();
+      view.rows.forEach(row => expect(row.style.translate).toBe(""));
       expect(document.querySelector(".row-reorder-overlay")).toBeNull();
     });
   }
+
+  it("slides neighbours in both directions and restores their places when the pointer returns", () => {
+    const view = setup();
+    startRowDrag(view.getByRole("button", { name: "Second" }));
+    pointer(document, "pointermove", 0, 110);
+    expect(view.rows[0]!.style.translate).toBe("0 60px");
+    pointer(document, "pointermove", 0, 170);
+    expect(view.rows[0]!.style.translate).toBe("0 0px");
+    pointer(document, "pointermove", 0, 260);
+    expect(view.rows[2]!.style.translate).toBe("0 -60px");
+    // Repeated identical events must not reverse the neighbour's displacement.
+    pointer(document, "pointermove", 0, 260);
+    expect(view.rows[2]!.style.translate).toBe("0 -60px");
+    expect(view.onMove).not.toHaveBeenCalled();
+    pointer(document, "pointerup", 0, 260);
+    expect(view.onMove).toHaveBeenCalledExactlyOnceWith(1, 2);
+  });
 
   it("does not start from row content or a disabled handle", () => {
     const onMove = vi.fn();

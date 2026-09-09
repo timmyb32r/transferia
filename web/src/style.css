@@ -3810,12 +3810,11 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   border-radius: 6px;
   box-shadow: 0 14px 36px var(--shadow);
 }
-.row-reorder-marker {
-  position: fixed;
-  z-index: 1001;
-  height: 2px;
-  background: var(--blue);
-  pointer-events: none;
+.row-reorder-neighbour {
+  transition: translate 140ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-reorder-neighbour { transition: none; }
 }
 .middleware-drag, .drag-handle {
   touch-action: none;

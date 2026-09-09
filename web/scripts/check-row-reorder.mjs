@@ -46,6 +46,12 @@ try {
     await page.mouse.move(x, y); await page.mouse.down();
     const last = await rows.last().boundingBox();
     await page.mouse.move(x, last.y + last.height - 1, { steps: 10 });
+    await page.waitForFunction(selector => {
+      const row = document.querySelectorAll(selector)[1];
+      return parseFloat(getComputedStyle(row).translate.split(" ").at(-1)) < -1;
+    }, rowSelector);
+    assert.equal(await page.locator(".row-reorder-marker").count(), 0, `${kind}: no insertion line`);
+    assert.equal(await rows.first().getAttribute("data-reorder-probe"), "original", `${kind}: data order waits for release`);
     await page.mouse.up();
     assert.equal(await rows.last().getAttribute("data-reorder-probe"), "original", `${kind}: commits order`);
     assert.equal(await page.locator(".row-reorder-marker").count(), 0);
