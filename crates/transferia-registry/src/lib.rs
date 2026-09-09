@@ -16,6 +16,7 @@ pub use registry::{
     SourcePreviewMetadata, SourcePreviewMetadataItem, TableSampleLimits,
 };
 pub use traits::{
+    qualified_table_name,
     validate_speedtest_build_context, validate_speedtest_discovery, validate_speedtest_prepare,
     ConnectionCheckResult, ConnectionCheckStatus, DatasetPrepare, DynamicOption, DynamicOptions,
     EndpointRole, OptionsRequest, PreparedSourceExecution, SinkBuildContext, SinkConnector,

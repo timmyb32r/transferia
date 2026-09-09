@@ -528,3 +528,16 @@ fn no_rules_rejects_startup() {
     assert_eq!(preview.issues, vec![SelectionIssue::NoRules]);
     assert!(preview.selected_tables().is_err());
 }
+#[test]
+fn qualified_identity_parser_roundtrips_literal_dots_backslashes_and_unicode() -> anyhow::Result<()> {
+    for namespace in ["", "public", r"name.space\🦀"] {
+        for name in ["events", r"event.part\🦀", "  untouched  "] {
+            let table = TableIdentity { namespace: namespace.into(), name: name.into() };
+            assert_eq!(TableIdentity::from_qualified_name(&table.qualified_name())?, table);
+        }
+    }
+    for invalid in ["", ".events", "public.", "one.two.three", r"bad\escape", "trailing\\", "bad\0name"] {
+        assert!(TableIdentity::from_qualified_name(invalid).is_err(), "{invalid:?}");
+    }
+    Ok(())
+}

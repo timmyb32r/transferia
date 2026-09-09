@@ -396,7 +396,7 @@ async fn dynamic_rename_collision_fails_before_destination_prepare_or_build() {
             delivery_modes: SourceDeliveryModes::BATCH_AND_STREAM,
         }),
         middlewares: Arc::new(vec![Box::new(RenameTableMiddleware::new(
-            RenameTableConfig::Exact { name: "events".into() },
+            RenameTableConfig::Exact { name: "events".into(), last_part_only: true },
         ).unwrap())]),
         context: SinkBuildContext {
             partition_id: 0, delivery_name: Arc::from("rename admission"),

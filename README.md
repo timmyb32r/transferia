@@ -368,10 +368,24 @@ affects its own step. Overlapping steps are intentional and run in order;
 nonmatching tables pass through unchanged. Missing/incompatible columns fail
 validation for matching tables. DLQ batches bypass transforms.
 
-**Rename table** has two explicit modes. `exact` assigns `name` verbatim;
-`regex` replaces every match of `pattern` in the unqualified table name with
-`replacement`. Namespace/schema, columns, values and system metadata are unchanged.
-A regex with no match leaves the name unchanged. Captures use `$1`, `${1}` or
+**Rename table** has two explicit modes. `exact` assigns the authored `name`;
+`regex` replaces every match of `pattern` with `replacement`. By default both
+operate on the **full qualified name**, using the same representation as Include.
+`last_part_only: true` (the checkbox “Rename only the last part after the last
+dot”) operates on the table component only and preserves the namespace exactly.
+Literal dots inside identifiers are not namespace separators: full names escape
+them as `\.` and literal backslashes as `\\`. A full-name result without a
+namespace separator explicitly removes the namespace; malformed or ambiguous
+identities fail validation. In last-part-only mode the result is the literal
+table component, so dots inside it remain part of its name. Columns, values and
+system metadata are unchanged.
+
+**Run preview** first validates the regex against **every matched table** of the
+selected transform, after source selection, preceding renames, and this step's
+Include/Exclude. Choosing a single Sample table does not narrow this check.
+A nonmatch or invalid output fails before any sample is read; no old or partial
+results are displayed. Ordinary delivery processing still leaves nonmatching
+names unchanged. Captures use `$1`, `${1}` or
 `${name}`; use braces before a literal suffix (`${1}_archive`) and `$$` for a
 literal dollar. Unknown captures fail configuration validation; optional captures
 that did not participate fail when projecting or processing that table. Empty or
@@ -381,12 +395,13 @@ syntax does not support lookaround or backreferences in the pattern.
 ```yaml
 middlewares:
   - tables: { include: public.events }
-    rename_table: { mode: exact, name: archived_events }
+    rename_table: { mode: exact, name: archive.events }
   - tables: { include: 'public.raw_*' }
     rename_table:
       mode: regex
       pattern: '^raw_(.*)$'
       replacement: 'archive_${1}'
+      last_part_only: true
 ```
 
 Distinct source tables must retain distinct destination names, including across

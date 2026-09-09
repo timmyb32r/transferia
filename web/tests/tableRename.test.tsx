@@ -11,7 +11,7 @@ afterEach(cleanup);
 const source = { namespace: "public", name: "raw_events" };
 const current = { namespace: "public", name: "archive" };
 const tables = [source];
-const prefix = [{ rename_table: { mode: "exact", name: "archive" } }];
+const prefix = [{ rename_table: { mode: "exact", name: "public.archive" } }];
 const response: TableSelectionPreviewResult = {
   cards: [{ selected: [current], excluded: [] }], issues: [], lineage: [{ source, current }],
 };
@@ -36,7 +36,7 @@ it("matches projected names, loads original schemas and withdraws stale lineage 
   expect(hook.result.current?.lineage).toBe(lineage);
   let finish!: (value: TableSelectionPreviewResult) => void;
   preview.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-  hook.rerender({ preceding: [{ rename_table: { mode: "exact", name: "next" } }], include: "public.*" });
+  hook.rerender({ preceding: [{ rename_table: { mode: "exact", name: "public.next" } }], include: "public.*" });
   expect(hook.result.current).toBeUndefined();
   await waitFor(() => expect(preview).toHaveBeenCalledTimes(3));
   const signal = preview.mock.calls[2]?.[1] as AbortSignal;

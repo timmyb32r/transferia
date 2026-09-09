@@ -190,7 +190,12 @@ the control. Error and warning semantics remain distinct.
   Its compact 480px settings column offers Exact name / Regex replacement, with
   authored name or pattern/replacement fields. Changing modes is an explicit
   form change below the stationary mode selector; never move the strip header.
-  Explain namespace preservation and strict capture rules inline. Following
+  A stationary checkbox below the mode selector opts into renaming only the last
+  table component; unchecked means the full qualified name, as in Include.
+  Explain namespace preservation, escaped identifier dots and capture rules inline.
+  Run preview validates the entire matched scope before reading samples; a pattern
+  nonmatch shows an error in the reserved status region, never stale/partial results.
+  Following
   transforms show projected names while source reads and cached schemas retain
   their original identities. Keep the available catalog stable while editing
   only Include/Exclude; invalidate it when a preceding transform changes.

@@ -80,13 +80,10 @@ impl MetadataSession {
         });
     }
 
-    pub(super) async fn sample(
+    pub(super) fn selected_for_preview(
         &self,
         source: &transferia_server_contracts::api::TransformPreviewSource,
-        table: TableIdentity,
-        limits: transferia_registry::TableSampleLimits,
-        cancellation: CancellationToken,
-    ) -> anyhow::Result<transferia_core::TableData> {
+    ) -> anyhow::Result<Vec<TableIdentity>> {
         anyhow::ensure!(
             !self.cancellation.is_cancelled(),
             "Metadata was released; discover tables again"
@@ -96,8 +93,18 @@ impl MetadataSession {
                 && metadata_identity(&source.config) == self.identity,
             "Source changed; refresh metadata before preview"
         );
+        self.selected(&source.config)
+    }
+
+    pub(super) async fn sample(
+        &self,
+        source: &transferia_server_contracts::api::TransformPreviewSource,
+        table: TableIdentity,
+        limits: transferia_registry::TableSampleLimits,
+        cancellation: CancellationToken,
+    ) -> anyhow::Result<transferia_core::TableData> {
         anyhow::ensure!(
-            self.selected(&source.config)?.contains(&table),
+            self.selected_for_preview(source)?.contains(&table),
             "Sample table is not selected by the source"
         );
         anyhow::ensure!(

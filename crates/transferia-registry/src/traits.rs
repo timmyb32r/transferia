@@ -56,6 +56,31 @@ pub struct TableIdentity {
 }
 
 impl TableIdentity {
+    /// Parse the same escaped identity used by table selection. Literal dots
+    /// and backslashes inside an identifier must be written as `\.` and `\\`.
+    pub fn from_qualified_name(value: &str) -> anyhow::Result<Self> {
+        let mut namespace = None;
+        let mut part = String::new();
+        let mut chars = value.chars();
+        while let Some(character) = chars.next() {
+            match character {
+                '\\' => match chars.next() {
+                    Some(escaped @ ('.' | '\\')) => part.push(escaped),
+                    _ => anyhow::bail!("Table identity: escape only literal dots and backslashes"),
+                },
+                '.' => {
+                    anyhow::ensure!(namespace.is_none(), "Table identity: escape literal dots inside namespace or table name");
+                    anyhow::ensure!(!part.trim().is_empty(), "Table identity: namespace must not be empty");
+                    namespace = Some(std::mem::take(&mut part));
+                }
+                other => part.push(other),
+            }
+        }
+        anyhow::ensure!(!part.trim().is_empty(), "Table identity: name must not be empty");
+        anyhow::ensure!(!value.contains('\0'), "Table identity: must not contain NUL");
+        Ok(Self { namespace: namespace.unwrap_or_default(), name: part })
+    }
+
     #[must_use]
     pub fn qualified_name(&self) -> String {
         qualified_table_name(
@@ -65,7 +90,7 @@ impl TableIdentity {
     }
 }
 
-pub(crate) fn qualified_table_name(namespace: Option<&str>, name: &str) -> String {
+pub fn qualified_table_name(namespace: Option<&str>, name: &str) -> String {
     let escape = |part: &str| part.replace('\\', "\\\\").replace('.', "\\.");
     namespace.map_or_else(
         || escape(name),

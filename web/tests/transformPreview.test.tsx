@@ -118,6 +118,35 @@ it("stops all-table sampling on a failure and identifies the failed table", asyn
   expect(view.queryByText("amount")).toBeNull();
 });
 
+it("replaces previous results with a scope-wide regex error even when sampling one matching table", async () => {
+  const steps = [{ rename_table: { mode: "regex", pattern: "^public\\.reports$", replacement: "${0}2", last_part_only: false } }];
+  const previewTransforms = vi.fn().mockResolvedValue(response);
+  const view = render(<ApplicationServicesProvider services={{ controlPlane: { ...httpControlPlane, previewTransforms } }}>
+    <TransformPreview entries={steps} index={0} source={source} matchedTables={[table, { ...table, name: "other" }]} />
+  </ApplicationServicesProvider>);
+  await chooseTable(view);
+  const run = view.getByRole("button", { name: "Run preview" });
+  const output = view.getByRole("tabpanel");
+  const status = view.getByRole("status");
+  fireEvent.click(run);
+  await waitFor(() => expect(view.getByText("amount")).toBeTruthy());
+  let fail!: (error: Error) => void;
+  previewTransforms.mockImplementation(() => new Promise((_resolve, reject) => { fail = reject; }));
+  fireEvent.click(run);
+  fireEvent.click(run);
+  expect(run.getAttribute("aria-busy")).toBe("true");
+  expect(view.queryByText("amount")).toBeNull();
+  expect(previewTransforms).toHaveBeenCalledTimes(2);
+  fail(new Error('Rename table: pattern does not match table "public.other". Preview requires a match for every matched table.'));
+  await waitFor(() => expect(status.textContent).toContain('does not match table "public.other"'));
+  expect(view.queryByText("amount")).toBeNull();
+  expect(view.queryByRole("heading", { name: "public.reports" })).toBeNull();
+  expect(view.getByRole("tabpanel")).toBe(output);
+  expect(view.getByRole("status")).toBe(status);
+  expect(view.getByRole("button", { name: "Run preview" })).toBe(run);
+  expect(previewTransforms.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ table, middlewares: steps }));
+});
+
 it("uses only matched tables and invalidates selection when matches change", async () => {
   const other = { namespace: "public", name: "new_reports" };
   const checkConnection = vi.fn().mockResolvedValue({ status: "verified", options: {}, tables: [other] });

@@ -36,6 +36,7 @@ try {
         await page.evaluate(() => document.fonts.ready);
         await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
         await checkRenameGeometry(page);
+        if (kind === "rename") await checkRenameScopeGeometry(page);
         for (const activation of ["pointer", "Enter", "Space", "pointer", "Enter", "Space"]) {
           await page.getByLabel("Following field", { exact: true }).focus();
           if (activation !== "pointer") await toggle.focus();
@@ -159,4 +160,34 @@ async function checkRenameGeometry(page) {
       assert.equal(await strip.locator(".middleware-strip-type").count(), 1);
     } else assert.equal(await strip.locator(".middleware-strip-type").count(), 0);
   }
+}
+
+async function checkRenameScopeGeometry(page) {
+  const strip = page.locator(".middleware-strip").last();
+  const toggle = strip.locator(".middleware-strip-toggle");
+  await toggle.click();
+  const checkbox = strip.getByRole("checkbox", { name: "Rename only the last part after the last dot" });
+  await checkbox.scrollIntoViewIfNeeded();
+  await checkbox.focus();
+  const measure = () => page.locator(".middleware-strip-heading, .middleware-rename-fields, .middleware-preview-toggle, .middleware-add").evaluateAll(elements =>
+    elements.map(element => {
+      const { x, y, width, height } = element.getBoundingClientRect();
+      return { x, y, width, height };
+    }));
+  const before = await measure();
+  for (const checked of [true, false]) {
+    await page.keyboard.press("Space");
+    assert.equal(await checkbox.isChecked(), checked, "rename scope must update immediately");
+    for (let frame = 0; frame < 24; frame++) {
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+      const after = await measure();
+      assert.equal(after.length, before.length);
+      after.forEach((rect, index) => {
+        for (const key of ["x", "y", "width", "height"])
+          assert(Math.abs(rect[key] - before[index][key]) < 0.6, `rename scope moved control ${index}: ${key}`);
+      });
+      assert(await checkbox.evaluate(element => document.activeElement === element), "rename scope toggle must retain focus");
+    }
+  }
+  await toggle.click();
 }

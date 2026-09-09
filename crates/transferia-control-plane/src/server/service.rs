@@ -156,8 +156,11 @@ impl ControlPlane {
                 .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
             for table in &mut catalog {
                 for middleware in &middlewares {
-                    table.name = middleware.output_table_name(Some(&table.namespace), &table.name)
-                        .map_err(|error| ServiceError::Validation(format!("{error:#}")))?.to_string();
+                    let (namespace, name) = middleware.output_table_identity(
+                        (!table.namespace.is_empty()).then_some(table.namespace.as_str()), &table.name,
+                    ).map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+                    table.namespace = namespace.as_deref().unwrap_or_default().to_owned();
+                    table.name = name.to_string();
                 }
             }
             // A current identity must identify exactly one physical source for
@@ -798,6 +801,30 @@ impl ControlPlane {
             name: request.table.name.clone(),
         };
         let sample = if let Some(metadata) = metadata {
+            if middlewares[request.through_step].requires_preview_identity_validation() {
+                let selected = metadata.selected_for_preview(&request.source)
+                    .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+                // Validate the entire authenticated scope, even when the user samples
+                // just one table. Earlier steps may change both namespace and name.
+                for source_table in selected {
+                    // Large catalogs must not suppress the preview deadline/cancel.
+                    tokio::task::yield_now().await;
+                    metadata.ensure_active()
+                        .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+                    let mut namespace = (!source_table.namespace.is_empty())
+                        .then(|| Arc::<str>::from(source_table.namespace));
+                    let mut name = Arc::<str>::from(source_table.name);
+                    for (index, middleware) in middlewares.iter().enumerate() {
+                        if index == request.through_step {
+                            middleware.validate_preview_identity(namespace.as_deref(), &name)
+                                .map_err(|error| ServiceError::Validation(format!("transform step {}: {error:#}", index + 1)))?;
+                        } else {
+                            (namespace, name) = middleware.output_table_identity(namespace.as_deref(), &name)
+                                .map_err(|error| ServiceError::Validation(format!("transform step {}: {error:#}", index + 1)))?;
+                        }
+                    }
+                }
+            }
             metadata
                 .sample(
                     &request.source,

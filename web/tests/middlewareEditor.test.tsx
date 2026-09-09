@@ -31,10 +31,16 @@ describe("ordered transform strips", () => {
     const mode = view.getByRole("button", { name: "Rename mode" });
     const include = view.getByLabelText("Include transform 1");
     const header = view.getByRole("button", { name: "Collapse transform 1" });
+    const lastPart = view.getByRole("checkbox", { name: "Rename only the last part after the last dot" }) as HTMLInputElement;
+    expect(lastPart.checked).toBe(false);
+    fireEvent.click(lastPart);
+    expect(lastPart.checked).toBe(true);
     fireEvent.input(view.getByRole("textbox", { name: "New table name" }), { target: { value: "  archive.events  " } });
     expect(view.container.querySelector(".middleware-strip-summary")?.textContent).toBe("→   archive.events  ");
     fireEvent.click(mode);
     fireEvent.click(view.getByRole("option", { name: "Regex replacement" }));
+    expect(view.getByRole("checkbox", { name: "Rename only the last part after the last dot" })).toBe(lastPart);
+    expect(lastPart.checked).toBe(true);
     expect(view.queryByRole("textbox", { name: "New table name" })).toBeNull();
     fireEvent.input(view.getByRole("textbox", { name: "Pattern" }), { target: { value: "^raw_(.*)$" } });
     fireEvent.input(view.getByRole("textbox", { name: "Replacement" }), { target: { value: "archive_${1}" } });
@@ -45,6 +51,20 @@ describe("ordered transform strips", () => {
     expect(view.getByLabelText("Include transform 1")).toBe(include);
     expect((include as HTMLInputElement).value).toBe(step.tables.include);
     expect(view.getByDisplayValue(step.tables.exclude)).toBeTruthy();
+  });
+
+  it.each([false, true])("persists the explicit rename target and disables readonly edits (%s)", disabled => {
+    const onChange = vi.fn();
+    const entry = { tables: step.tables, rename_table: { mode: "regex", pattern: "(.*)", replacement: "${1}2", last_part_only: true } };
+    const view = render(<MiddlewareEditor value={[entry]} disabled={disabled} onChange={onChange} />);
+    fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
+    const field = view.getByRole("checkbox", { name: "Rename only the last part after the last dot" }) as HTMLInputElement;
+    expect(field.checked).toBe(true);
+    expect(field.disabled).toBe(disabled);
+    if (!disabled) {
+      fireEvent.click(field);
+      expect(onChange).toHaveBeenCalledExactlyOnceWith([{ ...entry, rename_table: { ...entry.rename_table, last_part_only: false } }]);
+    }
   });
 
   it("sets a name through the overflow menu without opening settings or changing the action", () => {

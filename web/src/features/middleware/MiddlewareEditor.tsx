@@ -226,7 +226,7 @@ function TransformStrip({ entry, entries, source, needsCatalog, catalogUnavailab
             options={ACTIONS} disabled={disabled} onChange={next => {
               const { [kind ?? ""]: _previous, ...rest } = object;
               onChange(next ? { ...rest, [next]: next === "datafusion" ? { sql: "SELECT * FROM input" }
-                : next === "rename_table" ? { mode: "exact", name: "" } : { field: "", value: "" } } : rest);
+                : next === "rename_table" ? { mode: "exact", name: "", last_part_only: false } : { field: "", value: "" } } : rest);
             }} />
         </div>
         {kind === "filter" ? <div class="middleware-filter-fields">
@@ -241,7 +241,11 @@ function TransformStrip({ entry, entries, source, needsCatalog, catalogUnavailab
           <label for={`${id}-rename-mode`}>Rename mode</label><SelectControl id={`${id}-rename-mode`} placeholder="Choose rename mode" value={raw.mode === "regex" ? "regex" : "exact"} clearable={false}
             disabled={disabled} options={[{ value: "exact", label: "Exact name" }, { value: "regex", label: "Regex replacement" }]}
             onChange={mode => onChange({ ...object, rename_table: mode === "regex"
-              ? { mode, pattern: "", replacement: "" } : { mode, name: "" } })} />
+              ? { mode, pattern: "", replacement: "", last_part_only: raw.last_part_only === true }
+              : { mode, name: "", last_part_only: raw.last_part_only === true } })} />
+          <label class="middleware-rename-scope"><AutofillResistantInput type="checkbox" checked={raw.last_part_only === true}
+            disabled={disabled} onChange={event => updateRaw({ last_part_only: event.currentTarget.checked })} />
+            <span>Rename only the last part after the last dot</span></label>
           {raw.mode === "regex" ? <>
             <label><span>Pattern</span><AutofillResistantInput type="text" required value={typeof raw.pattern === "string" ? raw.pattern : ""}
               disabled={disabled} onInput={event => updateRaw({ pattern: event.currentTarget.value })} /></label>
@@ -249,8 +253,10 @@ function TransformStrip({ entry, entries, source, needsCatalog, catalogUnavailab
               disabled={disabled} onInput={event => updateRaw({ replacement: event.currentTarget.value })} /></label>
           </> : <label><span>New table name</span><AutofillResistantInput type="text" required value={typeof raw.name === "string" ? raw.name : ""}
             disabled={disabled} onInput={event => updateRaw({ name: event.currentTarget.value })} /></label>}
-          <p class="muted">Only the table name changes; namespace stays unchanged. Regex replaces all matches; names with no match stay unchanged.
-            Use $1 or {"${name}"} for captures, $$ for a literal dollar. Unknown or unmatched captures and empty output names fail validation.</p>
+          <p class="muted">By default, rename the full name, as shown in Include. Check the option to rename only the table part and preserve its namespace.
+            In full-name mode, use {"\\."} and {"\\\\"} for literal dots and backslashes inside identifiers.
+            Regex replaces all occurrences. Run preview requires the pattern to match every matched table before reading any sample.
+            Use $1 or {"${1}"} before a suffix, {"${name}"} for named captures, and $$ for a literal dollar.</p>
         </div> : null}
       </>}
       <div class="middleware-preview">

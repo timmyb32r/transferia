@@ -92,12 +92,21 @@ struct ScopedMiddleware {
 
 #[async_trait::async_trait]
 impl Middleware for ScopedMiddleware {
-    fn output_table_name(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<std::sync::Arc<str>> {
+    fn requires_preview_identity_validation(&self) -> bool {
+        self.action.requires_preview_identity_validation()
+    }
+    fn output_table_identity(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<(Option<std::sync::Arc<str>>, std::sync::Arc<str>)> {
         if self.applies_to(namespace, name) {
-            self.action.output_table_name(namespace, name)
+            self.action.output_table_identity(namespace, name)
         } else {
-            Ok(std::sync::Arc::from(name))
+            Ok((namespace.map(std::sync::Arc::from), std::sync::Arc::from(name)))
         }
+    }
+    fn validate_preview_identity(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<()> {
+        if self.applies_to(namespace, name) {
+            self.action.validate_preview_identity(namespace, name)?;
+        }
+        Ok(())
     }
     async fn preview(
         &self,

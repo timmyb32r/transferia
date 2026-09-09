@@ -110,8 +110,8 @@ struct RecordingLimits {
 async fn renamed_tables_cannot_merge_with_each_other_or_passthrough_tables() -> anyhow::Result<()> {
     use transferia_middleware_rename_table::{RenameTableConfig, RenameTableMiddleware};
     for config in [
-        RenameTableConfig::Exact { name: "events".into() },
-        RenameTableConfig::Regex { pattern: "^raw_".into(), replacement: "".into() },
+        RenameTableConfig::Exact { name: "events".into(), last_part_only: true },
+        RenameTableConfig::Regex { pattern: "^raw_".into(), replacement: "".into(), last_part_only: true },
     ] {
         let schema = transferia_core::DatasetSchema::default();
         let discovery = DeliveryDiscovery {

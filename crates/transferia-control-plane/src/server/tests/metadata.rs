@@ -9,10 +9,30 @@ use transferia_core::{
 struct Reader {
     loads: AtomicUsize,
     assemblies: AtomicUsize,
+    samples: AtomicUsize,
     batches: std::sync::Mutex<Vec<Vec<TableIdentity>>>,
 }
 
 impl SourceMetadataReader for Reader {
+    fn sample_table(
+        &self,
+        table: TableIdentity,
+        _: transferia_registry::TableSampleLimits,
+        _: CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<transferia_core::TableData>> {
+        Box::pin(async move {
+            self.samples.fetch_add(1, Ordering::SeqCst);
+            let schema = Arc::new(arrow::datatypes::Schema::new(vec![
+                arrow::datatypes::Field::new("id", arrow::datatypes::DataType::Int64, false),
+            ]));
+            let batch = arrow::record_batch::RecordBatch::try_new(schema, vec![
+                Arc::new(arrow::array::Int64Array::from(vec![1])),
+            ])?;
+            Ok(transferia_core::TableData::new(Arc::from(table.name), false, batch, Default::default())
+                .with_namespace(Arc::from(table.namespace)))
+        })
+    }
+
     fn list_tables(
         &self,
         _: CancellationToken,
@@ -135,6 +155,93 @@ fn context() -> SourceDiscoveryContext {
         cancellation: CancellationToken::new(),
         delivery_type: DeliveryType::Batch,
     }
+}
+
+fn rename_preview_request(steps: Value, source_config: Value) -> anyhow::Result<transferia_server_contracts::api::TransformPreviewRequest> {
+    let through_step = steps.as_array().unwrap().len() - 1;
+    Ok(serde_json::from_value(serde_json::json!({
+        "metadata_id":"cache", "middlewares":steps, "through_step":through_step,
+        "source":{"connector":"postgres", "config":source_config},
+        "table":{"namespace":"public", "name":"events"}, "row_limit":20,
+        "max_sample_bytes":16_777_216, "memory_limit_bytes":268_435_456, "timeout_ms":30_000,
+    }))?)
+}
+
+#[tokio::test]
+async fn rename_preview_validates_unsampled_matched_tables_before_any_source_read() -> anyhow::Result<()> {
+    let reader = Arc::new(Reader::default());
+    let session = session("cache", vec![table("events"), table("other")], reader.clone());
+    // No schema is loaded: regex failure must precede even schema readiness checks.
+    let request = rename_preview_request(serde_json::json!([
+        {"rename_table":{"mode":"regex", "pattern":"^events$", "replacement":"events2", "last_part_only":true}}
+    ]), source())?;
+    let error = ControlPlane::preview_transforms_with(
+        &Transferia::public()?, request, CancellationToken::new(), Some(session),
+    ).await.unwrap_err().to_string();
+    assert!(error.contains("public.other"), "{error}");
+    assert!(error.contains("does not match"), "{error}");
+    assert_eq!(reader.samples.load(Ordering::SeqCst), 0);
+    assert_eq!(reader.loads.load(Ordering::SeqCst), 0);
+    assert_eq!(reader.assemblies.load(Ordering::SeqCst), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn rename_preview_honors_source_and_step_scopes_and_projects_preceding_names() -> anyhow::Result<()> {
+    for scope in ["source", "include", "exclude", "system", "preceding"] {
+        let reader = Arc::new(Reader::default());
+        let other = if scope == "system" { TableIdentity { namespace:"pg_catalog".into(), name:"other".into() } } else { table("other") };
+        let session = session("cache", vec![table("events"), other], reader.clone());
+        session.ensure_tables(&[table("events")]).await?;
+        let mut source_config = source();
+        let mut steps = serde_json::json!([
+            {"rename_table":{"mode":"regex", "pattern":"^public\\.events$", "replacement":"archive.events2"}}
+        ]);
+        match scope {
+            "source" => source_config["tables"] = serde_json::json!({"type":"selected", "rules":[{"include":"public.events"}]}),
+            "include" => steps[0]["tables"] = serde_json::json!({"include":"public.events"}),
+            "exclude" => steps[0]["tables"] = serde_json::json!({"include":"*", "exclude":"public.other"}),
+            "system" => source_config["hide_system_tables"] = Value::Bool(true),
+            "preceding" => steps = serde_json::json!([
+                {"tables":{"include":"public.events"}, "rename_table":{"mode":"exact", "name":"archive.events"}},
+                {"tables":{"include":"archive.*"}, "rename_table":{"mode":"regex", "pattern":"^archive\\.events$", "replacement":"archive.events2"}},
+            ]),
+            _ => unreachable!(),
+        }
+        let result = ControlPlane::preview_transforms_with(
+            &Transferia::public()?, rename_preview_request(steps, source_config)?, CancellationToken::new(), Some(session),
+        ).await?;
+        assert_eq!(result.before.table.namespace.as_deref(), Some(if scope == "preceding" { "archive" } else { "public" }));
+        assert_eq!(result.after.table.namespace.as_deref(), Some("archive"));
+        assert_eq!(result.after.table.name, "events2");
+        assert_eq!(reader.samples.load(Ordering::SeqCst), 1);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn rename_preview_rejects_invalid_outputs_in_unsampled_tables_and_source_mismatch() -> anyhow::Result<()> {
+    for invalid_source in [false, true] {
+        let reader = Arc::new(Reader::default());
+        let session = session("cache", vec![table("events"), table("other")], reader.clone());
+        let mut config = source();
+        if invalid_source { config["database"] = Value::String("different".into()); }
+        let request = rename_preview_request(serde_json::json!([
+            {"rename_table":{"mode":"regex", "pattern":"^(events)?(?:other)?$", "replacement":"$1", "last_part_only":true}}
+        ]), config)?;
+        let error = ControlPlane::preview_transforms_with(
+            &Transferia::public()?, request, CancellationToken::new(), Some(session),
+        ).await.unwrap_err().to_string();
+        if invalid_source {
+            assert!(error.contains("Source changed"), "{error}");
+            assert!(!error.contains("other"), "catalog must not leak on source mismatch: {error}");
+        } else {
+            assert!(error.contains("capture 1 did not participate"), "{error}");
+            assert!(error.contains("other"), "{error}");
+        }
+        assert_eq!(reader.samples.load(Ordering::SeqCst), 0);
+    }
+    Ok(())
 }
 
 fn config() -> Value {
