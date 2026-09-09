@@ -92,6 +92,13 @@ struct ScopedMiddleware {
 
 #[async_trait::async_trait]
 impl Middleware for ScopedMiddleware {
+    fn output_table_name(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<std::sync::Arc<str>> {
+        if self.applies_to(namespace, name) {
+            self.action.output_table_name(namespace, name)
+        } else {
+            Ok(std::sync::Arc::from(name))
+        }
+    }
     async fn preview(
         &self,
         data: TableData,

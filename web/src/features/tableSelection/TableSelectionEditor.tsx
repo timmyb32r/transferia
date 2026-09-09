@@ -1,6 +1,6 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "preact/hooks";
-import type { SelectionPreview, TableRule, TableSelection } from "../../generated/apiContract";
+import type { TableSelectionPreviewResult, TableRule, TableSelection } from "../../generated/apiContract";
 import type { JsonValue } from "../../json";
 import { isObject } from "../../schema/value";
 import { useTableCatalog } from "../../schema/tableCatalog";
@@ -29,7 +29,7 @@ export function TableSelectionEditor({ value, disabled = false, fixed = false, o
   drafts.current[selection.type] = selection;
   const fingerprint = JSON.stringify(selection);
   const incomplete = selection.type === "selected" && (selection.rules.length === 0 || selection.rules.some(rule => !rule.include.trim()));
-  const [preview, setPreview] = useState<{ fingerprint: string; tables: NonNullable<typeof catalog>["tables"]; result?: SelectionPreview; error?: string }>();
+  const [preview, setPreview] = useState<{ fingerprint: string; tables: NonNullable<typeof catalog>["tables"]; result?: TableSelectionPreviewResult; error?: string }>();
   const [expanded, setExpanded] = useState(false);
   const [expandedRules, setExpandedRules] = useState<number[]>([]);
   const [expandedExcludes, setExpandedExcludes] = useState<number[]>([]);

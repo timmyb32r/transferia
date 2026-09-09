@@ -49,6 +49,34 @@ it("does not connect or sample until explicitly requested", () => {
   expect(previewTransforms).not.toHaveBeenCalled();
 });
 
+it("shows renamed choices but samples the physical source table", async () => {
+  const renamed = { ...table, name: "archive" };
+  const previewTransforms = vi.fn().mockResolvedValue(response);
+  const view = render(<ApplicationServicesProvider services={{ controlPlane: { ...httpControlPlane, previewTransforms } }}>
+    <TransformPreview entries={entries} index={0} source={source} matchedTables={[renamed]}
+      lineage={[{ source: table, current: renamed }]} />
+  </ApplicationServicesProvider>);
+  fireEvent.click(view.getByRole("button", { name: "Sample table" }));
+  expect(view.queryByRole("option", { name: "public.reports" })).toBeNull();
+  fireEvent.click(view.getByRole("option", { name: "public.archive" }));
+  fireEvent.click(view.getByRole("button", { name: "Run preview" }));
+  await waitFor(() => expect(previewTransforms).toHaveBeenCalledOnce());
+  expect(previewTransforms.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ table }));
+});
+
+it("does not sample when a current name has ambiguous source lineage", () => {
+  const renamed = { ...table, name: "archive" };
+  const previewTransforms = vi.fn();
+  const view = render(<ApplicationServicesProvider services={{ controlPlane: { ...httpControlPlane, previewTransforms } }}>
+    <TransformPreview entries={entries} index={0} source={source} matchedTables={[renamed]}
+      lineage={[{ source: table, current: renamed }, { source: { ...table, name: "other" }, current: renamed }]} />
+  </ApplicationServicesProvider>);
+  const run = view.getByRole("button", { name: "Run preview" }) as HTMLButtonElement;
+  expect(run.disabled).toBe(true);
+  fireEvent.click(run);
+  expect(previewTransforms).not.toHaveBeenCalled();
+});
+
 it("defaults to the first All matched tables option and samples each table separately", async () => {
   const other = { namespace: "public", name: "other" };
   const previewTransforms = vi.fn().mockImplementation(async request => ({

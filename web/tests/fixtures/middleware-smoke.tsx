@@ -46,6 +46,7 @@ function Fixture() {
     { tables: { include: "analytics.reports_*", include_mode: "glob", exclude_mode: "glob" }, filter: { field: "country", value: "DE" } },
     { tables: { include: "*", include_mode: "glob", exclude_mode: "glob" },
       ...(new URLSearchParams(location.search).get("last-transform") === "unselected" ? {}
+        : new URLSearchParams(location.search).get("last-transform") === "rename" ? { rename_table: { mode: "exact", name: "archived_reports" } }
         : { datafusion: { sql: "SELECT *, revenue * 2 AS adjusted_revenue FROM input" } }) },
   ]);
   return <ApplicationServicesProvider services={services}>

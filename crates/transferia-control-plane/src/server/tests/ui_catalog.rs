@@ -32,9 +32,9 @@ fn middleware_schema_is_derived_from_registered_components() -> anyhow::Result<(
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(keys, ["filter", "datafusion"]);
+    assert_eq!(keys, ["filter", "rename_table", "datafusion"]);
     assert_eq!(
-        alternatives[1]["properties"]["datafusion"]["properties"]["sql"]["type"],
+        alternatives[2]["properties"]["datafusion"]["properties"]["sql"]["type"],
         "string"
     );
     Ok(())

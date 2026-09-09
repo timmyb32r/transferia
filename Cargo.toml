@@ -27,6 +27,7 @@ members = [
     "crates/transferia-delivery-contracts",
     "crates/transferia-middleware-datafusion",
     "crates/transferia-middleware-filter",
+    "crates/transferia-middleware-rename-table",
     "crates/transferia-pipeline",
     "crates/transferia-registry",
     "crates/transferia-runtime",
@@ -205,6 +206,7 @@ transferia-core = { path = "crates/transferia-core" }
 transferia-delivery = { path = "crates/transferia-delivery" }
 transferia-middleware-datafusion = { path = "crates/transferia-middleware-datafusion" }
 transferia-middleware-filter = { path = "crates/transferia-middleware-filter" }
+transferia-middleware-rename-table = { path = "crates/transferia-middleware-rename-table" }
 transferia-registry = { path = "crates/transferia-registry" }
 transferia-runtime = { path = "crates/transferia-runtime" }
 transferia-runtime-local = { path = "crates/transferia-runtime-local" }

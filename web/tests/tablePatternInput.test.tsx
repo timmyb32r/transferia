@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { TablePatternInput } from "../src/features/tableSelection/TablePatternInput";
 import { completionPattern, exactPattern, literalPatternPrefix } from "../src/features/tableSelection/model";
 import { TableCatalogContext } from "../src/schema/tableCatalog";
-import type { SelectionPreview } from "../src/generated/apiContract";
+import type { TableSelectionPreviewResult } from "../src/generated/apiContract";
 import { render } from "./support/render";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -214,8 +214,8 @@ it.each(fields.flatMap(field => (["glob", "regex"] as const).map(mode => ({ ...f
 
 it.each(fields)("Enter finishes $label while suggestions are loading and a late response cannot reopen them", async ({ label, required }) => {
   const tables = [{ namespace: "system", name: "query_log" }];
-  let finish!: (result: SelectionPreview) => void;
-  const preview = vi.fn(() => new Promise<SelectionPreview>(resolve => { finish = resolve; }));
+  let finish!: (result: TableSelectionPreviewResult) => void;
+  const preview = vi.fn(() => new Promise<TableSelectionPreviewResult>(resolve => { finish = resolve; }));
   const onChange = vi.fn();
   const view = render(<TableCatalogContext.Provider value={{ tables, preview }}>
     <TablePatternInput id="pattern" label={label} value="system*" mode="glob" disabled={false} required={required} invalid={false}
@@ -276,8 +276,8 @@ it("closes suggestions and restores input focus when Escape is pressed on the re
 
 it("never displays a stale suggestion response after the pattern changes", async () => {
   const tables = [{ namespace: "schema", name: "old" }];
-  const finish: ((result: SelectionPreview) => void)[] = [];
-  const preview = vi.fn(() => new Promise<SelectionPreview>(resolve => finish.push(resolve)));
+  const finish: ((result: TableSelectionPreviewResult) => void)[] = [];
+  const preview = vi.fn(() => new Promise<TableSelectionPreviewResult>(resolve => finish.push(resolve)));
   const component = (value: string) => <TableCatalogContext.Provider value={{ tables, preview }}>
     <TablePatternInput id="include" label="Include rule 1" value={value} mode="glob" disabled={false} required invalid={false}
       onChange={() => undefined} onModeChange={() => undefined} />

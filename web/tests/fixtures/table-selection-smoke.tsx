@@ -3,7 +3,7 @@ import { useMemo, useState } from "preact/hooks";
 import { Button } from "../../src/ui/Button";
 import type { JsonObject } from "../../src/json";
 import { visibleTableCatalog } from "../../src/features/tableSelection/catalog";
-import type { SelectionPreview, TableSelectionPreviewRequest } from "../../src/generated/apiContract";
+import type { TableSelectionPreviewResult, TableSelectionPreviewRequest } from "../../src/generated/apiContract";
 import { compileSchema } from "../../src/schema/compiler";
 import { SchemaForm } from "../../src/schema/SchemaForm";
 import { WidgetRegistryProvider } from "../../src/schema/widgetRegistry";
@@ -20,7 +20,7 @@ const tables = options.has("short") ? [{ namespace: "analytics", name: "reports_
   { namespace: "information_schema", name: "TABLES" }, { namespace: "system", name: "tables" }];
 // The standalone Vite fixture does not bundle the generated AJV validators
 // used by the application HTTP adapter. Live visual checks call the same API.
-const preview = new URLSearchParams(location.search).has("live") ? async (body: TableSelectionPreviewRequest, signal?: AbortSignal): Promise<SelectionPreview> => {
+const preview = new URLSearchParams(location.search).has("live") ? async (body: TableSelectionPreviewRequest, signal?: AbortSignal): Promise<TableSelectionPreviewResult> => {
   const response = await fetch("/api/v1/table-selection/preview", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: signal ?? null,
   });

@@ -31,6 +31,7 @@ transferia-core = { path = "../transferia-core" }
 transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
 transferia-middleware-datafusion = { path = "../transferia-middleware-datafusion" }
 transferia-middleware-filter = { path = "../transferia-middleware-filter" }
+transferia-middleware-rename-table = { path = "../transferia-middleware-rename-table" }
 transferia-registry = { path = "../transferia-registry" }
 
 [dev-dependencies]

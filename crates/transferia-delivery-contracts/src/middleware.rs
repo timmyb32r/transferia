@@ -54,6 +54,12 @@ pub trait Middleware: Send + Sync {
         true
     }
 
+    /// Schema-independent identity projection for catalog matching. Identity
+    /// transforms must use the same semantics at preparation and runtime.
+    fn output_table_name(&self, _namespace: Option<&str>, name: &str) -> anyhow::Result<Arc<str>> {
+        Ok(Arc::from(name))
+    }
+
     /// Project the current identity and schema before destination preparation.
     /// Identity-changing implementations must make the identical change in
     /// `process`, so the next step observes the same input at both boundaries.
@@ -62,6 +68,7 @@ pub trait Middleware: Send + Sync {
         dataset: &DiscoveredDataset,
     ) -> anyhow::Result<DiscoveredDataset> {
         let mut output = dataset.clone();
+        output.name = self.output_table_name(dataset.namespace.as_deref(), &dataset.name)?;
         output.stored_schema = self.output_schema(&dataset.stored_schema).await?;
         Ok(output)
     }
@@ -79,6 +86,9 @@ pub trait Middleware: Send + Sync {
 
 #[async_trait]
 impl<T: Middleware + ?Sized> Middleware for &T {
+    fn output_table_name(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<Arc<str>> {
+        (**self).output_table_name(namespace, name)
+    }
     async fn preview(
         &self,
         data: TableData,
@@ -108,6 +118,9 @@ impl<T: Middleware + ?Sized> Middleware for &T {
 
 #[async_trait]
 impl<T: Middleware + Send + Sync + ?Sized> Middleware for Box<T> {
+    fn output_table_name(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<Arc<str>> {
+        (**self).output_table_name(namespace, name)
+    }
     async fn preview(
         &self,
         data: TableData,
@@ -137,6 +150,9 @@ impl<T: Middleware + Send + Sync + ?Sized> Middleware for Box<T> {
 
 #[async_trait]
 impl<T: Middleware + ?Sized> Middleware for Arc<T> {
+    fn output_table_name(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<Arc<str>> {
+        (**self).output_table_name(namespace, name)
+    }
     async fn preview(
         &self,
         data: TableData,

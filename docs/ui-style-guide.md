@@ -186,6 +186,14 @@ the control. Error and warning semantics remain distinct.
 - A new transform starts with `Transformation: Not selected`, never an implicit
   SQL or filter action. Its table scope stays editable; action-specific fields
   and Preview require an explicit selection. Clone retains the original action.
+- **Rename table** is a data transform, separate from the decorative strip name.
+  Its compact 480px settings column offers Exact name / Regex replacement, with
+  authored name or pattern/replacement fields. Changing modes is an explicit
+  form change below the stationary mode selector; never move the strip header.
+  Explain namespace preservation and strict capture rules inline. Following
+  transforms show projected names while source reads and cached schemas retain
+  their original identities. Keep the available catalog stable while editing
+  only Include/Exclude; invalidate it when a preceding transform changes.
 - Transform naming uses **C — the overflow menu** after Delete: `Set name` for
   unnamed steps, `Rename` otherwise. The menu opens a small floating name editor,
   never a field in the expanded settings. Save (or Enter) commits; Cancel, Escape

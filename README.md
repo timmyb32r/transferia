@@ -342,8 +342,8 @@ strict Clippy, and the complete test/E2E suite.
 ### Ordered transforms
 
 The **Transforms** island below source/destination edits the `middlewares`
-sequence. Each expandable strip contains exactly one action (`datafusion` SQL
-or `filter` string equality) and its own `tables` rule. Clone copies the whole
+sequence. Each expandable strip contains exactly one action (`datafusion` SQL,
+`filter` string equality, or `rename_table`) and its own `tables` rule. Clone copies the whole
 step, including Include/Exclude; dragging the handle on the left changes its
 position. Settings and the optional per-step preview start collapsed.
 
@@ -367,6 +367,34 @@ applies a step to all tables; Include itself cannot be empty. Exclude only
 affects its own step. Overlapping steps are intentional and run in order;
 nonmatching tables pass through unchanged. Missing/incompatible columns fail
 validation for matching tables. DLQ batches bypass transforms.
+
+**Rename table** has two explicit modes. `exact` assigns `name` verbatim;
+`regex` replaces every match of `pattern` in the unqualified table name with
+`replacement`. Namespace/schema, columns, values and system metadata are unchanged.
+A regex with no match leaves the name unchanged. Captures use `$1`, `${1}` or
+`${name}`; use braces before a literal suffix (`${1}_archive`) and `$$` for a
+literal dollar. Unknown captures fail configuration validation; optional captures
+that did not participate fail when projecting or processing that table. Empty or
+whitespace-only names and NUL are rejected, never normalized. The Rust `regex`
+syntax does not support lookaround or backreferences in the pattern.
+
+```yaml
+middlewares:
+  - tables: { include: public.events }
+    rename_table: { mode: exact, name: archived_events }
+  - tables: { include: 'public.raw_*' }
+    rename_table:
+      mode: regex
+      pattern: '^raw_(.*)$'
+      replacement: 'archive_${1}'
+```
+
+Distinct source tables must retain distinct destination names, including across
+namespaces; a rename cannot implicitly merge tables. Collisions fail before
+destination preparation, including dynamically admitted tables. Following steps
+browse and match the renamed catalog. Schema cache access and preview sampling
+still use the original physical source identity; the server projects names using
+the production middleware, not a separately implemented browser regex.
 
 **Preview** loads a user-selected table from PostgreSQL, MySQL, or ClickHouse
 without launching a delivery or preparing a destination. It runs the actual

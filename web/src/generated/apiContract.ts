@@ -361,11 +361,6 @@ export type SelectionIssue =
       table: TableIdentity;
     };
 
-export type SelectionPreview = {
-  cards: Array<CardMatches>;
-  issues: Array<SelectionIssue>;
-};
-
 export type SinkLimitsDescription = {
   column_name?: TextLimit;
   dataset_name?: TextLimit;
@@ -477,6 +472,11 @@ export type TableIdentity = {
   namespace: string;
 };
 
+export type TableLineage = {
+  current: TableIdentity;
+  source: TableIdentity;
+};
+
 export type TableMetadataError = {
   message: string;
   table: TableIdentity;
@@ -500,7 +500,14 @@ export type TableSelection =
 
 export type TableSelectionPreviewRequest = {
   catalog: Array<TableIdentity>;
+  preceding_middlewares?: Array<JsonValue>;
   selection: TableSelection;
+};
+
+export type TableSelectionPreviewResult = {
+  cards: Array<CardMatches>;
+  issues: Array<SelectionIssue>;
+  lineage?: Array<TableLineage> | null;
 };
 
 export type TextLimit = {
@@ -662,7 +669,7 @@ export interface ApiContract {
   speedtest_tune_response: SpeedtestTuneResult;
   stop_request: StopRequest;
   table_selection_preview_request: TableSelectionPreviewRequest;
-  table_selection_preview_response: SelectionPreview;
+  table_selection_preview_response: TableSelectionPreviewResult;
   transform_preview_request: TransformPreviewRequest;
   transform_preview_response: TransformPreviewResult;
   update_draft_request: UpdateDraftRequest;

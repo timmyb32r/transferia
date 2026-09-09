@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { TableSelectionEditor } from "../src/features/tableSelection/TableSelectionEditor";
 import { exactPattern, qualifiedName } from "../src/features/tableSelection/model";
 import { TableCatalogContext } from "../src/schema/tableCatalog";
-import type { SelectionPreview } from "../src/generated/apiContract";
+import type { TableSelectionPreviewResult } from "../src/generated/apiContract";
 import type { JsonValue } from "../src/json";
 import { render } from "./support/render";
 
@@ -121,8 +121,8 @@ it.each(["glob", "regex"] as const)("Use from Include's magnifier preserves %s m
 
 it("keeps the exact-name result rail and following controls stable during preview", async () => {
   const selected = [{ namespace: "db", name: "events" }];
-  let finish!: (value: SelectionPreview) => void;
-  const preview = vi.fn(() => new Promise<SelectionPreview>(resolve => { finish = resolve; }));
+  let finish!: (value: TableSelectionPreviewResult) => void;
+  const preview = vi.fn(() => new Promise<TableSelectionPreviewResult>(resolve => { finish = resolve; }));
   const view = render(<TableCatalogContext.Provider value={{ tables: selected, preview }}>
     <TableSelectionEditor value={{ type: "selected", rules: [{ include: "db.events" }] }} onChange={vi.fn()} />
   </TableCatalogContext.Provider>);

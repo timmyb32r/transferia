@@ -455,16 +455,12 @@ async fn metadata_discovery(
 }
 
 async fn table_selection_preview(
+    State(state): State<AppState>,
     ApiJson(request): ApiJson<transferia_server_contracts::api::TableSelectionPreviewRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     // This is only a preview over the last authenticated catalog. Startup
     // independently re-queries the source; this request cannot authorize tables.
-    let result = request
-        .selection
-        .compile()
-        .map_err(anyhow::Error::from)
-        .and_then(|selection| selection.resolve(&request.catalog))
-        .map_err(|error| ApiError(ServiceError::Validation(error.to_string())))?;
+    let result = state.control_plane.preview_table_selection(request)?;
     Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
 }
 

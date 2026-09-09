@@ -96,6 +96,107 @@
               "additionalProperties": false
             },
             {
+              "title": "Rename table",
+              "x-ui": {
+                "capabilities": {
+                  "component": "transformer",
+                  "key": "rename_table",
+                  "properties": [
+                    "playground"
+                  ]
+                }
+              },
+              "type": "object",
+              "properties": {
+                "rename_table": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "title": "RenameTableConfig",
+                  "description": "Explicitly rename the unqualified table name; preserve namespace and data.",
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "exact"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "mode",
+                        "name"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "pattern": {
+                          "type": "string"
+                        },
+                        "replacement": {
+                          "type": "string"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "const": "regex"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "mode",
+                        "pattern",
+                        "replacement"
+                      ]
+                    }
+                  ]
+                },
+                "tables": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "title": "TableRule",
+                  "type": "object",
+                  "properties": {
+                    "include": {
+                      "type": "string"
+                    },
+                    "exclude": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "include_mode": {
+                      "type": "string",
+                      "enum": [
+                        "glob",
+                        "regex"
+                      ],
+                      "default": "glob"
+                    },
+                    "exclude_mode": {
+                      "type": "string",
+                      "enum": [
+                        "glob",
+                        "regex"
+                      ],
+                      "default": "glob"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "include"
+                  ]
+                }
+              },
+              "required": [
+                "rename_table"
+              ],
+              "additionalProperties": false
+            },
+            {
               "title": "DataFusion SQL",
               "x-ui": {
                 "capabilities": {

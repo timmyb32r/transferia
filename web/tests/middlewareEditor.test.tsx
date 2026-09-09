@@ -23,6 +23,30 @@ function Editor({ value = [step], disabled = false }: { value?: JsonValue; disab
 }
 
 describe("ordered transform strips", () => {
+  it("edits exact and regex table names without changing the step label or scope", () => {
+    const view = render(<Editor value={[{ ...step, name: "Display label" }]} />);
+    fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
+    fireEvent.click(view.getByRole("button", { name: "Transformation" }));
+    fireEvent.click(view.getByRole("option", { name: "Rename table" }));
+    const mode = view.getByRole("button", { name: "Rename mode" });
+    const include = view.getByLabelText("Include transform 1");
+    const header = view.getByRole("button", { name: "Collapse transform 1" });
+    fireEvent.input(view.getByRole("textbox", { name: "New table name" }), { target: { value: "  archive.events  " } });
+    expect(view.container.querySelector(".middleware-strip-summary")?.textContent).toBe("→   archive.events  ");
+    fireEvent.click(mode);
+    fireEvent.click(view.getByRole("option", { name: "Regex replacement" }));
+    expect(view.queryByRole("textbox", { name: "New table name" })).toBeNull();
+    fireEvent.input(view.getByRole("textbox", { name: "Pattern" }), { target: { value: "^raw_(.*)$" } });
+    fireEvent.input(view.getByRole("textbox", { name: "Replacement" }), { target: { value: "archive_${1}" } });
+    expect(view.container.querySelector(".middleware-strip-summary")?.textContent).toBe("^raw_(.*)$ → archive_${1}");
+    expect(view.container.querySelector(".middleware-strip-title")?.textContent).toBe("Display label");
+    expect(view.getByRole("button", { name: "Rename mode" })).toBe(mode);
+    expect(view.getByRole("button", { name: "Collapse transform 1" })).toBe(header);
+    expect(view.getByLabelText("Include transform 1")).toBe(include);
+    expect((include as HTMLInputElement).value).toBe(step.tables.include);
+    expect(view.getByDisplayValue(step.tables.exclude)).toBeTruthy();
+  });
+
   it("sets a name through the overflow menu without opening settings or changing the action", () => {
     const view = render(<Editor />);
     const toggle = view.getByRole("button", { name: "Expand transform 1" });

@@ -322,6 +322,7 @@ fn build_base_connector_catalog(
 ) -> anyhow::Result<ConnectorCatalog> {
     let mut catalog = RegistryBuilder::new();
     transferia_middleware_filter::register(&mut catalog)?;
+    transferia_middleware_rename_table::register(&mut catalog)?;
     transferia_middleware_datafusion::register(&mut catalog)?;
 
     transferia_connector_logbroker::register_with_parsers(

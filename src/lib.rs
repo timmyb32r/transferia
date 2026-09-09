@@ -35,4 +35,7 @@ pub mod middleware {
     pub mod filter {
         pub use transferia_middleware_filter::*;
     }
+    pub mod rename_table {
+        pub use transferia_middleware_rename_table::*;
+    }
 }

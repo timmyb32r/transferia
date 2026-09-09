@@ -381,6 +381,35 @@ async fn dataset_admission_prepares_only_new_tables_and_rejects_collisions_befor
     assert_eq!(sink.built.lock().unwrap().len(), 1);
 }
 
+#[tokio::test]
+async fn dynamic_rename_collision_fails_before_destination_prepare_or_build() {
+    use transferia_pipeline::DatasetAdmission;
+    use transferia_middleware_rename_table::{RenameTableConfig, RenameTableMiddleware};
+    let sink = Arc::new(AdmissionSink::default());
+    let discovery = phase_discovery(SourceTopology::StaticPartitions(vec![0]));
+    let mut added = discovery.datasets[0].clone();
+    added.name = Arc::from("new_events");
+    let mut coordinator = super::super::admission::AdmissionCoordinator {
+        sink: sink.clone(),
+        source: EndpointDescriptor::DataGenerator(SourceDescriptor {
+            behavior: SourceBehavior::ChangelogRows,
+            delivery_modes: SourceDeliveryModes::BATCH_AND_STREAM,
+        }),
+        middlewares: Arc::new(vec![Box::new(RenameTableMiddleware::new(
+            RenameTableConfig::Exact { name: "events".into() },
+        ).unwrap())]),
+        context: SinkBuildContext {
+            partition_id: 0, delivery_name: Arc::from("rename admission"),
+            replay_identity: Some(Arc::from("admission-revision")), finite_source: false,
+            counters: Arc::new(SinkCounters::new()), keep_system_columns: true,
+            discovery: Arc::new(discovery), durable: transferia_test_support::durable_context(),
+        },
+    };
+    assert!(coordinator.prepare(added).await.is_err());
+    assert!(sink.prepared.lock().unwrap().is_empty());
+    assert!(sink.built.lock().unwrap().is_empty());
+}
+
 impl Sink for PhaseSink {
     fn run(self: Box<Self>, mut io: SinkIo) -> BoxFuture<'static, DataPlaneResult<()>> {
         Box::pin(async move {

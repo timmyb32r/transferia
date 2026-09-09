@@ -134,6 +134,51 @@ pub struct ControlPlane {
 }
 
 impl ControlPlane {
+    pub fn preview_table_selection(
+        &self,
+        request: transferia_server_contracts::api::TableSelectionPreviewRequest,
+    ) -> Result<transferia_server_contracts::api::TableSelectionPreviewResult, ServiceError> {
+        use transferia_server_contracts::api::{TableLineage, TableSelectionPreviewResult};
+        let mut catalog = request.catalog.clone();
+        let lineage = if request.preceding_middlewares.is_empty() {
+            None
+        } else {
+            let registry = self.transferia.build_registry(&Arc::new(
+                transferia_connectors::metrics::MetricsRegistry::new(),
+            ))?;
+            // An unselected draft step has no effect on catalog names.
+            let configured = request.preceding_middlewares.into_iter().filter(|entry| {
+                !entry.as_object().is_some_and(|object| object.keys().all(|key| key == "tables" || key == "name"))
+            }).collect::<Vec<_>>();
+            let entries: Vec<transferia_delivery::middleware::MiddlewareEntry> = serde_json::from_value(serde_json::Value::Array(configured))
+                .map_err(|error| ServiceError::Validation(error.to_string()))?;
+            let middlewares = transferia_delivery::middleware::build_middlewares(&registry, &entries)
+                .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+            for table in &mut catalog {
+                for middleware in &middlewares {
+                    table.name = middleware.output_table_name(Some(&table.namespace), &table.name)
+                        .map_err(|error| ServiceError::Validation(format!("{error:#}")))?.to_string();
+                }
+            }
+            // A current identity must identify exactly one physical source for
+            // schema loading and preview sampling. Never pick a collision winner.
+            let mut identities = std::collections::BTreeSet::new();
+            for table in &catalog {
+                if !identities.insert((&table.namespace, &table.name)) {
+                    return Err(ServiceError::Validation(format!(
+                        "Multiple source tables map to the same current identity: {:?}.{:?}",
+                        table.namespace, table.name,
+                    )));
+                }
+            }
+            Some(request.catalog.into_iter().zip(catalog.iter().cloned())
+                .map(|(source, current)| TableLineage { source, current }).collect())
+        };
+        let selection = request.selection.compile().map_err(anyhow::Error::from).and_then(|selection| selection.resolve(&catalog))
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        Ok(TableSelectionPreviewResult { selection, lineage })
+    }
+
     pub async fn spawn_speedtest_estimate(
         self: &Arc<Self>,
         config: Value,

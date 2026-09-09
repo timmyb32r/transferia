@@ -6005,6 +6005,7 @@ dependencies = [
  "transferia-delivery",
  "transferia-middleware-datafusion",
  "transferia-middleware-filter",
+ "transferia-middleware-rename-table",
  "transferia-registry",
  "transferia-runtime",
  "transferia-runtime-local",
@@ -6423,6 +6424,7 @@ dependencies = [
  "transferia-delivery-contracts",
  "transferia-middleware-datafusion",
  "transferia-middleware-filter",
+ "transferia-middleware-rename-table",
  "transferia-pipeline",
  "transferia-registry",
 ]
@@ -6496,6 +6498,7 @@ dependencies = [
  "tracing",
  "transferia-core",
  "transferia-delivery-contracts",
+ "transferia-middleware-rename-table",
  "transferia-pipeline",
  "transferia-registry",
  "transferia-test-support",
@@ -6547,6 +6550,24 @@ dependencies = [
  "serde_yaml",
  "tokio",
  "tracing",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-registry",
+]
+
+[[package]]
+name = "transferia-middleware-rename-table"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "async-trait",
+ "regex",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
  "transferia-core",
  "transferia-delivery-contracts",
  "transferia-registry",

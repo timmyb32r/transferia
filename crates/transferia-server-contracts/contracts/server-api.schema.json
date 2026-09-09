@@ -1358,27 +1358,6 @@
         }
       ]
     },
-    "SelectionPreview": {
-      "properties": {
-        "cards": {
-          "items": {
-            "$ref": "#/$defs/CardMatches"
-          },
-          "type": "array"
-        },
-        "issues": {
-          "items": {
-            "$ref": "#/$defs/SelectionIssue"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "cards",
-        "issues"
-      ],
-      "type": "object"
-    },
     "SinkLimitsDescription": {
       "additionalProperties": false,
       "description": "Machine-readable summary of the restrictions enforced by one sink.",
@@ -1862,6 +1841,21 @@
       ],
       "type": "object"
     },
+    "TableLineage": {
+      "properties": {
+        "current": {
+          "$ref": "#/$defs/TableIdentity"
+        },
+        "source": {
+          "$ref": "#/$defs/TableIdentity"
+        }
+      },
+      "required": [
+        "source",
+        "current"
+      ],
+      "type": "object"
+    },
     "TableMetadataError": {
       "additionalProperties": false,
       "properties": {
@@ -1951,6 +1945,11 @@
           },
           "type": "array"
         },
+        "preceding_middlewares": {
+          "default": [],
+          "items": true,
+          "type": "array"
+        },
         "selection": {
           "$ref": "#/$defs/TableSelection"
         }
@@ -1958,6 +1957,36 @@
       "required": [
         "selection",
         "catalog"
+      ],
+      "type": "object"
+    },
+    "TableSelectionPreviewResult": {
+      "properties": {
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/CardMatches"
+          },
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/SelectionIssue"
+          },
+          "type": "array"
+        },
+        "lineage": {
+          "items": {
+            "$ref": "#/$defs/TableLineage"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "cards",
+        "issues"
       ],
       "type": "object"
     },
@@ -2575,7 +2604,7 @@
       "$ref": "#/$defs/TableSelectionPreviewRequest"
     },
     "table_selection_preview_response": {
-      "$ref": "#/$defs/SelectionPreview"
+      "$ref": "#/$defs/TableSelectionPreviewResult"
     },
     "transform_preview_request": {
       "$ref": "#/$defs/TransformPreviewRequest"

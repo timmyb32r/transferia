@@ -17,7 +17,7 @@ try {
   });
   let cycles = 0;
   for (const viewport of [{ width: 1440, height: 900 }, { width: 900, height: 720 }]) {
-    for (const kind of ["sql", "unselected"]) {
+    for (const kind of ["sql", "unselected", "rename"]) {
       for (const bottomAnchor of [false, true]) {
         const page = await browser.newPage({ viewport });
         const errors = [];

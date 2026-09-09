@@ -385,11 +385,13 @@ fn middleware_catalog_registers_light_and_heavy_components_once() -> anyhow::Res
             .iter()
             .map(|definition| definition.key)
             .collect::<Vec<_>>(),
-        ["filter", "datafusion"]
+        ["filter", "rename_table", "datafusion"]
     );
     assert!(definitions[0].schema.pointer("/properties/field").is_some());
     assert!(definitions[0].schema.pointer("/properties/value").is_some());
-    assert!(definitions[1].schema.pointer("/properties/sql").is_some());
+    assert!(definitions[1].schema.pointer("/oneOf/0/properties/name").is_some());
+    assert!(definitions[1].schema.pointer("/oneOf/1/properties/replacement").is_some());
+    assert!(definitions[2].schema.pointer("/properties/sql").is_some());
     assert!(catalog
         .build_middleware(
             "unknown",

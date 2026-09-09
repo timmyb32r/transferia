@@ -106,6 +106,37 @@ struct RecordingLimits {
     called: AtomicBool,
 }
 
+#[tokio::test]
+async fn renamed_tables_cannot_merge_with_each_other_or_passthrough_tables() -> anyhow::Result<()> {
+    use transferia_middleware_rename_table::{RenameTableConfig, RenameTableMiddleware};
+    for config in [
+        RenameTableConfig::Exact { name: "events".into() },
+        RenameTableConfig::Regex { pattern: "^raw_".into(), replacement: "".into() },
+    ] {
+        let schema = transferia_core::DatasetSchema::default();
+        let discovery = DeliveryDiscovery {
+            source_name: Arc::from("rename collision"),
+            source_topology: transferia_core::SourceTopology::StaticPartitions(vec![0]),
+            schema_origin: transferia_core::SchemaOrigin::SourceNative,
+            keep_system_columns: false,
+            datasets: ["raw_events", "events"].into_iter().map(|name| transferia_core::DiscoveredDataset {
+                namespace: Some(Arc::from("public")), name: Arc::from(name),
+                role: DatasetRole::Main,
+                update_policy: transferia_core::delivery::UpdatePolicy::Strict,
+                incoming_schema: schema.clone(), stored_schema: schema.clone(), system_columns: Vec::new(),
+            }).collect(),
+            performance_advice: Vec::new(),
+        };
+        let transformed = validate_middlewares(&[Box::new(RenameTableMiddleware::new(config)?)], discovery).await?;
+        let limits = RecordingLimits { called: AtomicBool::new(false) };
+        let endpoint = transferia_delivery_contracts::semantics::EndpointDescriptor::ClickHouse;
+        let error = validate_discovered_pipeline(&endpoint, &endpoint, &limits, &transformed, false).unwrap_err();
+        assert!(error.to_string().contains("same name"));
+        assert!(!limits.called.load(Ordering::SeqCst));
+    }
+    Ok(())
+}
+
 impl SinkLimits for RecordingLimits {
     fn description(&self) -> transferia_core::delivery::SinkLimitsDescription {
         transferia_core::delivery::SinkLimitsDescription {

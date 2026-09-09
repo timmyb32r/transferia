@@ -1,0 +1,24 @@
+[package]
+name = "transferia-middleware-rename-table"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+regex.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+transferia-core = { path = "../transferia-core" }
+transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
+transferia-registry = { path = "../transferia-registry" }
+
+[dev-dependencies]
+arrow.workspace = true
+serde_yaml.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

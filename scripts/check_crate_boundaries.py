@@ -28,6 +28,11 @@ PRODUCTION_ALLOWED = {
         "transferia-delivery-contracts",
         "transferia-registry",
     },
+    "transferia-middleware-rename-table": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-registry",
+    },
     "transferia-connector-support": {
         "transferia-core",
         "transferia-delivery-contracts",
@@ -109,6 +114,7 @@ PRODUCTION_ALLOWED = {
         "transferia-connector-ydb",
         "transferia-middleware-datafusion",
         "transferia-middleware-filter",
+        "transferia-middleware-rename-table",
         "transferia-registry",
     },
     "transferia-delivery": {
@@ -147,7 +153,7 @@ PRODUCTION_ALLOWED = {
 }
 
 DEV_EXTRA = {
-    "transferia-delivery": {"transferia-test-support"},
+    "transferia-delivery": {"transferia-test-support", "transferia-middleware-rename-table"},
     "transferia-connector-clickhouse": {"transferia-test-support"},
     "transferia-connector-iceberg": {"transferia-test-support"},
     "transferia-connector-kafka": {"transferia-test-support"},

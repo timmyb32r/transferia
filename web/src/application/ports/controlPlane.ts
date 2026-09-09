@@ -6,7 +6,7 @@ import type {
   MetadataSchemasRequest,
   ConnectionCheckResult,
   TableSelectionPreviewRequest,
-  SelectionPreview,
+  TableSelectionPreviewResult,
   DeliveryRecord,
   DeliverySummary,
   DynamicOptions,
@@ -40,7 +40,7 @@ export interface ControlPlanePort {
   releaseMetadata(id: string, signal?: AbortSignal): Promise<MetadataStatus>;
   loadMetadataSchemas(id: string, request: MetadataSchemasRequest, signal?: AbortSignal): Promise<MetadataStatus>;
   metadataDiscovery(id: string, config: JsonObject, signal?: AbortSignal): Promise<DiscoveryResult>;
-  previewTables(request: TableSelectionPreviewRequest, signal?: AbortSignal): Promise<SelectionPreview>;
+  previewTables(request: TableSelectionPreviewRequest, signal?: AbortSignal): Promise<TableSelectionPreviewResult>;
   catalog(signal?: AbortSignal): Promise<UiCatalog>;
   options(query: DynamicOptionsQuery): Promise<DynamicOptions>;
   checkConnection(

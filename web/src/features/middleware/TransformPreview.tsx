@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "preact/hooks";
 
 import { useControlPlane } from "../../bootstrap/ApplicationServicesProvider";
-import type { TableIdentity, TransformPreviewFrame, TransformPreviewResult, TransformPreviewSource } from "../../generated/apiContract";
+import type { TableIdentity, TableLineage, TransformPreviewFrame, TransformPreviewResult, TransformPreviewSource } from "../../generated/apiContract";
 import type { JsonValue } from "../../types";
 import { AutofillResistantInput } from "../../ui/AutofillResistantField";
 import { Button } from "../../ui/Button";
@@ -9,9 +9,10 @@ import { SelectControl } from "../../ui/SelectControl";
 import { qualifiedName } from "../tableSelection/model";
 import { useSourceMetadataContext } from "../../delivery/sourceMetadata";
 
-export function TransformPreview({ entries, index, source, matchedTables }: {
+export function TransformPreview({ entries, index, source, matchedTables, lineage }: {
   entries: JsonValue[]; index: number; source: TransformPreviewSource | undefined;
   matchedTables: TableIdentity[] | undefined;
+  lineage?: TableLineage[] | undefined;
 }) {
   const api = useControlPlane();
   const metadata = useSourceMetadataContext()?.metadata;
@@ -30,8 +31,16 @@ export function TransformPreview({ entries, index, source, matchedTables }: {
     ? selected.table : undefined;
   const allTables = selected === undefined || selected.key !== sourceKey;
   const sampleTables = allTables ? tables : table ? [table] : [];
-  const schemaReady = !metadata || sampleTables.every(candidate => metadata.loaded.some(loaded => loaded.namespace === candidate.namespace && loaded.name === candidate.name));
-  const resultKey = JSON.stringify([sourceKey, metadata?.id, entries.slice(0, index + 1), index, sampleTables, rowLimit, limits]);
+  const sourceTable = (candidate: TableIdentity) => {
+    if (lineage === undefined) return candidate;
+    const origins = lineage.filter(item => item.current.namespace === candidate.namespace && item.current.name === candidate.name);
+    return origins.length === 1 ? origins[0]?.source : undefined;
+  };
+  const schemaReady = sampleTables.every(candidate => {
+    const original = sourceTable(candidate);
+    return original !== undefined && (!metadata || metadata.loaded.some(loaded => loaded.namespace === original.namespace && loaded.name === original.name));
+  });
+  const resultKey = JSON.stringify([sourceKey, metadata?.id, entries.slice(0, index + 1), index, sampleTables, lineage, rowLimit, limits]);
   const live = useRef({ sourceKey, resultKey });
   live.current = { sourceKey, resultKey };
 
@@ -70,9 +79,11 @@ export function TransformPreview({ entries, index, source, matchedTables }: {
       for (const candidate of sampleTables) {
         if (request.signal.aborted || live.current.resultKey !== resultKey) return;
         activeTable = candidate;
+        const original = sourceTable(candidate);
+        if (!original) throw new Error("Source table mapping is unavailable; refresh table matches");
         value.push(await api.previewTransforms({
           metadata_id: metadata?.id ?? null,
-          source, table: candidate, row_limit, middlewares: entries, through_step: index,
+          source, table: original, row_limit, middlewares: entries, through_step: index,
           max_sample_bytes, memory_limit_bytes, timeout_ms,
         }, request.signal));
       }

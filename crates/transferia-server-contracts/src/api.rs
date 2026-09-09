@@ -111,6 +111,22 @@ pub struct MetadataDiscoveryRequest {
 pub struct TableSelectionPreviewRequest {
     pub selection: transferia_registry::table_selection::TableSelection,
     pub catalog: Vec<transferia_registry::TableIdentity>,
+    #[serde(default)]
+    pub preceding_middlewares: Vec<Value>,
+}
+
+#[derive(Clone, Debug, Serialize, JsonSchema)]
+pub struct TableLineage {
+    pub source: transferia_registry::TableIdentity,
+    pub current: transferia_registry::TableIdentity,
+}
+
+#[derive(Clone, Debug, Serialize, JsonSchema)]
+pub struct TableSelectionPreviewResult {
+    #[serde(flatten)]
+    pub selection: transferia_registry::table_selection::SelectionPreview,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<Vec<TableLineage>>,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
@@ -737,7 +753,7 @@ struct ServerApiContract {
     connection_check_request: ConnectionCheckRequest,
     connection_check_response: ConnectionCheckResult,
     table_selection_preview_request: TableSelectionPreviewRequest,
-    table_selection_preview_response: transferia_registry::table_selection::SelectionPreview,
+    table_selection_preview_response: TableSelectionPreviewResult,
     message_preview_request: MessagePreviewRequest,
     message_preview_response: MessagePreviewResult,
     transform_preview_request: TransformPreviewRequest,

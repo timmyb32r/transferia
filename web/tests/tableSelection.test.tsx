@@ -6,7 +6,7 @@ import { exactPattern, qualifiedName } from "../src/features/tableSelection/mode
 import { TableCatalogContext } from "../src/schema/tableCatalog";
 import { useEndpointActions } from "../src/delivery/useEndpointActions";
 import { httpControlPlane } from "../src/infrastructure/controlPlane/httpControlPlane";
-import type { ConnectionCheckResult, SelectionPreview } from "../src/generated/apiContract";
+import type { ConnectionCheckResult, TableSelectionPreviewResult } from "../src/generated/apiContract";
 import { render, renderHook } from "./support/render";
 import { useState } from "preact/hooks";
 import type { JsonValue } from "../src/json";
@@ -143,7 +143,7 @@ it("shows an exact match in the shared disclosure without moving or remounting c
 it.each(["missing", "excluded", "multiple_includes", "include_exclude", "error"] as const)(
   "retains the exact-name disclosure and validation when the result is %s", async kind => {
     const table = { namespace: "db", name: "events" };
-    const response: SelectionPreview = {
+    const response: TableSelectionPreviewResult = {
       cards: [{ selected: kind === "missing" || kind === "excluded" ? [] : [table],
         excluded: kind === "excluded" ? [table] : [] }],
       issues: kind === "missing" || kind === "excluded" ? [{ kind: "empty_match", card: 0 }]
@@ -320,9 +320,9 @@ it("offers an initial empty row and never previews unfinished includes", async (
 });
 
 it("does not apply an obsolete preview to edited rules", async () => {
-  let finish!: (preview: SelectionPreview) => void;
+  let finish!: (preview: TableSelectionPreviewResult) => void;
   const tables = [{ namespace: "db", name: "old" }];
-  const preview = vi.fn(() => new Promise<SelectionPreview>(resolve => { finish = resolve; }));
+  const preview = vi.fn(() => new Promise<TableSelectionPreviewResult>(resolve => { finish = resolve; }));
   const component = (include: string) => <TableCatalogContext.Provider value={{ tables, preview }}>
     <TableSelectionEditor value={{ type: "selected", rules: [{ include }] }} onChange={() => undefined} />
   </TableCatalogContext.Provider>;
@@ -401,10 +401,10 @@ it.each(["rule", "selected-total", "all-total"] as const)(
     mockOverflowingList();
     const oldTables = [{ namespace: "db", name: "old" }];
     const newTables = Array.from({ length: 40 }, (_, index) => ({ namespace: "db", name: `new${index}` }));
-    let finish!: (result: SelectionPreview) => void;
+    let finish!: (result: TableSelectionPreviewResult) => void;
     const preview = vi.fn()
       .mockResolvedValueOnce({ cards: [{ selected: oldTables, excluded: [] }], issues: [] })
-      .mockImplementationOnce(() => new Promise<SelectionPreview>(resolve => { finish = resolve; }));
+      .mockImplementationOnce(() => new Promise<TableSelectionPreviewResult>(resolve => { finish = resolve; }));
     const selection: JsonValue = kind === "all-total" ? { type: "all" }
       : { type: "selected", rules: [{ include: "db.*" }] };
     const form = (tables: typeof oldTables) => <TableCatalogContext.Provider value={{ tables, preview }}>
@@ -456,10 +456,10 @@ it.each(["rule", "selected-total", "all-total"] as const)(
     mockOverflowingList();
     const tables = [{ namespace: "db", name: "old" }];
     const newTables = [{ namespace: "db", name: "new" }];
-    let finish!: (result: SelectionPreview) => void;
+    let finish!: (result: TableSelectionPreviewResult) => void;
     const preview = vi.fn()
       .mockResolvedValueOnce({ cards: [{ selected: tables, excluded: [] }], issues: [] })
-      .mockImplementationOnce(() => new Promise<SelectionPreview>(resolve => { finish = resolve; }));
+      .mockImplementationOnce(() => new Promise<TableSelectionPreviewResult>(resolve => { finish = resolve; }));
     const selection: JsonValue = kind === "all-total" ? { type: "all" }
       : { type: "selected", rules: [{ include: "db.*" }] };
     const form = (catalog: typeof tables) => <TableCatalogContext.Provider value={{ tables: catalog, preview }}>
@@ -544,10 +544,10 @@ it("sizes rule and total match lists independently and resets a reopened list", 
 
 it("clears displayed matches while edited rules are pending without replacing the footer controls", async () => {
   const tables = [{ namespace: "db", name: "old" }, { namespace: "db", name: "new" }];
-  let finish!: (preview: SelectionPreview) => void;
+  let finish!: (preview: TableSelectionPreviewResult) => void;
   const preview = vi.fn()
     .mockResolvedValueOnce({ cards: [{ selected: [tables[0]], excluded: [] }], issues: [] })
-    .mockImplementationOnce(() => new Promise<SelectionPreview>(resolve => { finish = resolve; }));
+    .mockImplementationOnce(() => new Promise<TableSelectionPreviewResult>(resolve => { finish = resolve; }));
   const component = (include: string) => <TableCatalogContext.Provider value={{ tables, preview }}>
     <TableSelectionEditor value={{ type: "selected", rules: [{ include }] }} onChange={() => undefined} />
   </TableCatalogContext.Provider>;

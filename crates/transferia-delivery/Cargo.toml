@@ -26,6 +26,7 @@ transferia-pipeline = { path = "../transferia-pipeline" }
 transferia-registry = { path = "../transferia-registry" }
 
 [dev-dependencies]
+transferia-middleware-rename-table = { path = "../transferia-middleware-rename-table" }
 transferia-test-support = { path = "../transferia-test-support" }
 
 [lints]

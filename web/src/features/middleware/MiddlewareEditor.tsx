@@ -1,5 +1,5 @@
 import { flushSync } from "preact/compat";
-import { useId, useRef, useState } from "preact/hooks";
+import { useId, useMemo, useRef, useState } from "preact/hooks";
 
 import { isObject } from "../../schema/value";
 import type { JsonObject, JsonValue } from "../../types";
@@ -14,13 +14,14 @@ import { TransformPreview } from "./TransformPreview";
 import { TransformTableScope, useTransformMatches } from "./TransformTableScope";
 import { TransformSchemaLoader } from "./TransformSchemaLoader";
 import { TransformNameAction } from "./TransformNameAction";
-import { useTableCatalog } from "../../schema/tableCatalog";
+import { TableCatalogContext, useTableCatalog } from "../../schema/tableCatalog";
 import { InstantTooltip } from "../../ui/InstantTooltip";
 import type { TransformPreviewSource } from "../../generated/apiContract";
 
 const ACTIONS = [
   { value: "datafusion", label: "SQL" },
   { value: "filter", label: "String filter" },
+  { value: "rename_table", label: "Rename table" },
 ];
 const DEFAULT_TABLES: JsonObject = { include: "*", include_mode: "glob", exclude_mode: "glob" };
 
@@ -32,6 +33,9 @@ function action(entry: JsonObject): string | undefined {
 function summary(kind: string | undefined, raw: JsonObject): string {
   if (kind === "datafusion") return typeof raw.sql === "string" ? raw.sql.replace(/\s+/g, " ") : "Configure SQL";
   if (kind === "filter") return `${typeof raw.field === "string" && raw.field ? raw.field : "Column"} = ${JSON.stringify(raw.value ?? "")}`;
+  if (kind === "rename_table") return raw.mode === "regex"
+    ? `${typeof raw.pattern === "string" ? raw.pattern : ""} → ${typeof raw.replacement === "string" ? raw.replacement : ""}`
+    : `→ ${typeof raw.name === "string" && raw.name ? raw.name : "New table name"}`;
   return "Edit unsupported configuration in YAML";
 }
 
@@ -128,9 +132,26 @@ function TransformStrip({ entry, entries, source, needsCatalog, catalogUnavailab
   const tables = isObject(object.tables) ? object.tables : DEFAULT_TABLES;
   const include = typeof tables.include === "string" ? tables.include : "";
   const exclude = typeof tables.exclude === "string" ? tables.exclude : "";
+  const catalog = useTableCatalog();
+  const preceding = entries.slice(0, index);
+  // Known row-only actions preserve identities. Do not delay browsing their
+  // input catalog; identity-changing or unknown actions require server projection.
+  const projectsNames = preceding.some(item => isObject(item) && Object.keys(item)
+    .some(key => !["tables", "name", "filter", "datafusion"].includes(key)));
   const matches = useTransformMatches({ include, exclude: exclude || null,
     include_mode: tables.include_mode === "regex" ? "regex" : "glob",
-    exclude_mode: tables.exclude_mode === "regex" ? "regex" : "glob" }, expanded);
+    exclude_mode: tables.exclude_mode === "regex" ? "regex" : "glob" }, expanded, projectsNames ? preceding : []);
+  const scopedCatalog = useMemo(() => {
+    if (!catalog || (projectsNames && !matches?.lineage)) return undefined;
+    if (!projectsNames || !matches?.lineage) return catalog;
+    const current = new Map(matches.lineage.map(item => [JSON.stringify([item.source.namespace, item.source.name]), item.current]));
+    const projected = (table: { namespace: string; name: string }) => current.get(JSON.stringify([table.namespace, table.name]));
+    return { ...catalog, tables: matches.lineage.map(item => item.current),
+      metadata: catalog.metadata ? { ...catalog.metadata,
+        loaded: catalog.metadata.loaded.flatMap(table => { const next = projected(table); return next ? [next] : []; }),
+        errors: catalog.metadata.errors.flatMap(error => { const next = projected(error.table); return next ? [{ ...error, table: next }] : []; }),
+      } : undefined };
+  }, [catalog, projectsNames, matches?.lineage]);
   const updateTables = (next: JsonObject) => onChange({ ...object, tables: { ...tables, ...next } });
   const updateRaw = (next: JsonObject) => { if (kind) onChange({ ...object, [kind]: { ...raw, ...next } }); };
   const title = unselected ? "Not selected" : ACTIONS.find(option => option.value === kind)?.label ?? kind ?? "Invalid transform";
@@ -193,18 +214,19 @@ function TransformStrip({ entry, entries, source, needsCatalog, catalogUnavailab
     </div>
     {expanded && <div class="middleware-strip-body" id={`${id}-settings`}>
       {!known && !unselected ? <p role="alert">This transform cannot be edited here. Open YAML to correct its configuration.</p> : <>
-        <TransformTableScope id={id} index={index} matches={matches}
-          catalogUnavailableReason={catalogUnavailableReason}
+        <TableCatalogContext.Provider value={scopedCatalog}><TransformTableScope id={id} index={index} matches={matches}
+          catalogUnavailableReason={catalog ? "Updating table names from preceding transforms…" : catalogUnavailableReason}
           rule={{ include, exclude, include_mode: tables.include_mode === "regex" ? "regex" : "glob",
             exclude_mode: tables.exclude_mode === "regex" ? "regex" : "glob" }} disabled={disabled}
           onChange={patch => updateTables(patch as JsonObject)}
-          onUseTable={disabled ? undefined : table => updateTables({ include: exactPattern(table, tables.include_mode === "regex" ? "regex" : "glob") })} />
+          onUseTable={disabled ? undefined : table => updateTables({ include: exactPattern(table, tables.include_mode === "regex" ? "regex" : "glob") })} /></TableCatalogContext.Provider>
         <div class={`middleware-action-field${unselected && !disabled ? " required-incomplete" : ""}`}>
           <label for={`${id}-action`}>Transformation</label>
           <SelectControl id={`${id}-action`} value={kind ?? ""} placeholder="Select transformation"
             options={ACTIONS} disabled={disabled} onChange={next => {
               const { [kind ?? ""]: _previous, ...rest } = object;
-              onChange(next ? { ...rest, [next]: next === "datafusion" ? { sql: "SELECT * FROM input" } : { field: "", value: "" } } : rest);
+              onChange(next ? { ...rest, [next]: next === "datafusion" ? { sql: "SELECT * FROM input" }
+                : next === "rename_table" ? { mode: "exact", name: "" } : { field: "", value: "" } } : rest);
             }} />
         </div>
         {kind === "filter" ? <div class="middleware-filter-fields">
@@ -215,17 +237,31 @@ function TransformStrip({ entry, entries, source, needsCatalog, catalogUnavailab
         </div> : kind === "datafusion" ? <label class="middleware-sql-field"><span>SQL over table <code>input</code></span>
           <SqlEditor value={typeof raw.sql === "string" ? raw.sql : ""} disabled={disabled}
             onChange={sql => updateRaw({ sql })} />
-        </label> : null}
+        </label> : kind === "rename_table" ? <div class="middleware-rename-fields">
+          <label for={`${id}-rename-mode`}>Rename mode</label><SelectControl id={`${id}-rename-mode`} placeholder="Choose rename mode" value={raw.mode === "regex" ? "regex" : "exact"} clearable={false}
+            disabled={disabled} options={[{ value: "exact", label: "Exact name" }, { value: "regex", label: "Regex replacement" }]}
+            onChange={mode => onChange({ ...object, rename_table: mode === "regex"
+              ? { mode, pattern: "", replacement: "" } : { mode, name: "" } })} />
+          {raw.mode === "regex" ? <>
+            <label><span>Pattern</span><AutofillResistantInput type="text" required value={typeof raw.pattern === "string" ? raw.pattern : ""}
+              disabled={disabled} onInput={event => updateRaw({ pattern: event.currentTarget.value })} /></label>
+            <label><span>Replacement</span><AutofillResistantInput type="text" value={typeof raw.replacement === "string" ? raw.replacement : ""}
+              disabled={disabled} onInput={event => updateRaw({ replacement: event.currentTarget.value })} /></label>
+          </> : <label><span>New table name</span><AutofillResistantInput type="text" required value={typeof raw.name === "string" ? raw.name : ""}
+            disabled={disabled} onInput={event => updateRaw({ name: event.currentTarget.value })} /></label>}
+          <p class="muted">Only the table name changes; namespace stays unchanged. Regex replaces all matches; names with no match stay unchanged.
+            Use $1 or {"${name}"} for captures, $$ for a literal dollar. Unknown or unmatched captures and empty output names fail validation.</p>
+        </div> : null}
       </>}
       <div class="middleware-preview">
-        {source && <TransformSchemaLoader tables={matches?.tables} source={source} disabled={disabled} />}
+        {source && <TransformSchemaLoader tables={matches?.sourceTables} source={source} disabled={disabled} />}
         <Button variant="plain" class="middleware-preview-toggle" aria-label={`Preview transform ${index + 1}`}
           disabled={unselected} title={unselected ? "Select a transformation first" : undefined}
           aria-expanded={preview && !unselected} aria-controls={`${id}-preview`} onClick={() => setPreview(!preview)}>
           <span class={`middleware-chevron ${preview ? "open" : ""}`} aria-hidden="true" />Preview
           <span class="middleware-preview-hint">Before / after this step</span>
         </Button>
-        {preview && !unselected && <div id={`${id}-preview`}><TransformPreview entries={entries} index={index} source={source} matchedTables={matches?.tables} /></div>}
+        {preview && !unselected && <div id={`${id}-preview`}><TransformPreview entries={entries} index={index} source={source} matchedTables={matches?.tables} lineage={matches?.lineage} /></div>}
       </div>
     </div>}
   </article>;
