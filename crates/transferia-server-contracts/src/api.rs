@@ -145,6 +145,23 @@ pub struct MessagePreviewRequest {
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct SourcePreviewRequest {
+    pub metadata_id: Option<String>,
+    pub source: TransformPreviewSource,
+    pub table: Option<transferia_registry::TableIdentity>,
+    pub row_limit: usize,
+    pub max_sample_bytes: usize,
+    pub timeout_ms: usize,
+}
+
+#[derive(Clone, Debug, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SourcePreviewResult {
+    pub frames: Vec<TransformPreviewFrame>,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TransformPreviewRequest {
     #[serde(default)]
     pub metadata_id: Option<String>,
@@ -758,6 +775,8 @@ struct ServerApiContract {
     message_preview_response: MessagePreviewResult,
     transform_preview_request: TransformPreviewRequest,
     transform_preview_response: TransformPreviewResult,
+    source_preview_request: SourcePreviewRequest,
+    source_preview_response: SourcePreviewResult,
     speedtest_estimate_request: SpeedtestEstimateRequest,
     speedtest_estimate_response: SpeedtestEstimateResult,
     speedtest_tune_request: SpeedtestTuneRequest,

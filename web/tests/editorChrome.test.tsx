@@ -588,6 +588,7 @@ describe("editor chrome", () => {
     const onNew = vi.fn();
     const onOpen = vi.fn();
     const onToggleDataWidget = vi.fn();
+    const onDataViewer = vi.fn();
     const view = render(
       <DeliverySidebar
         catalog={{ common_schema: {}, initial: {}, connectors: [] }}
@@ -611,6 +612,7 @@ describe("editor chrome", () => {
         dataWidgetAvailable
         dataWidgetVisible={false}
         onToggleDataWidget={onToggleDataWidget}
+        dataViewer={{ available: true, visible: false, pending: false, onOpen: onDataViewer }}
         onNew={onNew}
         onOpen={onOpen}
       />,
@@ -621,13 +623,15 @@ describe("editor chrome", () => {
     const deliveryItem = view.getByRole("button", { name: /First/ });
     fireEvent.click(deliveryItem.querySelector(".delivery-item-name")!);
     fireEvent.click(deliveryItem.querySelector(".status")!);
-    fireEvent.click(view.getByRole("button", { name: "Data widget" }));
+    fireEvent.click(view.getByRole("button", { name: "Schema widget" }));
+    fireEvent.click(view.getByRole("button", { name: "Data viewer" }));
+    expect(onDataViewer).toHaveBeenCalledOnce();
 
     expect(
-      view.getByRole("button", { name: "Data widget" }).classList,
+      view.getByRole("button", { name: "Schema widget" }).classList,
     ).toContain("primary");
     expect(
-      view.getByRole("button", { name: "Data widget" }).classList,
+      view.getByRole("button", { name: "Schema widget" }).classList,
     ).toContain("data-widget-ready");
 
     expect(onNew).toHaveBeenCalledTimes(2);
@@ -637,8 +641,11 @@ describe("editor chrome", () => {
     expect(onToggleDataWidget).toHaveBeenCalledOnce();
     const sidebarButtons = view.getAllByRole("button");
     expect(
-      sidebarButtons.indexOf(view.getByRole("button", { name: "Data widget" })),
+      sidebarButtons.indexOf(view.getByRole("button", { name: "Schema widget" })),
     ).toBeLessThan(
+      sidebarButtons.indexOf(view.getByRole("button", { name: "Data viewer" })),
+    );
+    expect(sidebarButtons.indexOf(view.getByRole("button", { name: "Data viewer" }))).toBeLessThan(
       sidebarButtons.indexOf(
         view.getByRole("button", { name: "About" }),
       ),
@@ -652,7 +659,7 @@ describe("editor chrome", () => {
     );
   });
 
-  it("enables and highlights the data widget without remounting nearby controls", () => {
+  it("enables and highlights the schema widget without remounting nearby controls", () => {
     const props = {
       catalog: { common_schema: {}, initial: {}, connectors: [] },
       deliveries: [],
@@ -669,7 +676,7 @@ describe("editor chrome", () => {
       <DeliverySidebar {...props} dataWidgetAvailable={false} />,
     );
     const unavailable = view.getByRole("button", {
-      name: "Data widget",
+      name: "Schema widget",
     }) as HTMLButtonElement;
     const matrix = view.getByRole("button", { name: "About" });
     const settings = view.getByRole("button", { name: /Settings/ });
@@ -678,7 +685,7 @@ describe("editor chrome", () => {
 
     view.rerender(<DeliverySidebar {...props} dataWidgetAvailable />);
     const available = view.getByRole("button", {
-      name: "Data widget",
+      name: "Schema widget",
     }) as HTMLButtonElement;
     expect(available).toBe(unavailable);
     expect(available.disabled).toBe(false);

@@ -691,6 +691,77 @@ impl ControlPlane {
         Ok(Value::Object(materialized))
     }
 
+    pub async fn preview_source(
+        &self,
+        request: transferia_server_contracts::api::SourcePreviewRequest,
+        cancellation: CancellationToken,
+    ) -> Result<transferia_server_contracts::api::SourcePreviewResult, ServiceError> {
+        if request.row_limit == 0 || request.max_sample_bytes == 0 || request.timeout_ms == 0 {
+            return Err(ServiceError::Validation("Source sample limits must be positive".into()));
+        }
+        let timeout = u64::try_from(request.timeout_ms)
+            .map_err(|_| ServiceError::Validation("Source sample timeout is too large".into()))?;
+        let deadline = tokio::time::Instant::now().checked_add(Duration::from_millis(timeout))
+            .ok_or_else(|| ServiceError::Validation("Source sample timeout is too large".into()))?;
+        let child = cancellation.child_token();
+        let _cancel_on_drop = child.clone().drop_guard();
+        let operation = async {
+            let limits = transferia_registry::TableSampleLimits {
+                row_limit: request.row_limit, max_bytes: request.max_sample_bytes, timeout_ms: request.timeout_ms,
+            };
+            let samples = match (request.metadata_id, request.table) {
+                (Some(id), Some(table)) => {
+                    let metadata = self.metadata_session(&id).await?;
+                    vec![metadata.sample_source(&request.source, table, limits, child).await
+                        .map_err(|error| ServiceError::Validation(format!("{error:#}")))?]
+                }
+                (None, None) => self.sample_parsed_source(request.source, limits, child).await?,
+                _ => return Err(ServiceError::Validation("Table samples require both metadata_id and table".into())),
+            };
+            let frames = samples.into_iter().map(|mut sample| {
+                // Sampling is explicit: cap displayed rows, never fields/values.
+                // Parse complete messages first so errors and DLQ are preserved.
+                sample.batch = sample.batch.slice(0, sample.batch.num_rows().min(request.row_limit));
+                transform_preview_frame(&sample)
+            }).collect::<Result<Vec<_>, _>>()?;
+            Ok(transferia_server_contracts::api::SourcePreviewResult { frames })
+        };
+        tokio::select! {
+            biased;
+            () = cancellation.cancelled() => Err(ServiceError::Validation("Source sample cancelled".into())),
+            result = tokio::time::timeout_at(deadline, operation) => result
+                .map_err(|_| ServiceError::Validation("Source sample exceeded configured timeout_ms".into()))?,
+        }
+    }
+
+    async fn sample_parsed_source(
+        &self,
+        source: transferia_server_contracts::api::TransformPreviewSource,
+        limits: transferia_registry::TableSampleLimits,
+        cancellation: CancellationToken,
+    ) -> Result<Vec<transferia_core::TableData>, ServiceError> {
+        let raw = serde_yaml::to_value(source.config).map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let endpoints = self.transferia.registry().resolve_many(&source.connector, EndpointRole::Source, raw, cancellation.clone()).await
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let catalog = Arc::new(transferia_connectors::connectors::catalog::build_connector_catalog_with(
+            &self.transferia, &Arc::new(transferia_connectors::metrics::MetricsRegistry::new()),
+        ).map_err(ServiceError::Internal)?);
+        let mut attempts = tokio::task::JoinSet::new();
+        let attempt_cancel = cancellation.child_token();
+        let _cancel_on_drop = attempt_cancel.clone().drop_guard();
+        for endpoint in endpoints {
+            let catalog = Arc::clone(&catalog);
+            let connector = source.connector.clone();
+            let child = attempt_cancel.child_token();
+            attempts.spawn(async move {
+                // Connector construction validates the authored parser but does
+                // not construct a worker, prepare a sink or acknowledge data.
+                catalog.build_source(&connector, endpoint)?.sample_data(limits, child).await
+            });
+        }
+        first_successful_preview(&mut attempts, &cancellation).await
+    }
+
     pub async fn preview_transforms(
         &self,
         request: TransformPreviewRequest,

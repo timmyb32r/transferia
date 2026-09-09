@@ -97,6 +97,19 @@ impl MetadataSession {
         self.selected(&source.config)
     }
 
+    pub(super) async fn sample_source(
+        &self,
+        source: &transferia_server_contracts::api::TransformPreviewSource,
+        table: TableIdentity,
+        limits: transferia_registry::TableSampleLimits,
+        cancellation: CancellationToken,
+    ) -> anyhow::Result<transferia_core::TableData> {
+        anyhow::ensure!(self.selected_for_preview(source)?.contains(&table), "Sample table is not selected by the source");
+        let _loading = Loading::new(&self.active_loads);
+        self.run(&cancellation, self.ensure_tables(std::slice::from_ref(&table))).await?;
+        self.sample(source, table, limits, cancellation).await
+    }
+
     pub(super) async fn sample(
         &self,
         source: &transferia_server_contracts::api::TransformPreviewSource,

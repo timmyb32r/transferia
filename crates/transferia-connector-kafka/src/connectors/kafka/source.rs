@@ -145,7 +145,7 @@ impl KafkaSource {
     }
 }
 
-fn source_message(record: &OwnedMessage) -> Message {
+pub(super) fn source_message(record: &OwnedMessage) -> Message {
     let payload = record.payload();
     let timestamp = match record.timestamp() {
         Timestamp::NotAvailable => None,
@@ -229,7 +229,7 @@ pub(super) fn preview_message(
     })
 }
 
-fn record_retained_bytes(record: &OwnedMessage) -> DataPlaneResult<usize> {
+pub(super) fn record_retained_bytes(record: &OwnedMessage) -> DataPlaneResult<usize> {
     let mut bytes = record.payload().map_or(0, <[u8]>::len);
     bytes = bytes
         .checked_add(record.key().map_or(0, <[u8]>::len))

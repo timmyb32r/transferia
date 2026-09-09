@@ -1411,6 +1411,67 @@
       ],
       "type": "object"
     },
+    "SourcePreviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "max_sample_bytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "metadata_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "row_limit": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source": {
+          "$ref": "#/$defs/TransformPreviewSource"
+        },
+        "table": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TableIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeout_ms": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source",
+        "row_limit",
+        "max_sample_bytes",
+        "timeout_ms"
+      ],
+      "type": "object"
+    },
+    "SourcePreviewResult": {
+      "additionalProperties": false,
+      "properties": {
+        "frames": {
+          "items": {
+            "$ref": "#/$defs/TransformPreviewFrame"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "frames"
+      ],
+      "type": "object"
+    },
     "SpeedtestColumnProfileView": {
       "additionalProperties": false,
       "properties": {
@@ -2585,6 +2646,12 @@
     "revision_request": {
       "$ref": "#/$defs/RevisionRequest"
     },
+    "source_preview_request": {
+      "$ref": "#/$defs/SourcePreviewRequest"
+    },
+    "source_preview_response": {
+      "$ref": "#/$defs/SourcePreviewResult"
+    },
     "speedtest_estimate_request": {
       "$ref": "#/$defs/SpeedtestEstimateRequest"
     },
@@ -2658,6 +2725,8 @@
     "message_preview_response",
     "transform_preview_request",
     "transform_preview_response",
+    "source_preview_request",
+    "source_preview_response",
     "speedtest_estimate_request",
     "speedtest_estimate_response",
     "speedtest_tune_request",

@@ -352,7 +352,7 @@ pub async fn preview_message(
         "message preview currently requires logbroker.driver=ydb"
     );
     let token = cfg.auth.load_token()?;
-    source::preview_message(cfg, &token, max_bytes, cancellation).await
+    source::preview_message(cfg, &token, max_bytes, true, cancellation).await
 }
 
 pub struct PreviewMessage {
@@ -592,6 +592,37 @@ async fn connect_client(
 }
 
 impl SourceConnector for YdbDriverSourceConnector {
+    fn sample_data(&self, limits: transferia_registry::TableSampleLimits,
+        cancellation: CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<Vec<transferia_core::TableData>>> {
+        Box::pin(async move {
+            limits.validate()?;
+            let connection = LogbrokerSourceConnectionConfig {
+                host: self.cfg.host.clone(), port: self.cfg.port, topics: self.cfg.topics.clone(),
+                consumer_name: self.cfg.consumer_name.clone(), auth: self.cfg.auth.clone(), driver: self.cfg.driver,
+                trusted_plaintext: self.cfg.trusted_plaintext, read_buffer_bytes: self.cfg.read_buffer_bytes,
+            };
+            let token = self.token().await?;
+            let preview = transferia_connector_support::external_request::observe_external_request(
+                "logbroker", "sample_read",
+                source::preview_message(&connection, &token, limits.max_bytes, false, cancellation.clone()),
+            ).await?;
+            let metadata = preview.metadata;
+            let message = transferia_core::data::message::Message {
+                value: preview.payload, tombstone: false,
+                key: Some(bytes::Bytes::from(metadata.producer_id.into_bytes())),
+                headers: metadata.message_metadata.into_iter().map(|item| transferia_core::data::message::MessageHeader {
+                    key: Arc::from(item.key), value: Some(bytes::Bytes::from(item.value)),
+                }).collect::<Vec<_>>().into(),
+                meta: transferia_core::data::message::MessageMeta {
+                    topic: Some(Arc::from(metadata.topic)), partition: Some(metadata.partition),
+                    offset: Some(metadata.offset), write_timestamp_ms: metadata.written_at_ms,
+                },
+            };
+            transferia_connector_support::source_sample::parse_sample(self.parser(), vec![message], limits, cancellation).await
+        })
+    }
+
     fn compatibility(
         &self,
         _delivery_type: transferia_delivery_contracts::DeliveryType,

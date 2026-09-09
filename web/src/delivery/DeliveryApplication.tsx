@@ -13,6 +13,7 @@ import { AboutProvider } from "../ui/CompatibilityMatrixDialog";
 import { DeliveryConfiguration } from "./DeliveryConfiguration";
 import { tableConnectionIdentity } from "./useEndpointActions";
 import { SourceMetadataContext, useSourceMetadata } from "./sourceMetadata";
+import { SourceDataViewer } from "./SourceDataViewer";
 import type { DeliveryType } from "../generated/apiContract";
 import { DeliveryLogs } from "./DeliveryLogs";
 import { PerformanceAdviceWorkspace } from "./PerformanceAdviceWorkspace";
@@ -143,6 +144,7 @@ export function DeliveryApplication() {
   const [validatedDiscoverySnapshot, setValidatedDiscoverySnapshot] =
     useState<ValidatedDiscoverySnapshot>();
   const [schemaInspectorVisible, setSchemaInspectorVisible] = useState(false);
+  const [dataViewerKey, setDataViewerKey] = useState<string>();
   const [pendingRuntimeAction, setPendingRuntimeAction] =
     useState<PendingRuntimeAction>();
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_STATE);
@@ -274,6 +276,20 @@ export function DeliveryApplication() {
   });
   const tableConnectionRequired = requiredTableConnection !== undefined &&
     !(sourceMetadata.discovery.state === "success" && sourceMetadata.discovery.status === "verified" && sourceMetadata.discovery.tables !== undefined);
+  const viewerSource = selection?.sourceKey && isObject(selectedSourceConfig)
+    ? { connector: selection.sourceKey, config: selectedSourceConfig } : undefined;
+  const viewerKey = JSON.stringify([editor.sessionId, viewerSource, sourceMetadata.metadata?.id]);
+  useLayoutEffect(() => {
+    setDataViewerKey(current => current === viewerKey ? current : undefined);
+  }, [viewerKey]);
+  const messageViewer = selection?.source?.message_preview === true;
+  const tableViewer = !messageViewer && selection?.source?.table_preview === true;
+  const viewerReason = !viewerSource ? "Choose a source first"
+    : viewerSource.connector === "logbroker" && viewerSource.config.driver === "pqv1" ? "Data sampling currently requires the Logbroker YDB driver"
+    : messageViewer ? undefined
+    : !tableViewer ? "This source does not support data sampling yet"
+    : !sourceMetadata.metadata ? "Use Discover tables in Tables first" : undefined;
+  const viewerAvailable = viewerReason === undefined;
   const metadataProgress = sourceMetadata.metadata?.validation;
   useEffect(() => {
     const operation = operations.validate;
@@ -709,6 +725,12 @@ export function DeliveryApplication() {
         onToggleDataWidget={() =>
           setSchemaInspectorVisible((visible) => !visible)
         }
+        dataViewer={{ available: viewerAvailable, visible: dataViewerKey === viewerKey,
+          pending: false, reason: viewerReason,
+          onOpen: () => {
+            if (!viewerAvailable) return;
+            setDataViewerKey(viewerKey);
+          } }}
         onNew={() => {
           jobs.cancelEditorJobs();
           resetOperations({});
@@ -845,6 +867,8 @@ export function DeliveryApplication() {
             <DeliveryLogs deliveryId={editor.id} />
           )
         ) : null}
+        {viewerSource && viewerAvailable && dataViewerKey === viewerKey && <SourceDataViewer key={viewerKey}
+          source={viewerSource} mode={messageViewer ? "parsed" : "tables"} onClose={() => setDataViewerKey(undefined)} />}
         {schemaInspectorVisible && discovery !== undefined && (
           <DataSchemaInspector
             result={discovery}

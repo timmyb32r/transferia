@@ -54,6 +54,21 @@ fn ydb_topic_decode_preserves_ordered_duplicate_binary_metadata() -> anyhow::Res
 }
 
 #[test]
+fn source_sample_decode_obeys_its_budget_before_materializing_the_full_payload() -> anyhow::Result<()> {
+    let data = vec![b'x'; 128 * 1024];
+    let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    gzip.write_all(&data)?;
+    let gzip = gzip.finish()?;
+    let zstd = zstd::stream::encode_all(data.as_slice(), 1)?;
+    for (codec, payload) in [(Codec::Gzip, gzip), (Codec::Zstd, zstd), (Codec::Raw, data.clone())] {
+        let error = super::source::decode_message_bounded(codec, payload.clone(), 1024).unwrap_err();
+        assert!(error.to_string().contains("exceeds 1024 bytes"));
+        assert_eq!(super::source::decode_message_bounded(codec, payload, data.len())?.as_ref(), data);
+    }
+    Ok(())
+}
+
+#[test]
 fn connection_check_uses_the_real_stream_read_handshake_without_parser_config() -> anyhow::Result<()>
 {
     let config: LogbrokerSourceConnectionConfig = serde_yaml::from_str(

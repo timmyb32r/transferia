@@ -162,6 +162,7 @@ declare_api_handlers! {
     TABLE_SELECTION_PREVIEW => post(table_selection_preview),
     PREVIEW_MESSAGE => post(preview_message),
     PREVIEW_TRANSFORMS => post(preview_transforms),
+    PREVIEW_SOURCE => post(preview_source),
     SPEEDTEST_ESTIMATE => post(speedtest_estimate),
     SPEEDTEST_TUNE => post(speedtest_tune),
     RENDER_YAML => post(render_yaml),
@@ -194,6 +195,16 @@ pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router
     .layer(axum::middleware::from_fn(no_store))
     .layer(axum::middleware::from_fn(enforce_loopback_origin))
     .with_state(state)
+}
+
+async fn preview_source(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<transferia_server_contracts::api::SourcePreviewRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let cancellation = state.control_plane.request_cancellation();
+    let _cancel_on_drop = CancelOnDrop(cancellation.clone());
+    let result = state.control_plane.preview_source(request, cancellation).await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
 }
 
 async fn preview_transforms(

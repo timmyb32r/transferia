@@ -91,6 +91,15 @@ pub async fn preview_message(
     max_bytes: usize,
     cancellation: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<transferia_registry::SourcePreview> {
+    let message = read_preview_record(config, max_bytes, cancellation).await?;
+    source::preview_message(&message, max_bytes)
+}
+
+async fn read_preview_record(
+    config: &KafkaSourceConfig,
+    max_bytes: usize,
+    cancellation: tokio_util::sync::CancellationToken,
+) -> anyhow::Result<rdkafka::message::OwnedMessage> {
     validate_source_config(config)?;
     anyhow::ensure!(
         max_bytes > 0,
@@ -112,7 +121,9 @@ pub async fn preview_message(
             config.request_timeout_ms,
         ))??.detach(),
     };
-    source::preview_message(&message, max_bytes)
+    anyhow::ensure!(source::record_retained_bytes(&message)? <= max_bytes,
+        "Kafka message and metadata exceed the sample byte budget");
+    Ok(message)
 }
 
 fn source_consumer(config: &KafkaSourceConfig, group: &str) -> anyhow::Result<StreamConsumer> {
@@ -128,6 +139,19 @@ fn source_consumer(config: &KafkaSourceConfig, group: &str) -> anyhow::Result<St
 }
 
 impl SourceConnector for KafkaSourceConnector {
+    fn sample_data(&self, limits: transferia_registry::TableSampleLimits,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<Vec<transferia_core::TableData>>> {
+        Box::pin(async move {
+            limits.validate()?;
+            let record = transferia_connector_support::external_request::observe_external_request(
+                "kafka", "sample_read", read_preview_record(&self.config, limits.max_bytes, cancellation.clone()),
+            ).await?;
+            transferia_connector_support::source_sample::parse_sample(
+                self.parser(), vec![source::source_message(&record)], limits, cancellation).await
+        })
+    }
+
     fn compatibility(
         &self,
         _delivery_type: transferia_delivery_contracts::DeliveryType,

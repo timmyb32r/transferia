@@ -178,6 +178,18 @@ pub enum SpeedtestUnsupported {
 }
 
 pub trait SourceConnector: Send + Sync {
+    /// Read one complete source message/object and apply the configured parser,
+    /// or decode native Arrow data. Must not acknowledge production offsets,
+    /// start workers, or write destination state. Preserve both main and DLQ
+    /// output; the caller explicitly bounds displayed sample rows per table.
+    fn sample_data(
+        &self,
+        _limits: crate::TableSampleLimits,
+        _cancellation: CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<Vec<transferia_core::TableData>>> {
+        Box::pin(async { anyhow::bail!("Configured source data sampling is not supported by this source") })
+    }
+
     /// An editor-owned, metadata-only reader. Never used to construct workers.
     /// Implementations retain native metadata so assembly preserves topology and
     /// source-specific identity/type checks without rediscovering cached tables.

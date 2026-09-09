@@ -741,7 +741,7 @@ describe("App request orchestration", () => {
     expect(cloned.delivery_type).toBe("batch");
   });
 
-  it("does not auto-open the data widget when a new delivery becomes discoverable", async () => {
+  it("does not auto-open the schema widget when a new delivery becomes discoverable", async () => {
     installApiMocks([]);
     vi.mocked(api.catalog).mockResolvedValue({
       ...CATALOG,
@@ -796,7 +796,7 @@ describe("App request orchestration", () => {
     expect(app.queryByRole("dialog", { name: "Final schema" })).toBeNull();
     expect(
       app
-        .getByRole("button", { name: "Data widget" })
+        .getByRole("button", { name: "Schema widget" })
         .classList.contains("data-widget-ready"),
     ).toBe(true);
   });

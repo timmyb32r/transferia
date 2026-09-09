@@ -8,3 +8,4 @@ pub use transferia_delivery_contracts::metrics;
 pub mod parsers;
 pub mod schema_registry;
 pub mod serializer;
+pub mod source_sample;

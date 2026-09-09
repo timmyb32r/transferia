@@ -16,7 +16,7 @@ export async function selectedSourceTables(source: TransformPreviewSource, table
   const selection = source.config.tables as TableSelection;
   if (selection?.type === "all") return visible;
   const result = await api.previewTables({ catalog: visible, selection }, signal);
-  if (result.issues.length) throw new Error("Correct the source table selection before choosing transform tables.");
+  if (result.issues.length) throw new Error("Correct the source table selection before previewing tables.");
   return result.cards.flatMap(card => card.selected);
 }
 

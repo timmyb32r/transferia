@@ -687,6 +687,7 @@ pub(super) async fn preview_message(
     config: &LogbrokerSourceConnectionConfig,
     token: &str,
     max_bytes: usize,
+    collect_detection_samples: bool,
     cancellation: CancellationToken,
 ) -> anyhow::Result<PreviewMessage> {
     const DETECTION_SAMPLE_BYTES: usize = 10 * 1024 * 1024;
@@ -771,7 +772,18 @@ pub(super) async fn preview_message(
                                 let declared_uncompressed_size = usize::try_from(message.uncompressed_size)
                                     .ok()
                                     .filter(|size| *size > 0);
-                                let payload = decode_message(codec, message.data)?;
+                                let payload = if collect_detection_samples {
+                                    decode_message(codec, message.data)?
+                                } else {
+                                    let retained = producer_id.len().checked_add(topic.len()).and_then(|size| size.checked_add(compressed_size))
+                                        .ok_or_else(|| anyhow!("Source sample metadata size overflow"))?;
+                                    let metadata_bytes = message.metadata_items.iter().try_fold(retained,
+                                        |size, item| size.checked_add(item.key.len())?.checked_add(item.value.len()),
+                                    ).ok_or_else(|| anyhow!("Source sample metadata size overflow"))?;
+                                    let available = max_bytes.checked_sub(metadata_bytes)
+                                        .ok_or_else(|| anyhow!("Source sample message metadata exceeds max_sample_bytes"))?;
+                                    tokio::task::spawn_blocking(move || decode_message_bounded(codec, message.data, available)).await??
+                                };
                                 if primary.is_none() {
                                     anyhow::ensure!(
                                         payload.len() <= max_bytes,
@@ -798,6 +810,10 @@ pub(super) async fn preview_message(
                                         }).collect(),
                                         write_session_metadata: write_session_metadata.clone(),
                                     }));
+                                }
+                                if !collect_detection_samples {
+                                    let (payload, metadata) = primary.take().ok_or_else(|| anyhow!("Missing source sample"))?;
+                                    return Ok(PreviewMessage { payload, metadata, detection_payloads: Vec::new() });
                                 }
                                 if detection_bytes.saturating_add(payload.len()) <= DETECTION_SAMPLE_BYTES {
                                     detection_bytes += payload.len();
@@ -1111,13 +1127,20 @@ pub(super) fn decode_batches(
 }
 
 pub(super) fn decode_message(codec: Codec, data: Vec<u8>) -> anyhow::Result<Bytes> {
+    decode_message_bounded(codec, data, MAX_DECOMPRESSED_MESSAGE_BYTES)
+}
+
+pub(super) fn decode_message_bounded(codec: Codec, data: Vec<u8>, max_bytes: usize) -> anyhow::Result<Bytes> {
     match codec {
-        Codec::Raw => Ok(Bytes::from(data)),
-        Codec::Gzip => read_bounded(flate2::read::GzDecoder::new(data.as_slice()), "gzip"),
+        Codec::Raw => {
+            anyhow::ensure!(data.len() <= max_bytes, "YDB Topic decoded message exceeds {max_bytes} bytes");
+            Ok(Bytes::from(data))
+        }
+        Codec::Gzip => read_bounded(flate2::read::GzDecoder::new(data.as_slice()), "gzip", max_bytes),
         Codec::Zstd => {
             let decoder = zstd::stream::read::Decoder::new(data.as_slice())
                 .map_err(|error| fatal(anyhow!("Invalid YDB Topic zstd payload: {error}")))?;
-            read_bounded(decoder, "zstd")
+            read_bounded(decoder, "zstd", max_bytes)
         }
         Codec::Unspecified | Codec::Lzop | Codec::Custom => Err(fatal(anyhow!(
             "YDB Topic codec {} is not supported",
@@ -1126,16 +1149,16 @@ pub(super) fn decode_message(codec: Codec, data: Vec<u8>) -> anyhow::Result<Byte
     }
 }
 
-fn read_bounded(mut reader: impl std::io::Read, codec: &str) -> anyhow::Result<Bytes> {
+fn read_bounded(mut reader: impl std::io::Read, codec: &str, max_bytes: usize) -> anyhow::Result<Bytes> {
     let mut decoded = Vec::new();
     reader
         .by_ref()
-        .take((MAX_DECOMPRESSED_MESSAGE_BYTES + 1) as u64)
+        .take(u64::try_from(max_bytes)?.checked_add(1).ok_or_else(|| anyhow!("Message decode budget overflow"))?)
         .read_to_end(&mut decoded)
         .map_err(|error| fatal(anyhow!("Invalid YDB Topic {codec} payload: {error}")))?;
-    if decoded.len() > MAX_DECOMPRESSED_MESSAGE_BYTES {
+    if decoded.len() > max_bytes {
         return Err(fatal(anyhow!(
-            "YDB Topic decoded message exceeds {MAX_DECOMPRESSED_MESSAGE_BYTES} bytes"
+            "YDB Topic decoded message exceeds {max_bytes} bytes"
         )));
     }
     Ok(Bytes::from(decoded))

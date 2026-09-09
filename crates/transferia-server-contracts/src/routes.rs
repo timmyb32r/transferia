@@ -127,6 +127,15 @@ routes![
         "transform_preview_response"
     ),
     (
+        PREVIEW_SOURCE,
+        "preview_source",
+        "POST",
+        "/api/v1/source/preview",
+        Some("source_preview_request"),
+        None,
+        "source_preview_response"
+    ),
+    (
         SPEEDTEST_ESTIMATE,
         "speedtest_estimate",
         "POST",

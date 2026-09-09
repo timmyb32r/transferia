@@ -14,6 +14,8 @@ import type {
   MessagePreviewResult,
   DiscoveryResult,
   TransformPreviewRequest,
+  SourcePreviewRequest,
+  SourcePreviewResult,
   TransformPreviewResult,
   SpeedtestEstimateRequest,
   SpeedtestEstimateResult,
@@ -35,6 +37,7 @@ export interface DynamicOptionsQuery {
 }
 
 export interface ControlPlanePort {
+  previewSource(request: SourcePreviewRequest, signal?: AbortSignal): Promise<SourcePreviewResult>;
   connectMetadata(request: MetadataConnectRequest, signal?: AbortSignal): Promise<MetadataConnection>;
   metadataStatus(id: string, signal?: AbortSignal): Promise<MetadataStatus>;
   releaseMetadata(id: string, signal?: AbortSignal): Promise<MetadataStatus>;

@@ -21,6 +21,8 @@ export const metadata_discovery_request: ValidateFunction;
 export const metadata_schemas_request: ValidateFunction;
 export const metadata_status_response: ValidateFunction;
 export const revision_request: ValidateFunction;
+export const source_preview_request: ValidateFunction;
+export const source_preview_response: ValidateFunction;
 export const speedtest_estimate_request: ValidateFunction;
 export const speedtest_estimate_response: ValidateFunction;
 export const speedtest_tune_request: ValidateFunction;

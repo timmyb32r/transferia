@@ -135,6 +135,14 @@ impl S3SourceConnector {
 }
 
 impl SourceConnector for S3SourceConnector {
+    fn sample_data(&self, limits: transferia_registry::TableSampleLimits,
+        cancellation: CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<Vec<transferia_core::TableData>>> {
+        Box::pin(async move {
+            super::preview::sample_data(&self.config, Arc::clone(&self.store), self.parser(), limits, cancellation).await
+        })
+    }
+
     fn compatibility(
         &self,
         _delivery_type: transferia_delivery_contracts::DeliveryType,

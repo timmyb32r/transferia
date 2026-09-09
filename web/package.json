@@ -15,7 +15,8 @@
     "test:transform-scroll": "node scripts/check-transform-scroll.mjs",
     "test:row-reorder": "node scripts/check-row-reorder.mjs",
     "test:parser-layout": "node scripts/check-parser-layout.mjs",
-    "test:about-layout": "node scripts/check-about-layout.mjs"
+    "test:about-layout": "node scripts/check-about-layout.mjs",
+    "test:data-viewer": "node scripts/check-source-data-viewer.mjs"
   },
   "dependencies": {
     "preact": "10.29.8"

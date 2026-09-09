@@ -17,6 +17,7 @@ import type {
   RevisionRequest,
   ValidationRequest,
   TransformPreviewRequest,
+  SourcePreviewRequest,
   SpeedtestEstimateRequest,
   SpeedtestTuneRequest,
   StopRequest,
@@ -171,6 +172,8 @@ export const httpControlPlane: ControlPlanePort = {
         ...(signal === undefined ? {} : { signal }),
       },
     ),
+  previewSource: (body: SourcePreviewRequest, signal?: AbortSignal) =>
+    routeRequest("preview_source", {}, { body, ...(signal === undefined ? {} : { signal }) }),
   previewTransforms: (body: TransformPreviewRequest, signal?: AbortSignal) =>
     routeRequest(
       "preview_transforms",

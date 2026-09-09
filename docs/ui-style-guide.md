@@ -69,6 +69,19 @@ the control. Error and warning semantics remain distinct.
 
 ## Component rules
 
+- Sidebar `Data viewer` sits next to `Schema widget`. Route by source preview
+  capabilities: queues and S3 show output from the configured production parser
+  (or native Parquet reader), including DLQ; Scan remains a separate detection tool.
+  Both parsed and table sources use a fixed-size sample dialog. Parsed samples
+  read one complete message/object and display up to the requested rows per table;
+  an oversized object fails explicitly instead of parsing a truncated prefix.
+  Table viewing uses only source-selected tables and loads only the requested
+  schema/sample, without executing transforms or preparing/writing a destination.
+  Row/byte/time limits are explicit controls. Pending feedback is immediate and
+  duplicate requests are suppressed. Closing or changing source aborts reads;
+  results/errors stay inside reserved regions and never move sidebar controls.
+  Unsupported sampling and missing discovery have explicit disabled explanations.
+
 - Parser columns (JSON/TSKV) and transforms use shared pointer-driven row
   reordering from the dot handle, not native browser drag images. The full row
   follows even a one-pixel movement. Neighbours slide aside as the pointer crosses

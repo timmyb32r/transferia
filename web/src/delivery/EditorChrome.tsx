@@ -270,6 +270,7 @@ export function DeliverySidebar({
   dataWidgetUnavailableReason,
   dataWidgetVisible,
   onToggleDataWidget,
+  dataViewer,
 }: {
   deliveries: DeliverySummary[];
   selectedId: string | undefined;
@@ -282,6 +283,7 @@ export function DeliverySidebar({
   dataWidgetUnavailableReason?: string | undefined;
   dataWidgetVisible: boolean;
   onToggleDataWidget: () => void;
+  dataViewer?: { available: boolean; visible: boolean; pending: boolean; reason?: string | undefined; onOpen: () => void } | undefined;
 }) {
   return (
     <aside class="sidebar">
@@ -324,8 +326,8 @@ export function DeliverySidebar({
         content={
           dataWidgetAvailable
             ? dataWidgetVisible
-              ? "Hide the data widget"
-              : "Show the data widget"
+              ? "Hide the schema widget"
+              : "Show the schema widget"
             : (dataWidgetUnavailableReason ?? "No data schema is available")
         }
       >
@@ -340,8 +342,13 @@ export function DeliverySidebar({
           disabled={!dataWidgetAvailable}
           onClick={onToggleDataWidget}
         >
-          Data widget
+          Schema widget
         </Button>
+      </InstantTooltip>
+      <InstantTooltip class="sidebar-tool-tooltip" content={dataViewer?.reason ?? "View source data"}>
+        <Button class="sidebar-tool-button" variant={dataViewer?.available ? "primary" : "plain"}
+          disabled={!dataViewer?.available} pending={dataViewer?.pending ?? false}
+          aria-pressed={dataViewer?.visible ?? false} onClick={dataViewer?.onOpen}>Data viewer</Button>
       </InstantTooltip>
       <CompatibilityMatrixLauncher />
       <AppearanceSettings

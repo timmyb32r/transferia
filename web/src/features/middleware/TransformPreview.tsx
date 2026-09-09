@@ -153,7 +153,7 @@ export function TransformPreview({ entries, index, source, matchedTables, lineag
   </section>;
 }
 
-function PreviewTable({ frame }: { frame: TransformPreviewFrame }) {
+export function PreviewTable({ frame }: { frame: TransformPreviewFrame }) {
   return <table>
     <thead><tr>{frame.columns.map(column => <th key={column.name} scope="col">{column.name}<small>{column.arrow_type}</small></th>)}</tr></thead>
     <tbody>{frame.rows.map((row, index) => <tr key={index}>{frame.columns.map(column =>

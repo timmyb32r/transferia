@@ -369,6 +369,19 @@ export type SinkLimitsDescription = {
   supported_arrow_types: Array<ArrowTypeFamily>;
 };
 
+export type SourcePreviewRequest = {
+  max_sample_bytes: number;
+  metadata_id?: string | null;
+  row_limit: number;
+  source: TransformPreviewSource;
+  table?: TableIdentity | null;
+  timeout_ms: number;
+};
+
+export type SourcePreviewResult = {
+  frames: Array<TransformPreviewFrame>;
+};
+
 export type SpeedtestColumnProfileView = {
   arrow_type: string;
   cardinality?: number;
@@ -663,6 +676,8 @@ export interface ApiContract {
   metadata_schemas_request: MetadataSchemasRequest;
   metadata_status_response: MetadataStatus;
   revision_request: RevisionRequest;
+  source_preview_request: SourcePreviewRequest;
+  source_preview_response: SourcePreviewResult;
   speedtest_estimate_request: SpeedtestEstimateRequest;
   speedtest_estimate_response: SpeedtestEstimateResult;
   speedtest_tune_request: SpeedtestTuneRequest;
@@ -768,6 +783,13 @@ export const API_ROUTES = {
     body: "transform_preview_request",
     query: null,
     response: "transform_preview_response",
+  },
+  preview_source: {
+    method: "POST",
+    path: "/api/v1/source/preview",
+    body: "source_preview_request",
+    query: null,
+    response: "source_preview_response",
   },
   speedtest_estimate: {
     method: "POST",
@@ -897,6 +919,7 @@ export interface ApiRouteContract {
   check_connection: ApiContract["connection_check_response"];
   preview_message: ApiContract["message_preview_response"];
   preview_transforms: ApiContract["transform_preview_response"];
+  preview_source: ApiContract["source_preview_response"];
   speedtest_estimate: ApiContract["speedtest_estimate_response"];
   speedtest_tune: ApiContract["speedtest_tune_response"];
   render_yaml: ApiContract["yaml_response"];
@@ -926,6 +949,7 @@ export interface ApiRouteBody {
   check_connection: ApiContract["connection_check_request"];
   preview_message: ApiContract["message_preview_request"];
   preview_transforms: ApiContract["transform_preview_request"];
+  preview_source: ApiContract["source_preview_request"];
   speedtest_estimate: ApiContract["speedtest_estimate_request"];
   speedtest_tune: ApiContract["speedtest_tune_request"];
   render_yaml: ApiContract["config_request"];
@@ -955,6 +979,7 @@ export interface ApiRouteQuery {
   check_connection: undefined;
   preview_message: undefined;
   preview_transforms: undefined;
+  preview_source: undefined;
   speedtest_estimate: undefined;
   speedtest_tune: undefined;
   render_yaml: undefined;
@@ -984,6 +1009,7 @@ export interface ApiRouteParameters {
   check_connection: Record<string, never>;
   preview_message: Record<string, never>;
   preview_transforms: Record<string, never>;
+  preview_source: Record<string, never>;
   speedtest_estimate: Record<string, never>;
   speedtest_tune: Record<string, never>;
   render_yaml: Record<string, never>;

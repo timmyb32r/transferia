@@ -121,6 +121,70 @@ fn source() -> Value {
         "tables":{"type":"all"}, "hide_system_tables":false})
 }
 
+fn source_sample_request(name: &str) -> transferia_server_contracts::api::SourcePreviewRequest {
+    transferia_server_contracts::api::SourcePreviewRequest {
+        metadata_id: Some("cache".into()),
+        source: transferia_server_contracts::api::TransformPreviewSource { connector: "postgres".into(), config: source() },
+        table: Some(table(name)), row_limit: 20, max_sample_bytes: 16_777_216, timeout_ms: 30_000,
+    }
+}
+
+#[tokio::test]
+async fn source_viewer_reads_raw_rows_and_only_loads_the_requested_schema() -> anyhow::Result<()> {
+    let reader = Arc::new(Reader::default());
+    let metadata = session("cache", vec![table("good"), table("bad")], reader.clone());
+    let service = super::super::tests::service();
+    service.metadata_sessions.lock().await.insert("cache".into(), metadata.clone());
+    for _ in 0..2 {
+        let result = service.preview_source(source_sample_request("good"), CancellationToken::new()).await?;
+        assert_eq!(result.frames.len(), 1);
+        let frame = &result.frames[0];
+        assert_eq!(frame.table.name, "good");
+        assert_eq!(frame.table.namespace.as_deref(), Some("public"));
+        assert_eq!(frame.columns[0].arrow_type, "Int64");
+        assert_eq!(frame.rows[0]["id"].as_deref(), Some("1"));
+    }
+    assert_eq!(reader.loads.load(Ordering::SeqCst), 1);
+    assert_eq!(reader.samples.load(Ordering::SeqCst), 2);
+    assert_eq!(reader.assemblies.load(Ordering::SeqCst), 0);
+    assert!(metadata.preview_validation.lock().await.is_none());
+    assert_eq!(metadata.active_loads.load(Ordering::SeqCst), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn source_viewer_rejects_invalid_limits_changed_source_and_unselected_tables_before_io() {
+    let reader = Arc::new(Reader::default());
+    let service = super::super::tests::service();
+    service.metadata_sessions.lock().await.insert("cache".into(), session("cache", vec![table("good")], reader.clone()));
+    for case in 0..7 {
+        let mut request = source_sample_request("good");
+        match case {
+            0 => request.row_limit = 0,
+            1 => request.max_sample_bytes = 0,
+            2 => request.timeout_ms = 0,
+            3 => request.source.connector = "mysql".into(),
+            4 => request.source.config["installation"]["host"] = "changed".into(),
+            5 => request.table = Some(table("missing")),
+            _ => request.metadata_id = Some("missing".into()),
+        }
+        assert!(service.preview_source(request, CancellationToken::new()).await.is_err());
+    }
+    let cancellation = CancellationToken::new(); cancellation.cancel();
+    assert!(service.preview_source(source_sample_request("good"), cancellation).await.is_err());
+    assert_eq!(reader.loads.load(Ordering::SeqCst), 0);
+    assert_eq!(reader.samples.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn source_viewer_does_not_sample_failed_schemas() {
+    let reader = Arc::new(Reader::default());
+    let service = super::super::tests::service();
+    service.metadata_sessions.lock().await.insert("cache".into(), session("cache", vec![table("bad")], reader.clone()));
+    assert!(service.preview_source(source_sample_request("bad"), CancellationToken::new()).await.is_err());
+    assert_eq!(reader.samples.load(Ordering::SeqCst), 0);
+}
+
 fn resolved_source() -> Value {
     serde_json::json!({"host":"127.0.0.1", "port":5432, "database":"db", "username":"reader",
         "password":"", "trusted_plaintext":true, "tables":{"type":"all"}, "hide_system_tables":false})

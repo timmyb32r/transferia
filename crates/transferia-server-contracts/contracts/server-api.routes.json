@@ -96,6 +96,14 @@
     "response": "transform_preview_response"
   },
   {
+    "body": "source_preview_request",
+    "method": "POST",
+    "name": "preview_source",
+    "path": "/api/v1/source/preview",
+    "query": null,
+    "response": "source_preview_response"
+  },
+  {
     "body": "speedtest_estimate_request",
     "method": "POST",
     "name": "speedtest_estimate",
