@@ -1542,6 +1542,17 @@ button.diagnostic-disabled {
 .toggle input {
   flex: 0 0 auto;
 }
+/* A boolean's label is the same click target as its square. Keep its text and
+   gaps consistent, including external schema labels and disabled fieldsets. */
+input[type="radio"]:not(:disabled),
+label:has(> input:is([type="checkbox"], [type="radio"])),
+.field-label[for]:has(+ .field-control > .toggle > input[type="checkbox"]) {
+  cursor: pointer;
+}
+label:has(> input:is([type="checkbox"], [type="radio"]):disabled),
+.field-label[for]:has(+ .field-control > .toggle > input[type="checkbox"]:disabled) {
+  cursor: not-allowed;
+}
 input[type="checkbox"] {
   display: inline-grid;
   place-content: center;

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/preact";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/preact";
 import { afterEach, expect, it, vi } from "vitest";
 import { AvailableTablesButton } from "../src/features/tableSelection/AvailableTablesDialog";
 import { TableCatalogContext } from "../src/schema/tableCatalog";
@@ -120,14 +120,17 @@ it("keeps the clicked error snapshot through polling and copies the complete mes
   const view = render(form({ ...metadata, errors: [{ table: system, message }] }));
   fireEvent.click(view.getByRole("button", { name: "Show 1 failed schemas" }));
   const list = view.getByRole("region", { name: "Available table names" });
-  fireEvent.click(view.getByRole("button", { name: "Show schema error for system.symbols" }));
+  const trigger = view.getByRole("button", { name: "Show schema error for system.symbols" });
+  fireEvent.click(trigger);
   view.rerender(form({ ...metadata, loaded: [system], errors: [] }));
   expect(view.getByLabelText("Full schema error").textContent).toBe(message);
   expect(list.querySelector(".available-table-row")).not.toBeNull();
   fireEvent.click(view.getByRole("button", { name: "Copy schema error" }));
   await waitFor(() => expect(writeText).toHaveBeenCalledExactlyOnceWith(message));
   fireEvent.click(view.getByRole("button", { name: "Close schema error" }));
-  expect(document.activeElement).toBe(view.getByRole("textbox", { name: "Search tables" }));
+  expect(document.activeElement).toBe(trigger);
+  act(() => view.getByRole("textbox", { name: "Search tables" }).focus());
+  expect(view.queryByRole("button", { name: "Show schema error for system.symbols" })).toBeNull();
 });
 
 it("keeps Copy and Use on a failed row separate from opening its error", async () => {
@@ -189,7 +192,99 @@ it("defers filtered row removal while the pointer is over its Copy/Use controls"
   fireEvent.pointerEnter(list);
   view.rerender(form([pending]));
   expect(view.getByRole("button", { name: "Copy public.later" })).toBe(copy);
-  expect(view.getByLabelText("Schema Loaded for public.later")).toBeTruthy();
+  expect(view.getByLabelText("Schema Not loaded for public.later")).toBeTruthy();
   fireEvent.pointerLeave(list);
   expect(view.queryByRole("button", { name: "Copy public.later" })).toBeNull();
+});
+
+it.each(["pointer", "keyboard"])("defers a new Failed action until the %s leaves the table list", (interaction) => {
+  const tables = [pending];
+  const form = (failed: boolean) => <TableCatalogContext.Provider value={{ tables, preview: vi.fn(),
+    metadata: { ...metadata, loaded: [], errors: failed ? [{ table: pending, message: "Cannot read schema" }] : [] } }}>
+    <AvailableTablesButton label="Browse metadata" title="Browse metadata" showMetadata />
+  </TableCatalogContext.Provider>;
+  const view = render(form(false));
+  fireEvent.click(view.getByRole("button", { name: "Browse metadata" }));
+  const list = view.getByRole("region", { name: "Available table names" });
+  const search = view.getByRole("textbox", { name: "Search tables" });
+  const copy = view.getByRole("button", { name: "Copy public.later" });
+  const details = copy.closest(".available-table-row")!.querySelector(".available-table-details");
+  if (interaction === "pointer") fireEvent.pointerEnter(list);
+  else act(() => copy.focus());
+  view.rerender(form(true));
+  expect(copy.closest(".available-table-row")!.querySelector(".available-table-details")).toBe(details);
+  expect(view.queryByRole("button", { name: "Show schema error for public.later" })).toBeNull();
+  // Moving between pointer and keyboard controls inside the held list must not
+  // replace its snapshot with the newer polling result.
+  if (interaction === "pointer") act(() => copy.focus());
+  else fireEvent.pointerEnter(list);
+  expect(view.queryByRole("button", { name: "Show schema error for public.later" })).toBeNull();
+  fireEvent.pointerLeave(list);
+  expect(view.queryByRole("button", { name: "Show schema error for public.later" })).toBeNull();
+  act(() => search.focus());
+  const failed = view.getByRole("button", { name: "Show schema error for public.later" });
+  fireEvent.click(failed);
+  expect(view.getByLabelText("Full schema error").textContent).toBe("Cannot read schema");
+});
+
+it("keeps a focused Failed action and its diagnostic until focus leaves the list", () => {
+  const tables = [system];
+  const form = (resolved: boolean) => <TableCatalogContext.Provider value={{ tables, preview: vi.fn(),
+    metadata: resolved ? { ...metadata, loaded: tables, errors: [] } : metadata }}>
+    <AvailableTablesButton label="Browse metadata" title="Browse metadata" showMetadata />
+  </TableCatalogContext.Provider>;
+  const view = render(form(false));
+  fireEvent.click(view.getByRole("button", { name: "Browse metadata" }));
+  const trigger = view.getByRole("button", { name: "Show schema error for system.symbols" });
+  act(() => trigger.focus());
+  view.rerender(form(true));
+  expect(view.getByRole("button", { name: "Show schema error for system.symbols" })).toBe(trigger);
+  expect(document.activeElement).toBe(trigger);
+  fireEvent.click(trigger);
+  expect(view.getByLabelText("Full schema error").textContent).toBe("Introspection disabled");
+  fireEvent.click(view.getByRole("button", { name: "Close schema error" }));
+  expect(document.activeElement).toBe(trigger);
+  act(() => view.getByRole("textbox", { name: "Search tables" }).focus());
+  expect(view.queryByRole("button", { name: "Show schema error for system.symbols" })).toBeNull();
+  expect(view.getByLabelText("Schema Loaded for system.symbols")).toBeTruthy();
+});
+
+it("applies a deliberate schema filter change even while the old list is held", () => {
+  const tables = [pending];
+  const form = (failed: boolean) => <TableCatalogContext.Provider value={{ tables, preview: vi.fn(),
+    metadata: { ...metadata, loaded: [], errors: failed ? [{ table: pending, message: "Schema failed" }] : [] } }}>
+    <AvailableTablesButton label="Browse metadata" title="Browse metadata" showMetadata />
+  </TableCatalogContext.Provider>;
+  const view = render(form(false));
+  fireEvent.click(view.getByRole("button", { name: "Browse metadata" }));
+  fireEvent.pointerEnter(view.getByRole("region", { name: "Available table names" }));
+  view.rerender(form(true));
+  expect(view.queryByRole("button", { name: "Show schema error for public.later" })).toBeNull();
+  fireEvent.click(view.getByRole("radio", { name: "Failed (1)" }));
+  expect(view.getByRole("button", { name: "Show schema error for public.later" })).toBeTruthy();
+  fireEvent.click(view.getByRole("radio", { name: "All (1)" }));
+  expect(view.getByRole("button", { name: "Show schema error for public.later" })).toBeTruthy();
+});
+
+it.each(["query", "mode"])("does not revive held schema states after a %s round trip", (change) => {
+  const tables = [pending];
+  const form = (failed: boolean) => <TableCatalogContext.Provider value={{ tables, preview: vi.fn(),
+    metadata: { ...metadata, loaded: [], errors: failed ? [{ table: pending, message: "Schema failed" }] : [] } }}>
+    <AvailableTablesButton label="Browse metadata" title="Browse metadata" showMetadata />
+  </TableCatalogContext.Provider>;
+  const view = render(form(false));
+  fireEvent.click(view.getByRole("button", { name: "Browse metadata" }));
+  fireEvent.pointerEnter(view.getByRole("region", { name: "Available table names" }));
+  view.rerender(form(true));
+  expect(view.queryByRole("button", { name: "Show schema error for public.later" })).toBeNull();
+  if (change === "query") {
+    const search = view.getByRole("textbox", { name: "Search tables" });
+    fireEvent.input(search, { target: { value: "public" } });
+    fireEvent.input(search, { target: { value: "" } });
+  } else {
+    const mode = view.getByRole("button", { name: "Search tables regex" });
+    fireEvent.click(mode);
+    fireEvent.click(mode);
+  }
+  expect(view.getByRole("button", { name: "Show schema error for public.later" })).toBeTruthy();
 });

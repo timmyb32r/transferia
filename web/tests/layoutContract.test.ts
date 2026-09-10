@@ -27,7 +27,8 @@ describe("delivery layout contract", () => {
     expect(cells).toContain("padding: 9px 12px;");
   });
   it("overlays SQL highlighting with identical metrics and no content-driven layout changes", () => {
-    const rule = (selector: string) => styles.split(`${selector} {`)[1]?.split("}")[0];
+    // Match the complete selector, not a suffix of a grouped rule.
+    const rule = (selector: string) => styles.split(`\n${selector} {`)[1]?.split("}")[0];
     const shared = rule(".sql-code-editor > pre, .sql-code-editor > textarea");
     expect(shared).toContain("font: 12px/1.5 var(--font-code)");
     expect(shared).toContain("white-space: pre; overflow: scroll; tab-size: 2;");
@@ -276,10 +277,11 @@ describe("delivery layout contract", () => {
     expect(styles).not.toMatch(/data-theme="dark"[^{}]*\.secondary-button/);
   });
   it("keeps transform strip controls fixed while preview status and result change", () => {
-    const output = styles.split(".transform-preview-output {")[1]?.split("}")[0];
+    // Do not pick the earlier source-data-viewer descendant overrides.
+    const output = styles.split("\n.transform-preview-output {")[1]?.split("}")[0];
     expect(output).toContain("height: 240px;");
     expect(output).toContain("overflow: auto;");
-    const status = styles.split(".transform-preview-status {")[1]?.split("}")[0];
+    const status = styles.split("\n.transform-preview-status {")[1]?.split("}")[0];
     expect(status).toContain("height: 2.8em;");
     expect(status).toContain("overflow: auto;");
     const strip = styles.split(".middleware-strip-heading {")[1]?.split("}")[0];

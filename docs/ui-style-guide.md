@@ -69,6 +69,14 @@ the control. Error and warning semantics remain distinct.
 
 ## Component rules
 
+- Checkbox/radio labels share the native control's cursor across their text and
+  internal gaps, including separately associated schema-field labels. Disabled
+  controls and inherited disabled fieldsets use the disabled cursor; native
+  first-legend exceptions remain enabled. Help glyphs retain their help cursor.
+  Hover must never change control geometry or replace its hit target.
+  `npm run test:hover-stability` covers labels, sidebar viewers and catalog polling
+  in both designs/themes, with responsive sidebar checks.
+
 - `Schema viewer` opens from the bottom-left sidebar tools, not the editor tabs.
   It is a fixed-size popup with a stationary Close action and a scrolling schema
   report: table selection, intermediate Arrow types, destination types and limits.
@@ -171,7 +179,12 @@ the control. Error and warning semantics remain distinct.
   an error automatically. Keep the underlying list mounted and inert; preserve
   its scroll position, filter and control geometry. Escape closes details first
   and restores focus to the row (or Search if the row no longer exists).
-  Controls keep fixed geometry during polling.
+  Controls keep fixed geometry during polling. While the pointer or keyboard
+  focus is inside the list, hold row identities and displayed schema statuses:
+  polling must not create a Failed action under the pointer or remove a focused
+  error action. Apply the latest rows/statuses after both leave; a deliberate
+  search, pattern-mode or status-filter change applies immediately. Error details
+  retain their clicked diagnostic and restore focus to the held row on close.
   Place the inline Hide system tables checkbox beside Selected / All tables.
   Use `Add tables` and retain the overall All matched tables disclosure.
   Keep the disclosure left-aligned, beside Add tables when that action is present.

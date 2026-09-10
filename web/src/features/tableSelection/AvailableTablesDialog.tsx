@@ -9,6 +9,7 @@ import { TablePatternInput } from "./TablePatternInput";
 import { completionPattern, qualifiedName } from "./model";
 
 type SchemaFilter = "all" | "failed" | "pending";
+type SchemaState = { label: string; error?: string };
 
 export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse !== undefined, initialFilter = "all" }: {
   catalog: TableCatalog;
@@ -28,7 +29,9 @@ export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse
   const [errorDetails, setErrorDetails] = useState<{ name: string; message: string }>();
   const errorPanel = useRef<HTMLElement>(null);
   const returnFocus = useRef<HTMLElement>();
-  const [heldRows, setHeldRows] = useState<{ key: string; filter: SchemaFilter; tables: TableIdentity[] }>();
+  const [heldRows, setHeldRows] = useState<{
+    key: string; filter: SchemaFilter; tables: TableIdentity[]; schemas: ReadonlyMap<string, SchemaState>;
+  }>();
   const listHovered = useRef(false);
   const key = JSON.stringify([query, mode]);
   useLayoutEffect(() => {
@@ -72,7 +75,7 @@ export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse
   }, [key, catalog.tables, catalog.preview]);
   const current = result?.key === key && result.catalog === catalog.tables ? result : undefined;
   const schemaStates = useMemo(() => {
-    const states = new Map<string, { label: string; error?: string }>();
+    const states = new Map<string, SchemaState>();
     for (const table of catalog.metadata?.loaded ?? []) states.set(qualifiedName(table), { label: "Loaded" });
     for (const error of catalog.metadata?.errors ?? []) states.set(qualifiedName(error.table), { label: "Failed", error: error.message });
     return states;
@@ -82,10 +85,16 @@ export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse
   const searched = query ? current?.tables : catalog.tables;
   const filtered = searched?.filter(table => filter === "all" || (filter === "failed"
     ? schemaStates.get(qualifiedName(table))?.error !== undefined : !schemaStates.has(qualifiedName(table))));
-  // Polling may update labels, but cannot move Copy/Use under an active pointer
-  // or keyboard focus. A deliberate search/filter change selects a new list.
-  const tables = heldRows?.key === key && heldRows.filter === filter ? heldRows.tables : filtered;
-  const holdRows = () => { if (tables) setHeldRows({ key, filter, tables }); };
+  // Hold statuses as well as identities: polling must not replace a hovered div
+  // with a Failed button, or remove a focused error action. Moving between
+  // controls in the held list must not refresh the snapshot either.
+  const held = heldRows?.key === key && heldRows.filter === filter ? heldRows : undefined;
+  const tables = held?.tables ?? filtered;
+  const rowSchemas = held?.schemas ?? schemaStates;
+  const holdRows = () => {
+    if (tables) setHeldRows(current => current?.key === key && current.filter === filter
+      ? current : { key, filter, tables, schemas: schemaStates });
+  };
   return createPortal(<div class="message-preview-backdrop" onMouseDown={event => {
     if (event.target === event.currentTarget) {
       if (errorDetails) setErrorDetails(undefined);
@@ -121,14 +130,14 @@ export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse
       <TableCatalogContext.Provider value={undefined}>
         <TablePatternInput id={`${id}-search`} label="Search tables" value={query} mode={mode} disabled={false}
           required={false} invalid={Boolean(current?.error)}
-          onChange={value => { setQuery(value); if (!copying.current) setCopy(undefined); }}
-          onModeChange={value => { setMode(value); if (!copying.current) setCopy(undefined); }}
+          onChange={value => { setHeldRows(undefined); setQuery(value); if (!copying.current) setCopy(undefined); }}
+          onModeChange={value => { setHeldRows(undefined); setMode(value); if (!copying.current) setCopy(undefined); }}
           placeholder="Search tables · * and ? supported" />
       </TableCatalogContext.Provider>
       {catalog.metadata && <div class="available-tables-filters"><SegmentedControl label="Schema status" value={filter}
         options={[{ value: "all", label: `All (${catalog.tables.length})` }, { value: "failed", label: `Failed (${failed.length})` },
           { value: "pending", label: `Not loaded (${pending.length})` }]}
-        onChange={setFilter} /></div>}
+        onChange={value => { setHeldRows(undefined); setFilter(value); }} /></div>}
       <div class="available-tables-status" role="status" aria-live="polite" title={catalog.metadataError}>
         {catalog.metadataError ?? current?.error ?? (!tables ? "Searching…" : copy?.state === "error" ? `Could not copy ${copy.name}.` : copy?.state === "copied" ? `Copied ${copy.name}`
           : `${tables.length} tables`)}
@@ -145,7 +154,7 @@ export function AvailableTablesDialog({ catalog, onClose, onUse, showUse = onUse
         }}>
         {tables?.map(table => {
           const name = qualifiedName(table);
-          const schema = schemaStates.get(name);
+          const schema = rowSchemas.get(name);
           const rowContent = <>
             <span title={name}>{name}</span>
             {catalog.metadata && <span class={`available-table-schema${schema?.error !== undefined ? " available-table-failed" : ""}`}
