@@ -136,6 +136,7 @@ function NodeEditor({
   onChange,
   path = "#",
   controlId,
+  fitSelectOptions,
   connectionAction,
   connectionFields,
 }: SchemaFormProps) {
@@ -258,6 +259,7 @@ function NodeEditor({
           rootValue,
           <SelectControl
             searchable
+            fitOptions={fitSelectOptions}
             id={controlId}
             value={current}
             disabled={isDisabled}
@@ -338,6 +340,7 @@ function NodeEditor({
           rootValue,
           <SelectControl
             id={controlId}
+            fitOptions={fitSelectOptions}
             value={typeof value === "string" ? value : ""}
             disabled={isDisabled}
             placeholder="Not selected"

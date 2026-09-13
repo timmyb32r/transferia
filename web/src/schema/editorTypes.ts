@@ -10,6 +10,7 @@ export interface NodeEditorProps {
   onChange: (value: JsonValue) => void;
   path?: string | undefined;
   controlId?: string | undefined;
+  fitSelectOptions?: boolean | undefined;
 }
 
 export interface PropertyEditorProps {

@@ -3,7 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { JsonObject, JsonValue } from "../../json";
 import { useStableRowIds } from "../../schema/controls";
 import { closestArrowType, isStringArrowType } from "./model";
-import { isObject } from "../../schema/value";
+import { isObject, uniqueStrings } from "../../schema/value";
 
 export function useColumnMappings({
   value,
@@ -21,6 +21,30 @@ export function useColumnMappings({
     () => new Set(),
   );
   const rowIds = useStableRowIds(value.length);
+  // Unnamed draft columns have no serializable key identity yet. Keep their
+  // selection by row ID until a name is entered; never put an empty name in keys.
+  const [pendingKeys, setPendingKeys] = useState<Set<string>>(() => new Set());
+  const columnName = (index: number) => {
+    const column = value[index];
+    return isObject(column) ? stringProperty(column, "column_name") : "";
+  };
+  const isColumnKey = (index: number) => {
+    const name = columnName(index);
+    return name === "" ? pendingKeys.has(rowIds.values[index]!) : keys.includes(name);
+  };
+  const setPendingKey = (id: string, checked: boolean) => {
+    setPendingKeys((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+  const setColumnKey = (index: number, checked: boolean) => {
+    const name = columnName(index);
+    if (name === "") setPendingKey(rowIds.values[index]!, checked);
+    else onChange(value, checked ? uniqueStrings([...keys, name]) : keys.filter((key) => key !== name));
+  };
 
   useEffect(() => {
     setSelectedRows((current) => {
@@ -60,10 +84,15 @@ export function useColumnMappings({
     }
     const columns = [...value];
     columns[index] = next;
-    const nextKeys =
+    let nextKeys =
       newName === oldName
         ? keys
         : keys.map((key) => (key === oldName ? newName : key)).filter(Boolean);
+    if (newName !== oldName) {
+      const wasKey = isColumnKey(index);
+      setPendingKey(rowIds.values[index]!, wasKey && newName === "");
+      if (wasKey && newName !== "") nextKeys = uniqueStrings([...nextKeys, newName]);
+    }
     onChange(columns, nextKeys);
   };
   const toggleSettings = (index: number) =>
@@ -72,10 +101,14 @@ export function useColumnMappings({
     const columns = [...value];
     columns.splice(index + 1, 0, structuredClone(value[index]!));
     rowIds.insert(index + 1);
+    if (columnName(index) === "" && isColumnKey(index)) {
+      setPendingKey(rowIds.values[index + 1]!, true);
+    }
     resetTransientRows();
     onChange(columns, keys);
   };
   const deleteColumn = (index: number, name: string) => {
+    setPendingKey(rowIds.values[index]!, false);
     rowIds.remove(index);
     resetTransientRows();
     onChange(
@@ -98,6 +131,8 @@ export function useColumnMappings({
       }),
     );
     resetTransientRows();
+    const deletedIds = new Set([...selectedRows].map((index) => rowIds.values[index]));
+    setPendingKeys((current) => new Set([...current].filter((id) => !deletedIds.has(id))));
     rowIds.retain((_, index) => !selectedRows.has(index));
     onChange(
       value.filter((_, index) => !selectedRows.has(index)),
@@ -119,6 +154,8 @@ export function useColumnMappings({
     expandedSettings,
     selectedRows,
     rowIds,
+    isColumnKey,
+    setColumnKey,
     updateColumn,
     toggleSettings,
     duplicateColumn,

@@ -55,6 +55,8 @@ export function ColumnMappingsEditor({
     expandedSettings,
     selectedRows,
     rowIds,
+    isColumnKey,
+    setColumnKey,
     updateColumn,
     toggleSettings,
     duplicateColumn,
@@ -296,12 +298,7 @@ export function ColumnMappingsEditor({
                     </td>
                     {mainFields.map((field) => {
                       const original = node.properties[field];
-                      const child = field === "arrow_type" && original?.kind === "string" && original.enumValues !== undefined
-                        ? { ...original, xUi: { ...original.xUi, labels: {
-                            ...original.xUi.labels,
-                            ...Object.fromEntries(original.enumValues.filter((type): type is string => typeof type === "string" && type.startsWith("Timestamp(")).map((type) => [type, type.replace("Timestamp(", "Timestamp\n(")])),
-                          } } }
-                        : field === "json_data_type" && original?.kind === "string" && original.enumValues !== undefined
+                      const child = field === "json_data_type" && original?.kind === "string" && original.enumValues !== undefined
                         ? { ...original, enumValues: original.enumValues.filter((type) => type !== "decimal") }
                         : field === "json_data_type" && original?.kind === "union"
                           ? { ...original, branches: original.branches.filter((branch) => branch.constant !== "decimal") }
@@ -316,6 +313,7 @@ export function ColumnMappingsEditor({
                               node={child}
                               value={column[field] ?? createValue(child)}
                               disabled={disabled}
+                              fitSelectOptions={field === "arrow_type"}
                               onChange={(next) =>
                                 updateColumn(index, {
                                   ...column,
@@ -327,7 +325,15 @@ export function ColumnMappingsEditor({
                         </td>
                       );
                     })}
-                    <td class="flag-column">{keyCheckbox(typeof column.column_name === "string" ? column.column_name : "")}</td>
+                    <td class="flag-column">
+                      <AutofillResistantInput
+                        type="checkbox"
+                        aria-label={`Key ${name || "unnamed column"}`}
+                        disabled={disabled}
+                        checked={isColumnKey(index)}
+                        onChange={(event) => setColumnKey(index, event.currentTarget.checked)}
+                      />
+                    </td>
                     <td class="flag-column">
                       <AutofillResistantInput
                         type="checkbox"

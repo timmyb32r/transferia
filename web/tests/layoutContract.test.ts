@@ -375,13 +375,29 @@ describe("delivery layout contract", () => {
     expect(styles).not.toContain("\n.required-missing .select-trigger {");
     expect(styles).toContain(".required-missing .column-table td.required-incomplete .select-trigger");
   });
-  it("reserves two lines for Arrow types without wrapping timestamp parameters", () => {
-    const trigger = styles.split(':root .column-table td.arrow-type-cell .select-trigger {')[1]?.split("}")[0];
-    expect(trigger).toContain("height: 48px;");
-    expect(trigger).toContain("min-height: 48px;");
-    const label = styles.split(':root .column-table td.arrow-type-cell .select-trigger > span:first-child {')[1]?.split("}")[0];
-    expect(label).toContain("white-space: pre;");
-    expect(label).toContain("word-break: normal;");
+  it("keeps Arrow type triggers at normal height and wraps long options only inside the popup", () => {
+    const trigger = styles.split(':root .column-table .config-table-row .select-trigger {')[1]?.split("}")[0];
+    expect(trigger).toContain("height: var(--control-height);");
+    expect(trigger).toContain("min-height: var(--control-height);");
+    const label = styles.split(':root .column-table .config-table-row .select-trigger > span:first-child {')[1]?.split("}")[0];
+    expect(label).toContain("white-space: nowrap;");
+    expect(label).toContain("text-overflow: ellipsis;");
+    const option = styles.split('\n.select-option {')[1]?.split("}")[0];
+    expect(option).toContain("white-space: normal;");
+    expect(option).toContain("overflow-wrap: anywhere;");
+  });
+  it("sizes option-fit selects without an extra visible row or pointer target", () => {
+    const select = styles.split('\n.select-fit-options {')[1]?.split("}")[0];
+    expect(select).toContain("width: max-content;");
+    expect(select).toContain("max-width: 100%;");
+    const mirror = styles.split('\n.select-options-sizer {')[1]?.split("}")[0];
+    expect(mirror).toContain("height: 0;");
+    expect(mirror).toContain("visibility: hidden;");
+    expect(mirror).toContain("pointer-events: none;");
+    expect(mirror).toContain("user-select: none;");
+    for (const selector of [".select-fit-options .select-trigger > span:first-child", ".select-fit-options .select-value"]) {
+      expect(styles.split(`\n${selector} {`)[1]?.split("}")[0]).toContain("scrollbar-gutter: auto;");
+    }
   });
   it("keeps action buttons 16px from the frame and centers their header", () => {
     expect(styles).toContain('.column-table .actions-column {\n  width: 80px;');

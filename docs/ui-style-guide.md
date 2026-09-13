@@ -322,6 +322,24 @@ the control. Error and warning semantics remain distinct.
   `npm run test:parser-layout` checks actual-catalog browser geometry for JSON,
   TSKV, Schema Registry, Debezium and Raw to table across supported sources and
   responsive widths, including dropdown and nested-setting interactions.
+  Selecting a parser reveals its Table name control (or first required setting)
+  with the control's center at 60% of the viewport height, subject to document
+  scroll limits. Focus without another scroll. Keep source context visible above
+  the settings instead of aligning the entire parser card to the top. This
+  explicit navigation rule is shared by S3 and queue parser editors.
+- Output-column dropdown triggers use one normal control-height row, including
+  Arrow types. Do not reserve a second line for timestamp parameters. Keep the
+  full selected label in its native title. Arrow fields fit the widest authored
+  option in the actual button font, with normal padding, arrow space and an 8px
+  readability margin, capped by their table cell. A hidden, zero-height sizing
+  mirror reserves this width before paint independently of selection and search.
+  The popup matches its trigger width, clamped to the viewport. Long options wrap. Opening
+  and selecting must not resize or move the row. The parser-layout check covers
+  these column interactions; `--columns-only` limits it to JSON/TSKV editors.
+  Key remains clickable before the column has a name. Track that incomplete
+  selection by stable editor row ID, including reorder/duplicate/delete, and
+  transfer it into the name-based keys only when a name is entered. Never emit
+  empty key names or invent identifiers; unnamed columns remain invalid.
 - Description is a multiline field starting at one control-height row. It grows
   and shrinks synchronously with user-entered wrapped lines, without an internal
   scrollbar or manual resize handle. A hidden, accessibility-excluded sizing

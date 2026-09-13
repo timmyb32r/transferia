@@ -7,12 +7,94 @@ const { chromium } = await import(modulePath ? pathToFileURL(modulePath).href : 
 const server = await createServer({ root: fileURLToPath(new URL("../", import.meta.url)), configFile: false,
   server: { host: "127.0.0.1" } });
 let browser;
+const columnsOnly = process.argv.includes("--columns-only");
 const variants = [
   ["s3", "s3_json"],
   ...["kafka", "logbroker"].flatMap(connector => ["json_parser", "tskv", "schema_registry", "debezium", "raw_to_table"]
     .map(parser => [connector, parser])),
-];
+].filter(([, parser]) => !columnsOnly || ["s3_json", "json_parser", "tskv"].includes(parser));
 const close = (actual, expected, message) => assert(Math.abs(actual - expected) < 0.7, `${message}: ${actual} != ${expected}`);
+
+async function checkColumnControls(page, context) {
+  const rows = page.locator(".column-table .config-table-row");
+  if (await rows.count() === 0) await page.getByRole("button", { name: "+ Add column", exact: true }).click();
+  const row = rows.first();
+  const arrow = row.locator(".arrow-type-cell .select-trigger");
+  if (await arrow.count() === 0) return;
+  const key = row.getByRole("checkbox", { name: /^Key / });
+  assert(await key.isEnabled(), `${context}: unnamed Key must be interactive`);
+  await key.check();
+  assert(await key.isChecked(), `${context}: unnamed Key must show its selection immediately`);
+  await row.locator('input[type="text"]').first().fill("event_time");
+  assert(await key.isChecked(), `${context}: Key must survive entering the column name`);
+  await arrow.scrollIntoViewIfNeeded();
+  await arrow.hover();
+  const geometry = () => row.evaluate(element => {
+    const rect = node => {
+      const { x, y, width, height } = node.getBoundingClientRect();
+      return { x, y, width, height };
+    };
+    return { row: rect(element), arrow: rect(element.querySelector(".arrow-type-cell .select-trigger")),
+      input: rect(element.querySelector('input[type="text"]')),
+      selects: [...element.querySelectorAll(".select-trigger")].map(rect) };
+  });
+  const before = await geometry();
+  close(before.arrow.height, before.input.height, `${context}: Arrow/input height`);
+  for (const select of before.selects) close(select.height, before.arrow.height, `${context}: adjacent select height`);
+  const unchanged = async phase => {
+    const after = await geometry();
+    for (const target of ["row", "arrow", "input"]) for (const dimension of ["x", "y", "width", "height"]) {
+      close(after[target][dimension], before[target][dimension], `${context}/${phase}: stable ${target}.${dimension}`);
+    }
+  };
+  await arrow.click();
+  await unchanged("open");
+  const options = row.getByRole("option");
+  const labels = await options.allTextContents();
+  const sizing = await arrow.evaluate((trigger, labels) => {
+    const style = getComputedStyle(trigger);
+    const probe = document.createElement("span");
+    Object.assign(probe.style, { position: "fixed", visibility: "hidden", pointerEvents: "none", whiteSpace: "pre", width: "max-content" });
+    trigger.append(probe);
+    const widths = labels.map(label => {
+      probe.textContent = label;
+      return { label, width: probe.getBoundingClientRect().width };
+    });
+    probe.remove();
+    const widest = widths.sort((a, b) => b.width - a.width)[0];
+    const indicator = trigger.querySelector(".select-trigger-indicator");
+    const chrome = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth)
+      + indicator.getBoundingClientRect().width + parseFloat(getComputedStyle(indicator).marginLeft);
+    const cell = trigger.closest("td");
+    const cellStyle = getComputedStyle(cell);
+    const available = cell.clientWidth - parseFloat(cellStyle.paddingLeft) - parseFloat(cellStyle.paddingRight);
+    return { widest, chrome, available };
+  }, labels);
+  const longest = sizing.widest.label;
+  close(before.arrow.width, Math.min(sizing.available, sizing.widest.width + sizing.chrome + 8),
+    `${context}: trigger fits widest rendered option with 8px breathing room ${JSON.stringify(sizing)}`);
+  assert(longest, `${context}: Arrow options must exist`);
+  const option = row.getByRole("option", { name: longest, exact: true });
+  await option.scrollIntoViewIfNeeded();
+  const popup = await row.locator(".select-menu").evaluate(menu => {
+    const rect = menu.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, width: rect.width,
+      overflow: menu.scrollWidth > menu.clientWidth,
+      optionsOverflow: [...menu.querySelectorAll('[role="option"]')].some(option => option.scrollWidth > option.clientWidth) };
+  });
+  const viewport = page.viewportSize();
+  assert(popup.left >= 11 && popup.right <= viewport.width - 11, `${context}: menu must fit viewport`);
+  close(popup.width, Math.min(before.arrow.width, viewport.width - 24), `${context}: Arrow menu matches trigger width`);
+  assert(!popup.overflow && !popup.optionsOverflow, `${context}: long option labels must wrap without clipping`);
+  await option.click();
+  await unchanged("select longest");
+  assert.equal(await arrow.getAttribute("title"), longest, `${context}: full selected type remains available`);
+  if (sizing.available >= sizing.widest.width + sizing.chrome + 8) {
+    assert(await arrow.locator(".select-value").evaluate(label => label.scrollWidth <= label.clientWidth),
+      `${context}: widest selected label must fit without truncation`);
+  }
+}
 
 async function measure(page) {
   return page.locator(".parser-details-card").evaluate(card => {
@@ -97,6 +179,13 @@ try {
       await page.locator(".parser-details-card").waitFor();
       await page.evaluate(() => document.fonts.ready);
       const context = `${connector}/${parser}/${width}px`;
+      if (columnsOnly) {
+        await checkColumnControls(page, context);
+        assert.deepEqual(errors, [], `${context}: browser errors`);
+        await page.close();
+        cases++;
+        continue;
+      }
       const layout = await measure(page);
       checkLayout(layout, viewport, context);
       const family = parser === "s3_json" ? "json_parser" : parser;
@@ -134,12 +223,15 @@ try {
         await page.getByRole("option", { name: "Username and password", exact: true }).click();
         checkLayout(await measure(page), viewport, `${context}/nested authentication`);
       }
+      if (["s3_json", "json_parser", "tskv"].includes(parser)) await checkColumnControls(page, context);
       assert.deepEqual(errors, [], `${context}: browser errors`);
       await page.close();
       cases++;
     }
   }
-  console.log(`PASS: ${cases} actual-catalog parser layouts; shared geometry, nested controls, dropdown stability and full-width schemas.`);
+  console.log(columnsOnly
+    ? `PASS: ${cases} actual-catalog column editors; compact Arrow controls, readable menus, stable row geometry and unnamed Keys.`
+    : `PASS: ${cases} actual-catalog parser layouts; shared geometry, nested controls, dropdown stability and full-width schemas.`);
 } finally {
   await browser?.close();
   await server.close();

@@ -35,10 +35,31 @@ describe("schema form", () => {
     const field = view.container.querySelector<HTMLElement>('[data-field-name="table_naming"]')!;
     card.scrollIntoView = vi.fn();
     field.scrollIntoView = vi.fn();
+    const scroll = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    const input = view.getByRole("textbox", { name: "Table name" });
+    vi.spyOn(input, "getBoundingClientRect").mockReturnValue({ top: 900, height: 40 } as DOMRect);
     revealDetails(".parser-details-card");
     await waitFor(() => expect(document.activeElement).toBe(view.getByRole("textbox", { name: "Table name" })));
-    expect(field.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(scroll).toHaveBeenCalledWith({ behavior: "smooth", top: Math.max(0, window.scrollY + 920 - window.innerHeight * 0.6) });
+    expect(field.scrollIntoView).not.toHaveBeenCalled();
     expect(card.scrollIntoView).not.toHaveBeenCalled();
+    scroll.mockRestore();
+  });
+  it.each([true, false])("reveals the first parser selector below the viewport midpoint (table naming: %s)", async (tableNaming) => {
+    const view = render(<div class="parser-details-card" tabIndex={-1}>
+      <div data-field-name={tableNaming ? "table_naming" : "format"} class="required-incomplete">
+        <button class="select-trigger">Not selected</button>
+      </div>
+    </div>);
+    const control = view.getByRole("button");
+    const scroll = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    vi.spyOn(control, "getBoundingClientRect").mockReturnValue({ top: 1000, height: 48 } as DOMRect);
+    revealDetails(".parser-details-card");
+    await waitFor(() => expect(document.activeElement).toBe(control));
+    expect(scroll).toHaveBeenCalledExactlyOnceWith({
+      top: Math.max(0, window.scrollY + 1024 - window.innerHeight * 0.6), behavior: "smooth",
+    });
+    scroll.mockRestore();
   });
   it("marks only the missing output cell, not filled rows or table checkboxes", () => {
     const node: CompiledNode = {
@@ -59,7 +80,7 @@ describe("schema form", () => {
     expect(cells[0]?.querySelector('input[type="checkbox"]')).toBeNull();
     expect(view.container.querySelector("tr.required-incomplete")).toBeNull();
   });
-  it("breaks timestamp display after the type name without changing its value", () => {
+  it("sizes Arrow from all option labels and keeps its menu as wide as the trigger", () => {
     const node: CompiledNode = {
       kind: "object", xUi: {}, required: new Set(),
       properties: { columns: {
@@ -72,7 +93,18 @@ describe("schema form", () => {
     };
     const onChange = vi.fn();
     const view = render(<SchemaForm node={node} value={{ columns: [{ column_name: "time", arrow_type: "Timestamp(Microsecond, UTC)" }] }} onChange={onChange} />);
-    expect(view.container.querySelector(".arrow-type-cell .select-trigger > span")?.textContent).toBe("Timestamp\n(Microsecond, UTC)");
+    const trigger = view.container.querySelector<HTMLButtonElement>(".arrow-type-cell .select-trigger")!;
+    expect(trigger.querySelector(".select-value")?.textContent).toBe("Timestamp(Microsecond, UTC)");
+    expect([...trigger.querySelectorAll('.select-options-sizer > span')].map(label => label.textContent))
+      .toEqual(["Not selected", "Utf8", "Timestamp(Microsecond, UTC)"]);
+    expect(trigger.querySelector(".select-options-sizer")?.getAttribute("aria-hidden")).toBe("true");
+    expect(trigger.title).toBe("Timestamp(Microsecond, UTC)");
+    trigger.getBoundingClientRect = () => ({ left: 710, right: 1020, top: 10, bottom: 44, width: 310, height: 34 }) as DOMRect;
+    fireEvent.click(trigger);
+    const menu = view.container.querySelector<HTMLElement>(".select-menu")!;
+    expect(menu.style.width).toBe("310px");
+    expect(Number.parseFloat(menu.style.left) + 310).toBeLessThanOrEqual(window.innerWidth - 12);
+    expect(view.getByRole("option", { name: "Timestamp(Microsecond, UTC)" })).toBeTruthy();
     expect(onChange).not.toHaveBeenCalled();
   });
   it("does not offer decimal in the JSON type column", () => {

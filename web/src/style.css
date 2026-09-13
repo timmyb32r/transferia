@@ -1658,6 +1658,38 @@ input[type="checkbox"]:disabled {
   overflow-wrap: anywhere;
   white-space: normal;
 }
+.select-fit-options {
+  width: max-content;
+  max-width: 100%;
+}
+.select-fit-options .select-trigger > span:first-child {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  scrollbar-gutter: auto;
+}
+.select-fit-options .select-value {
+  grid-area: 1 / 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  scrollbar-gutter: auto;
+}
+/* All authored labels reserve width in the actual button font before paint;
+   selection and search never resize the trigger. The mirror adds no height. */
+.select-options-sizer {
+  grid-area: 1 / 1;
+  display: grid;
+  height: 0;
+  padding-right: 8px;
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+.select-options-sizer > span {
+  grid-area: 1 / 1;
+  white-space: pre;
+}
 .select-trigger-indicator {
   display: grid;
   flex: 0 0 14px;
@@ -3908,19 +3940,14 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .column-table th:nth-child(6) {
   width: 24%;
 }
-:root .column-table td.arrow-type-cell .select-trigger {
-  height: 48px;
-  min-height: 48px;
+:root .column-table .config-table-row .select-trigger {
+  height: var(--control-height);
+  min-height: var(--control-height);
 }
-:root .column-table td.arrow-type-cell .select-trigger > span:first-child {
-  white-space: pre;
-  overflow-wrap: normal;
-  word-break: normal;
-  font-size: 12px;
-  line-height: 18px;
-}
-:root .column-table td.arrow-type-cell .select-trigger > span:first-child::first-line {
-  font-size: 14px;
+:root .column-table .config-table-row .select-trigger > span:first-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .system-column-key {
   display: flex;

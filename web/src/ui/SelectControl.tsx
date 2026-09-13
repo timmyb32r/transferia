@@ -22,6 +22,7 @@ interface SelectControlProps {
   loading?: boolean;
   searchable?: boolean;
   clearable?: boolean;
+  fitOptions?: boolean | undefined;
   onOpen?: () => void;
   onChange: (value: string) => void;
 }
@@ -35,6 +36,7 @@ export function SelectControl({
   loading = false,
   searchable = true,
   clearable = true,
+  fitOptions = false,
   onOpen,
   onChange,
 }: SelectControlProps) {
@@ -71,7 +73,7 @@ export function SelectControl({
   return (
     <div
       ref={root}
-      class={`select ${open ? "open" : ""}`}
+      class={`select ${fitOptions ? "select-fit-options" : ""} ${open ? "open" : ""}`}
       onKeyDown={onKeyDown}
     >
       <button
@@ -79,6 +81,7 @@ export function SelectControl({
         ref={trigger}
         type="button"
         class="select-trigger"
+        title={selected?.label}
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -95,7 +98,13 @@ export function SelectControl({
         }}
       >
         <span class={selected === undefined ? "placeholder" : ""}>
-          {selected?.label ?? placeholder}
+          {fitOptions ? <>
+            <span class="select-value">{selected?.label ?? placeholder}</span>
+            <span class="select-options-sizer" aria-hidden="true">
+              <span>{clearable ? EMPTY_SELECTION_LABEL : placeholder}</span>
+              {options.map(option => <span key={option.value}>{option.label}</span>)}
+            </span>
+          </> : selected?.label ?? placeholder}
         </span>
         <span class="select-trigger-indicator" aria-hidden="true">
           {loading ? <span class="spinner" /> : <span class="chevron" />}
