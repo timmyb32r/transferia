@@ -1,6 +1,29 @@
 use std::sync::Arc;
 
 #[test]
+fn parquet_capacity_is_rejected_before_transport_construction() {
+    use super::config::parquet_channel_capacity;
+    let maximum = tokio::sync::Semaphore::MAX_PERMITS / 2;
+    assert_eq!(parquet_channel_capacity(1).unwrap(), 2);
+    assert_eq!(parquet_channel_capacity(maximum).unwrap(), maximum * 2);
+    for value in [0, maximum + 1, usize::MAX] {
+        assert!(parquet_channel_capacity(value).is_err());
+        let config: ClickHouseSourceConfig = serde_yaml::from_str(&format!(
+            "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: {{type: selected, rules: [{{include: default.events}}]}}\nsnapshot_reader: {{type: parquet, decode_threads: {value}}}\n"
+        )).unwrap();
+        assert!(config.validate().is_err());
+        let settings = super::parquet::ParquetReadSettings {
+            compression: ClickHouseParquetCompression::Zstd,
+            max_threads: 1,
+            row_group_rows: 1,
+            decode_threads: value,
+            max_response_bytes: 1024,
+        };
+        assert!(super::parquet::ParquetTransport::new(&config, settings).is_err());
+    }
+}
+
+#[test]
 fn metadata_catalog_batch_preserves_native_columns_and_isolates_missing_or_bad_tables(
 ) -> anyhow::Result<()> {
     use arrow::array::StringArray;

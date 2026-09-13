@@ -20,6 +20,43 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
    the reason and trade-off in the handoff. The prohibition on silent user-visible
    transformations below is not covered by this exception.
 
+## Maximum shift-left validation and explicit contracts
+
+- **Move every check to the earliest boundary where its inputs are known.**
+  Prefer compile-time constraints and valid-by-construction types; otherwise
+  validate in constructors, factories, `TryFrom`, or a builder's `build` method.
+  Do not publish an operational object and ask its consumers to remember a
+  separate `validate()` call for its intrinsic invariants.
+- An operational object's existence must guarantee that it is internally
+  consistent, valid, and non-contradictory. Keep invariant-bearing fields private
+  and expose only mutations that preserve the contract. Deserialization, alternate
+  constructors, defaults, cloning, and conversions must not bypass that guarantee.
+  Prefer types that make invalid combinations unrepresentable over boolean flags
+  and repeated defensive checks.
+- Explicitly distinguish raw input, UI drafts, wire DTOs, and partially resolved
+  configuration from validated execution objects. Incomplete drafts are legitimate;
+  they must cross a fallible validation boundary before use as operational state.
+  Never turn invalid input into a valid object by silently substituting defaults,
+  coercing values, dropping data, or panicking.
+- Document each non-trivial contract next to its owning type or constructor:
+  invariants, units and ranges, identity/null/absence semantics, validation timing,
+  permitted mutations, errors, and what still depends on external state. Shared
+  cross-component contracts should also have a discoverable architecture document.
+- Apply judgment: do not perform network I/O in a pure constructor or repeat
+  expensive checks on every accessor. Validate configuration-only constraints
+  before connecting; validate discovery-dependent constraints when discovery
+  completes, before destination preparation or worker startup. Validate new records
+  when constructing Arrow/runtime objects, before buffering or side effects.
+- Constructor validation does **not** replace checks for new untrusted input,
+  schema drift, external state changes, or data-dependent destination constraints.
+  Revalidate those at their owning runtime boundary before write/commit/acknowledge.
+  Centralize each invariant rather than maintaining divergent validation copies.
+- Every migrated contract needs regression coverage for rejected construction,
+  alternate construction/deserialization paths, and invariant-preserving mutation;
+  retain runtime-boundary coverage where the assumptions can change. Update all
+  callers together. Record justified exceptions and unreviewed areas explicitly;
+  a repository scan alone is not proof of full compliance.
+
 ## Data preservation is the highest priority
 
 - **Above all else, do not lose user data.** When safety, convenience,

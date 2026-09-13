@@ -96,6 +96,25 @@ fn stored_projection_follows_the_discovered_system_column_policy() -> anyhow::Re
 }
 
 #[test]
+fn discovery_rejects_repeated_system_roles_even_with_distinct_names() {
+    for keep in [false, true] {
+        let mut discovery = projection_discovery(keep);
+        let dataset = &mut discovery.datasets[0];
+        let column = SchemaColumn::new("another_offset".into(), DataType::Int64, false);
+        dataset.incoming_schema.columns.push(column.clone());
+        if keep {
+            dataset.stored_schema.columns.push(column);
+        }
+        let mut system = dataset.system_columns[0].clone();
+        system.name = "another_offset".into();
+        dataset.system_columns.push(system);
+        let error = validate_stored_projection(&discovery, &discovery.datasets[0])
+            .expect_err("duplicate semantic roles must fail before runtime");
+        assert!(error.to_string().contains("repeats system column kind Offset"));
+    }
+}
+
+#[test]
 fn stored_projection_rejects_partial_or_user_column_loss() {
     let mut partial = projection_discovery(true);
     partial.datasets[0].stored_schema.columns.pop();

@@ -290,6 +290,8 @@ async fn build_pipeline_plan(
     let durable = config.durable_storage.build(&durable_id)?;
     let metrics_registry = Arc::new(MetricsRegistry::new());
     let catalog = composition.build_registry(&metrics_registry)?;
+    // Static transform contracts need no connector construction or discovery.
+    let middlewares = crate::middleware::build_middlewares(&catalog, &config.middlewares)?;
     let source_config = config.source.raw()?.clone();
     let sink_config = config.sink.raw()?.clone();
     let source_connector: Arc<dyn SourceConnector> =
@@ -329,7 +331,6 @@ async fn build_pipeline_plan(
         "source delivery discovery returned a system-column projection different from the requested policy"
     );
 
-    let middlewares = crate::middleware::build_middlewares(&catalog, &config.middlewares)?;
     let mut discovery = validate_middlewares(&middlewares, discovery).await?;
     discovery
         .performance_advice

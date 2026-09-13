@@ -39,6 +39,8 @@ pub(super) struct ParquetTransport {
     password: Arc<str>,
     client: OutboundHttpClient,
     settings: ParquetReadSettings,
+    /// Validated once at construction; cloning preserves the capacity contract.
+    channel_capacity: usize,
 }
 
 impl ParquetTransport {
@@ -46,6 +48,7 @@ impl ParquetTransport {
         config: &ClickHouseSourceConfig,
         settings: ParquetReadSettings,
     ) -> anyhow::Result<Self> {
+        let channel_capacity = super::config::parquet_channel_capacity(settings.decode_threads)?;
         let roots = match &config.tls_ca_file {
             Some(path) => {
                 let pem = std::fs::read(path)
@@ -67,6 +70,7 @@ impl ParquetTransport {
                 NetworkPolicy::AllowPrivateNetworks,
             )?,
             settings,
+            channel_capacity,
         })
     }
 
@@ -77,8 +81,7 @@ impl ParquetTransport {
         counters: Arc<SourceCounters>,
         cancellation: CancellationToken,
     ) -> SnapshotStream {
-        let capacity = self.settings.decode_threads.saturating_mul(2).max(1);
-        let (sender, mut receiver) = mpsc::channel(capacity);
+        let (sender, mut receiver) = mpsc::channel(self.channel_capacity);
         let transport = self.clone();
         tokio::spawn(async move {
             if let Err(error) = transport

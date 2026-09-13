@@ -4,6 +4,46 @@ use transferia_core::delivery::SinkLimits;
 
 struct UnusedComposition;
 
+struct EmptyComposition;
+
+impl Composition for EmptyComposition {
+    fn fingerprint(&self) -> &'static str { "empty-test-composition" }
+    fn definitions(&self) -> &[transferia_registry::ConnectorDefinition] { &[] }
+    fn build_registry(&self, _: &Arc<MetricsRegistry>) -> anyhow::Result<transferia_registry::Registry> {
+        Ok(transferia_registry::RegistryBuilder::new().build())
+    }
+    fn resolve_many(
+        &self,
+        _: &str,
+        _: EndpointRole,
+        _: serde_yaml::Value,
+        _: CancellationToken,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<Vec<serde_yaml::Value>>> + Send + '_>> {
+        Box::pin(async { panic!("direct pipeline construction must not resolve endpoints") })
+    }
+}
+
+#[tokio::test]
+async fn invalid_transform_is_rejected_before_connector_construction() -> anyhow::Result<()> {
+    let config = Config::from_yaml(r"
+delivery_id: static-validation
+delivery_name: Static validation
+delivery_type: batch
+durable_storage: {type: local_file, path: /tmp/transferia-static-validation}
+source: {unregistered: {}}
+sink: {unregistered: {}}
+middlewares:
+  - tables: {include: '[' , include_mode: regex}
+    unregistered: {}
+")?;
+    let error = build_pipeline_plan(
+        config, None, "unregistered", "unregistered", CancellationToken::new(),
+        &EmptyComposition, 1, 0, None,
+    ).await.err().expect("invalid transform must fail before unknown source construction");
+    assert!(error.to_string().contains("transform step 1"), "{error:#}");
+    Ok(())
+}
+
 struct RejectSecondSchema;
 
 #[async_trait::async_trait]

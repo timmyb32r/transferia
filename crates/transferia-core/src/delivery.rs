@@ -577,7 +577,15 @@ fn validate_projection_names_and_system_columns(
         dataset.role,
         dataset.name,
     );
+    let mut system_kinds = HashSet::with_capacity(dataset.system_columns.len());
     for system in &dataset.system_columns {
+        anyhow::ensure!(
+            system_kinds.insert(system.kind),
+            "discovered {:?} dataset '{}' repeats system column kind {:?}",
+            dataset.role,
+            dataset.name,
+            system.kind,
+        );
         let matching = dataset
             .incoming_schema
             .columns

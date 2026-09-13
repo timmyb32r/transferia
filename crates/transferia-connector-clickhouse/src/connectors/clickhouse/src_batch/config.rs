@@ -274,10 +274,7 @@ impl ClickHouseSnapshotReader {
             );
         }
         if let Some(value) = decode_threads {
-            anyhow::ensure!(
-                value > 0,
-                "clickhouse Parquet decode_threads must be positive"
-            );
+            parquet_channel_capacity(value)?;
         }
         if let Some(value) = max_response_bytes {
             anyhow::ensure!(
@@ -311,6 +308,18 @@ const fn default_parquet_max_threads() -> usize {
 const fn default_parquet_row_group_rows() -> usize {
     250_000
 }
+/// Two queued batches per decoder; Tokio's semaphore bounds channel capacity.
+/// Validate before any transport is built, without clamping authored values.
+pub(super) fn parquet_channel_capacity(decode_threads: usize) -> anyhow::Result<usize> {
+    anyhow::ensure!(decode_threads > 0, "clickhouse Parquet decode_threads must be positive");
+    let maximum = tokio::sync::Semaphore::MAX_PERMITS / 2;
+    anyhow::ensure!(
+        decode_threads <= maximum,
+        "clickhouse Parquet decode_threads must be at most {maximum} for the decode channel"
+    );
+    Ok(decode_threads * 2)
+}
+
 const fn default_parquet_decode_threads() -> usize {
     16
 }
