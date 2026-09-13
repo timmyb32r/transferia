@@ -619,6 +619,27 @@ pub(super) fn events_to_table_data(
         }
     }
     validate_old_values(table, events)?;
+    // Validate normalized availability before allocating arrays. Checking SQL
+    // nullness here would conflate a legitimate NULL with unchanged TOAST.
+    for (row, event) in events.iter().enumerate() {
+        for (index, column) in table.schema.columns.iter().enumerate() {
+            let presence = match event.operation {
+                ChangeOperation::Update => column.update_value_presence,
+                ChangeOperation::Delete => column.delete_value_presence,
+                ChangeOperation::Create | ChangeOperation::SnapshotRead => continue,
+            };
+            if presence == transferia_core::ValuePresence::Guaranteed {
+                let value = event_value(event, index, LogicalProjection::Current {
+                    old_fallback: table.replica_identity_full,
+                });
+                anyhow::ensure!(
+                    !matches!(value, LogicalValue::UnchangedToast),
+                    "PostgreSQL {:?} row {row} column '{}.{}.{}' violates guaranteed normalized value presence",
+                    event.operation, table.config.schema, table.config.name, column.name,
+                );
+            }
+        }
+    }
     let old_columns = if table.replica_identity_full {
         table.schema.columns.len()
     } else {

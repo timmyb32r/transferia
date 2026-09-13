@@ -475,6 +475,49 @@ fn arrow_creation_rejects_omitted_fixed_width_updates_from_both_decoders() {
 }
 
 #[test]
+fn normalized_presence_is_checked_after_full_reconstruction_before_arrow() {
+    use transferia_core::ValuePresence;
+    use super::event::OldValuesKind;
+    let mut table = discovered_table();
+    for column in &mut table.schema.columns {
+        column.update_value_presence = ValuePresence::Guaranteed;
+        column.delete_value_presence = ValuePresence::Guaranteed;
+    }
+    table.replica_identity_full = true;
+    table.replica_identity = "f".into();
+    let mut decoder = PgOutputDecoder::default();
+    for message in [relation_message_with_identity(b'f'), begin_message(), full_identity_update_message()] {
+        decoder.decode(&message).unwrap();
+    }
+    let mut events = decoder.decode(&commit_message()).unwrap().into_iter()
+        .map(|event| normalize_pgoutput_event(&table, event).unwrap()).collect::<Vec<_>>();
+    // Unchanged text is reconstructed from the full old row, including SQL NULL.
+    events[0].values[1] = LogicalValue::UnchangedToast;
+    events[0].old_values.as_mut().unwrap()[1] = LogicalValue::Null;
+    for operation in [ChangeOperation::Update, ChangeOperation::Delete] {
+        events[0].operation = operation;
+        let data = events_to_table_data(&table, "postgres", &events).unwrap();
+        assert!(data.batch.column(1).is_null(0));
+        for key in [transferia_core::data::schema::META_UPDATE_VALUE_PRESENCE,
+                    transferia_core::data::schema::META_DELETE_VALUE_PRESENCE] {
+            assert_eq!(data.batch.schema().field(1).metadata().get(key).map(String::as_str), Some("guaranteed"));
+        }
+    }
+    events[0].old_values.as_mut().unwrap()[1] = LogicalValue::UnchangedToast;
+    assert!(events_to_table_data(&table, "postgres", &events).is_err());
+    // An incorrectly advertised guarantee outside FULL must also fail, rather
+    // than replacing an absent value with an Arrow NULL.
+    table.replica_identity_full = false;
+    table.replica_identity = "d".into();
+    events[0].old_values_kind = Some(OldValuesKind::Key);
+    for operation in [ChangeOperation::Update, ChangeOperation::Delete] {
+        events[0].operation = operation;
+        assert!(events_to_table_data(&table, "postgres", &events).unwrap_err()
+            .to_string().contains("guaranteed normalized value presence"));
+    }
+}
+
+#[test]
 fn replica_identity_full_emits_bijective_old_columns_and_complete_current_rows() {
     let mut table = discovered_table();
     table.replica_identity_full = true;

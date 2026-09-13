@@ -14,7 +14,7 @@ pub use data::changelog::{
 // SourceBatch includes ordered dataset admission as well as raw/typed records.
 pub use data::message::{Message, MessageHeader, MessageMeta, SourceBatch};
 pub use data::record_batch::{compact_record_batch, compact_record_batch_chunks};
-pub use data::schema::{DatasetSchema, SchemaColumn};
+pub use data::schema::{DatasetSchema, SchemaColumn, ValuePresence};
 pub use data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 pub use data::table_data::TableData;
 pub use delivery::{

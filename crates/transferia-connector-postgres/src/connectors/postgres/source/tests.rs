@@ -1,6 +1,29 @@
 use std::sync::Arc;
 
 #[test]
+fn normalized_presence_is_derived_at_the_shared_metadata_boundary() -> anyhow::Result<()> {
+    use transferia_core::{SchemaColumn, ValuePresence};
+    use arrow::datatypes::DataType;
+    for identity in ["d", "f"] {
+        let mut id = SchemaColumn::new("id".into(), DataType::Int32, false)
+            .with_constraints(true, false, None);
+        id.always_present_on_update = true;
+        let columns = vec![id, SchemaColumn::new("body".into(), DataType::Utf8, true)];
+        let table = super::connector::assemble_metadata_table(
+            super::TableConfig { schema: "public".into(), name: "events".into() },
+            columns, vec![23, 25], identity.into(), 123,
+        )?;
+        assert_eq!(table.schema.columns[0].update_value_presence, ValuePresence::Guaranteed);
+        assert_eq!(table.schema.columns[0].delete_value_presence, ValuePresence::Guaranteed);
+        let expected = if identity == "f" { ValuePresence::Guaranteed } else { ValuePresence::MayBeAbsent };
+        assert_eq!(table.schema.columns[1].update_value_presence, expected);
+        assert_eq!(table.schema.columns[1].delete_value_presence, expected);
+        assert!(!table.schema.columns[1].always_present_on_update);
+    }
+    Ok(())
+}
+
+#[test]
 fn metadata_batch_keeps_native_types_and_explicit_pseudo_type_policy() -> anyhow::Result<()> {
     use super::{metadata::catalog_type, UnsupportedTypePolicy};
     use tokio_postgres::types::Type;

@@ -4,6 +4,8 @@ pub const META_PRIMARY_KEY: &str = "transferia.primary_key";
 pub const META_LOW_CARDINALITY: &str = "transferia.low_cardinality";
 pub const META_MAX_LENGTH: &str = "transferia.max_length";
 pub const META_ALWAYS_PRESENT_ON_UPDATE: &str = "transferia.always_present_on_update";
+pub const META_UPDATE_VALUE_PRESENCE: &str = "transferia.update_value_presence";
+pub const META_DELETE_VALUE_PRESENCE: &str = "transferia.delete_value_presence";
 pub const META_ARROW_EXTENSION_NAME: &str = "ARROW:extension:name";
 pub const META_ARROW_EXTENSION_METADATA: &str = "ARROW:extension:metadata";
 /// Identifies an incoming control column that is never part of stored user data.
@@ -47,6 +49,28 @@ impl DatasetSchema {
     }
 }
 
+/// Availability of a normalized source value, independent of SQL nullability.
+/// `Guaranteed` includes a present SQL NULL, but never an omitted value replaced
+/// with NULL. Sources must prove this after reconstruction, before Arrow creation.
+/// Derived columns must not inherit a guarantee without proving their semantics.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ValuePresence {
+    #[default]
+    MayBeAbsent,
+    Guaranteed,
+}
+
+impl ValuePresence {
+    /// Absence of the metadata key means no guarantee, including older schemas.
+    #[must_use]
+    pub const fn metadata_value(self) -> Option<&'static str> {
+        match self {
+            Self::MayBeAbsent => None,
+            Self::Guaranteed => Some("guaranteed"),
+        }
+    }
+}
+
 /// One logical column expressed in Arrow types, before sink-specific mapping.
 #[derive(Debug, Clone)]
 pub struct SchemaColumn {
@@ -61,6 +85,11 @@ pub struct SchemaColumn {
     /// present). Does not describe DELETE/old tuples or imply non-nullability.
     /// False means no guarantee, not that the column is necessarily omitted.
     pub always_present_on_update: bool,
+    /// Availability of the current (new) value in a normalized UPDATE row.
+    pub update_value_presence: ValuePresence,
+    /// Availability of the deleted value in a normalized DELETE row.
+    /// No claim is made about UPDATE old-value control columns.
+    pub delete_value_presence: ValuePresence,
     pub primary_key: bool,
     pub low_cardinality: bool,
     pub max_length: Option<usize>,
@@ -94,6 +123,8 @@ impl SchemaColumn {
             data_type,
             nullable,
             always_present_on_update: false,
+            update_value_presence: ValuePresence::MayBeAbsent,
+            delete_value_presence: ValuePresence::MayBeAbsent,
             primary_key: false,
             low_cardinality: false,
             max_length: None,
@@ -162,6 +193,14 @@ impl SchemaColumn {
     #[must_use]
     pub fn arrow_metadata(&self) -> std::collections::HashMap<String, String> {
         let mut metadata = std::collections::HashMap::new();
+        for (key, presence) in [
+            (META_UPDATE_VALUE_PRESENCE, self.update_value_presence),
+            (META_DELETE_VALUE_PRESENCE, self.delete_value_presence),
+        ] {
+            if let Some(value) = presence.metadata_value() {
+                metadata.insert(key.into(), value.into());
+            }
+        }
         if self.always_present_on_update {
             metadata.insert(META_ALWAYS_PRESENT_ON_UPDATE.into(), "true".into());
         }
@@ -203,6 +242,8 @@ impl PartialEq for SchemaColumn {
         self.name == other.name && self.data_type == other.data_type
             && self.nullable == other.nullable
             && self.always_present_on_update == other.always_present_on_update
+            && self.update_value_presence == other.update_value_presence
+            && self.delete_value_presence == other.delete_value_presence
             && self.primary_key == other.primary_key
             && self.low_cardinality == other.low_cardinality
             && self.max_length == other.max_length
