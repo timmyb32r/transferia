@@ -442,6 +442,39 @@ fn pgoutput_and_wal2json_mark_the_same_unchanged_toast_columns() {
 }
 
 #[test]
+fn arrow_creation_rejects_omitted_fixed_width_updates_from_both_decoders() {
+    let mut table = discovered_table();
+    table.schema.columns[0].always_present_on_update = true;
+    table.schema.columns[2].always_present_on_update = true;
+    let mut decoder = PgOutputDecoder::default();
+    for message in [relation_message(), begin_message(), toasted_update_message()] {
+        decoder.decode(&message).unwrap();
+    }
+    let pg = decoder.decode(&commit_message()).unwrap().into_iter()
+        .map(|event| normalize_pgoutput_event(&table, event).unwrap()).collect::<Vec<_>>();
+    let json = wal2json::decode(wal2json_toasted_transaction().as_bytes()).unwrap().events.into_iter()
+        .map(|event| normalize_wal2json_event(&table, event).unwrap()).collect::<Vec<_>>();
+    for mut events in [pg, json] {
+        let data = events_to_table_data(&table, "postgres", &events).unwrap();
+        assert_eq!(data.batch.schema().field(2).metadata().get(
+            transferia_core::data::schema::META_ALWAYS_PRESENT_ON_UPDATE
+        ).map(String::as_str), Some("true"));
+        events[0].values[2] = LogicalValue::Null;
+        // A present SQL NULL is not an omitted value (storage nullability is
+        // separately validated by the delivery's changelog contract).
+        assert!(events_to_table_data(&table, "postgres", &events).is_ok());
+        events[0].values[2] = LogicalValue::UnchangedToast;
+        let error = events_to_table_data(&table, "postgres", &events).unwrap_err();
+        assert!(error.to_string().contains("always-present-on-update"));
+        assert!(error.to_string().contains("balance"));
+        table.replica_identity_full = true;
+        assert!(events_to_table_data(&table, "postgres", &events).unwrap_err()
+            .to_string().contains("always-present-on-update"));
+        table.replica_identity_full = false;
+    }
+}
+
+#[test]
 fn replica_identity_full_emits_bijective_old_columns_and_complete_current_rows() {
     let mut table = discovered_table();
     table.replica_identity_full = true;

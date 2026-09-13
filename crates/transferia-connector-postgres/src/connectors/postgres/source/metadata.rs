@@ -16,7 +16,7 @@ pub(super) const CATALOG_QUERY: &str = r"
 WITH RECURSIVE requested AS (
     SELECT * FROM unnest($1::text[], $2::text[]) WITH ORDINALITY AS r(namespace, name, request_ordinal)
 ), attributes AS (
-    SELECT r.*, c.oid AS relation_oid, c.relreplident, a.attnum, a.attname, a.atttypid
+    SELECT r.*, c.oid AS relation_oid, c.relreplident, a.attnum, a.attname, a.atttypid, a.attlen, a.atttypmod
     FROM requested r
     LEFT JOIN pg_catalog.pg_namespace n ON n.nspname = r.namespace
     LEFT JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid AND c.relname = r.name
@@ -29,7 +29,8 @@ WITH RECURSIVE requested AS (
     FROM resolved_types r JOIN pg_catalog.pg_type t ON t.oid = r.typbasetype WHERE r.typbasetype <> 0
 )
 SELECT a.request_ordinal, a.relation_oid, a.relreplident::text AS replica_identity,
-    a.attnum, a.attname::text AS column_name, a.atttypid AS physical_oid,
+    a.attnum, a.attname::text AS column_name, a.atttypid AS physical_oid, a.attlen,
+    pg_catalog.format_type(a.atttypid, a.atttypmod) AS source_type,
     t.effective_oid, t.typname::text AS type_name, t.typtype::text AS type_kind, tn.nspname::text AS type_namespace,
     ic.is_nullable = 'YES' AS nullable,
     EXISTS (SELECT 1 FROM pg_catalog.pg_index i WHERE i.indrelid = a.relation_oid AND i.indisprimary AND a.attnum = ANY(i.indkey)) AS primary_key
@@ -249,13 +250,14 @@ fn decode_table(
                 &name, &data_type, policy,
             )?,
         );
-        columns.push(
-            SchemaColumn::new(name, arrow_type, nullable).with_constraints(
-                row.try_get("primary_key")?,
-                false,
-                None,
-            ),
+        let mut column = SchemaColumn::new(name, arrow_type, nullable).with_constraints(
+            row.try_get("primary_key")?,
+            false,
+            None,
         );
+        column.always_present_on_update = row.try_get::<_, i16>("attlen")? > 0;
+        column.source_type = Some(row.try_get("source_type")?);
+        columns.push(column);
         type_oids.push(row.try_get("physical_oid")?);
     }
     let discovered = assemble_metadata_table(

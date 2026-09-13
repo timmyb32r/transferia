@@ -429,6 +429,7 @@ pub async fn validate_middlewares(
 /// middleware projection; ordinary source name collisions still fail validation.
 pub(crate) fn merge_compatible_datasets(datasets: &mut Vec<transferia_core::DiscoveredDataset>) -> anyhow::Result<()> {
     let mut identities = std::collections::BTreeMap::new();
+    let mut ambiguous_source_types = Vec::new();
     let mut retained = Vec::with_capacity(datasets.len());
     for (index, dataset) in datasets.iter().enumerate() {
         if dataset.role != DatasetRole::Main {
@@ -444,6 +445,14 @@ pub(crate) fn merge_compatible_datasets(datasets: &mut Vec<transferia_core::Disc
                 && previous.update_policy == dataset.update_policy,
                 "Cannot merge tables into {:?}.{:?}: incompatible output schemas or record semantics; column order, types, nullability, keys and metadata must be identical",
                 dataset.namespace, dataset.name);
+            for (incoming, (left, right)) in [(false, (&previous.stored_schema, &dataset.stored_schema)),
+                (true, (&previous.incoming_schema, &dataset.incoming_schema))] {
+                for (column, (left, right)) in left.columns.iter().zip(&right.columns).enumerate() {
+                    if left.source_type != right.source_type {
+                        ambiguous_source_types.push((previous_index, incoming, column));
+                    }
+                }
+            }
             anyhow::ensure!(!dataset.stored_schema.columns.iter().any(|column| column.primary_key),
                 "Cannot merge tables into {:?}.{:?}: primary-key tables require cross-source key conflict validation; equal schemas alone cannot guarantee preservation of rows",
                 dataset.namespace, dataset.name);
@@ -453,6 +462,11 @@ pub(crate) fn merge_compatible_datasets(datasets: &mut Vec<transferia_core::Disc
         }
     }
     // All validation completes before changing the discovery.
+    for (dataset, incoming, column) in ambiguous_source_types {
+        let schema = if incoming { &mut datasets[dataset].incoming_schema }
+            else { &mut datasets[dataset].stored_schema };
+        schema.columns[column].source_type = None;
+    }
     let mut index = 0;
     let mut retained = retained.into_iter().peekable();
     datasets.retain(|_| {

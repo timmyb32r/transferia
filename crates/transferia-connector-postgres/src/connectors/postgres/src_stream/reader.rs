@@ -599,6 +599,25 @@ pub(super) fn events_to_table_data(
     database: &str,
     events: &[ChangeEvent],
 ) -> anyhow::Result<TableData> {
+    // Validate the declared presence contract before allocating Arrow arrays,
+    // including before REPLICA IDENTITY FULL could fill values from old tuples.
+    for (row, event) in events.iter().enumerate() {
+        anyhow::ensure!(
+            event.values.len() == table.schema.columns.len()
+                && event.old_values.as_ref().is_none_or(|values| values.len() == table.schema.columns.len()),
+            "PostgreSQL row {row} tuple width does not match discovery for '{}.{}'",
+            table.config.schema, table.config.name,
+        );
+        if event.operation == ChangeOperation::Update {
+            for (column, value) in table.schema.columns.iter().zip(&event.values) {
+                anyhow::ensure!(
+                    !column.always_present_on_update || !matches!(value, LogicalValue::UnchangedToast),
+                    "PostgreSQL UPDATE row {row} column '{}.{}.{}' violates always-present-on-update contract: unchanged TOAST",
+                    table.config.schema, table.config.name, column.name,
+                );
+            }
+        }
+    }
     validate_old_values(table, events)?;
     let old_columns = if table.replica_identity_full {
         table.schema.columns.len()

@@ -70,7 +70,8 @@ pub fn parse_schema(value: Value) -> anyhow::Result<DatasetSchema> {
                 yt_to_arrow(&column.legacy_type)?,
                 !column.required,
             )
-            .with_constraints(unique_keys && column.sort_order.is_some(), false, None))
+            .with_constraints(unique_keys && column.sort_order.is_some(), false, None)
+            .with_source_type(column.legacy_type))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(DatasetSchema::new(columns))

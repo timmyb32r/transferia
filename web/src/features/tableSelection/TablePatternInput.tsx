@@ -103,6 +103,7 @@ export function TablePatternInput({ id, label, value, mode, disabled, required, 
       aria-label={label} aria-autocomplete={catalog ? "list" : undefined} aria-expanded={catalog ? open : undefined} aria-controls={catalog ? `${id}-suggestions` : undefined}
       aria-activedescendant={open && active >= 0 ? `${id}-suggestion-${active}` : undefined}
       aria-invalid={invalid} required={required}
+      title={required && value.length === 0 ? "Required: enter a table name or pattern." : undefined}
       aria-describedby={fullName ? `${id}-full-name` : undefined}
       placeholder={placeholder ?? (required ? `${namespace}.table or ${namespace}.*` : "Optional pattern")}
       value={value} disabled={disabled} onFocus={() => setFocused(true)}

@@ -489,6 +489,12 @@ function completionIssue(
   hiddenAncestor: boolean,
 ): CompletionIssue | undefined {
   const hidden = hiddenAncestor || node.hidden === true;
+  // The table picker renders an empty Include row for an empty selected list.
+  // Treat that draft as a required field, not a discovery-ready empty catalog.
+  if (node.xUi.widget === "table_selection" && value !== undefined && isObject(value)
+      && value.type === "selected" && Array.isArray(value.rules) && value.rules.length === 0) {
+    return { path: `${path}/rules/0/include`, code: "missing", hidden };
+  }
   if (value === undefined) {
     if (!required) return undefined;
     if (node.kind === "object" && !hidden) {

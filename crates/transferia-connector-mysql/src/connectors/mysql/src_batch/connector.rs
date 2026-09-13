@@ -1779,6 +1779,7 @@ pub(super) fn assemble_table(
                     column.nullable,
                 )
                 .with_constraints(column.primary_key, false, column.max_length)
+                .with_source_type(column.column_type.clone())
                 .with_arrow_extension_metadata(
                     column.kind.arrow_extension_name(),
                     column.arrow_extension_metadata()?,

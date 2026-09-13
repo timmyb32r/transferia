@@ -47,6 +47,7 @@ export type ColumnView = {
   name: string;
   nullable: boolean;
   primary_key: boolean;
+  source_type?: string;
 };
 
 export type ConfigRequest = {
@@ -133,6 +134,7 @@ export type DestinationColumnView = {
   name: string;
   nullable: boolean;
   primary_key: boolean;
+  source_type?: string;
 };
 
 export type DiscoveryResult = {

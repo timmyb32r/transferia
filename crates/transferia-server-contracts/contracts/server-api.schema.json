@@ -104,6 +104,13 @@
         },
         "primary_key": {
           "type": "boolean"
+        },
+        "source_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-omit-none": true
         }
       },
       "required": [
@@ -457,6 +464,13 @@
         },
         "primary_key": {
           "type": "boolean"
+        },
+        "source_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-omit-none": true
         }
       },
       "required": [

@@ -3,6 +3,7 @@ use arrow::datatypes::DataType;
 pub const META_PRIMARY_KEY: &str = "transferia.primary_key";
 pub const META_LOW_CARDINALITY: &str = "transferia.low_cardinality";
 pub const META_MAX_LENGTH: &str = "transferia.max_length";
+pub const META_ALWAYS_PRESENT_ON_UPDATE: &str = "transferia.always_present_on_update";
 pub const META_ARROW_EXTENSION_NAME: &str = "ARROW:extension:name";
 pub const META_ARROW_EXTENSION_METADATA: &str = "ARROW:extension:metadata";
 /// Identifies an incoming control column that is never part of stored user data.
@@ -47,11 +48,19 @@ impl DatasetSchema {
 }
 
 /// One logical column expressed in Arrow types, before sink-specific mapping.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct SchemaColumn {
     pub name: String,
+    /// Source-authored native declaration for inspection, not an Arrow type or
+    /// a destination constraint. Derived columns have no native declaration.
+    /// Excluded from schema compatibility and runtime Arrow field metadata.
+    pub source_type: Option<String>,
     pub data_type: DataType,
     pub nullable: bool,
+    /// The new tuple of every UPDATE contains this column (SQL NULL counts as
+    /// present). Does not describe DELETE/old tuples or imply non-nullability.
+    /// False means no guarantee, not that the column is necessarily omitted.
+    pub always_present_on_update: bool,
     pub primary_key: bool,
     pub low_cardinality: bool,
     pub max_length: Option<usize>,
@@ -81,8 +90,10 @@ impl SchemaColumn {
     pub const fn new(name: String, data_type: DataType, nullable: bool) -> Self {
         Self {
             name,
+            source_type: None,
             data_type,
             nullable,
+            always_present_on_update: false,
             primary_key: false,
             low_cardinality: false,
             max_length: None,
@@ -92,6 +103,12 @@ impl SchemaColumn {
             old_value_of: None,
             old_key_of: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_source_type(mut self, declaration: impl Into<String>) -> Self {
+        self.source_type = Some(declaration.into());
+        self
     }
 
     #[must_use]
@@ -145,6 +162,9 @@ impl SchemaColumn {
     #[must_use]
     pub fn arrow_metadata(&self) -> std::collections::HashMap<String, String> {
         let mut metadata = std::collections::HashMap::new();
+        if self.always_present_on_update {
+            metadata.insert(META_ALWAYS_PRESENT_ON_UPDATE.into(), "true".into());
+        }
         if self.primary_key {
             metadata.insert(META_PRIMARY_KEY.into(), "true".into());
         }
@@ -175,6 +195,26 @@ impl SchemaColumn {
         metadata
     }
 }
+
+// Native declarations are provenance, not the physical Arrow schema. Including
+// them would reject otherwise compatible tables renamed into one output.
+impl PartialEq for SchemaColumn {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.data_type == other.data_type
+            && self.nullable == other.nullable
+            && self.always_present_on_update == other.always_present_on_update
+            && self.primary_key == other.primary_key
+            && self.low_cardinality == other.low_cardinality
+            && self.max_length == other.max_length
+            && self.arrow_extension_name == other.arrow_extension_name
+            && self.arrow_extension_metadata == other.arrow_extension_metadata
+            && self.system_role == other.system_role
+            && self.old_value_of == other.old_value_of
+            && self.old_key_of == other.old_key_of
+    }
+}
+
+impl Eq for SchemaColumn {}
 
 #[cfg(test)]
 #[path = "../tests/schema.rs"]

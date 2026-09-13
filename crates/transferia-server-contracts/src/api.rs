@@ -610,6 +610,10 @@ impl From<DatasetRole> for DatasetRoleView {
 pub struct ColumnView {
     pub name: String,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
+    pub source_type: Option<String>,
+
     pub arrow_type: String,
 
     pub nullable: bool,
@@ -874,6 +878,7 @@ pub fn fixture() -> anyhow::Result<Value> {
             intermediate_columns: vec![
                 ColumnView {
                     name: "id".to_owned(),
+                    source_type: None,
                     arrow_type: "Utf8".to_owned(),
                     nullable: false,
                     primary_key: true,
@@ -882,6 +887,7 @@ pub fn fixture() -> anyhow::Result<Value> {
                 },
                 ColumnView {
                     name: "created_at".to_owned(),
+                    source_type: None,
                     arrow_type: "Timestamp(Millisecond, None)".to_owned(),
                     nullable: true,
                     primary_key: false,
@@ -892,6 +898,7 @@ pub fn fixture() -> anyhow::Result<Value> {
             final_columns: vec![DestinationColumnView {
                 column: ColumnView {
                     name: "id".to_owned(),
+                    source_type: None,
                     arrow_type: "Utf8".to_owned(),
                     nullable: false,
                     primary_key: true,

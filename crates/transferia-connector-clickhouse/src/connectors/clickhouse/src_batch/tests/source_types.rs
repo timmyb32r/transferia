@@ -418,6 +418,7 @@ fn assert_native_contract(declaration: &str, expected: &DataType, nullable: bool
         let metadata: serde_json::Value =
             serde_json::from_str(column.arrow_extension_metadata.as_deref().unwrap()).unwrap();
         assert_eq!(metadata["source_type"], declaration);
+        assert_eq!(column.source_type.as_deref(), Some(declaration));
         assert_eq!(metadata["conversion"], "native");
     }
 }

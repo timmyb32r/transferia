@@ -2619,6 +2619,7 @@ fn transform_preview_frame(
 fn column_view(column: &transferia_core::data::schema::SchemaColumn) -> ColumnView {
     ColumnView {
         name: column.name.clone(),
+        source_type: column.source_type.clone(),
         arrow_type: column
             .arrow_extension_name
             .map_or_else(|| format!("{:?}", column.data_type), str::to_owned),

@@ -183,6 +183,7 @@ pub(super) fn dataset_schema(columns: &[ColumnPlan]) -> DatasetSchema {
                     column.nullable,
                 )
                 .with_constraints(column.primary_key, false, None);
+                schema.source_type = native_type_label(&column.declared_type);
                 if let Some(extension) = column.kind.extension() {
                     schema = schema.with_arrow_extension(extension);
                 }
@@ -222,6 +223,15 @@ fn column_kind(value: &Type) -> anyhow::Result<(ColumnKind, bool)> {
         }
         Some(other) => anyhow::bail!("unsupported YDB column type {other:?}"),
         None => anyhow::bail!("YDB column type is empty"),
+    }
+}
+
+fn native_type_label(value: &Type) -> Option<String> {
+    match value.r#type.as_ref()? {
+        r#type::Type::TypeId(id) => PrimitiveTypeId::try_from(*id).ok().map(|kind| format!("{kind:?}")),
+        r#type::Type::OptionalType(optional) => Some(format!("Optional<{}>", native_type_label(optional.item.as_deref()?)?)),
+        r#type::Type::DecimalType(decimal) => Some(format!("Decimal({}, {})", decimal.precision, decimal.scale)),
+        _ => None,
     }
 }
 

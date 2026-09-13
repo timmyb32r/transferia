@@ -12,6 +12,31 @@ import type { DiscoveryResult } from "../src/types";
 afterEach(cleanup);
 
 describe("data schema view", () => {
+  it("shows discovered native types without guessing types for generated columns", () => {
+    const column = { name: "amount", arrow_type: "Utf8", source_type: "numeric(38,12)",
+      destination_type: "String", nullable: false, primary_key: false, low_cardinality: false };
+    const result: DiscoveryResult = { source: "postgres", sink: "unselected", pipeline_count: 1,
+      performance_advice: [], sink_limits: { sink: "unselected", supported_arrow_types: [] },
+      datasets: [{ name: "orders", role: "Main", intermediate_columns: [], final_columns: [column,
+        { name: "derived", arrow_type: "Int64", destination_type: "Int64", nullable: false, primary_key: false, low_cardinality: false }] }],
+    };
+    const view = render(<DataSchemaInspector result={result} onHide={() => undefined} />);
+    const picker = view.getByRole("button", { name: "orders" });
+    const hide = view.getByRole("button", { name: "Hide schema inspector" });
+    fireEvent.click(view.getByRole("tab", { name: "Source types" }));
+    expect(view.getByRole("columnheader", { name: "Source type" })).toBeTruthy();
+    expect(view.getByText("numeric(38,12)")).toBeTruthy();
+    expect(view.getByRole("rowheader", { name: "derived" }).parentElement?.querySelector("code")?.textContent).toBe("—");
+    expect(view.getByRole("button", { name: "orders" })).toBe(picker);
+    expect(view.getByRole("button", { name: "Hide schema inspector" })).toBe(hide);
+    const { source_type: _native, ...parsed } = column;
+    view.rerender(<DataSchemaInspector result={{ ...result, source: "kafka", datasets: [
+      { ...result.datasets[0]!, final_columns: [parsed] },
+    ] }} onHide={() => undefined} />);
+    expect((view.getByRole("tab", { name: "Source types" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(view.getByRole("tab", { name: "Arrow types" }).getAttribute("aria-selected")).toBe("true");
+    expect(view.queryByText("numeric(38,12)")).toBeNull();
+  });
   it("shows one selected table instead of a scrolling list", () => {
     const dataset = (name: string, role: "Main" | "DeadLetterQueue" = "Main") => ({
       role,

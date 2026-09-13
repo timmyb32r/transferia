@@ -159,7 +159,7 @@ export function DataSchemaInspector({
 }) {
   const [selectedTable, setSelectedTable] = useState("");
   const [collapsed, setCollapsed] = useState(false);
-  const [typeView, setTypeView] = useState<"arrow" | "destination">("arrow");
+  const [requestedTypeView, setTypeView] = useState<"source" | "arrow" | "destination">("arrow");
   const [changedColumns, setChangedColumns] = useState<Set<string>>(
     () => new Set(),
   );
@@ -174,14 +174,17 @@ export function DataSchemaInspector({
   const destinationTypesAvailable = result.sink !== "unselected";
   const selected =
     datasets.find((dataset) => dataset.name === selectedTable) ?? datasets[0];
+  const sourceTypesAvailable = selected?.final_columns.some(column => column.source_type !== undefined) ?? false;
+  const typeView = (requestedTypeView === "source" && !sourceTypesAvailable)
+    || (requestedTypeView === "destination" && !destinationTypesAvailable) ? "arrow" : requestedTypeView;
 
   useEffect(() => {
     if (selected !== undefined && selected.name !== selectedTable)
       setSelectedTable(selected.name);
   }, [selected?.name, selectedTable]);
   useEffect(() => {
-    if (!destinationTypesAvailable) setTypeView("arrow");
-  }, [destinationTypesAvailable]);
+    if (requestedTypeView !== typeView) setTypeView(typeView);
+  }, [requestedTypeView, typeView]);
   useEffect(() => {
     const next = columnFingerprints(result);
     const changed = new Set(
@@ -277,6 +280,17 @@ export function DataSchemaInspector({
             <div class="schema-inspector-type-tabs editor-view-tabs" role="tablist" aria-label="Column type view">
               <Button variant="plain"
                 role="tab"
+                aria-selected={typeView === "source"}
+                class={typeView === "source" ? "active" : undefined}
+                disabled={!sourceTypesAvailable}
+                title={sourceTypesAvailable ? "Show native types reported by source discovery"
+                  : "No native source types: columns are parser-defined, derived, or the source does not report them"}
+                onClick={() => setTypeView("source")}
+              >
+                Source types
+              </Button>
+              <Button variant="plain"
+                role="tab"
                 aria-selected={typeView === "arrow"}
                 class={typeView === "arrow" ? "active" : undefined}
                 onClick={() => setTypeView("arrow")}
@@ -308,7 +322,7 @@ export function DataSchemaInspector({
                 role="row"
               >
                 <span role="columnheader">Column</span>
-                <span role="columnheader">{typeView === "arrow" ? "Arrow type" : "Destination type"}</span>
+                <span role="columnheader">{typeView === "source" ? "Source type" : typeView === "arrow" ? "Arrow type" : "Destination type"}</span>
                 <span role="columnheader">PK</span>
                 <span role="columnheader">Not null</span>
               </div>
@@ -322,7 +336,7 @@ export function DataSchemaInspector({
                   >
                     <strong role="rowheader" title={column.name}>{column.name}</strong>
                     <code role="cell">
-                      {typeView === "arrow"
+                      {typeView === "source" ? column.source_type ?? "—" : typeView === "arrow"
                         ? column.arrow_type
                         : column.destination_type}
                     </code>

@@ -312,7 +312,7 @@ fn dataset_schema(
             .fields()
             .iter()
             .map(|field| {
-                SchemaColumn::new(
+                let mut column = SchemaColumn::new(
                     field.name().clone(),
                     logical_data_type(field.name(), field.data_type()),
                     field.is_nullable(),
@@ -321,7 +321,10 @@ fn dataset_schema(
                     identifiers.contains(field.name().as_str()),
                     false,
                     None,
-                )
+                );
+                column.source_type = iceberg_schema.field_by_name(field.name())
+                    .map(|native| native.field_type.to_string());
+                column
             })
             .collect(),
     )

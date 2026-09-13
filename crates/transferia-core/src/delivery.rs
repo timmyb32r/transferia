@@ -7,7 +7,7 @@ use serde::Serialize;
 use crate::data::schema::{
     DatasetSchema, SchemaColumn, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME,
     META_LOW_CARDINALITY, META_MAX_LENGTH, META_OLD_KEY_OF, META_OLD_VALUE_OF, META_PRIMARY_KEY,
-    META_SYSTEM_ROLE,
+    META_SYSTEM_ROLE, META_ALWAYS_PRESENT_ON_UPDATE,
 };
 use crate::data::system_columns::SystemColumnKind;
 use crate::sink::SinkBatch;
@@ -373,6 +373,8 @@ pub fn validate_batch_against_discovery<'a>(
                 .get(META_PRIMARY_KEY)
                 .is_some_and(|value| value == "true")
                 == expected_column.primary_key
+                && metadata.get(META_ALWAYS_PRESENT_ON_UPDATE).map(String::as_str)
+                    == expected_column.always_present_on_update.then_some("true")
                 && metadata
                     .get(META_LOW_CARDINALITY)
                     .is_some_and(|value| value == "true")
@@ -605,6 +607,7 @@ fn stored_column_matches((stored, incoming): (&SchemaColumn, &SchemaColumn)) -> 
         // effect; changelog projection validates them against the changed mask.
         && (stored.nullable == incoming.nullable || (!stored.nullable && incoming.nullable))
         && stored.primary_key == incoming.primary_key
+        && stored.always_present_on_update == incoming.always_present_on_update
         && stored.low_cardinality == incoming.low_cardinality
         && stored.max_length == incoming.max_length
         && stored.arrow_extension_name == incoming.arrow_extension_name

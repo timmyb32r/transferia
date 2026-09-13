@@ -1545,7 +1545,7 @@ pub async fn discover_table(
             "SELECT a.attname, a.atttypid, EXISTS (\
                  SELECT 1 FROM pg_index AS i \
                  WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)\
-             ) AS primary_key \
+             ) AS primary_key, a.attlen, pg_catalog.format_type(a.atttypid, a.atttypmod) AS source_type \
              FROM pg_attribute AS a \
              JOIN pg_class AS c ON c.oid = a.attrelid \
              JOIN pg_namespace AS n ON n.oid = c.relnamespace \
@@ -1590,14 +1590,20 @@ pub async fn discover_table(
                     column.name()
                 )
             })?;
-            Ok(SchemaColumn::new(
+            let mut schema_column = SchemaColumn::new(
                 column.name().to_owned(),
                 policy.arrow_type(column.type_()).with_context(|| {
                     format!("column '{}' type '{}'", column.name(), column.type_())
                 })?,
                 nullable,
             )
-            .with_constraints(physical.get::<_, bool>(2), false, None))
+            .with_constraints(physical.get::<_, bool>(2), false, None);
+            // pgoutput only emits unchanged TOAST for varlena (attlen = -1).
+            // Fixed-width domains/enums/extensions are covered by the catalog,
+            // independent of our Arrow conversion or any current datum size.
+            schema_column.always_present_on_update = physical.try_get::<_, i16>(3)? > 0;
+            schema_column.source_type = Some(physical.try_get("source_type")?);
+            Ok(schema_column)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     let type_oids = physical_types

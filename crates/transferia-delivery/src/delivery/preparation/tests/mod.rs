@@ -175,6 +175,17 @@ fn merge_schema_comparison_preserves_every_column_attribute_and_order() {
     let mut keyed = original.clone();
     keyed.stored_schema.columns[0].primary_key = true;
     assert!(merge_compatible_datasets(&mut vec![keyed.clone(), keyed]).unwrap_err().to_string().contains("primary-key"));
+    let mut first = original.clone();
+    first.stored_schema.columns[0].source_type = Some("bigint".into());
+    first.incoming_schema.columns[0].source_type = Some("bigint".into());
+    let mut same = vec![first.clone(), first.clone()];
+    merge_compatible_datasets(&mut same).unwrap();
+    assert_eq!(same[0].stored_schema.columns[0].source_type.as_deref(), Some("bigint"));
+    let mut mixed = vec![first, original];
+    merge_compatible_datasets(&mut mixed).unwrap();
+    assert_eq!(mixed.len(), 1);
+    assert!(mixed[0].stored_schema.columns[0].source_type.is_none());
+    assert!(mixed[0].incoming_schema.columns[0].source_type.is_none());
 }
 
 impl SinkLimits for RecordingLimits {

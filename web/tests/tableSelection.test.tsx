@@ -16,6 +16,16 @@ import { metadataResponse } from "./support/metadata";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+it("marks the virtual empty Include as required without marking the Exclude field", () => {
+  const view = render(<TableCatalogContext.Provider value={{ tables: [], preview: vi.fn() }}>
+    <TableSelectionEditor value={{ type: "selected", rules: [] }} onChange={() => undefined} />
+  </TableCatalogContext.Provider>);
+  const include = view.getByRole("combobox", { name: "Include rule 1" });
+  expect(include.closest(".form-row")?.classList.contains("required-incomplete")).toBe(true);
+  expect(include.getAttribute("title")).toBe("Required: enter a table name or pattern.");
+  expect(view.container.querySelectorAll(".form-row.required-incomplete")).toHaveLength(1);
+});
+
 it("keeps parser table names namespace-less and escapes exact patterns without renaming them", () => {
   expect(qualifiedName({ namespace: "", name: "events" })).toBe("events");
   expect(exactPattern({ namespace: "", name: "events" }, "glob")).toBe("events");

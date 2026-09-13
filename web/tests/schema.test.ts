@@ -15,6 +15,28 @@ import { validateCatalogSchemas } from "../src/delivery/editorConfig";
 import type { JsonSchema, JsonValue } from "../src/types";
 
 describe("schema compiler", () => {
+  it("requires the visible Include draft when selected table rules are empty", () => {
+    const node = compileSchema({
+      "x-ui": { widget: "table_selection" },
+      oneOf: [
+        { type: "object", properties: {
+          type: { const: "selected" },
+          rules: { type: "array", items: { type: "object", properties: {
+            include: { type: "string" },
+          }, required: ["include"] } },
+        }, required: ["type", "rules"] },
+        { type: "object", properties: { type: { const: "all" } }, required: ["type"] },
+      ],
+    }, productionWidgetRegistry);
+    for (const rules of [[], [{ include: "" }]]) {
+      expect(firstCompletionIssue(node, { type: "selected", rules })).toMatchObject({
+        path: "#/rules/0/include", code: "missing",
+      });
+      expect(isComplete(node, { type: "selected", rules })).toBe(false);
+    }
+    expect(isComplete(node, { type: "selected", rules: [{ include: "public.*" }] })).toBe(true);
+    expect(isComplete(node, { type: "all" })).toBe(true);
+  });
   it.each([{ hints: null }, { hints: [] }, { hints: 5 }, { hints: "invalid" }])("does not turn malformed reference UI hints ($hints) into empty hints", ({ hints }) => {
     const schema = { $defs: { base: { type: "object", properties: {} } },
       $ref: "#/$defs/base", "x-ui": hints } as unknown as JsonSchema;

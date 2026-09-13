@@ -45,7 +45,7 @@ pub(super) fn source_column(
         Err(_) => (DataType::Utf8, conversion_nullable, SourceConversion::ToString),
     };
     Ok(
-        SchemaColumn::new(name.to_owned(), data_type, nullable).with_arrow_extension_metadata(
+        SchemaColumn::new(name.to_owned(), data_type, nullable).with_source_type(declaration).with_arrow_extension_metadata(
             SOURCE_TYPE_EXTENSION,
             serde_json::to_string(&SourceTypeMetadata {
                 source_type: declaration.to_owned(),

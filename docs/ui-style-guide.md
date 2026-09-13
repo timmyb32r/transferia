@@ -398,6 +398,15 @@ the control. Error and warning semantics remain distinct.
   and a separately scrolling schema table. Long column names and full type
   descriptions wrap inside their own cells, never over PK / Not null. Its type
   tabs share the editor tab style, including locally anchored disabled locks.
+  Its three stationary tabs are Source types / Arrow types / Destination types.
+  Source types uses native declarations carried by discovery, never reverse
+  mapping from Arrow. Preserve PostgreSQL domains/typmods, MySQL declarations,
+  ClickHouse declarations and native YDB/Iceberg/YTsaurus types. OpenSearch's
+  document-envelope reader describes its document fields, not index properties.
+  Missing provenance (parser/system/computed columns or ambiguous merged origins)
+  shows a dash; disable the source tab with an explanation if no column has it.
+  At narrow widget widths, reserve two-line tab labels and a separate lock slot;
+  changing tabs or availability must not move the picker or resize the inspector.
 - Selected tabs use a white surface, dark text, and a teal bottom indicator in
   both the editor and catalog. Available unselected tabs remain readable;
   disabled tabs use the common disabled treatment and lock indicator.

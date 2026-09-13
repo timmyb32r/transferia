@@ -132,7 +132,7 @@ describe("delivery layout contract", () => {
     expect(rule(".schema-inspector-table")).toContain("overflow: auto;");
     expect(rule(".schema-inspector-row > *")).toContain("overflow-wrap: anywhere;");
     expect(rule(".schema-inspector-row > *")).toContain("min-width: 0;");
-    expect(rule(".schema-inspector-type-tabs")).toContain("grid-template-columns: repeat(2, minmax(0, 1fr));");
+    expect(rule(".schema-inspector-type-tabs")).toContain("grid-template-columns: repeat(3, minmax(0, 1fr));");
   });
   it("puts source tables below both endpoints and compacts repeated rules without asynchronous movement", () => {
     expect(styles).toMatch(/\.parser-details-card,\s*\.source-tables-card \{[^}]*grid-column: 1 \/ -1;/);

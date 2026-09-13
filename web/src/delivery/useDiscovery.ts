@@ -37,7 +37,7 @@ export function useDiscovery({
   // Sink/transform edits do not change parser outputs. Source edits invalidate
   // the usable catalog immediately, including during the discovery debounce.
   const sourceKey = JSON.stringify([editor.config.delivery_type, editor.config.source]);
-  const discovery = snapshot?.value;
+  const discovery = structurallyComplete ? snapshot?.value : undefined;
   const currentDiscovery = structurallyComplete && snapshot?.sessionId === editor.sessionId
     && snapshot.config === editor.config ? snapshot.value : undefined;
   const sourceDiscovery = structurallyComplete && snapshot?.sessionId === editor.sessionId
@@ -103,7 +103,7 @@ export function useDiscovery({
     metadata?.errors.length,
   ]);
 
-  return { discovery, currentDiscovery, sourceDiscovery, clearDiscovery, error };
+  return { discovery, currentDiscovery, sourceDiscovery, clearDiscovery, error: structurallyComplete ? error : undefined };
 }
 
 function errorMessage(reason: unknown): string {

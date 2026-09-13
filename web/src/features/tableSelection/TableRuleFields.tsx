@@ -35,6 +35,7 @@ export function TableRuleFields({ id, rule, labelSuffix, disabled, excludeExpand
   const field = (kind: "include" | "exclude") => {
     const title = kind === "include" ? "Include" : "Exclude";
     return <FormField label={title} optional={false} controlId={`${id}-${kind}`}
+      class={kind === "include" && !disabled && rule.include.length === 0 ? "required-incomplete" : undefined}
       description={`${HELP} Use ${namespace}.table or ${namespace}.*. ${kind === "include" ? includeHelp : excludeHelp}`}>
       <TablePatternInput id={`${id}-${kind}`} label={`${title} ${labelSuffix}`} value={rule[kind] ?? ""}
         mode={rule[`${kind}_mode`] ?? "glob"} disabled={disabled} required={kind === "include"}

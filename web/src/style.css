@@ -2923,12 +2923,29 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .schema-inspector-content > .select { flex: 0 0 auto; }
 .schema-inspector-type-tabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   flex: 0 0 auto;
   gap: 3px;
   padding: 3px;
   border-radius: var(--radius-control);
   background: var(--panel2);
+}
+:root .schema-inspector-type-tabs button {
+  min-width: 0;
+  height: 44px;
+  white-space: normal;
+  line-height: 1.15;
+}
+@container schema-inspector-space (max-width: 460px) {
+  :root .schema-inspector-type-tabs button {
+    height: 56px;
+    padding: 18px 5px 4px;
+    overflow-wrap: anywhere;
+  }
+  .schema-inspector-type-tabs .disabled-lock-icon {
+    left: calc(50% - 7px);
+    top: 3px;
+  }
 }
 
 .schema-inspector-table {
