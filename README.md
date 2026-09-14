@@ -32,7 +32,8 @@ as primary-keyed replicas. YDB writes production Arrow IPC batches with
 non-null primary key. The batch-only data generator and non-durable `discard`
 sink are explicit benchmark components.
 
-The generator includes numeric, transfer-log, and ClickBench `hits` presets.
+The generator includes numeric, transfer-log, ClickBench `hits`, and
+[All Arrow datatypes](docs/generator-all-arrow.md) presets.
 The ClickBench preset keeps the reference dataset's 105-column Arrow schema,
 temporal types, primary-key column set, value ranges, empty-value rates, string
 lengths, and cardinalities. Its compact distribution profile is reproducibly

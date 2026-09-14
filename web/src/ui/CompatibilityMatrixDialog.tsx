@@ -817,14 +817,16 @@ function ParserSupportTable({ names, support }: {
   return (
     <table class="parser-support-table" aria-label="Parser source support">
       <colgroup><col /><col class="parser-support-status-column" /><col class="parser-support-status-column" /></colgroup>
-      <thead><tr><th scope="col">Parser</th><th scope="col">S3</th><th scope="col" title="Kafka / Logbroker">MQ</th></tr></thead>
+      <thead><tr><th scope="col">Parser</th><th scope="col">S3</th><th scope="col" title="Message queues: Kafka / Logbroker">MQ</th></tr></thead>
       <tbody>
-        {[...(names ?? [])].sort((a, b) => a.localeCompare(b)).map((name) => {
+        {[...(names ?? [])].sort((a, b) =>
+          Number(a === "Discard messages (for benchmarks)") - Number(b === "Discard messages (for benchmarks)") || a.localeCompare(b)
+        ).map((name) => {
           const entry = support.get(name);
           return <tr key={name}>
             <th scope="row">{name}</th>
             {[{ label: "S3", supported: entry?.s3 ?? false, detail: "S3" },
-              { label: "MQ", supported: (entry?.mq.length ?? 0) > 0, detail: entry?.mq.join(" / ") || "Kafka / Logbroker" }].map(({ label, supported, detail }) => (
+              { label: "MQ", supported: (entry?.mq.length ?? 0) > 0, detail: `Message queues: ${entry?.mq.join(" / ") || "Kafka / Logbroker"}` }].map(({ label, supported, detail }) => (
               <td key={label} class={supported ? "parser-supported" : "parser-unsupported"}
                 aria-label={`${label}: ${supported ? "supported" : "not supported"}`} title={`${detail}: ${supported ? "supported" : "not supported"}`}>
                 <span aria-hidden="true">{supported ? "✓" : "×"}</span>

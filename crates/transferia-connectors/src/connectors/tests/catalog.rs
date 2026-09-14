@@ -68,6 +68,9 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
     assert_eq!(generator.initial["amount"]["row_count"], 50_000_000_u64);
     let preset = &generator.schema["properties"]["preset"];
     assert_eq!(preset["title"], "Preset");
+    assert!(preset["description"]
+        .as_str()
+        .is_some_and(|text| text.contains("excludes the Arrow Null type")));
     assert_eq!(preset["$ref"], "#/$defs/DataGeneratorPreset");
     assert_eq!(
         generator.schema["$defs"]["DataGeneratorPreset"]["oneOf"]
@@ -79,6 +82,7 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
         vec![
             Some("Transfer logs"),
             Some("ClickBench hits"),
+            Some("All Arrow datatypes"),
             Some("Numeric")
         ]
     );

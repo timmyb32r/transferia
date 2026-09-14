@@ -26,6 +26,48 @@ fn config() -> DataGeneratorConfig {
     }
 }
 
+#[test]
+fn all_arrow_datatypes_matches_discovery_and_has_real_values() -> anyhow::Result<()> {
+    let preset: DataGeneratorPreset =
+        serde_json::from_value(serde_json::json!({ "type": "all_arrow_datatypes" }))?;
+    preset.validate()?;
+    let schema = preset.schema();
+    assert_eq!(schema.columns.len(), 56);
+    assert!(schema
+        .columns
+        .iter()
+        .all(|column| column.data_type != DataType::Null));
+    let families = schema
+        .columns
+        .iter()
+        .map(|column| std::mem::discriminant(&column.data_type))
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        families.len(),
+        40,
+        "every Arrow 57 datatype family except Null"
+    );
+    for rows in [1, 17, 1024] {
+        let batch = preset.batch(123, rows)?;
+        assert_eq!(batch.num_rows(), rows as usize);
+        for (column, array) in schema.columns.iter().zip(batch.columns()) {
+            assert_eq!(&column.data_type, array.data_type(), "{}", column.name);
+            array.to_data().validate_full()?;
+            assert_eq!(array.logical_null_count(), 0, "{}", column.name);
+        }
+        assert!(batch.get_array_memory_size() as u64 <= preset.batch_bytes(123, rows)?);
+        let ids = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<arrow::array::UInt64Array>()
+            .expect("id");
+        assert_eq!(ids.value(0), 123);
+        assert_eq!(ids.value(rows as usize - 1), 122 + rows);
+    }
+    assert!(preset.batch(u64::MAX, 2).is_err());
+    Ok(())
+}
+
 #[tokio::test]
 async fn infinite_generator_keeps_producing_bounded_batches() -> anyhow::Result<()> {
     let mut config = config();

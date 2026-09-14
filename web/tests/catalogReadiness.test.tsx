@@ -49,6 +49,8 @@ describe("connector catalog readiness", () => {
     const check = () => {
       const table = within(view.getByRole("table", { name: "Parser source support" }));
       expect(table.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Parser", "S3", "MQ"]);
+      expect(table.getByRole("columnheader", { name: "MQ" }).title).toBe("Message queues: Kafka / Logbroker");
+      expect(table.getAllByRole("rowheader").at(-1)?.textContent).toBe("Discard messages (for benchmarks)");
       const parquet = within(table.getByRole("rowheader", { name: "Parquet parser" }).closest("tr")!);
       expect(parquet.getByRole("cell", { name: "S3: supported" }).textContent).toBe("✓");
       expect(parquet.getByRole("cell", { name: "MQ: not supported" }).textContent).toBe("×");

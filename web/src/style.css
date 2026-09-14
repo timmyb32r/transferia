@@ -4632,7 +4632,9 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
 .type-mapping-heading { display: flex; gap: 10px; align-items: center; justify-content: space-between; min-width: 0; }
 .type-mapping-heading h3 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .type-mapping-heading > .help { flex-shrink: 0; }
-.type-mapping-detail-message { grid-template-rows: 28px minmax(0, 1fr); }
+.type-mapping-tools { display: grid; grid-template-columns: minmax(0, 1fr) min(260px, 55%); gap: 10px; height: 40px; }
+.type-mapping-tools input { width: 100%; min-width: 0; }
+.type-mapping-tools button { min-width: 0; font-size: 12px; }
 .type-mapping-explanation { margin: 0; max-width: 65ch; color: var(--muted); line-height: 1.6; overflow-y: auto; }
 .type-mapping-table-scroll { overflow: auto; scrollbar-gutter: stable; min-height: 0; border: 1px solid var(--line); border-radius: var(--radius-control); }
 .type-mapping-table { width: 100%; border-collapse: collapse; table-layout: fixed; }

@@ -138,7 +138,14 @@ the control. Error and warning semantics remain distinct.
   and type search. Data generator explains preset-defined synthetic Arrow data;
   Discard explains that it drops benchmark data without creating a schema.
   Mapping rows are offline examples evaluated by production Rust resolvers,
-  never a separately authored output table. Keep concrete parameters, rejection
+  never a separately authored output table,
+  with an `Unsupported types` filter and a computed rejection count. The filter
+  preserves toolbar and table viewport geometry and shows exact resolver errors.
+  Destination examples share the generator's Arrow type inventory (excluding
+  Null). Queue/S3 explanations remain the default; their explicit `Unsupported
+  types · JSON` action shows only the production JSON serializer's rejections,
+  not a claim about other formats or all parameterized variants.
+  Keep concrete parameters, rejection
   reasons and configuration/extension caveats visible; examples are not an
   exhaustive support guarantee. Parser-defined sources explicitly say so.
   Filtering and connector selection keep search/action geometry stable;

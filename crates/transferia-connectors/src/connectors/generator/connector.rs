@@ -71,6 +71,8 @@ impl GenerationAmount {
 pub struct DataGeneratorConfig {
     pub table_name: String,
 
+    /// All Arrow datatypes excludes the Arrow Null type, which has no typed
+    /// values. This does not prohibit nullable columns in other presets.
     #[schemars(title = "Preset")]
     pub preset: DataGeneratorPreset,
 

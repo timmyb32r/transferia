@@ -1727,9 +1727,9 @@
           "context": "JSON serializer examples, evaluated by the production serializer. This transport has no native column types. Selecting Avro, Protobuf, Debezium or another format changes the output contract; inspect that format's configuration and schema.",
           "rows": [
             {
-              "input": "Null",
-              "output": null,
-              "error": "Arrow type Null has no JSON serializer representation"
+              "input": "UInt64",
+              "output": "JSON number",
+              "error": null
             },
             {
               "input": "Boolean",
@@ -1772,11 +1772,6 @@
               "error": null
             },
             {
-              "input": "UInt64",
-              "output": "JSON number",
-              "error": null
-            },
-            {
               "input": "Float16",
               "output": "JSON number",
               "error": null
@@ -1789,6 +1784,71 @@
             {
               "input": "Float64",
               "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Date32",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Time32(Second)",
+              "output": null,
+              "error": "Arrow type Time32(Second) has no JSON serializer representation"
+            },
+            {
+              "input": "Time32(Millisecond)",
+              "output": null,
+              "error": "Arrow type Time32(Millisecond) has no JSON serializer representation"
+            },
+            {
+              "input": "Time64(Microsecond)",
+              "output": null,
+              "error": "Arrow type Time64(Microsecond) has no JSON serializer representation"
+            },
+            {
+              "input": "Time64(Nanosecond)",
+              "output": null,
+              "error": "Arrow type Time64(Nanosecond) has no JSON serializer representation"
+            },
+            {
+              "input": "Interval(YearMonth)",
+              "output": null,
+              "error": "Arrow type Interval(YearMonth) has no JSON serializer representation"
+            },
+            {
+              "input": "Interval(DayTime)",
+              "output": null,
+              "error": "Arrow type Interval(DayTime) has no JSON serializer representation"
+            },
+            {
+              "input": "Interval(MonthDayNano)",
+              "output": null,
+              "error": "Arrow type Interval(MonthDayNano) has no JSON serializer representation"
+            },
+            {
+              "input": "Binary",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "BinaryView",
+              "output": null,
+              "error": "Arrow type BinaryView has no JSON serializer representation"
+            },
+            {
+              "input": "FixedSizeBinary(4)",
+              "output": "JSON string",
               "error": null
             },
             {
@@ -1807,64 +1867,79 @@
               "error": "Arrow type Utf8View has no JSON serializer representation"
             },
             {
-              "input": "Binary",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "LargeBinary",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "BinaryView",
+              "input": "Decimal32(9, 2)",
               "output": null,
-              "error": "Arrow type BinaryView has no JSON serializer representation"
+              "error": "Arrow type Decimal32(9, 2) has no JSON serializer representation"
             },
             {
-              "input": "FixedSizeBinary(16)",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "Date32",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "Date64",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "Decimal128(18, 4)",
+              "input": "Decimal64(18, 2)",
               "output": null,
-              "error": "Arrow type Decimal128(18, 4) has no JSON serializer representation"
+              "error": "Arrow type Decimal64(18, 2) has no JSON serializer representation"
             },
             {
-              "input": "Decimal128(38, 9)",
+              "input": "Decimal128(38, 2)",
               "output": null,
-              "error": "Arrow type Decimal128(38, 9) has no JSON serializer representation"
+              "error": "Arrow type Decimal128(38, 2) has no JSON serializer representation"
             },
             {
-              "input": "Decimal256(76, 18)",
+              "input": "Decimal256(76, 2)",
               "output": null,
-              "error": "Arrow type Decimal256(76, 18) has no JSON serializer representation"
+              "error": "Arrow type Decimal256(76, 2) has no JSON serializer representation"
             },
             {
-              "input": "List(Field { data_type: Int32, nullable: true })",
+              "input": "List(Field { data_type: Int32 })",
               "output": null,
-              "error": "Arrow type List(Field { data_type: Int32, nullable: true }) has no JSON serializer representation"
+              "error": "Arrow type List(Field { data_type: Int32 }) has no JSON serializer representation"
             },
             {
-              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "input": "LargeList(Field { data_type: Int32 })",
               "output": null,
-              "error": "Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) has no JSON serializer representation"
+              "error": "Arrow type LargeList(Field { data_type: Int32 }) has no JSON serializer representation"
+            },
+            {
+              "input": "ListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "Arrow type ListView(Field { data_type: Int32 }) has no JSON serializer representation"
+            },
+            {
+              "input": "LargeListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "Arrow type LargeListView(Field { data_type: Int32 }) has no JSON serializer representation"
+            },
+            {
+              "input": "FixedSizeList(Field { data_type: Int32 }, 1)",
+              "output": null,
+              "error": "Arrow type FixedSizeList(Field { data_type: Int32 }, 1) has no JSON serializer representation"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Int32 }])",
+              "output": null,
+              "error": "Arrow type Struct([Field { name: \"value\", data_type: Int32 }]) has no JSON serializer representation"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse)",
+              "output": null,
+              "error": "Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse) has no JSON serializer representation"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Dense)",
+              "output": null,
+              "error": "Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Dense) has no JSON serializer representation"
             },
             {
               "input": "Dictionary(Int32, Utf8)",
               "output": null,
               "error": "Arrow type Dictionary(Int32, Utf8) has no JSON serializer representation"
+            },
+            {
+              "input": "Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false)",
+              "output": null,
+              "error": "Arrow type Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false) has no JSON serializer representation"
+            },
+            {
+              "input": "RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "Arrow type RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true }) has no JSON serializer representation"
             },
             {
               "input": "Timestamp(Second, None)",
@@ -3949,9 +4024,9 @@
           "context": "JSON serializer examples, evaluated by the production serializer. This transport has no native column types. Selecting Avro, Protobuf, Debezium or another format changes the output contract; inspect that format's configuration and schema.",
           "rows": [
             {
-              "input": "Null",
-              "output": null,
-              "error": "Arrow type Null has no JSON serializer representation"
+              "input": "UInt64",
+              "output": "JSON number",
+              "error": null
             },
             {
               "input": "Boolean",
@@ -3994,11 +4069,6 @@
               "error": null
             },
             {
-              "input": "UInt64",
-              "output": "JSON number",
-              "error": null
-            },
-            {
               "input": "Float16",
               "output": "JSON number",
               "error": null
@@ -4011,6 +4081,71 @@
             {
               "input": "Float64",
               "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Date32",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Time32(Second)",
+              "output": null,
+              "error": "Arrow type Time32(Second) has no JSON serializer representation"
+            },
+            {
+              "input": "Time32(Millisecond)",
+              "output": null,
+              "error": "Arrow type Time32(Millisecond) has no JSON serializer representation"
+            },
+            {
+              "input": "Time64(Microsecond)",
+              "output": null,
+              "error": "Arrow type Time64(Microsecond) has no JSON serializer representation"
+            },
+            {
+              "input": "Time64(Nanosecond)",
+              "output": null,
+              "error": "Arrow type Time64(Nanosecond) has no JSON serializer representation"
+            },
+            {
+              "input": "Interval(YearMonth)",
+              "output": null,
+              "error": "Arrow type Interval(YearMonth) has no JSON serializer representation"
+            },
+            {
+              "input": "Interval(DayTime)",
+              "output": null,
+              "error": "Arrow type Interval(DayTime) has no JSON serializer representation"
+            },
+            {
+              "input": "Interval(MonthDayNano)",
+              "output": null,
+              "error": "Arrow type Interval(MonthDayNano) has no JSON serializer representation"
+            },
+            {
+              "input": "Binary",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "BinaryView",
+              "output": null,
+              "error": "Arrow type BinaryView has no JSON serializer representation"
+            },
+            {
+              "input": "FixedSizeBinary(4)",
+              "output": "JSON string",
               "error": null
             },
             {
@@ -4029,64 +4164,79 @@
               "error": "Arrow type Utf8View has no JSON serializer representation"
             },
             {
-              "input": "Binary",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "LargeBinary",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "BinaryView",
+              "input": "Decimal32(9, 2)",
               "output": null,
-              "error": "Arrow type BinaryView has no JSON serializer representation"
+              "error": "Arrow type Decimal32(9, 2) has no JSON serializer representation"
             },
             {
-              "input": "FixedSizeBinary(16)",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "Date32",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "Date64",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "Decimal128(18, 4)",
+              "input": "Decimal64(18, 2)",
               "output": null,
-              "error": "Arrow type Decimal128(18, 4) has no JSON serializer representation"
+              "error": "Arrow type Decimal64(18, 2) has no JSON serializer representation"
             },
             {
-              "input": "Decimal128(38, 9)",
+              "input": "Decimal128(38, 2)",
               "output": null,
-              "error": "Arrow type Decimal128(38, 9) has no JSON serializer representation"
+              "error": "Arrow type Decimal128(38, 2) has no JSON serializer representation"
             },
             {
-              "input": "Decimal256(76, 18)",
+              "input": "Decimal256(76, 2)",
               "output": null,
-              "error": "Arrow type Decimal256(76, 18) has no JSON serializer representation"
+              "error": "Arrow type Decimal256(76, 2) has no JSON serializer representation"
             },
             {
-              "input": "List(Field { data_type: Int32, nullable: true })",
+              "input": "List(Field { data_type: Int32 })",
               "output": null,
-              "error": "Arrow type List(Field { data_type: Int32, nullable: true }) has no JSON serializer representation"
+              "error": "Arrow type List(Field { data_type: Int32 }) has no JSON serializer representation"
             },
             {
-              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "input": "LargeList(Field { data_type: Int32 })",
               "output": null,
-              "error": "Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) has no JSON serializer representation"
+              "error": "Arrow type LargeList(Field { data_type: Int32 }) has no JSON serializer representation"
+            },
+            {
+              "input": "ListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "Arrow type ListView(Field { data_type: Int32 }) has no JSON serializer representation"
+            },
+            {
+              "input": "LargeListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "Arrow type LargeListView(Field { data_type: Int32 }) has no JSON serializer representation"
+            },
+            {
+              "input": "FixedSizeList(Field { data_type: Int32 }, 1)",
+              "output": null,
+              "error": "Arrow type FixedSizeList(Field { data_type: Int32 }, 1) has no JSON serializer representation"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Int32 }])",
+              "output": null,
+              "error": "Arrow type Struct([Field { name: \"value\", data_type: Int32 }]) has no JSON serializer representation"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse)",
+              "output": null,
+              "error": "Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse) has no JSON serializer representation"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Dense)",
+              "output": null,
+              "error": "Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Dense) has no JSON serializer representation"
             },
             {
               "input": "Dictionary(Int32, Utf8)",
               "output": null,
               "error": "Arrow type Dictionary(Int32, Utf8) has no JSON serializer representation"
+            },
+            {
+              "input": "Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false)",
+              "output": null,
+              "error": "Arrow type Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false) has no JSON serializer representation"
+            },
+            {
+              "input": "RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "Arrow type RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true }) has no JSON serializer representation"
             },
             {
               "input": "Timestamp(Second, None)",
@@ -5366,9 +5516,9 @@
           "context": "Evaluated by MySQL DDL resolver. Non-null columns without source-type extensions; preserved MySQL extensions may select a different physical declaration. Runtime range/encoding validation still applies.",
           "rows": [
             {
-              "input": "Null",
-              "output": null,
-              "error": "unsupported Arrow type Null for MySQL sink"
+              "input": "UInt64",
+              "output": "BIGINT UNSIGNED",
+              "error": null
             },
             {
               "input": "Boolean",
@@ -5411,11 +5561,6 @@
               "error": null
             },
             {
-              "input": "UInt64",
-              "output": "BIGINT UNSIGNED",
-              "error": null
-            },
-            {
               "input": "Float16",
               "output": null,
               "error": "unsupported Arrow type Float16 for MySQL sink"
@@ -5431,19 +5576,49 @@
               "error": null
             },
             {
-              "input": "Utf8",
-              "output": "LONGTEXT",
+              "input": "Date32",
+              "output": "DATE",
               "error": null
             },
             {
-              "input": "LargeUtf8",
-              "output": null,
-              "error": "unsupported Arrow type LargeUtf8 for MySQL sink"
+              "input": "Date64",
+              "output": "DATETIME(3)",
+              "error": null
             },
             {
-              "input": "Utf8View",
+              "input": "Time32(Second)",
               "output": null,
-              "error": "unsupported Arrow type Utf8View for MySQL sink"
+              "error": "unsupported Arrow type Time32(Second) for MySQL sink"
+            },
+            {
+              "input": "Time32(Millisecond)",
+              "output": null,
+              "error": "unsupported Arrow type Time32(Millisecond) for MySQL sink"
+            },
+            {
+              "input": "Time64(Microsecond)",
+              "output": null,
+              "error": "unsupported Arrow type Time64(Microsecond) for MySQL sink"
+            },
+            {
+              "input": "Time64(Nanosecond)",
+              "output": null,
+              "error": "unsupported Arrow type Time64(Nanosecond) for MySQL sink"
+            },
+            {
+              "input": "Interval(YearMonth)",
+              "output": null,
+              "error": "unsupported Arrow type Interval(YearMonth) for MySQL sink"
+            },
+            {
+              "input": "Interval(DayTime)",
+              "output": null,
+              "error": "unsupported Arrow type Interval(DayTime) for MySQL sink"
+            },
+            {
+              "input": "Interval(MonthDayNano)",
+              "output": null,
+              "error": "unsupported Arrow type Interval(MonthDayNano) for MySQL sink"
             },
             {
               "input": "Binary",
@@ -5461,49 +5636,99 @@
               "error": "unsupported Arrow type BinaryView for MySQL sink"
             },
             {
-              "input": "FixedSizeBinary(16)",
+              "input": "FixedSizeBinary(4)",
               "output": null,
-              "error": "unsupported Arrow type FixedSizeBinary(16) for MySQL sink"
+              "error": "unsupported Arrow type FixedSizeBinary(4) for MySQL sink"
             },
             {
-              "input": "Date32",
-              "output": "DATE",
+              "input": "Utf8",
+              "output": "LONGTEXT",
               "error": null
             },
             {
-              "input": "Date64",
-              "output": "DATETIME(3)",
+              "input": "LargeUtf8",
+              "output": null,
+              "error": "unsupported Arrow type LargeUtf8 for MySQL sink"
+            },
+            {
+              "input": "Utf8View",
+              "output": null,
+              "error": "unsupported Arrow type Utf8View for MySQL sink"
+            },
+            {
+              "input": "Decimal32(9, 2)",
+              "output": null,
+              "error": "unsupported Arrow type Decimal32(9, 2) for MySQL sink"
+            },
+            {
+              "input": "Decimal64(18, 2)",
+              "output": null,
+              "error": "unsupported Arrow type Decimal64(18, 2) for MySQL sink"
+            },
+            {
+              "input": "Decimal128(38, 2)",
+              "output": "DECIMAL(38,2)",
               "error": null
             },
             {
-              "input": "Decimal128(18, 4)",
-              "output": "DECIMAL(18,4)",
-              "error": null
-            },
-            {
-              "input": "Decimal128(38, 9)",
-              "output": "DECIMAL(38,9)",
-              "error": null
-            },
-            {
-              "input": "Decimal256(76, 18)",
+              "input": "Decimal256(76, 2)",
               "output": null,
-              "error": "MySQL DECIMAL cannot preserve precision 76, scale 18; maximum precision is 65 and scale is 30"
+              "error": "MySQL DECIMAL cannot preserve precision 76, scale 2; maximum precision is 65 and scale is 30"
             },
             {
-              "input": "List(Field { data_type: Int32, nullable: true })",
+              "input": "List(Field { data_type: Int32 })",
               "output": null,
-              "error": "unsupported Arrow type List(Field { data_type: Int32, nullable: true }) for MySQL sink"
+              "error": "unsupported Arrow type List(Field { data_type: Int32 }) for MySQL sink"
             },
             {
-              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "input": "LargeList(Field { data_type: Int32 })",
               "output": null,
-              "error": "unsupported Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) for MySQL sink"
+              "error": "unsupported Arrow type LargeList(Field { data_type: Int32 }) for MySQL sink"
+            },
+            {
+              "input": "ListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "unsupported Arrow type ListView(Field { data_type: Int32 }) for MySQL sink"
+            },
+            {
+              "input": "LargeListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "unsupported Arrow type LargeListView(Field { data_type: Int32 }) for MySQL sink"
+            },
+            {
+              "input": "FixedSizeList(Field { data_type: Int32 }, 1)",
+              "output": null,
+              "error": "unsupported Arrow type FixedSizeList(Field { data_type: Int32 }, 1) for MySQL sink"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Int32 }])",
+              "output": null,
+              "error": "unsupported Arrow type Struct([Field { name: \"value\", data_type: Int32 }]) for MySQL sink"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse)",
+              "output": null,
+              "error": "unsupported Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse) for MySQL sink"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Dense)",
+              "output": null,
+              "error": "unsupported Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Dense) for MySQL sink"
             },
             {
               "input": "Dictionary(Int32, Utf8)",
               "output": null,
               "error": "unsupported Arrow type Dictionary(Int32, Utf8) for MySQL sink"
+            },
+            {
+              "input": "Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false)",
+              "output": null,
+              "error": "unsupported Arrow type Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false) for MySQL sink"
+            },
+            {
+              "input": "RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "unsupported Arrow type RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true }) for MySQL sink"
             },
             {
               "input": "Timestamp(Second, None)",
@@ -5979,9 +6204,9 @@
           "context": "Evaluated by the OpenSearch destination mapping resolver. Plain columns without source extensions; document identity, routing and runtime values are validated separately.",
           "rows": [
             {
-              "input": "Null",
-              "output": null,
-              "error": "unsupported primary-key Arrow type Null"
+              "input": "UInt64",
+              "output": "unsigned_long",
+              "error": null
             },
             {
               "input": "Boolean",
@@ -6024,11 +6249,6 @@
               "error": null
             },
             {
-              "input": "UInt64",
-              "output": "unsigned_long",
-              "error": null
-            },
-            {
               "input": "Float16",
               "output": null,
               "error": "unsupported primary-key Arrow type Float16"
@@ -6041,6 +6261,71 @@
             {
               "input": "Float64",
               "output": "double",
+              "error": null
+            },
+            {
+              "input": "Date32",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": "long",
+              "error": null
+            },
+            {
+              "input": "Time32(Second)",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Time32(Second)"
+            },
+            {
+              "input": "Time32(Millisecond)",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Time32(Millisecond)"
+            },
+            {
+              "input": "Time64(Microsecond)",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Time64(Microsecond)"
+            },
+            {
+              "input": "Time64(Nanosecond)",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Time64(Nanosecond)"
+            },
+            {
+              "input": "Interval(YearMonth)",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Interval(YearMonth)"
+            },
+            {
+              "input": "Interval(DayTime)",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Interval(DayTime)"
+            },
+            {
+              "input": "Interval(MonthDayNano)",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Interval(MonthDayNano)"
+            },
+            {
+              "input": "Binary",
+              "output": "binary",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": "binary",
+              "error": null
+            },
+            {
+              "input": "BinaryView",
+              "output": null,
+              "error": "unsupported primary-key Arrow type BinaryView"
+            },
+            {
+              "input": "FixedSizeBinary(4)",
+              "output": "binary",
               "error": null
             },
             {
@@ -6059,64 +6344,79 @@
               "error": "unsupported primary-key Arrow type Utf8View"
             },
             {
-              "input": "Binary",
-              "output": "binary",
-              "error": null
-            },
-            {
-              "input": "LargeBinary",
-              "output": "binary",
-              "error": null
-            },
-            {
-              "input": "BinaryView",
+              "input": "Decimal32(9, 2)",
               "output": null,
-              "error": "unsupported primary-key Arrow type BinaryView"
+              "error": "unsupported primary-key Arrow type Decimal32(9, 2)"
             },
             {
-              "input": "FixedSizeBinary(16)",
-              "output": "binary",
-              "error": null
+              "input": "Decimal64(18, 2)",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Decimal64(18, 2)"
             },
             {
-              "input": "Date32",
-              "output": "long",
-              "error": null
-            },
-            {
-              "input": "Date64",
-              "output": "long",
-              "error": null
-            },
-            {
-              "input": "Decimal128(18, 4)",
+              "input": "Decimal128(38, 2)",
               "output": "keyword",
               "error": null
             },
             {
-              "input": "Decimal128(38, 9)",
+              "input": "Decimal256(76, 2)",
               "output": "keyword",
               "error": null
             },
             {
-              "input": "Decimal256(76, 18)",
-              "output": "keyword",
-              "error": null
+              "input": "List(Field { data_type: Int32 })",
+              "output": null,
+              "error": "unsupported primary-key Arrow type List(Field { data_type: Int32 })"
             },
             {
-              "input": "List(Field { data_type: Int32, nullable: true })",
+              "input": "LargeList(Field { data_type: Int32 })",
               "output": null,
-              "error": "unsupported primary-key Arrow type List(Field { data_type: Int32, nullable: true })"
+              "error": "unsupported primary-key Arrow type LargeList(Field { data_type: Int32 })"
             },
             {
-              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "input": "ListView(Field { data_type: Int32 })",
               "output": null,
-              "error": "unsupported primary-key Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])"
+              "error": "unsupported primary-key Arrow type ListView(Field { data_type: Int32 })"
+            },
+            {
+              "input": "LargeListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "unsupported primary-key Arrow type LargeListView(Field { data_type: Int32 })"
+            },
+            {
+              "input": "FixedSizeList(Field { data_type: Int32 }, 1)",
+              "output": null,
+              "error": "unsupported primary-key Arrow type FixedSizeList(Field { data_type: Int32 }, 1)"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Int32 }])",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Struct([Field { name: \"value\", data_type: Int32 }])"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse)",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse)"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Dense)",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Dense)"
             },
             {
               "input": "Dictionary(Int32, Utf8)",
               "output": null,
               "error": "unsupported primary-key Arrow type Dictionary(Int32, Utf8)"
+            },
+            {
+              "input": "Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false)",
+              "output": null,
+              "error": "unsupported primary-key Arrow type Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false)"
+            },
+            {
+              "input": "RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "unsupported primary-key Arrow type RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true })"
             },
             {
               "input": "Timestamp(Second, None)",
@@ -6963,9 +7263,9 @@
           "context": "Evaluated by PostgreSQL DDL/COPY type resolver. Non-null columns without extensions; runtime value validation still applies.",
           "rows": [
             {
-              "input": "Null",
-              "output": null,
-              "error": "unsupported Arrow type Null for PostgreSQL COPY"
+              "input": "UInt64",
+              "output": "numeric(20,0)",
+              "error": null
             },
             {
               "input": "Boolean",
@@ -7008,11 +7308,6 @@
               "error": null
             },
             {
-              "input": "UInt64",
-              "output": "numeric(20,0)",
-              "error": null
-            },
-            {
               "input": "Float16",
               "output": null,
               "error": "unsupported Arrow type Float16 for PostgreSQL COPY"
@@ -7028,19 +7323,49 @@
               "error": null
             },
             {
-              "input": "Utf8",
-              "output": "text",
+              "input": "Date32",
+              "output": "date",
               "error": null
             },
             {
-              "input": "LargeUtf8",
+              "input": "Date64",
               "output": null,
-              "error": "unsupported Arrow type LargeUtf8 for PostgreSQL COPY"
+              "error": "unsupported Arrow type Date64 for PostgreSQL COPY"
             },
             {
-              "input": "Utf8View",
+              "input": "Time32(Second)",
               "output": null,
-              "error": "unsupported Arrow type Utf8View for PostgreSQL COPY"
+              "error": "unsupported Arrow type Time32(Second) for PostgreSQL COPY"
+            },
+            {
+              "input": "Time32(Millisecond)",
+              "output": null,
+              "error": "unsupported Arrow type Time32(Millisecond) for PostgreSQL COPY"
+            },
+            {
+              "input": "Time64(Microsecond)",
+              "output": null,
+              "error": "unsupported Arrow type Time64(Microsecond) for PostgreSQL COPY"
+            },
+            {
+              "input": "Time64(Nanosecond)",
+              "output": null,
+              "error": "unsupported Arrow type Time64(Nanosecond) for PostgreSQL COPY"
+            },
+            {
+              "input": "Interval(YearMonth)",
+              "output": null,
+              "error": "unsupported Arrow type Interval(YearMonth) for PostgreSQL COPY"
+            },
+            {
+              "input": "Interval(DayTime)",
+              "output": null,
+              "error": "unsupported Arrow type Interval(DayTime) for PostgreSQL COPY"
+            },
+            {
+              "input": "Interval(MonthDayNano)",
+              "output": null,
+              "error": "unsupported Arrow type Interval(MonthDayNano) for PostgreSQL COPY"
             },
             {
               "input": "Binary",
@@ -7058,49 +7383,99 @@
               "error": "unsupported Arrow type BinaryView for PostgreSQL COPY"
             },
             {
-              "input": "FixedSizeBinary(16)",
+              "input": "FixedSizeBinary(4)",
               "output": null,
-              "error": "unsupported Arrow type FixedSizeBinary(16) for PostgreSQL COPY"
+              "error": "unsupported Arrow type FixedSizeBinary(4) for PostgreSQL COPY"
             },
             {
-              "input": "Date32",
-              "output": "date",
+              "input": "Utf8",
+              "output": "text",
               "error": null
             },
             {
-              "input": "Date64",
+              "input": "LargeUtf8",
               "output": null,
-              "error": "unsupported Arrow type Date64 for PostgreSQL COPY"
+              "error": "unsupported Arrow type LargeUtf8 for PostgreSQL COPY"
             },
             {
-              "input": "Decimal128(18, 4)",
+              "input": "Utf8View",
               "output": null,
-              "error": "unsupported Arrow type Decimal128(18, 4) for PostgreSQL COPY"
+              "error": "unsupported Arrow type Utf8View for PostgreSQL COPY"
             },
             {
-              "input": "Decimal128(38, 9)",
+              "input": "Decimal32(9, 2)",
               "output": null,
-              "error": "unsupported Arrow type Decimal128(38, 9) for PostgreSQL COPY"
+              "error": "unsupported Arrow type Decimal32(9, 2) for PostgreSQL COPY"
             },
             {
-              "input": "Decimal256(76, 18)",
+              "input": "Decimal64(18, 2)",
               "output": null,
-              "error": "unsupported Arrow type Decimal256(76, 18) for PostgreSQL COPY"
+              "error": "unsupported Arrow type Decimal64(18, 2) for PostgreSQL COPY"
             },
             {
-              "input": "List(Field { data_type: Int32, nullable: true })",
+              "input": "Decimal128(38, 2)",
               "output": null,
-              "error": "unsupported Arrow type List(Field { data_type: Int32, nullable: true }) for PostgreSQL COPY"
+              "error": "unsupported Arrow type Decimal128(38, 2) for PostgreSQL COPY"
             },
             {
-              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "input": "Decimal256(76, 2)",
               "output": null,
-              "error": "unsupported Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) for PostgreSQL COPY"
+              "error": "unsupported Arrow type Decimal256(76, 2) for PostgreSQL COPY"
+            },
+            {
+              "input": "List(Field { data_type: Int32 })",
+              "output": null,
+              "error": "unsupported Arrow type List(Field { data_type: Int32 }) for PostgreSQL COPY"
+            },
+            {
+              "input": "LargeList(Field { data_type: Int32 })",
+              "output": null,
+              "error": "unsupported Arrow type LargeList(Field { data_type: Int32 }) for PostgreSQL COPY"
+            },
+            {
+              "input": "ListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "unsupported Arrow type ListView(Field { data_type: Int32 }) for PostgreSQL COPY"
+            },
+            {
+              "input": "LargeListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "unsupported Arrow type LargeListView(Field { data_type: Int32 }) for PostgreSQL COPY"
+            },
+            {
+              "input": "FixedSizeList(Field { data_type: Int32 }, 1)",
+              "output": null,
+              "error": "unsupported Arrow type FixedSizeList(Field { data_type: Int32 }, 1) for PostgreSQL COPY"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Int32 }])",
+              "output": null,
+              "error": "unsupported Arrow type Struct([Field { name: \"value\", data_type: Int32 }]) for PostgreSQL COPY"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse)",
+              "output": null,
+              "error": "unsupported Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse) for PostgreSQL COPY"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Dense)",
+              "output": null,
+              "error": "unsupported Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Dense) for PostgreSQL COPY"
             },
             {
               "input": "Dictionary(Int32, Utf8)",
               "output": null,
               "error": "unsupported Arrow type Dictionary(Int32, Utf8) for PostgreSQL COPY"
+            },
+            {
+              "input": "Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false)",
+              "output": null,
+              "error": "unsupported Arrow type Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false) for PostgreSQL COPY"
+            },
+            {
+              "input": "RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "unsupported Arrow type RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true }) for PostgreSQL COPY"
             },
             {
               "input": "Timestamp(Second, None)",
@@ -7847,9 +8222,9 @@
           "context": "Evaluated by ClickHouse destination DDL resolver. Non-null columns without LowCardinality or source extensions. Nullable/LowCardinality wrappers and value constraints are validated separately.",
           "rows": [
             {
-              "input": "Null",
-              "output": null,
-              "error": "No ClickHouse type mapping for Arrow type Null"
+              "input": "UInt64",
+              "output": "UInt64",
+              "error": null
             },
             {
               "input": "Boolean",
@@ -7892,11 +8267,6 @@
               "error": null
             },
             {
-              "input": "UInt64",
-              "output": "UInt64",
-              "error": null
-            },
-            {
               "input": "Float16",
               "output": null,
               "error": "No ClickHouse type mapping for Arrow type Float16"
@@ -7912,19 +8282,49 @@
               "error": null
             },
             {
-              "input": "Utf8",
-              "output": "String",
+              "input": "Date32",
+              "output": "Date32",
               "error": null
             },
             {
-              "input": "LargeUtf8",
-              "output": "String",
-              "error": null
-            },
-            {
-              "input": "Utf8View",
+              "input": "Date64",
               "output": null,
-              "error": "No ClickHouse type mapping for Arrow type Utf8View"
+              "error": "Arrow Date64 is unavailable for ClickHouse without an explicit configured conversion to Timestamp(Millisecond)"
+            },
+            {
+              "input": "Time32(Second)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Time32(Second)"
+            },
+            {
+              "input": "Time32(Millisecond)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Time32(Millisecond)"
+            },
+            {
+              "input": "Time64(Microsecond)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Time64(Microsecond)"
+            },
+            {
+              "input": "Time64(Nanosecond)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Time64(Nanosecond)"
+            },
+            {
+              "input": "Interval(YearMonth)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Interval(YearMonth)"
+            },
+            {
+              "input": "Interval(DayTime)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Interval(DayTime)"
+            },
+            {
+              "input": "Interval(MonthDayNano)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Interval(MonthDayNano)"
             },
             {
               "input": "Binary",
@@ -7942,49 +8342,99 @@
               "error": "No ClickHouse type mapping for Arrow type BinaryView"
             },
             {
-              "input": "FixedSizeBinary(16)",
+              "input": "FixedSizeBinary(4)",
               "output": null,
-              "error": "No ClickHouse type mapping for Arrow type FixedSizeBinary(16)"
+              "error": "No ClickHouse type mapping for Arrow type FixedSizeBinary(4)"
             },
             {
-              "input": "Date32",
-              "output": "Date32",
+              "input": "Utf8",
+              "output": "String",
               "error": null
             },
             {
-              "input": "Date64",
-              "output": null,
-              "error": "Arrow Date64 is unavailable for ClickHouse without an explicit configured conversion to Timestamp(Millisecond)"
-            },
-            {
-              "input": "Decimal128(18, 4)",
-              "output": "Decimal(18, 4)",
+              "input": "LargeUtf8",
+              "output": "String",
               "error": null
             },
             {
-              "input": "Decimal128(38, 9)",
-              "output": "Decimal(38, 9)",
+              "input": "Utf8View",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Utf8View"
+            },
+            {
+              "input": "Decimal32(9, 2)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Decimal32(9, 2)"
+            },
+            {
+              "input": "Decimal64(18, 2)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Decimal64(18, 2)"
+            },
+            {
+              "input": "Decimal128(38, 2)",
+              "output": "Decimal(38, 2)",
               "error": null
             },
             {
-              "input": "Decimal256(76, 18)",
+              "input": "Decimal256(76, 2)",
               "output": null,
-              "error": "No ClickHouse type mapping for Arrow type Decimal256(76, 18)"
+              "error": "No ClickHouse type mapping for Arrow type Decimal256(76, 2)"
             },
             {
-              "input": "List(Field { data_type: Int32, nullable: true })",
+              "input": "List(Field { data_type: Int32 })",
               "output": null,
-              "error": "No ClickHouse type mapping for Arrow type List(Field { data_type: Int32, nullable: true })"
+              "error": "No ClickHouse type mapping for Arrow type List(Field { data_type: Int32 })"
             },
             {
-              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "input": "LargeList(Field { data_type: Int32 })",
               "output": null,
-              "error": "No ClickHouse type mapping for Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])"
+              "error": "No ClickHouse type mapping for Arrow type LargeList(Field { data_type: Int32 })"
+            },
+            {
+              "input": "ListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type ListView(Field { data_type: Int32 })"
+            },
+            {
+              "input": "LargeListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type LargeListView(Field { data_type: Int32 })"
+            },
+            {
+              "input": "FixedSizeList(Field { data_type: Int32 }, 1)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type FixedSizeList(Field { data_type: Int32 }, 1)"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Int32 }])",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Struct([Field { name: \"value\", data_type: Int32 }])"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse)"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Dense)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Dense)"
             },
             {
               "input": "Dictionary(Int32, Utf8)",
               "output": null,
               "error": "No ClickHouse type mapping for Arrow type Dictionary(Int32, Utf8)"
+            },
+            {
+              "input": "Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false)",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false)"
+            },
+            {
+              "input": "RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "No ClickHouse type mapping for Arrow type RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true })"
             },
             {
               "input": "Timestamp(Second, None)",
@@ -8984,9 +9434,9 @@
           "context": "JSON serializer examples, evaluated by the production serializer. This transport has no native column types. Selecting Avro, Protobuf, Debezium or another format changes the output contract; inspect that format's configuration and schema.",
           "rows": [
             {
-              "input": "Null",
-              "output": null,
-              "error": "Arrow type Null has no JSON serializer representation"
+              "input": "UInt64",
+              "output": "JSON number",
+              "error": null
             },
             {
               "input": "Boolean",
@@ -9029,11 +9479,6 @@
               "error": null
             },
             {
-              "input": "UInt64",
-              "output": "JSON number",
-              "error": null
-            },
-            {
               "input": "Float16",
               "output": "JSON number",
               "error": null
@@ -9046,6 +9491,71 @@
             {
               "input": "Float64",
               "output": "JSON number",
+              "error": null
+            },
+            {
+              "input": "Date32",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "Time32(Second)",
+              "output": null,
+              "error": "Arrow type Time32(Second) has no JSON serializer representation"
+            },
+            {
+              "input": "Time32(Millisecond)",
+              "output": null,
+              "error": "Arrow type Time32(Millisecond) has no JSON serializer representation"
+            },
+            {
+              "input": "Time64(Microsecond)",
+              "output": null,
+              "error": "Arrow type Time64(Microsecond) has no JSON serializer representation"
+            },
+            {
+              "input": "Time64(Nanosecond)",
+              "output": null,
+              "error": "Arrow type Time64(Nanosecond) has no JSON serializer representation"
+            },
+            {
+              "input": "Interval(YearMonth)",
+              "output": null,
+              "error": "Arrow type Interval(YearMonth) has no JSON serializer representation"
+            },
+            {
+              "input": "Interval(DayTime)",
+              "output": null,
+              "error": "Arrow type Interval(DayTime) has no JSON serializer representation"
+            },
+            {
+              "input": "Interval(MonthDayNano)",
+              "output": null,
+              "error": "Arrow type Interval(MonthDayNano) has no JSON serializer representation"
+            },
+            {
+              "input": "Binary",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": "JSON string",
+              "error": null
+            },
+            {
+              "input": "BinaryView",
+              "output": null,
+              "error": "Arrow type BinaryView has no JSON serializer representation"
+            },
+            {
+              "input": "FixedSizeBinary(4)",
+              "output": "JSON string",
               "error": null
             },
             {
@@ -9064,64 +9574,79 @@
               "error": "Arrow type Utf8View has no JSON serializer representation"
             },
             {
-              "input": "Binary",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "LargeBinary",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "BinaryView",
+              "input": "Decimal32(9, 2)",
               "output": null,
-              "error": "Arrow type BinaryView has no JSON serializer representation"
+              "error": "Arrow type Decimal32(9, 2) has no JSON serializer representation"
             },
             {
-              "input": "FixedSizeBinary(16)",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "Date32",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "Date64",
-              "output": "JSON string",
-              "error": null
-            },
-            {
-              "input": "Decimal128(18, 4)",
+              "input": "Decimal64(18, 2)",
               "output": null,
-              "error": "Arrow type Decimal128(18, 4) has no JSON serializer representation"
+              "error": "Arrow type Decimal64(18, 2) has no JSON serializer representation"
             },
             {
-              "input": "Decimal128(38, 9)",
+              "input": "Decimal128(38, 2)",
               "output": null,
-              "error": "Arrow type Decimal128(38, 9) has no JSON serializer representation"
+              "error": "Arrow type Decimal128(38, 2) has no JSON serializer representation"
             },
             {
-              "input": "Decimal256(76, 18)",
+              "input": "Decimal256(76, 2)",
               "output": null,
-              "error": "Arrow type Decimal256(76, 18) has no JSON serializer representation"
+              "error": "Arrow type Decimal256(76, 2) has no JSON serializer representation"
             },
             {
-              "input": "List(Field { data_type: Int32, nullable: true })",
+              "input": "List(Field { data_type: Int32 })",
               "output": null,
-              "error": "Arrow type List(Field { data_type: Int32, nullable: true }) has no JSON serializer representation"
+              "error": "Arrow type List(Field { data_type: Int32 }) has no JSON serializer representation"
             },
             {
-              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "input": "LargeList(Field { data_type: Int32 })",
               "output": null,
-              "error": "Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) has no JSON serializer representation"
+              "error": "Arrow type LargeList(Field { data_type: Int32 }) has no JSON serializer representation"
+            },
+            {
+              "input": "ListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "Arrow type ListView(Field { data_type: Int32 }) has no JSON serializer representation"
+            },
+            {
+              "input": "LargeListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "Arrow type LargeListView(Field { data_type: Int32 }) has no JSON serializer representation"
+            },
+            {
+              "input": "FixedSizeList(Field { data_type: Int32 }, 1)",
+              "output": null,
+              "error": "Arrow type FixedSizeList(Field { data_type: Int32 }, 1) has no JSON serializer representation"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Int32 }])",
+              "output": null,
+              "error": "Arrow type Struct([Field { name: \"value\", data_type: Int32 }]) has no JSON serializer representation"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse)",
+              "output": null,
+              "error": "Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse) has no JSON serializer representation"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Dense)",
+              "output": null,
+              "error": "Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Dense) has no JSON serializer representation"
             },
             {
               "input": "Dictionary(Int32, Utf8)",
               "output": null,
               "error": "Arrow type Dictionary(Int32, Utf8) has no JSON serializer representation"
+            },
+            {
+              "input": "Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false)",
+              "output": null,
+              "error": "Arrow type Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false) has no JSON serializer representation"
+            },
+            {
+              "input": "RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "Arrow type RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true }) has no JSON serializer representation"
             },
             {
               "input": "Timestamp(Second, None)",
@@ -10371,9 +10896,9 @@
           "context": "Evaluated by the Iceberg destination schema converter. Non-null columns without source extensions; precision, nested schemas and runtime values are validated by the writer.",
           "rows": [
             {
-              "input": "Null",
-              "output": null,
-              "error": "DataInvalid => Cannot visit Arrow data type: Null"
+              "input": "UInt64",
+              "output": "decimal(20,0)",
+              "error": null
             },
             {
               "input": "Boolean",
@@ -10416,11 +10941,6 @@
               "error": null
             },
             {
-              "input": "UInt64",
-              "output": "decimal(20,0)",
-              "error": null
-            },
-            {
               "input": "Float16",
               "output": "float",
               "error": null
@@ -10433,6 +10953,71 @@
             {
               "input": "Float64",
               "output": "double",
+              "error": null
+            },
+            {
+              "input": "Date32",
+              "output": "date",
+              "error": null
+            },
+            {
+              "input": "Date64",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Date64"
+            },
+            {
+              "input": "Time32(Second)",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Time32(s)"
+            },
+            {
+              "input": "Time32(Millisecond)",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Time32(ms)"
+            },
+            {
+              "input": "Time64(Microsecond)",
+              "output": "time",
+              "error": null
+            },
+            {
+              "input": "Time64(Nanosecond)",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Time64(ns)"
+            },
+            {
+              "input": "Interval(YearMonth)",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Interval(YearMonth)"
+            },
+            {
+              "input": "Interval(DayTime)",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Interval(DayTime)"
+            },
+            {
+              "input": "Interval(MonthDayNano)",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Interval(MonthDayNano)"
+            },
+            {
+              "input": "Binary",
+              "output": "binary",
+              "error": null
+            },
+            {
+              "input": "LargeBinary",
+              "output": "binary",
+              "error": null
+            },
+            {
+              "input": "BinaryView",
+              "output": "binary",
+              "error": null
+            },
+            {
+              "input": "FixedSizeBinary(4)",
+              "output": "fixed(4)",
               "error": null
             },
             {
@@ -10451,64 +11036,79 @@
               "error": null
             },
             {
-              "input": "Binary",
-              "output": "binary",
-              "error": null
-            },
-            {
-              "input": "LargeBinary",
-              "output": "binary",
-              "error": null
-            },
-            {
-              "input": "BinaryView",
-              "output": "binary",
-              "error": null
-            },
-            {
-              "input": "FixedSizeBinary(16)",
-              "output": "fixed(16)",
-              "error": null
-            },
-            {
-              "input": "Date32",
-              "output": "date",
-              "error": null
-            },
-            {
-              "input": "Date64",
+              "input": "Decimal32(9, 2)",
               "output": null,
-              "error": "DataInvalid => Unsupported Arrow data type: Date64"
+              "error": "DataInvalid => Unsupported Arrow data type: Decimal32(9, 2)"
             },
             {
-              "input": "Decimal128(18, 4)",
-              "output": "decimal(18,4)",
-              "error": null
-            },
-            {
-              "input": "Decimal128(38, 9)",
-              "output": "decimal(38,9)",
-              "error": null
-            },
-            {
-              "input": "Decimal256(76, 18)",
+              "input": "Decimal64(18, 2)",
               "output": null,
-              "error": "DataInvalid => Unsupported Arrow data type: Decimal256(76, 18)"
+              "error": "DataInvalid => Unsupported Arrow data type: Decimal64(18, 2)"
             },
             {
-              "input": "List(Field { data_type: Int32, nullable: true })",
+              "input": "Decimal128(38, 2)",
+              "output": "decimal(38,2)",
+              "error": null
+            },
+            {
+              "input": "Decimal256(76, 2)",
+              "output": null,
+              "error": "DataInvalid => Unsupported Arrow data type: Decimal256(76, 2)"
+            },
+            {
+              "input": "List(Field { data_type: Int32 })",
               "output": "list",
               "error": null
             },
             {
-              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
-              "output": "struct<string>",
+              "input": "LargeList(Field { data_type: Int32 })",
+              "output": "list",
               "error": null
+            },
+            {
+              "input": "ListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "DataInvalid => Cannot visit Arrow data type: ListView(non-null Int32)"
+            },
+            {
+              "input": "LargeListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "DataInvalid => Cannot visit Arrow data type: LargeListView(non-null Int32)"
+            },
+            {
+              "input": "FixedSizeList(Field { data_type: Int32 }, 1)",
+              "output": "list",
+              "error": null
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Int32 }])",
+              "output": "struct<int>",
+              "error": null
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse)",
+              "output": null,
+              "error": "DataInvalid => Cannot visit Arrow data type: Union(Sparse, 0: (\"value\": non-null Int32))"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Dense)",
+              "output": null,
+              "error": "DataInvalid => Cannot visit Arrow data type: Union(Dense, 0: (\"value\": non-null Int32))"
             },
             {
               "input": "Dictionary(Int32, Utf8)",
               "output": "string",
               "error": null
+            },
+            {
+              "input": "Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false)",
+              "output": "map",
+              "error": null
+            },
+            {
+              "input": "RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "DataInvalid => Cannot visit Arrow data type: RunEndEncoded(\"run_ends\": non-null Int32, \"values\": Int32)"
             },
             {
               "input": "Timestamp(Second, None)",
@@ -11684,9 +12284,9 @@
           "context": "Evaluated by YDB's YQL type resolver. Non-null columns without extensions. YDB extensions, optionality and primary-key constraints are validated separately.",
           "rows": [
             {
-              "input": "Null",
-              "output": null,
-              "error": "unsupported Arrow type Null with extension None for YDB sink"
+              "input": "UInt64",
+              "output": "Uint64",
+              "error": null
             },
             {
               "input": "Boolean",
@@ -11729,11 +12329,6 @@
               "error": null
             },
             {
-              "input": "UInt64",
-              "output": "Uint64",
-              "error": null
-            },
-            {
               "input": "Float16",
               "output": null,
               "error": "unsupported Arrow type Float16 with extension None for YDB sink"
@@ -11749,19 +12344,49 @@
               "error": null
             },
             {
-              "input": "Utf8",
-              "output": "Utf8",
+              "input": "Date32",
+              "output": "Date32",
               "error": null
             },
             {
-              "input": "LargeUtf8",
+              "input": "Date64",
               "output": null,
-              "error": "unsupported Arrow type LargeUtf8 with extension None for YDB sink"
+              "error": "unsupported Arrow type Date64 with extension None for YDB sink"
             },
             {
-              "input": "Utf8View",
+              "input": "Time32(Second)",
               "output": null,
-              "error": "unsupported Arrow type Utf8View with extension None for YDB sink"
+              "error": "unsupported Arrow type Time32(Second) with extension None for YDB sink"
+            },
+            {
+              "input": "Time32(Millisecond)",
+              "output": null,
+              "error": "unsupported Arrow type Time32(Millisecond) with extension None for YDB sink"
+            },
+            {
+              "input": "Time64(Microsecond)",
+              "output": null,
+              "error": "unsupported Arrow type Time64(Microsecond) with extension None for YDB sink"
+            },
+            {
+              "input": "Time64(Nanosecond)",
+              "output": null,
+              "error": "unsupported Arrow type Time64(Nanosecond) with extension None for YDB sink"
+            },
+            {
+              "input": "Interval(YearMonth)",
+              "output": null,
+              "error": "unsupported Arrow type Interval(YearMonth) with extension None for YDB sink"
+            },
+            {
+              "input": "Interval(DayTime)",
+              "output": null,
+              "error": "unsupported Arrow type Interval(DayTime) with extension None for YDB sink"
+            },
+            {
+              "input": "Interval(MonthDayNano)",
+              "output": null,
+              "error": "unsupported Arrow type Interval(MonthDayNano) with extension None for YDB sink"
             },
             {
               "input": "Binary",
@@ -11779,49 +12404,99 @@
               "error": "unsupported Arrow type BinaryView with extension None for YDB sink"
             },
             {
-              "input": "FixedSizeBinary(16)",
+              "input": "FixedSizeBinary(4)",
               "output": null,
-              "error": "unsupported Arrow type FixedSizeBinary(16) with extension None for YDB sink"
+              "error": "unsupported Arrow type FixedSizeBinary(4) with extension None for YDB sink"
             },
             {
-              "input": "Date32",
-              "output": "Date32",
+              "input": "Utf8",
+              "output": "Utf8",
               "error": null
             },
             {
-              "input": "Date64",
+              "input": "LargeUtf8",
               "output": null,
-              "error": "unsupported Arrow type Date64 with extension None for YDB sink"
+              "error": "unsupported Arrow type LargeUtf8 with extension None for YDB sink"
             },
             {
-              "input": "Decimal128(18, 4)",
-              "output": "Decimal(18, 4)",
-              "error": null
+              "input": "Utf8View",
+              "output": null,
+              "error": "unsupported Arrow type Utf8View with extension None for YDB sink"
             },
             {
-              "input": "Decimal128(38, 9)",
+              "input": "Decimal32(9, 2)",
               "output": null,
-              "error": "unsupported Arrow type Decimal128(38, 9) with extension None for YDB sink"
+              "error": "unsupported Arrow type Decimal32(9, 2) with extension None for YDB sink"
             },
             {
-              "input": "Decimal256(76, 18)",
+              "input": "Decimal64(18, 2)",
               "output": null,
-              "error": "unsupported Arrow type Decimal256(76, 18) with extension None for YDB sink"
+              "error": "unsupported Arrow type Decimal64(18, 2) with extension None for YDB sink"
             },
             {
-              "input": "List(Field { data_type: Int32, nullable: true })",
+              "input": "Decimal128(38, 2)",
               "output": null,
-              "error": "unsupported Arrow type List(Field { data_type: Int32, nullable: true }) with extension None for YDB sink"
+              "error": "unsupported Arrow type Decimal128(38, 2) with extension None for YDB sink"
             },
             {
-              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "input": "Decimal256(76, 2)",
               "output": null,
-              "error": "unsupported Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) with extension None for YDB sink"
+              "error": "unsupported Arrow type Decimal256(76, 2) with extension None for YDB sink"
+            },
+            {
+              "input": "List(Field { data_type: Int32 })",
+              "output": null,
+              "error": "unsupported Arrow type List(Field { data_type: Int32 }) with extension None for YDB sink"
+            },
+            {
+              "input": "LargeList(Field { data_type: Int32 })",
+              "output": null,
+              "error": "unsupported Arrow type LargeList(Field { data_type: Int32 }) with extension None for YDB sink"
+            },
+            {
+              "input": "ListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "unsupported Arrow type ListView(Field { data_type: Int32 }) with extension None for YDB sink"
+            },
+            {
+              "input": "LargeListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "unsupported Arrow type LargeListView(Field { data_type: Int32 }) with extension None for YDB sink"
+            },
+            {
+              "input": "FixedSizeList(Field { data_type: Int32 }, 1)",
+              "output": null,
+              "error": "unsupported Arrow type FixedSizeList(Field { data_type: Int32 }, 1) with extension None for YDB sink"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Int32 }])",
+              "output": null,
+              "error": "unsupported Arrow type Struct([Field { name: \"value\", data_type: Int32 }]) with extension None for YDB sink"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse)",
+              "output": null,
+              "error": "unsupported Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse) with extension None for YDB sink"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Dense)",
+              "output": null,
+              "error": "unsupported Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Dense) with extension None for YDB sink"
             },
             {
               "input": "Dictionary(Int32, Utf8)",
               "output": null,
               "error": "unsupported Arrow type Dictionary(Int32, Utf8) with extension None for YDB sink"
+            },
+            {
+              "input": "Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false)",
+              "output": null,
+              "error": "unsupported Arrow type Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false) with extension None for YDB sink"
+            },
+            {
+              "input": "RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "unsupported Arrow type RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true }) with extension None for YDB sink"
             },
             {
               "input": "Timestamp(Second, None)",
@@ -12738,9 +13413,9 @@
           "context": "Evaluated by the YTsaurus destination schema resolver. Non-null primitive columns; key/value validation is separate.",
           "rows": [
             {
-              "input": "Null",
-              "output": null,
-              "error": "Arrow type Null is not supported by YTsaurus static tables"
+              "input": "UInt64",
+              "output": "uint64",
+              "error": null
             },
             {
               "input": "Boolean",
@@ -12783,11 +13458,6 @@
               "error": null
             },
             {
-              "input": "UInt64",
-              "output": "uint64",
-              "error": null
-            },
-            {
               "input": "Float16",
               "output": null,
               "error": "Arrow type Float16 is not supported by YTsaurus static tables"
@@ -12803,19 +13473,49 @@
               "error": null
             },
             {
-              "input": "Utf8",
-              "output": "utf8",
+              "input": "Date32",
+              "output": "date",
               "error": null
             },
             {
-              "input": "LargeUtf8",
-              "output": "utf8",
+              "input": "Date64",
+              "output": "datetime",
               "error": null
             },
             {
-              "input": "Utf8View",
+              "input": "Time32(Second)",
               "output": null,
-              "error": "Arrow type Utf8View is not supported by YTsaurus static tables"
+              "error": "Arrow type Time32(Second) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Time32(Millisecond)",
+              "output": null,
+              "error": "Arrow type Time32(Millisecond) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Time64(Microsecond)",
+              "output": null,
+              "error": "Arrow type Time64(Microsecond) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Time64(Nanosecond)",
+              "output": null,
+              "error": "Arrow type Time64(Nanosecond) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Interval(YearMonth)",
+              "output": null,
+              "error": "Arrow type Interval(YearMonth) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Interval(DayTime)",
+              "output": null,
+              "error": "Arrow type Interval(DayTime) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Interval(MonthDayNano)",
+              "output": null,
+              "error": "Arrow type Interval(MonthDayNano) is not supported by YTsaurus static tables"
             },
             {
               "input": "Binary",
@@ -12833,49 +13533,99 @@
               "error": "Arrow type BinaryView is not supported by YTsaurus static tables"
             },
             {
-              "input": "FixedSizeBinary(16)",
+              "input": "FixedSizeBinary(4)",
               "output": null,
-              "error": "Arrow type FixedSizeBinary(16) is not supported by YTsaurus static tables"
+              "error": "Arrow type FixedSizeBinary(4) is not supported by YTsaurus static tables"
             },
             {
-              "input": "Date32",
-              "output": "date",
+              "input": "Utf8",
+              "output": "utf8",
               "error": null
             },
             {
-              "input": "Date64",
-              "output": "datetime",
+              "input": "LargeUtf8",
+              "output": "utf8",
               "error": null
             },
             {
-              "input": "Decimal128(18, 4)",
+              "input": "Utf8View",
               "output": null,
-              "error": "Arrow type Decimal128(18, 4) is not supported by YTsaurus static tables"
+              "error": "Arrow type Utf8View is not supported by YTsaurus static tables"
             },
             {
-              "input": "Decimal128(38, 9)",
+              "input": "Decimal32(9, 2)",
               "output": null,
-              "error": "Arrow type Decimal128(38, 9) is not supported by YTsaurus static tables"
+              "error": "Arrow type Decimal32(9, 2) is not supported by YTsaurus static tables"
             },
             {
-              "input": "Decimal256(76, 18)",
+              "input": "Decimal64(18, 2)",
               "output": null,
-              "error": "Arrow type Decimal256(76, 18) is not supported by YTsaurus static tables"
+              "error": "Arrow type Decimal64(18, 2) is not supported by YTsaurus static tables"
             },
             {
-              "input": "List(Field { data_type: Int32, nullable: true })",
+              "input": "Decimal128(38, 2)",
               "output": null,
-              "error": "Arrow type List(Field { data_type: Int32, nullable: true }) is not supported by YTsaurus static tables"
+              "error": "Arrow type Decimal128(38, 2) is not supported by YTsaurus static tables"
             },
             {
-              "input": "Struct([Field { name: \"value\", data_type: Utf8, nullable: true }])",
+              "input": "Decimal256(76, 2)",
               "output": null,
-              "error": "Arrow type Struct([Field { name: \"value\", data_type: Utf8, nullable: true }]) is not supported by YTsaurus static tables"
+              "error": "Arrow type Decimal256(76, 2) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "List(Field { data_type: Int32 })",
+              "output": null,
+              "error": "Arrow type List(Field { data_type: Int32 }) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "LargeList(Field { data_type: Int32 })",
+              "output": null,
+              "error": "Arrow type LargeList(Field { data_type: Int32 }) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "ListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "Arrow type ListView(Field { data_type: Int32 }) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "LargeListView(Field { data_type: Int32 })",
+              "output": null,
+              "error": "Arrow type LargeListView(Field { data_type: Int32 }) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "FixedSizeList(Field { data_type: Int32 }, 1)",
+              "output": null,
+              "error": "Arrow type FixedSizeList(Field { data_type: Int32 }, 1) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Struct([Field { name: \"value\", data_type: Int32 }])",
+              "output": null,
+              "error": "Arrow type Struct([Field { name: \"value\", data_type: Int32 }]) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse)",
+              "output": null,
+              "error": "Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Sparse) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Union([(0, Field { name: \"value\", data_type: Int32 })], Dense)",
+              "output": null,
+              "error": "Arrow type Union([(0, Field { name: \"value\", data_type: Int32 })], Dense) is not supported by YTsaurus static tables"
             },
             {
               "input": "Dictionary(Int32, Utf8)",
               "output": null,
               "error": "Arrow type Dictionary(Int32, Utf8) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false)",
+              "output": null,
+              "error": "Arrow type Map(Field { name: \"entries\", data_type: Struct([Field { name: \"key\", data_type: Utf8 }, Field { name: \"value\", data_type: Int32 }]) }, false) is not supported by YTsaurus static tables"
+            },
+            {
+              "input": "RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true })",
+              "output": null,
+              "error": "Arrow type RunEndEncoded(Field { name: \"run_ends\", data_type: Int32 }, Field { name: \"values\", data_type: Int32, nullable: true }) is not supported by YTsaurus static tables"
             },
             {
               "input": "Timestamp(Second, None)",
@@ -13685,6 +14435,7 @@
             },
             "preset": {
               "title": "Preset",
+              "description": "All Arrow datatypes excludes the Arrow Null type, which has no typed\nvalues. This does not prohibit nullable columns in other presets.",
               "$ref": "#/$defs/DataGeneratorPreset"
             },
             "amount": {
@@ -13735,6 +14486,21 @@
                     "type": {
                       "type": "string",
                       "const": "clickbench"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "All Arrow datatypes",
+                  "description": "Representative values for all Arrow datatype families except Null,\nincluding nested and encoded arrays. Arrow Null is deliberately excluded\nbecause it has no typed values. Destination support is validated during discovery.",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "all_arrow_datatypes"
                     }
                   },
                   "required": [

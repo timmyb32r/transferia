@@ -22,6 +22,28 @@ const catalog: UiCatalog = { common_schema: {}, initial: {}, connectors: [
 ] };
 
 describe("About type mappings", () => {
+  it("filters production rejections without replacing the toolbar or table viewport", () => {
+    const view = render(<AboutProvider catalog={catalog}><CompatibilityMatrixLauncher /></AboutProvider>);
+    fireEvent.click(view.getByRole("button", { name: "About" }));
+    fireEvent.click(view.getByRole("tab", { name: "Destination types" }));
+    fireEvent.click(view.getByRole("button", { name: "PostgreSQL" }));
+    const search = view.getByRole("searchbox", { name: "Find type" });
+    const viewport = view.getByLabelText("Mapping examples");
+    const toggle = view.getByRole("button", { name: "Unsupported types (1)" });
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(view.queryByText("native")).toBeNull();
+    expect(view.getByText("Exact rejection reason")).toBeTruthy();
+    expect(view.getByRole("searchbox", { name: "Find type" })).toBe(search);
+    expect(view.getByLabelText("Mapping examples")).toBe(viewport);
+    fireEvent.click(toggle);
+    expect(view.getByText("native")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "kafka" }));
+    expect(view.queryByRole("table")).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Unsupported types · JSON (1)" }));
+    expect(view.getByText("Exact rejection reason")).toBeTruthy();
+    expect(view.queryByText("native")).toBeNull();
+  });
   it.each(["source", "sink"] as const)("opens %s from About, searches errors and restores focus", (role) => {
     const view = render(<AboutProvider catalog={catalog}><CompatibilityMatrixLauncher /></AboutProvider>);
     const link = view.getByRole("button", { name: "About" });

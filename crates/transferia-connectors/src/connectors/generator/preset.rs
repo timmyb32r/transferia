@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 
-use super::clickbench;
+use super::{all_arrow, clickbench};
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -18,6 +18,12 @@ pub enum DataGeneratorPreset {
     #[schemars(title = "ClickBench hits")]
     #[serde(rename = "clickbench")]
     ClickBench,
+
+    /// Representative values for all Arrow datatype families except Null,
+    /// including nested and encoded arrays. Arrow Null is deliberately excluded
+    /// because it has no typed values. Destination support is validated during discovery.
+    #[schemars(title = "All Arrow datatypes")]
+    AllArrowDatatypes,
 
     #[schemars(title = "Numeric")]
     Numeric {
@@ -44,6 +50,8 @@ impl DataGeneratorPreset {
 
             Self::ClickBench => clickbench::logical_row_bytes(),
 
+            Self::AllArrowDatatypes => Ok(all_arrow::LOGICAL_ROW_BYTES),
+
             Self::Numeric { column_count } => u64::try_from(*column_count)?
                 .checked_mul(8)
                 .ok_or_else(|| anyhow::anyhow!("generator numeric row width overflow")),
@@ -55,6 +63,8 @@ impl DataGeneratorPreset {
             Self::TransferLogs => transfer_logs_schema(),
 
             Self::ClickBench => clickbench::schema(),
+
+            Self::AllArrowDatatypes => all_arrow::schema(),
 
             Self::Numeric { column_count } => DatasetSchema::new(
                 (1..=*column_count)
@@ -70,6 +80,9 @@ impl DataGeneratorPreset {
     pub(super) fn batch(&self, start: u64, rows: u64) -> anyhow::Result<RecordBatch> {
         if matches!(self, Self::ClickBench) {
             return clickbench::batch(start, rows);
+        }
+        if matches!(self, Self::AllArrowDatatypes) {
+            return all_arrow::batch(start, rows);
         }
         let rows = usize::try_from(rows)?;
         let schema = self.schema();
@@ -90,6 +103,8 @@ impl DataGeneratorPreset {
 
             Self::ClickBench => return clickbench::batch(start, rows as u64),
 
+            Self::AllArrowDatatypes => return all_arrow::batch(start, rows as u64),
+
             Self::Numeric { column_count } => (0..*column_count)
                 .map(|column| {
                     Arc::new(UInt64Array::from_iter_values(
@@ -107,6 +122,10 @@ impl DataGeneratorPreset {
     pub(super) fn batch_bytes(&self, start: u64, rows: u64) -> anyhow::Result<u64> {
         match self {
             Self::ClickBench => clickbench::batch_bytes(start, rows),
+            Self::AllArrowDatatypes => rows
+                .checked_mul(all_arrow::LOGICAL_ROW_BYTES)
+                .and_then(|bytes| bytes.checked_add(all_arrow::BATCH_OVERHEAD_BYTES))
+                .ok_or_else(|| anyhow::anyhow!("generator batch size overflow")),
             _ => rows
                 .checked_mul(self.logical_row_bytes()?)
                 .ok_or_else(|| anyhow::anyhow!("generator batch size overflow")),

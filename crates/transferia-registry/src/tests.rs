@@ -20,7 +20,7 @@ fn type_mapping_examples_are_evaluated_and_keep_rejections() {
     let calls = std::cell::Cell::new(0);
     let report = type_mapping::destination_mapping("test", |column| {
         calls.set(calls.get() + 1);
-        if column.data_type == arrow::datatypes::DataType::Null {
+        if column.data_type == arrow::datatypes::DataType::Float16 {
             anyhow::bail!("unsupported test input");
         }
         Ok(format!("resolved {:?}", column.data_type))
@@ -31,13 +31,17 @@ fn type_mapping_examples_are_evaluated_and_keep_rejections() {
         .iter()
         .all(|row| row.output.is_some() != row.error.is_some()));
     assert_eq!(
-        report.rows[0].error.as_deref(),
+        report.rows.iter().find(|row| row.input == "Float16").unwrap().error.as_deref(),
         Some("unsupported test input")
     );
     assert!(report
         .rows
         .iter()
         .any(|row| row.output.as_deref() == Some("resolved Int32")));
+    for (_, data_type) in arrow_examples::types() {
+        assert_ne!(data_type, arrow::datatypes::DataType::Null);
+        assert_eq!(report.rows.iter().filter(|row| row.input == format!("{data_type:?}")).count(), 1);
+    }
 }
 
 fn sample_limits(row_limit: usize) -> TableSampleLimits {

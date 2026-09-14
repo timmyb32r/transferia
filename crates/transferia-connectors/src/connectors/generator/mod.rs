@@ -1,3 +1,4 @@
+mod all_arrow;
 mod clickbench;
 mod connector;
 mod preset;

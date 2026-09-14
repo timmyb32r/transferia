@@ -35,6 +35,15 @@ try {
       await page.getByRole("tab", { name: tab, exact: true }).click();
       for (const connector of ["PostgreSQL", "ClickHouse", "OpenSearch"]) {
         await page.getByRole("button", { name: connector, exact: true }).click();
+        const filter = page.getByRole("button", { name: /^Unsupported types/ });
+        const filterBefore = await filter.boundingBox();
+        const viewportBefore = await page.locator(".type-mapping-table-scroll").boundingBox();
+        for (let toggle = 0; toggle < 2; toggle++) {
+          await filter.click();
+          stable(before, await search.boundingBox(), "unsupported filter preserves search");
+          stable(filterBefore, await filter.boundingBox(), "unsupported filter preserves its hit target");
+          stable(viewportBefore, await page.locator(".type-mapping-table-scroll").boundingBox(), "unsupported filter preserves viewport");
+        }
         for (const query of ["", "Int32", "no-such-type"]) {
           await search.fill(query);
           stable(before, await search.boundingBox(), `${width}/${tab}/${connector}: search`);

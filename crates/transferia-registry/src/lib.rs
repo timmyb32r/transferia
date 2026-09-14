@@ -7,6 +7,7 @@ pub mod table_selection;
 mod traits;
 pub mod tuning;
 pub mod type_mapping;
+pub mod arrow_examples;
 mod ui_contract;
 
 pub use definition::{ConnectorDefinition, DeliveryMode, EndpointDefinition, MiddlewareDefinition};
