@@ -1368,6 +1368,29 @@ h3 {
 .foldout {
   margin-top: 5px;
 }
+/* Both headers keep their coordinates while either full-width body expands. */
+.options-foldouts {
+  position: relative;
+  padding-top: 44px;
+  min-width: 0;
+}
+.options-foldouts:empty { display: none; }
+.options-foldouts > .foldout { margin-top: 0; }
+.options-foldouts > .foldout > summary {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  width: calc(50% - 6px);
+  height: 44px;
+}
+.options-foldouts > .advanced-settings + .performance-settings > summary {
+  left: calc(50% + 6px);
+}
+.options-foldouts > .foldout > summary::after { flex-shrink: 0; }
+/* Portal hosts are DOM-only: fields participate in the same grid as Advanced. */
+.performance-options-content, .performance-option { display: contents; }
+.performance-options-content:has(.performance-option) > .performance-empty { display: none; }
 .foldout summary {
   cursor: pointer;
   display: inline-flex;
@@ -4176,31 +4199,6 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   display: grid;
   grid-template-columns: minmax(0, 1fr) 88px;
   gap: 6px;
-}
-
-.advanced-parquet-settings {
-  width: 100%;
-  min-width: 0;
-}
-.advanced-parquet-settings > .foldout-content {
-  width: 100%;
-}
-.advanced-parquet-settings .form-row:not(.form-row-wide) {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
-}
-.advanced-parquet-settings .field-control,
-.advanced-parquet-settings .control-width-enum > .field-control {
-  width: 100%;
-  min-width: 0;
-}
-.advanced-parquet-settings > .foldout-content > .form-row-wide {
-  margin-top: 10px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line-inner);
-}
-.advanced-parquet-settings .byte-size-input {
-  grid-template-columns: minmax(0, 1fr) minmax(72px, 40%);
 }
 
 /* Sidebar appearance controls */

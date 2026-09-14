@@ -449,22 +449,24 @@
               }
             },
             "read_buffer_bytes": {
+              "description": "Read buffer for the YDB driver. Keep the default when using PQv1.",
               "type": "integer",
               "format": "uint",
               "minimum": 0,
               "default": 1048576,
               "x-ui": {
-                "section": "advanced",
+                "section": "performance",
                 "widget": "byte_size"
               }
             },
             "pqv1_decompression_concurrency": {
+              "description": "Parallel decompression across PQv1 partition sessions. Keep the default\nwhen using the YDB driver; one partition is still decoded sequentially.",
               "type": "integer",
               "format": "uint",
               "minimum": 0,
               "default": 4,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "pqv1_discard_before_decompression": {
@@ -2675,7 +2677,7 @@
               "minimum": 0,
               "default": 1000,
               "x-ui": {
-                "section": "advanced"
+                "section": "performance"
               }
             },
             "batch_max_bytes": {
@@ -2684,7 +2686,7 @@
               "minimum": 0,
               "default": 16777216,
               "x-ui": {
-                "section": "advanced",
+                "section": "performance",
                 "widget": "byte_size"
               }
             },
@@ -2694,7 +2696,7 @@
               "minimum": 0,
               "default": 30000,
               "x-ui": {
-                "section": "advanced"
+                "section": "performance"
               }
             }
           },
@@ -4304,7 +4306,7 @@
               "minimum": 0,
               "default": 30000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "max_in_flight": {
@@ -4313,7 +4315,7 @@
               "minimum": 0,
               "default": 16,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             }
           },
@@ -5104,7 +5106,7 @@
               "minimum": 0,
               "default": 16384,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "batch_target_bytes": {
@@ -5116,7 +5118,7 @@
               "maximum": 1073741824,
               "default": 8388608,
               "x-ui": {
-                "section": "advanced"
+                "section": "performance"
               }
             },
             "max_row_bytes": {
@@ -5128,7 +5130,7 @@
               "maximum": 1073741824,
               "default": 1073741824,
               "x-ui": {
-                "section": "advanced"
+                "section": "performance"
               }
             },
             "read_protocol": {
@@ -5136,7 +5138,7 @@
               "description": "MySQL wire protocol used for snapshot rows. Binary is the lossless measured high-throughput default. Text remains available for supported schemas, but discovery rejects FLOAT columns because MySQL text formatting cannot preserve every f32 value exactly.",
               "$ref": "#/$defs/MySqlReadProtocol",
               "x-ui": {
-                "section": "advanced"
+                "section": "performance"
               }
             },
             "replication": {
@@ -5642,7 +5644,7 @@
               "minimum": 0,
               "default": 250,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             }
           },
@@ -5779,7 +5781,7 @@
               "minimum": 1,
               "default": 30000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "max_response_bytes": {
@@ -5790,7 +5792,7 @@
               "minimum": 1,
               "default": 67108864,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "indices": {
@@ -5811,7 +5813,7 @@
               "minimum": 1,
               "default": 10000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "read_concurrency": {
@@ -5822,7 +5824,7 @@
               "minimum": 1,
               "default": 2,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "pit_keep_alive_ms": {
@@ -5833,7 +5835,7 @@
               "minimum": 1,
               "default": 300000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "retry_initial_ms": {
@@ -5843,7 +5845,7 @@
               "minimum": 1,
               "default": 100,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "retry_max_ms": {
@@ -5853,7 +5855,7 @@
               "minimum": 1,
               "default": 10000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "retry_max_attempts": {
@@ -5864,7 +5866,7 @@
               "minimum": 1,
               "default": 10,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             }
           },
@@ -6249,7 +6251,7 @@
               "minimum": 1,
               "default": 30000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "max_response_bytes": {
@@ -6260,7 +6262,7 @@
               "minimum": 1,
               "default": 67108864,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "create_indices": {
@@ -6280,7 +6282,7 @@
               "minimum": 1,
               "default": 20000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "bulk_target_bytes": {
@@ -6289,7 +6291,7 @@
               "minimum": 1,
               "default": 16777216,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "bulk_concurrency": {
@@ -6299,7 +6301,7 @@
               "maximum": 32,
               "default": 4,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "flush_interval_ms": {
@@ -6308,7 +6310,7 @@
               "minimum": 1,
               "default": 250,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "retry_initial_ms": {
@@ -6317,7 +6319,7 @@
               "minimum": 1,
               "default": 100,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "retry_max_ms": {
@@ -6326,7 +6328,7 @@
               "minimum": 1,
               "default": 10000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "retry_max_attempts": {
@@ -6335,7 +6337,7 @@
               "minimum": 1,
               "default": 10,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             }
           },
@@ -6668,7 +6670,7 @@
               "minimum": 0,
               "default": 16384,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "copy_to_format": {
@@ -6676,7 +6678,7 @@
               "description": "PostgreSQL wire format used for snapshot COPY TO STDOUT",
               "$ref": "#/$defs/PostgresCopyFormat",
               "x-ui": {
-                "section": "advanced"
+                "section": "performance"
               }
             },
             "unsupported_types": {
@@ -7237,7 +7239,7 @@
               "description": "PostgreSQL wire format used for COPY FROM STDIN",
               "$ref": "#/$defs/PostgresCopyFormat",
               "x-ui": {
-                "section": "advanced"
+                "section": "performance"
               }
             }
           },
@@ -7575,13 +7577,13 @@
               "minimum": 1,
               "default": 65409,
               "x-ui": {
-                "section": "advanced"
+                "section": "performance"
               }
             },
             "snapshot_reader": {
               "$ref": "#/$defs/ClickHouseSnapshotReader",
               "x-ui": {
-                "section": "advanced"
+                "section": "performance"
               }
             },
             "unsupported_types": {
@@ -8135,7 +8137,7 @@
               "minimum": 0,
               "default": 1000000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "insert_target_bytes": {
@@ -8144,7 +8146,7 @@
               "minimum": 0,
               "default": 671088640,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "insert_concurrency": {
@@ -8154,21 +8156,21 @@
               "minimum": 0,
               "default": 32,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "insert_format": {
               "description": "Wire format used for INSERT payloads. Parquet and `ArrowStream` use the\n`ClickHouse` HTTP endpoint and are stable, self-describing interchange\nformats; Native uses the `ClickHouse` native TCP protocol.",
               "$ref": "#/$defs/ClickHouseInsertFormat",
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "compression": {
               "description": "Native-protocol compression. ZSTD is the measured throughput default;\nLZ4 trades throughput for less compression work, while `none` is useful\nonly for an explicitly measured transport that is not network-bound.",
               "$ref": "#/$defs/ClickHouseCompression",
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "format_threads": {
@@ -8178,7 +8180,7 @@
               "minimum": 0,
               "default": 8,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "parquet_row_group_rows": {
@@ -8188,7 +8190,7 @@
               "minimum": 0,
               "default": 1000000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "async_insert": {
@@ -8196,7 +8198,7 @@
               "type": "boolean",
               "default": false,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "flush_interval_ms": {
@@ -8205,7 +8207,7 @@
               "minimum": 0,
               "default": 100,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "retry_initial_ms": {
@@ -8214,7 +8216,7 @@
               "minimum": 0,
               "default": 50,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "retry_max_ms": {
@@ -8223,7 +8225,7 @@
               "minimum": 0,
               "default": 30000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "retry_max_attempts": {
@@ -8235,7 +8237,7 @@
               "minimum": 0,
               "default": null,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "connect_timeout_ms": {
@@ -8419,7 +8421,7 @@
               "minimum": 0,
               "default": 30000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             }
           },
@@ -8461,7 +8463,7 @@
                       "minimum": 0,
                       "default": 65536,
                       "x-ui": {
-                        "widget": "hidden"
+                        "section": "performance"
                       }
                     },
                     "type": {
@@ -9279,25 +9281,25 @@
             "rotation": {
               "$ref": "#/$defs/RotationConfig",
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "buffering": {
               "$ref": "#/$defs/BufferingConfig",
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "upload": {
               "$ref": "#/$defs/UploadConfig",
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "retry": {
               "$ref": "#/$defs/RetryConfig",
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             }
           },
@@ -9334,13 +9336,13 @@
                     "compression": {
                       "$ref": "#/$defs/ParquetCompression",
                       "x-ui": {
-                        "section": "advanced_parquet"
+                        "section": "performance"
                       }
                     },
                     "row_group": {
                       "$ref": "#/$defs/ParquetRowGroupConfig",
                       "x-ui": {
-                        "section": "advanced_parquet"
+                        "section": "performance"
                       }
                     },
                     "type": {
@@ -9959,7 +9961,7 @@
               "minimum": 0,
               "default": 65536,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "read_data_file_concurrency": {
@@ -9968,7 +9970,7 @@
               "minimum": 0,
               "default": 32,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "read_manifest_concurrency": {
@@ -9977,7 +9979,7 @@
               "minimum": 0,
               "default": 32,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "parquet_metadata_size_hint_bytes": {
@@ -9986,7 +9988,7 @@
               "minimum": 0,
               "default": 524288,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "parquet_range_coalesce_bytes": {
@@ -9995,7 +9997,7 @@
               "minimum": 0,
               "default": 1048576,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "parquet_range_fetch_concurrency": {
@@ -10004,7 +10006,7 @@
               "minimum": 0,
               "default": 10,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             }
           },
@@ -10779,7 +10781,7 @@
               "minimum": 0,
               "default": 134217728,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "commit_target_size_bytes": {
@@ -10788,14 +10790,14 @@
               "minimum": 0,
               "default": 536870912,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "parquet_compression": {
               "$ref": "#/$defs/IcebergParquetCompression",
               "default": "zstd",
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "parquet_row_group_rows": {
@@ -10804,7 +10806,7 @@
               "minimum": 0,
               "default": 250000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "write_concurrency": {
@@ -10813,7 +10815,7 @@
               "minimum": 0,
               "default": 8,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             }
           },
@@ -11394,7 +11396,7 @@
               "maximum": 4294967295,
               "default": 268435456,
               "x-ui": {
-                "section": "advanced",
+                "section": "performance",
                 "widget": "byte_size"
               }
             },
@@ -11414,7 +11416,7 @@
               "minimum": 0,
               "default": 65536,
               "x-ui": {
-                "section": "advanced"
+                "section": "performance"
               }
             },
             "session_shutdown_timeout_ms": {
@@ -11947,7 +11949,7 @@
               "maximum": 4294967295,
               "default": 268435456,
               "x-ui": {
-                "section": "advanced",
+                "section": "performance",
                 "widget": "byte_size"
               }
             },
@@ -12276,7 +12278,7 @@
                 "type": "ordered"
               },
               "x-ui": {
-                "section": "advanced"
+                "section": "performance"
               }
             },
             "table_reader": {
@@ -12284,7 +12286,7 @@
               "$ref": "#/$defs/YTsaurusTableReaderConfig",
               "default": {},
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "benchmark_discard": {
@@ -12307,7 +12309,7 @@
               "minimum": 0,
               "default": 65536,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "stream_retry_max_attempts": {
@@ -12461,7 +12463,7 @@
                       "minimum": 0,
                       "default": 268435456,
                       "x-ui": {
-                        "widget": "hidden"
+                        "widget": "byte_size"
                       }
                     },
                     "max_partition_count": {
@@ -12469,20 +12471,14 @@
                       "type": "integer",
                       "format": "uint",
                       "minimum": 0,
-                      "default": 64,
-                      "x-ui": {
-                        "widget": "hidden"
-                      }
+                      "default": 64
                     },
                     "concurrency": {
                       "title": "Concurrent partition readers",
                       "type": "integer",
                       "format": "uint",
                       "minimum": 0,
-                      "default": 16,
-                      "x-ui": {
-                        "widget": "hidden"
-                      }
+                      "default": 16
                     },
                     "type": {
                       "type": "string",
@@ -13037,7 +13033,7 @@
               "minimum": 0,
               "default": 536870912,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "write_concurrency": {
@@ -13046,7 +13042,7 @@
               "minimum": 0,
               "default": 4,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "write_flush_interval_ms": {
@@ -13055,7 +13051,7 @@
               "minimum": 0,
               "default": 1000,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "write_row_buffer_bytes": {
@@ -13064,7 +13060,7 @@
               "minimum": 0,
               "default": 524288,
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "table_writer": {
@@ -13077,7 +13073,7 @@
                 "desired_chunk_size": 2147483648
               },
               "x-ui": {
-                "widget": "hidden"
+                "section": "performance"
               }
             },
             "primary_key_sort_timeout_ms": {

@@ -120,11 +120,11 @@ fn checker_config_treats_null_form_credentials_as_incomplete() {
 }
 
 #[test]
-fn sink_hides_internal_insert_batch_tuning() {
+fn sink_groups_insert_batch_tuning_without_changing_its_default() {
     let schema = serde_json::to_value(schemars::schema_for!(mysql::sink::MySqlSinkConfig)).unwrap();
     assert_eq!(
-        schema["properties"]["insert_rows"]["x-ui"]["widget"],
-        "hidden"
+        schema["properties"]["insert_rows"]["x-ui"]["section"],
+        "performance"
     );
     assert_eq!(schema["properties"]["insert_rows"]["default"], 250);
 }

@@ -40,34 +40,34 @@ pub struct OpenSearchSinkConfig {
     pub routed_identity: RoutedIdentity,
 
     #[serde(default = "default_bulk_target_rows")]
-    #[schemars(range(min = 1), extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(range(min = 1), extend("x-ui" = { "section": "performance" }))]
     pub bulk_target_rows: usize,
 
     #[serde(default = "default_bulk_target_bytes")]
     #[schemars(
         range(min = 1),
-        extend("x-ui" = { "widget": "hidden" })
+        extend("x-ui" = { "section": "performance" })
     )]
     pub bulk_target_bytes: usize,
 
     #[serde(default = "default_bulk_concurrency")]
-    #[schemars(range(min = 1, max = 32), extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(range(min = 1, max = 32), extend("x-ui" = { "section": "performance" }))]
     pub bulk_concurrency: usize,
 
     #[serde(default = "default_flush_interval_ms")]
-    #[schemars(range(min = 1), extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(range(min = 1), extend("x-ui" = { "section": "performance" }))]
     pub flush_interval_ms: u64,
 
     #[serde(default = "default_retry_initial_ms")]
-    #[schemars(range(min = 1), extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(range(min = 1), extend("x-ui" = { "section": "performance" }))]
     pub retry_initial_ms: u64,
 
     #[serde(default = "default_retry_max_ms")]
-    #[schemars(range(min = 1), extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(range(min = 1), extend("x-ui" = { "section": "performance" }))]
     pub retry_max_ms: u64,
 
     #[serde(default = "default_retry_max_attempts")]
-    #[schemars(range(min = 1), extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(range(min = 1), extend("x-ui" = { "section": "performance" }))]
     pub retry_max_attempts: u32,
 }
 

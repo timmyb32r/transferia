@@ -150,6 +150,7 @@ export function EndpointCard(props: {
           <div class="endpoint-fields">
             <TableNamingProvider connector={props.selectedKey}>
             <SchemaForm
+              endpoint
               node={node}
               value={value}
               disabled={props.readOnly}

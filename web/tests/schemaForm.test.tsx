@@ -1322,7 +1322,7 @@ describe("schema form", () => {
     expect(document.activeElement).toBe(summary);
   });
 
-  it("groups Parquet-only controls under their dedicated disclosure", () => {
+  it("groups standalone performance controls under their disclosure", () => {
     const node: CompiledNode = {
       kind: "object",
       xUi: {},
@@ -1330,7 +1330,7 @@ describe("schema form", () => {
       properties: {
         compression: {
           ...stringNode("Compression"),
-          xUi: { section: "advanced_parquet" },
+          xUi: { section: "performance" },
         },
       },
     };
@@ -1342,10 +1342,10 @@ describe("schema form", () => {
       />,
     );
 
-    const details = view.getByText("Advanced Parquet settings").closest("details")!;
+    const details = view.getByText("Performance options").closest("details")!;
     expect(details.open).toBe(false);
-    expect(details.classList.contains("advanced-parquet-settings")).toBe(true);
-    fireEvent.click(view.getByText("Advanced Parquet settings"));
+    expect(details.classList.contains("performance-settings")).toBe(true);
+    fireEvent.click(view.getByText("Performance options"));
     expect(details.open).toBe(true);
     expect(view.container.querySelector("#field---compression")).toBeTruthy();
   });

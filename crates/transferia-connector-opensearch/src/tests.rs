@@ -143,7 +143,6 @@ fn registration_publishes_batch_source_and_append_only_sink() -> anyhow::Result<
             &[
                 "request_timeout_ms",
                 "max_response_bytes",
-                "routed_identity",
                 "bulk_target_rows",
                 "bulk_target_bytes",
                 "bulk_concurrency",
@@ -156,11 +155,12 @@ fn registration_publishes_batch_source_and_append_only_sink() -> anyhow::Result<
     ] {
         for field in fields {
             assert_eq!(
-                schema["properties"][field]["x-ui"]["widget"], "hidden",
+                schema["properties"][field]["x-ui"]["section"], "performance",
                 "{field}"
             );
         }
     }
+    assert_eq!(sink.schema["properties"]["routed_identity"]["x-ui"]["widget"], "hidden");
     assert_eq!(
         source.schema["$defs"]["OpenSearchAuth"]["oneOf"][0]["properties"]["password"]["x-ui"]
             ["widget"],

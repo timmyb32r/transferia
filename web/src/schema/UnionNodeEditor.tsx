@@ -39,6 +39,14 @@ export function UnionNodeEditor({
     node.xUi.defer_variant_details === true ||
     (widget !== undefined && variantUi.selectionOnly?.includes(widget) === true);
   const options = node.branches.map((branch, index) => ({ branch, index }));
+  const branch = node.branches[selected];
+  const details = !selectionOnly && branch !== undefined && branch.constant === undefined &&
+    hasEditableContent(branch.node, widgets) ? (
+      <NodeEditor node={branch.node} value={value} disabled={disabled}
+        path={`${path}/branch-${selected}`} onChange={onChange} />
+    ) : null;
+  const performanceOnly = branch?.node.kind === "object" && Object.values(branch.node.properties)
+    .filter(child => !widgets.isHidden(child)).every(child => child.xUi.section === "performance");
   return (
     <div class="union-editor">
       <div class={action !== undefined ? "parser-selector-row" : undefined}>
@@ -64,20 +72,7 @@ export function UnionNodeEditor({
         />
         {action}
       </div>
-      {!selectionOnly &&
-        selected >= 0 &&
-        node.branches[selected]!.constant === undefined &&
-        hasEditableContent(node.branches[selected]!.node, widgets) && (
-          <div class="nested-section">
-            <NodeEditor
-              node={node.branches[selected]!.node}
-              value={value}
-              disabled={disabled}
-              path={`${path}/branch-${selected}`}
-              onChange={onChange}
-            />
-          </div>
-        )}
+      {performanceOnly ? details : details && <div class="nested-section">{details}</div>}
     </div>
   );
 }

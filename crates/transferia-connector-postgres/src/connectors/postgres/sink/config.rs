@@ -15,7 +15,7 @@ pub struct PostgresSinkConfig {
     #[schemars(
         title = "COPY FROM format",
         description = "PostgreSQL wire format used for COPY FROM STDIN",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "section": "performance" })
     )]
     pub copy_from_format: PostgresCopyFormat,
 }

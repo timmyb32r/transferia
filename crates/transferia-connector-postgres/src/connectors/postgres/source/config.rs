@@ -25,14 +25,14 @@ pub struct PostgresSourceConfig {
     pub tables: TableSelection,
 
     #[serde(default = "default_batch_rows")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub batch_rows: usize,
 
     #[serde(default)]
     #[schemars(
         title = "COPY TO format",
         description = "PostgreSQL wire format used for snapshot COPY TO STDOUT",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "section": "performance" })
     )]
     pub copy_to_format: PostgresCopyFormat,
 

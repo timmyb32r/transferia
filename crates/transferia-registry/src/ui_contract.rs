@@ -79,7 +79,7 @@ enum UiRecordSemantics {
 #[serde(rename_all = "snake_case")]
 enum UiSection {
     Advanced,
-    AdvancedParquet,
+    Performance,
     SystemColumns,
     ShardGroup,
 }

@@ -26,6 +26,7 @@ import { useWidgetRegistry } from "./widgetRegistry";
 import { TableCatalogContext, type TableCatalog } from "./tableCatalog";
 
 export interface SchemaFormProps extends NodeEditorProps {
+  endpoint?: boolean;
   tableCatalog?: TableCatalog | undefined;
   variantUi?: VariantUi;
   showRequiredErrors?: boolean;
@@ -44,6 +45,7 @@ export interface VariantUi {
 
 const VariantUiContext = createContext<VariantUi>({});
 const RequiredErrorsContext = createContext(false);
+const DetachedDetailsContext = createContext(false);
 const RootValueContext = createContext<JsonValue>({});
 const OptionOverridesContext = createContext<Record<string, string[]>>({});
 const DeliveryTypeContext = createContext<string | undefined>(undefined);
@@ -61,6 +63,7 @@ export function SchemaForm({
   optionOverrides = {},
   connectionAction,
   connectionFields,
+  endpoint = false,
   deliveryType,
   fieldLabelOverrides = {},
   onChange,
@@ -79,6 +82,7 @@ export function SchemaForm({
                   disabled={disabled}
                   connectionAction={connectionAction}
                   connectionFields={connectionFields}
+                  endpoint={endpoint}
                   onChange={onChange}
                   path="#"
                 />
@@ -109,6 +113,7 @@ export function VariantDetailsForm({
 }) {
   const widgets = useWidgetRegistry();
   return (
+    <DetachedDetailsContext.Provider value={true}>
     <FieldLabelOverridesContext.Provider value={fieldLabelOverrides}>
       <RootValueContext.Provider value={value}>
         <RequiredErrorsContext.Provider value={showRequiredErrors}>
@@ -126,6 +131,7 @@ export function VariantDetailsForm({
         </RequiredErrorsContext.Provider>
       </RootValueContext.Provider>
     </FieldLabelOverridesContext.Provider>
+    </DetachedDetailsContext.Provider>
   );
 }
 
@@ -139,6 +145,7 @@ function NodeEditor({
   fitSelectOptions,
   connectionAction,
   connectionFields,
+  endpoint = false,
 }: SchemaFormProps) {
   const widgets = useWidgetRegistry();
   const isDisabled = disabled ?? false;
@@ -146,6 +153,7 @@ function NodeEditor({
   const rootValue = useContext(RootValueContext);
   const optionOverrides = useContext(OptionOverridesContext);
   const deliveryType = useContext(DeliveryTypeContext);
+  const detachedDetails = useContext(DetachedDetailsContext);
   const customWidget = widgets.renderNode(
     { node, value, disabled: isDisabled, onChange, path, controlId },
     { NodeEditor, PropertyEditor },
@@ -162,12 +170,15 @@ function NodeEditor({
           path={path}
           connectionAction={connectionAction}
           connectionFields={connectionFields}
+          endpoint={endpoint}
+          selectionOnly={variantUi.selectionOnly}
           widgets={widgets}
           NodeEditor={NodeEditor}
           PropertyEditor={PropertyEditor}
           isVisible={(child) =>
-            child.xUi.delivery_types === undefined ||
-            child.xUi.delivery_types.includes(deliveryType ?? "")
+            !(detachedDetails && child.xUi.section === "performance") &&
+            (child.xUi.delivery_types === undefined ||
+              child.xUi.delivery_types.includes(deliveryType ?? ""))
           }
           onChange={onChange}
         />

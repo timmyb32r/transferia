@@ -41,10 +41,15 @@ export function VariantDetailsCard({
       : variantNode.branches.find((branch) =>
           branchMatches(branch, variantValue),
         );
+  const detailsNode = selected?.node.kind === "object"
+    ? { ...selected.node, properties: Object.fromEntries(Object.entries(selected.node.properties)
+        .filter(([, child]) => child.xUi.section !== "performance")) }
+    : selected?.node;
   if (
     selected === undefined ||
     selected.constant !== undefined ||
-    !hasEditableContent(selected.node, widgets)
+    detailsNode === undefined ||
+    !hasEditableContent(detailsNode, widgets)
   )
     return null;
   return (
@@ -55,7 +60,7 @@ export function VariantDetailsCard({
             <h2>{selected.label} settings</h2>
           </div>
           <NodeEditor
-            node={selected.node}
+            node={detailsNode}
             value={draftValue(selected.node, variantValue)}
             disabled={disabled}
             onChange={(next) => onChange({ ...object, [name]: next })}

@@ -433,6 +433,14 @@ into the neutral palette or rely solely on color to communicate them.
 
 ## Change discipline
 
+Source/destination `Advanced settings` and `Performance options` use the same
+native disclosure styling. Their headers share a reserved row and remain at
+fixed coordinates when either full-width body opens. Both may stay open; do not
+replace them with mutually exclusive tabs or two narrow columns of fields.
+Performance fields are connector-authored schema hints, including nested
+parser/format controls; never duplicate their values or configuration paths.
+See [the inventory and grouping contract](performance-options.md).
+
 - A scalar control width cap must never constrain a nested form. Object, array,
   optional-object and editable union settings use the full available row width;
   determine this from the schema, not the selected branch, to keep the selector

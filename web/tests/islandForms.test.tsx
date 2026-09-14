@@ -116,7 +116,11 @@ describe("compact island forms", () => {
         } } };
         const view = render(<ParserDetailsForm node={renamed}
           value={{ parser: materializeBranch(branch) }} onChange={onChange} />);
-        if (branch.constant !== undefined || !hasEditableContent(branch.node, productionWidgetRegistry)) {
+        const detachedNode = branch.node.kind === "object"
+          ? { ...branch.node, properties: Object.fromEntries(Object.entries(branch.node.properties)
+              .filter(([, field]) => field.xUi.section !== "performance")) }
+          : branch.node;
+        if (branch.constant !== undefined || !hasEditableContent(detachedNode, productionWidgetRegistry)) {
           expect(view.container.querySelector(".parser-details-card")).toBeNull();
           expect(onChange).not.toHaveBeenCalled();
           return;

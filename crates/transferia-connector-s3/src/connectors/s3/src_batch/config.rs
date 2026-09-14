@@ -44,7 +44,7 @@ pub struct S3SourceConfig {
     #[serde(default = "default_timeout_ms")]
     #[schemars(
         title = "Request timeout (ms)",
-        extend("x-ui" = { "widget": "hidden" })
+        extend("x-ui" = { "section": "performance" })
     )]
     pub timeout_ms: u64,
 }
@@ -58,7 +58,7 @@ pub enum S3InputParser {
     )]
     Parquet {
         #[serde(default = "default_parquet_batch_rows")]
-        #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+        #[schemars(extend("x-ui" = { "section": "performance" }))]
         batch_rows: usize,
     },
 

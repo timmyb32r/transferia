@@ -214,14 +214,14 @@ pub struct YTsaurusSourceConfig {
     #[schemars(
         title = "Read mode",
         description = "Ordered reads resume at the last row after a transient failure. Unordered reads maximize single-stream throughput but fail on interruption. PartitionTables performs concurrent distributed reads and is also non-resumable.",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "section": "performance" })
     )]
     pub read_ordering: YTsaurusReadOrdering,
 
     #[serde(default)]
     #[schemars(
         title = "Native reader settings",
-        extend("x-ui" = { "widget": "hidden" })
+        extend("x-ui" = { "section": "performance" })
     )]
     pub table_reader: YTsaurusTableReaderConfig,
 
@@ -233,7 +233,7 @@ pub struct YTsaurusSourceConfig {
     pub benchmark_discard: Option<YTsaurusBenchmarkDiscardConfig>,
 
     #[serde(default = "default_batch_rows")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub batch_rows: usize,
 
     #[serde(default = "default_stream_retry_max_attempts")]
@@ -272,21 +272,19 @@ pub enum YTsaurusReadOrdering {
         #[serde(default = "default_partition_compressed_bytes")]
         #[schemars(
             title = "Compressed bytes per partition",
-            extend("x-ui" = { "widget": "hidden" })
+            extend("x-ui" = { "widget": "byte_size" })
         )]
         compressed_data_size_per_partition: u64,
 
         #[serde(default = "default_partition_count")]
         #[schemars(
-            title = "Maximum partition count",
-            extend("x-ui" = { "widget": "hidden" })
+            title = "Maximum partition count"
         )]
         max_partition_count: usize,
 
         #[serde(default = "default_partition_concurrency")]
         #[schemars(
-            title = "Concurrent partition readers",
-            extend("x-ui" = { "widget": "hidden" })
+            title = "Concurrent partition readers"
         )]
         concurrency: usize,
     },
@@ -968,23 +966,23 @@ pub struct YTsaurusSinkConfig {
     pub account: Option<String>,
 
     #[serde(default = "default_write_target_bytes")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub write_target_bytes: usize,
 
     #[serde(default = "default_write_concurrency")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub write_concurrency: usize,
 
     #[serde(default = "default_write_flush_interval_ms")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub write_flush_interval_ms: u64,
 
     #[serde(default = "default_write_row_buffer_bytes")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub write_row_buffer_bytes: u64,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub table_writer: YTsaurusTableWriterConfig,
 
     #[serde(default = "default_primary_key_sort_timeout_ms")]

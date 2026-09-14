@@ -216,27 +216,27 @@ pub struct IcebergSourceConfig {
     pub table_names: Vec<String>,
 
     #[serde(default = "default_read_batch_rows")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub read_batch_rows: usize,
 
     #[serde(default = "default_read_data_file_concurrency")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub read_data_file_concurrency: usize,
 
     #[serde(default = "default_read_manifest_concurrency")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub read_manifest_concurrency: usize,
 
     #[serde(default = "default_parquet_metadata_size_hint_bytes")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub parquet_metadata_size_hint_bytes: usize,
 
     #[serde(default = "default_parquet_range_coalesce_bytes")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub parquet_range_coalesce_bytes: u64,
 
     #[serde(default = "default_parquet_range_fetch_concurrency")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub parquet_range_fetch_concurrency: usize,
 }
 
@@ -256,23 +256,23 @@ pub struct IcebergSinkConfig {
     pub create_if_missing: bool,
 
     #[serde(default = "default_target_file_size")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub target_file_size_bytes: usize,
 
     #[serde(default = "default_commit_target_size")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub commit_target_size_bytes: usize,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub parquet_compression: IcebergParquetCompression,
 
     #[serde(default = "default_parquet_row_group_rows")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub parquet_row_group_rows: usize,
 
     #[serde(default = "default_write_concurrency")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub write_concurrency: usize,
 }
 

@@ -894,12 +894,12 @@ fn test_column(
 }
 
 #[test]
-fn read_protocol_is_a_user_visible_advanced_choice() -> anyhow::Result<()> {
+fn read_protocol_is_a_user_visible_performance_choice() -> anyhow::Result<()> {
     let schema = serde_json::to_value(schemars::schema_for!(MySqlSourceConfig))?;
     let read_protocol = &schema["properties"]["read_protocol"];
 
     assert_eq!(read_protocol["$ref"], "#/$defs/MySqlReadProtocol");
-    assert_eq!(read_protocol["x-ui"]["section"], "advanced");
+    assert_eq!(read_protocol["x-ui"]["section"], "performance");
     assert_eq!(
         schema["$defs"]["MySqlReadProtocol"]["enum"],
         serde_json::json!(["text", "binary"])

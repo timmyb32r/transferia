@@ -116,15 +116,15 @@ pub struct KafkaSourceConfig {
     pub parser: ParserConfig,
 
     #[serde(default = "default_batch_max_messages")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub batch_max_messages: usize,
 
     #[serde(default = "default_batch_max_bytes")]
-    #[schemars(extend("x-ui" = { "section": "advanced", "widget": "byte_size" }))]
+    #[schemars(extend("x-ui" = { "section": "performance", "widget": "byte_size" }))]
     pub batch_max_bytes: usize,
 
     #[serde(default = "default_request_timeout_ms")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub request_timeout_ms: u64,
 }
 
@@ -150,11 +150,11 @@ pub struct KafkaSinkConfig {
     pub partition: Option<i32>,
 
     #[serde(default = "default_request_timeout_ms")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub request_timeout_ms: u64,
 
     #[serde(default = "default_max_in_flight")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub max_in_flight: usize,
 }
 

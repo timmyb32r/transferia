@@ -48,12 +48,12 @@ pub struct ClickHouseSourceConfig {
         title = "Maximum block rows",
         description = "Maximum number of rows requested in one ClickHouse result block",
         range(min = 1),
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "section": "performance" })
     )]
     pub batch_rows: usize,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub snapshot_reader: ClickHouseSnapshotReader,
 
     #[serde(default)]

@@ -54,7 +54,7 @@ pub struct MySqlSourceConfig {
     pub new_tables: NewTables,
 
     #[serde(default = "default_batch_rows")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub batch_rows: usize,
 
     #[serde(default = "default_batch_target_bytes")]
@@ -62,7 +62,7 @@ pub struct MySqlSourceConfig {
         range(min = 1, max = 1_073_741_824),
         title = "Snapshot batch target bytes",
         description = "Target retained decoded MySQL row heap per snapshot batch. The reader may include one final indivisible row after crossing the target; max_row_bytes separately bounds its wire packet, while decoded Row/Value overhead is measured and accounted from actual allocations.",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "section": "performance" })
     )]
     pub batch_target_bytes: usize,
 
@@ -71,7 +71,7 @@ pub struct MySqlSourceConfig {
         range(min = 1024, max = 1_073_741_824),
         title = "Maximum snapshot row packet bytes",
         description = "Exact mysql_async client max_allowed_packet for one MySQL wire packet. Decoded Row/Value overhead is measured and accounted separately. Valid range: 1024..=1073741824 bytes.",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "section": "performance" })
     )]
     pub max_row_bytes: usize,
 
@@ -79,7 +79,7 @@ pub struct MySqlSourceConfig {
     #[schemars(
         title = "Read protocol",
         description = "MySQL wire protocol used for snapshot rows. Binary is the lossless measured high-throughput default. Text remains available for supported schemas, but discovery rejects FLOAT columns because MySQL text formatting cannot preserve every f32 value exactly.",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "section": "performance" })
     )]
     pub read_protocol: MySqlReadProtocol,
 

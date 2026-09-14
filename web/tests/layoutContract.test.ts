@@ -16,6 +16,18 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("reserves adjacent Advanced and Performance headers independently of their expanded bodies", () => {
+    const rule = (selector: string) => styles.split(`\n${selector} {`)[1]?.split("}")[0];
+    expect(rule(".options-foldouts")).toContain("position: relative;");
+    expect(rule(".options-foldouts")).toContain("padding-top: 44px;");
+    const headers = rule(".options-foldouts > .foldout > summary");
+    expect(headers).toContain("position: absolute;");
+    expect(headers).toContain("top: 0;");
+    expect(headers).toContain("height: 44px;");
+    expect(rule(".options-foldouts > .advanced-settings + .performance-settings > summary"))
+      .toContain("left: calc(50% + 6px);");
+    expect(rule(".performance-options-content, .performance-option")).toContain("display: contents;");
+  });
   it("aligns preview table names with cells and wraps full identifiers inside the output viewport", () => {
     const heading = styles.split(".transform-preview-output > section > h4 {")[1]?.split("}")[0];
     expect(heading).toContain("margin: 0;");

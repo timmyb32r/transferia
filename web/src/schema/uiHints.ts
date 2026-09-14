@@ -3,7 +3,7 @@ import type { WidgetContracts } from "./widgetDefinitions";
 
 export type UiSection =
   | "advanced"
-  | "advanced_parquet"
+  | "performance"
   | "system_columns"
   | "shard_group";
 
@@ -93,7 +93,7 @@ export function decodeUiHints(
   if (
     section !== undefined &&
     section !== "advanced" &&
-    section !== "advanced_parquet" &&
+    section !== "performance" &&
     section !== "system_columns" &&
     section !== "shard_group"
   )

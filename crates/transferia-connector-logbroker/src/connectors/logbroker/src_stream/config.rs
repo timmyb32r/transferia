@@ -54,12 +54,15 @@ pub struct LogbrokerSourceConfig {
     )]
     pub parser: ParserConfig,
 
+    /// Read buffer for the YDB driver. Keep the default when using PQv1.
     #[serde(default = "default_read_buffer_bytes")]
-    #[schemars(extend("x-ui" = { "section": "advanced", "widget": "byte_size" }))]
+    #[schemars(extend("x-ui" = { "section": "performance", "widget": "byte_size" }))]
     pub read_buffer_bytes: usize,
 
+    /// Parallel decompression across PQv1 partition sessions. Keep the default
+    /// when using the YDB driver; one partition is still decoded sequentially.
     #[serde(default = "default_pqv1_decompression_concurrency")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub pqv1_decompression_concurrency: usize,
 
     #[serde(default)]

@@ -15,8 +15,21 @@ export function Disclosure({
     >
       <summary
         onClick={(event) => {
+          event.preventDefault();
+          const summary = event.currentTarget;
+          const details = summary.parentElement as HTMLDetailsElement;
+          const root = summary.ownerDocument.documentElement;
+          const anchor = root.style.getPropertyValue("overflow-anchor");
+          const priority = root.style.getPropertyPriority("overflow-anchor");
+          root.style.setProperty("overflow-anchor", "none");
+          try {
+            details.open = !details.open;
+          } finally {
+            void root.scrollHeight;
+            if (anchor) root.style.setProperty("overflow-anchor", anchor, priority);
+            else root.style.removeProperty("overflow-anchor");
+          }
           if (event.detail > 0) {
-            const summary = event.currentTarget;
             queueMicrotask(() => summary.blur());
           }
         }}

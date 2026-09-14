@@ -51,6 +51,27 @@ describe("UI primitives", () => {
     expect(details.open).toBe(true);
   });
 
+  it("suppresses scroll anchoring only for synchronous expansion and preserves keyboard focus", () => {
+    const root = document.documentElement;
+    root.style.setProperty("overflow-anchor", "auto", "important");
+    const view = render(<Disclosure label="Performance options"><p>Tuning</p></Disclosure>);
+    const details = view.container.querySelector("details")!;
+    const summary = view.getByText("Performance options");
+    const layoutRead = vi.spyOn(root, "scrollHeight", "get").mockImplementation(() => {
+      expect(details.open).toBe(true);
+      expect(root.style.getPropertyValue("overflow-anchor")).toBe("none");
+      return 2000;
+    });
+    summary.focus();
+    fireEvent.click(summary, { detail: 0 });
+    expect(document.activeElement).toBe(summary);
+    expect(layoutRead).toHaveBeenCalled();
+    expect(root.style.getPropertyValue("overflow-anchor")).toBe("auto");
+    expect(root.style.getPropertyPriority("overflow-anchor")).toBe("important");
+    layoutRead.mockRestore();
+    root.style.removeProperty("overflow-anchor");
+  });
+
   it("keeps source and destination disclosures independent during pointer interaction", () => {
     const view = render(
       <>

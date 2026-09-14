@@ -962,11 +962,11 @@ fn auth_uses_the_wide_credentials_control() {
 }
 
 #[test]
-fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
+fn source_read_ordering_is_a_performance_ordered_by_default_choice() {
     let schema = serde_json::to_value(schemars::schema_for!(YTsaurusSourceConfig))
         .expect("YTsaurus source schema must serialize");
     let ordering = &schema["properties"]["read_ordering"];
-    assert_eq!(ordering["x-ui"]["section"], "advanced");
+    assert_eq!(ordering["x-ui"]["section"], "performance");
     assert_eq!(ordering["$ref"], "#/$defs/YTsaurusReadOrdering");
 
     let properties = schema["properties"]
@@ -982,8 +982,9 @@ fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
             .then_some(name.as_str())
         })
         .collect::<Vec<_>>();
-    assert_eq!(advanced, ["proxy_role", "read_ordering"]);
-    for name in ["trusted_native_rpc_plaintext", "table_reader"] {
+    assert_eq!(advanced, ["proxy_role"]);
+    assert_eq!(properties["table_reader"]["x-ui"]["section"], "performance");
+    for name in ["trusted_native_rpc_plaintext"] {
         assert_eq!(
             properties[name]
                 .pointer("/x-ui/widget")
@@ -1003,12 +1004,12 @@ fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
         "max_partition_count",
         "concurrency",
     ] {
-        assert_eq!(
+        assert_ne!(
             partition[name]
                 .pointer("/x-ui/widget")
                 .and_then(serde_json::Value::as_str),
             Some("hidden"),
-            "{name} must not expand beneath the read-mode selector",
+            "{name} must be editable beneath the performance read-mode selector",
         );
     }
     assert!(!partition.contains_key("direct_data_node_access"));

@@ -64,19 +64,19 @@ pub struct S3SinkConfig {
     pub partitioning: PartitioningConfig,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub rotation: RotationConfig,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub buffering: BufferingConfig,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub upload: UploadConfig,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub retry: RetryConfig,
 }
 
@@ -86,11 +86,11 @@ pub enum S3OutputFormat {
     #[schemars(title = "Parquet")]
     Parquet {
         #[serde(default)]
-        #[schemars(extend("x-ui" = { "section": "advanced_parquet" }))]
+        #[schemars(extend("x-ui" = { "section": "performance" }))]
         compression: ParquetCompression,
 
         #[serde(default)]
-        #[schemars(extend("x-ui" = { "section": "advanced_parquet" }))]
+        #[schemars(extend("x-ui" = { "section": "performance" }))]
         row_group: ParquetRowGroupConfig,
     },
 

@@ -75,65 +75,65 @@ pub struct ClickHouseSinkConfig {
     pub shard_group: String,
 
     #[serde(default = "default_insert_rows")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub insert_target_rows: usize,
 
     #[serde(default = "default_insert_bytes")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub insert_target_bytes: usize,
 
     /// Maximum number of concurrently active INSERTs. Values above one are an
     /// explicit throughput choice; ordered delivery progress is still committed
     /// only after the contiguous INSERT prefix completes.
     #[serde(default = "default_insert_concurrency")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub insert_concurrency: usize,
 
     /// Wire format used for INSERT payloads. Parquet and `ArrowStream` use the
     /// `ClickHouse` HTTP endpoint and are stable, self-describing interchange
     /// formats; Native uses the `ClickHouse` native TCP protocol.
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub insert_format: ClickHouseInsertFormat,
 
     /// Native-protocol compression. ZSTD is the measured throughput default;
     /// LZ4 trades throughput for less compression work, while `none` is useful
     /// only for an explicitly measured transport that is not network-bound.
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub compression: ClickHouseCompression,
 
     /// Number of `ClickHouse` threads available to decode one HTTP format body.
     #[serde(default = "default_format_threads")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub format_threads: usize,
 
     /// Maximum rows in a Parquet row group produced for one HTTP INSERT.
     #[serde(default = "default_parquet_row_group_rows")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub parquet_row_group_rows: usize,
 
     /// Let `ClickHouse` coalesce concurrent native INSERTs server-side. Waiting
     /// remains mandatory, so a successful response still means the buffered
     /// data has reached the table rather than merely entering an async queue.
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub async_insert: bool,
 
     #[serde(default = "default_flush_interval")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub flush_interval_ms: u64,
 
     #[serde(default = "default_retry_initial")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub retry_initial_ms: u64,
 
     #[serde(default = "default_retry_max")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub retry_max_ms: u64,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub retry_max_attempts: Option<u32>,
 
     #[serde(default = "default_connect_timeout")]

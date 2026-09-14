@@ -82,9 +82,9 @@ fn source_and_sink_config_schemas_compile() {
     );
     for field in ["request_timeout_ms", "max_in_flight"] {
         assert_eq!(
-            sink.pointer(&format!("/properties/{field}/x-ui/widget")),
-            Some(&serde_json::json!("hidden")),
-            "Kafka sink operational field {field} must stay out of the UI"
+            sink.pointer(&format!("/properties/{field}/x-ui/section")),
+            Some(&serde_json::json!("performance")),
+            "Kafka sink tuning field {field} belongs in Performance options"
         );
     }
     assert!(

@@ -126,7 +126,7 @@ pub struct OpenSearchConnectionConfig {
     #[schemars(
         title = "Request timeout, ms",
         range(min = 1),
-        extend("x-ui" = { "widget": "hidden" })
+        extend("x-ui" = { "section": "performance" })
     )]
     pub request_timeout_ms: u64,
 
@@ -135,7 +135,7 @@ pub struct OpenSearchConnectionConfig {
         title = "Maximum response bytes",
         description = "Maximum accepted uncompressed body for one OpenSearch response",
         range(min = 1),
-        extend("x-ui" = { "widget": "hidden" })
+        extend("x-ui" = { "section": "performance" })
     )]
     pub max_response_bytes: usize,
 }

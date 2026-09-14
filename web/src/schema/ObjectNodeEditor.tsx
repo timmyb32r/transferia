@@ -1,5 +1,6 @@
-import { Fragment, type ComponentChildren } from "preact";
-import { useEffect, useId, useRef, useState } from "preact/hooks";
+import { createContext, Fragment, type ComponentChildren } from "preact";
+import { createPortal } from "preact/compat";
+import { useContext, useEffect, useId, useRef, useState } from "preact/hooks";
 
 import type { JsonObject } from "../json";
 import { AutofillResistantInput } from "../ui/AutofillResistantField";
@@ -19,6 +20,10 @@ import { hasEditableContent, type WidgetRegistry } from "./widgetRegistry";
 type ObjectNode = Extract<CompiledNode, { kind: "object" }>;
 type PropertyEntry = [string, CompiledNode];
 
+// Nested parser/format tuning keeps its original editor and configuration path,
+// but is displayed in the owning endpoint's shared Performance options body.
+const PerformanceOptionsHost = createContext<HTMLElement | null | undefined>(undefined);
+
 export interface ConnectionFieldGroup {
   names: readonly string[];
   label: string;
@@ -35,6 +40,8 @@ export function ObjectNodeEditor({
   path,
   connectionAction,
   connectionFields,
+  endpoint = false,
+  selectionOnly = [],
   widgets,
   NodeEditor,
   PropertyEditor,
@@ -47,6 +54,8 @@ export function ObjectNodeEditor({
   path: string;
   connectionAction?: ComponentChildren;
   connectionFields?: ConnectionFieldGroup | undefined;
+  endpoint?: boolean;
+  selectionOnly?: readonly string[] | undefined;
   widgets: WidgetRegistry;
   NodeEditor: NodeEditorComponent;
   PropertyEditor: PropertyEditorComponent;
@@ -54,6 +63,8 @@ export function ObjectNodeEditor({
   onChange: (value: JsonObject) => void;
 }) {
   const connectionStatusId = useId();
+  const parentPerformanceHost = useContext(PerformanceOptionsHost);
+  const [performanceHost, setPerformanceHost] = useState<HTMLDivElement | null>(null);
   const partitionRanges = partitionRangesProperty(node);
   const configuredPartitionRanges = hasConfiguredPartitionRanges(
     value,
@@ -88,7 +99,7 @@ export function ObjectNodeEditor({
     ([, child]) => child.xUi.section === undefined,
   );
   const advanced = section(visible, "advanced");
-  const advancedParquet = section(visible, "advanced_parquet");
+  const performance = section(visible, "performance");
   const systemColumns = section(visible, "system_columns");
   const shardGroup = section(visible, "shard_group");
   const connectionProperties = regular.filter(([name]) => !connectionFields?.names.includes(name));
@@ -143,6 +154,19 @@ export function ObjectNodeEditor({
       : [{ name, branchIndex, branch }];
   });
 
+  // A selection-only parser renders its ordinary fields in a separate island.
+  // Keep its tuning editors here so they can join the endpoint's shared body.
+  const detachedPerformance = endpoint ? regular.flatMap(([name, child]) => {
+    if (child.kind !== "union" || !selectionOnly.includes(child.xUi.widget ?? "")) return [];
+    const branchIndex = child.branches.findIndex(branch => branchMatches(branch, value[name] ?? null));
+    const branch = child.branches[branchIndex];
+    if (branch?.node.kind !== "object") return [];
+    const properties = Object.fromEntries(Object.entries(branch.node.properties)
+      .filter(([, field]) => field.xUi.section === "performance"));
+    return Object.keys(properties).length === 0 ? [] : [{ name, branchIndex,
+      node: { ...branch.node, properties, xUi: {} } }];
+  }) : [];
+
   const grouped = regular.filter(([name]) => connectionFields?.names.includes(name));
   const renderConnectionGroup = (group: ComponentChildren) => connectionFields?.renderGroup ? connectionFields.renderGroup(group) : group;
   const regularProperty = ([name, child]: PropertyEntry, fieldDisabled = disabled) => (
@@ -194,7 +218,15 @@ export function ObjectNodeEditor({
         </Fragment>
   );
 
-  return (
+  const performanceFields = performance.length > 0 && (
+    <div class="performance-option">{performance.map(property)}</div>
+  );
+  if (!endpoint && parentPerformanceHost !== undefined && performanceFields &&
+      regular.length === 0 && advanced.length === 0 && systemColumns.length === 0 &&
+      shardGroup.length === 0 && partitionRanges === undefined) {
+    return parentPerformanceHost ? createPortal(performanceFields, parentPerformanceHost) : null;
+  }
+  const content = (
     <div class={`schema-object${Object.values(node.properties).some(child => child.xUi.widget === "column_mappings") ? " schema-object-with-columns" : ""}`}>
       {regular.map(entry => !connectionFields || !connectionFields.names.includes(entry[0])
         ? regularProperty(entry)
@@ -231,17 +263,14 @@ export function ObjectNodeEditor({
         </div>
       ))}
       {connectionAnchor === undefined && connectionAction}
+      {detachedPerformance.map(({ name, branchIndex, node: tuningNode }) => (
+        <NodeEditor key={name} node={tuningNode} value={value[name] ?? {}}
+          disabled={disabled} path={`${path}/${name}/branch-${branchIndex}`}
+          onChange={next => onChange({ ...value, [name]: next })} />
+      ))}
       {shardGroup.length > 0 && (
         <Disclosure label="Shard group" class="shard-group-settings">
           {shardGroup.map(property)}
-        </Disclosure>
-      )}
-      {advancedParquet.length > 0 && (
-        <Disclosure
-          label="Advanced Parquet settings"
-          class="advanced-parquet-settings"
-        >
-          {advancedParquet.map(property)}
         </Disclosure>
       )}
       {systemColumns.length > 0 && (
@@ -249,8 +278,9 @@ export function ObjectNodeEditor({
           {systemColumns.map(property)}
         </Disclosure>
       )}
+      <div class="options-foldouts">
       {(advanced.length > 0 || partitionRanges !== undefined) && (
-        <Disclosure label="Advanced settings">
+        <Disclosure label="Advanced settings" class="advanced-settings">
           {partitionRanges !== undefined && (
             <div class="form-row partition-mode-control">
               <span class="field-label">Specify partitions</span>
@@ -275,8 +305,21 @@ export function ObjectNodeEditor({
           {advanced.map(property)}
         </Disclosure>
       )}
+      {(endpoint || (performance.length > 0 && parentPerformanceHost === undefined)) && (
+        <Disclosure label="Performance options" class="performance-settings">
+          <div class="performance-options-content" ref={setPerformanceHost}>
+            {performanceFields}
+            {endpoint && <p class="muted performance-empty">No configurable performance options for this connector.</p>}
+          </div>
+        </Disclosure>
+      )}
+      </div>
+      {!endpoint && parentPerformanceHost && performanceFields && createPortal(performanceFields, parentPerformanceHost)}
     </div>
   );
+  return endpoint
+    ? <PerformanceOptionsHost.Provider value={performanceHost}>{content}</PerformanceOptionsHost.Provider>
+    : content;
 }
 
 function section(

@@ -1,17 +1,18 @@
 use super::*;
 
 #[test]
-fn operational_tuning_is_hidden_from_the_sink_form() {
+fn operational_tuning_is_grouped_without_exposing_partition_routing() {
     let schema = serde_json::to_value(schemars::schema_for!(S3SinkConfig))
         .expect("S3 sink schema must serialize");
 
-    for field in ["partitioning", "rotation", "buffering", "upload", "retry"] {
+    assert_eq!(schema["properties"]["partitioning"]["x-ui"]["widget"], "hidden");
+    for field in ["rotation", "buffering", "upload", "retry"] {
         assert_eq!(
             schema
-                .pointer(&format!("/properties/{field}/x-ui/widget"))
+                .pointer(&format!("/properties/{field}/x-ui/section"))
                 .and_then(serde_json::Value::as_str),
-            Some("hidden"),
-            "{field} must not appear in the S3 sink form",
+            Some("performance"),
+            "{field} belongs in Performance options",
         );
     }
 }

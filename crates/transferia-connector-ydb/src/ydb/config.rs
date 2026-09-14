@@ -83,7 +83,7 @@ pub struct YdbConnectionConfig {
         range(min = 1, max = 4_294_967_295_u64),
         title = "Maximum RPC message bytes",
         description = "Maximum encoded YDB gRPC request or response accepted by setup, discovery, snapshot, and destination operations",
-        extend("x-ui" = { "section": "advanced", "widget": "byte_size" })
+        extend("x-ui" = { "section": "performance", "widget": "byte_size" })
     )]
     pub max_rpc_message_bytes: usize,
 }
@@ -213,7 +213,7 @@ pub struct YdbSourceConfig {
     pub tables: Vec<YdbTableConfig>,
 
     #[serde(default = "default_batch_rows")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "section": "performance" }))]
     pub batch_rows: usize,
 
     #[serde(default = "default_session_shutdown_timeout_ms")]
