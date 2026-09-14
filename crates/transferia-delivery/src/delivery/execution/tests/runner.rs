@@ -383,8 +383,8 @@ async fn dataset_admission_prepares_only_new_tables_and_rejects_collisions_befor
 
 #[tokio::test]
 async fn dynamic_rename_merge_does_not_reprepare_and_schema_conflicts_fail_before_side_effects() {
-    use transferia_pipeline::DatasetAdmission;
     use transferia_middleware_rename_table::{RenameTableConfig, RenameTableMiddleware};
+    use transferia_pipeline::DatasetAdmission;
     let sink = Arc::new(AdmissionSink::default());
     let discovery = phase_discovery(SourceTopology::StaticPartitions(vec![0]));
     let mut added = discovery.datasets[0].clone();
@@ -395,20 +395,38 @@ async fn dynamic_rename_merge_does_not_reprepare_and_schema_conflicts_fail_befor
             behavior: SourceBehavior::ChangelogRows,
             delivery_modes: SourceDeliveryModes::BATCH_AND_STREAM,
         }),
-        middlewares: Arc::new(vec![Box::new(RenameTableMiddleware::new(
-            RenameTableConfig::Exact { name: "events".into(), last_part_only: true },
-        ).unwrap())]),
+        middlewares: Arc::new(vec![Box::new(
+            RenameTableMiddleware::new(RenameTableConfig::Exact {
+                name: "events".into(),
+                last_part_only: true,
+            })
+            .unwrap(),
+        )]),
         context: SinkBuildContext {
-            partition_id: 0, delivery_name: Arc::from("rename admission"),
-            replay_identity: Some(Arc::from("admission-revision")), finite_source: false,
-            counters: Arc::new(SinkCounters::new()), keep_system_columns: true,
-            discovery: Arc::new(discovery), durable: transferia_test_support::durable_context(),
+            partition_id: 0,
+            delivery_name: Arc::from("rename admission"),
+            replay_identity: Some(Arc::from("admission-revision")),
+            finite_source: false,
+            counters: Arc::new(SinkCounters::new()),
+            keep_system_columns: true,
+            discovery: Arc::new(discovery),
+            durable: transferia_test_support::durable_context(),
         },
     };
     let _actor = coordinator.prepare(added.clone()).await.unwrap();
     assert!(sink.prepared.lock().unwrap().is_empty());
-    assert_eq!(*sink.built.lock().unwrap(), vec![vec![Arc::<str>::from("events")]]);
-    added.stored_schema.columns.push(transferia_core::SchemaColumn::new("extra".into(), arrow::datatypes::DataType::Int64, false));
+    assert_eq!(
+        *sink.built.lock().unwrap(),
+        vec![vec![Arc::<str>::from("events")]]
+    );
+    added
+        .stored_schema
+        .columns
+        .push(transferia_core::SchemaColumn::new(
+            "extra".into(),
+            arrow::datatypes::DataType::Int64,
+            false,
+        ));
     assert!(coordinator.prepare(added).await.is_err());
     assert!(sink.prepared.lock().unwrap().is_empty());
     assert_eq!(sink.built.lock().unwrap().len(), 1);

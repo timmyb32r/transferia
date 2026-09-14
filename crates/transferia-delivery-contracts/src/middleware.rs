@@ -56,7 +56,11 @@ pub trait Middleware: Send + Sync {
 
     /// Schema-independent identity projection for catalog matching. Identity
     /// transforms must use the same semantics at preparation and runtime.
-    fn output_table_identity(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<(Option<Arc<str>>, Arc<str>)> {
+    fn output_table_identity(
+        &self,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> anyhow::Result<(Option<Arc<str>>, Arc<str>)> {
         Ok((namespace.map(Arc::from), Arc::from(name)))
     }
 
@@ -66,7 +70,11 @@ pub trait Middleware: Send + Sync {
         false
     }
 
-    fn validate_preview_identity(&self, _namespace: Option<&str>, _name: &str) -> anyhow::Result<()> {
+    fn validate_preview_identity(
+        &self,
+        _namespace: Option<&str>,
+        _name: &str,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -78,7 +86,8 @@ pub trait Middleware: Send + Sync {
         dataset: &DiscoveredDataset,
     ) -> anyhow::Result<DiscoveredDataset> {
         let mut output = dataset.clone();
-        (output.namespace, output.name) = self.output_table_identity(dataset.namespace.as_deref(), &dataset.name)?;
+        (output.namespace, output.name) =
+            self.output_table_identity(dataset.namespace.as_deref(), &dataset.name)?;
         output.stored_schema = self.output_schema(&dataset.stored_schema).await?;
         // Compare the actual post-transform sink input, not a stale source
         // schema, when subsequent renames combine otherwise different inputs.
@@ -106,7 +115,11 @@ impl<T: Middleware + ?Sized> Middleware for &T {
     fn requires_preview_identity_validation(&self) -> bool {
         (**self).requires_preview_identity_validation()
     }
-    fn output_table_identity(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<(Option<Arc<str>>, Arc<str>)> {
+    fn output_table_identity(
+        &self,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> anyhow::Result<(Option<Arc<str>>, Arc<str>)> {
         (**self).output_table_identity(namespace, name)
     }
     fn validate_preview_identity(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<()> {
@@ -144,7 +157,11 @@ impl<T: Middleware + Send + Sync + ?Sized> Middleware for Box<T> {
     fn requires_preview_identity_validation(&self) -> bool {
         (**self).requires_preview_identity_validation()
     }
-    fn output_table_identity(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<(Option<Arc<str>>, Arc<str>)> {
+    fn output_table_identity(
+        &self,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> anyhow::Result<(Option<Arc<str>>, Arc<str>)> {
         (**self).output_table_identity(namespace, name)
     }
     fn validate_preview_identity(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<()> {
@@ -182,7 +199,11 @@ impl<T: Middleware + ?Sized> Middleware for Arc<T> {
     fn requires_preview_identity_validation(&self) -> bool {
         (**self).requires_preview_identity_validation()
     }
-    fn output_table_identity(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<(Option<Arc<str>>, Arc<str>)> {
+    fn output_table_identity(
+        &self,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> anyhow::Result<(Option<Arc<str>>, Arc<str>)> {
         (**self).output_table_identity(namespace, name)
     }
     fn validate_preview_identity(&self, namespace: Option<&str>, name: &str) -> anyhow::Result<()> {

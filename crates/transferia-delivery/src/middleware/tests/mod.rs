@@ -14,7 +14,10 @@ fn display_name_roundtrips_exactly_without_becoming_an_action() -> anyhow::Resul
         assert_eq!(restored.name.as_deref(), Some(name));
         assert_eq!(restored.kind()?, "filter");
         assert_eq!(restored.raw()?, entry.raw()?);
-        assert_eq!(serde_json::to_value(&restored)?, serde_json::to_value(&entry)?);
+        assert_eq!(
+            serde_json::to_value(&restored)?,
+            serde_json::to_value(&entry)?
+        );
         assert_eq!(restored.clone().name, entry.name);
     }
     Ok(())
@@ -23,7 +26,10 @@ fn display_name_roundtrips_exactly_without_becoming_an_action() -> anyhow::Resul
 #[test]
 fn absent_name_stays_absent_and_names_do_not_replace_the_required_action() -> anyhow::Result<()> {
     let unnamed: MiddlewareEntry = serde_yaml::from_str("filter: {}")?;
-    assert!(!serde_json::to_value(unnamed)?.as_object().unwrap().contains_key("name"));
+    assert!(!serde_json::to_value(unnamed)?
+        .as_object()
+        .unwrap()
+        .contains_key("name"));
     for yaml in ["name: Only a label", "name: Label\nfirst: {}\nsecond: {}"] {
         let entry: MiddlewareEntry = serde_yaml::from_str(yaml)?;
         assert!(entry.kind().is_err());
@@ -34,7 +40,10 @@ fn absent_name_stays_absent_and_names_do_not_replace_the_required_action() -> an
 #[test]
 fn display_name_rejects_non_string_values_instead_of_coercing_them() {
     for name in ["42", "true", "[]", "{}"] {
-        assert!(serde_yaml::from_str::<MiddlewareEntry>(&format!("name: {name}\nfilter: {{}}")).is_err());
+        assert!(
+            serde_yaml::from_str::<MiddlewareEntry>(&format!("name: {name}\nfilter: {{}}"))
+                .is_err()
+        );
     }
 }
 

@@ -503,8 +503,9 @@ pub(super) fn snapshot_query(table: &DiscoveredTable) -> String {
         .iter()
         .map(|column| {
             let value = if super::types::is_string_conversion(column) {
+                // Dynamic's toString(NULL) is an empty string, not SQL NULL.
                 format!(
-                    "CAST(toString({}) AS {})",
+                    "CAST(if(isNull({0}), NULL, toString({0})) AS {1})",
                     reference(column),
                     if column.nullable {
                         "Nullable(String)"
@@ -521,6 +522,8 @@ pub(super) fn snapshot_query(table: &DiscoveredTable) -> String {
         .join(", ");
     // Constant type guards also protect Parquet and explicit string conversions, whose
     // output type alone cannot reveal a change to the original ClickHouse declaration.
+    // Compare server-canonical names: toTypeName pretty-prints nested Tuples while
+    // system.columns stores a compact declaration. Never strip identifier whitespace.
     let guards = table
         .schema
         .columns
@@ -528,7 +531,7 @@ pub(super) fn snapshot_query(table: &DiscoveredTable) -> String {
         .filter_map(|column| {
             super::types::source_declaration(column).map(|declaration| {
                 format!(
-                    "throwIf(toTypeName({}) != {}, {}) = 0",
+                    "throwIf(toTypeName({}) != toTypeName(defaultValueOfTypeName({})), {}) = 0",
                     reference(column),
                     quote_string_literal(&declaration),
                     quote_string_literal(&format!(

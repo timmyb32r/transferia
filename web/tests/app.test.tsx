@@ -526,7 +526,7 @@ describe("App request orchestration", () => {
       expect(app.queryByRole("dialog", { name: "Schema viewer" })).toBeNull();
       expect(await app.findByText("Invalid authored YAML")).toBeTruthy();
     } else {
-      const dialog = app.getByRole("dialog", { name: "Schema viewer" });
+      const dialog = await app.findByRole("dialog", { name: "Schema viewer" });
       expect(within(dialog).queryByText("old_table")).toBeNull();
       expect(within(dialog).getByRole("status").textContent).toContain("Discovering");
     }

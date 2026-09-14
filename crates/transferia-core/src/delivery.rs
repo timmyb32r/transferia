@@ -5,10 +5,10 @@ use schemars::JsonSchema;
 use serde::Serialize;
 
 use crate::data::schema::{
-    DatasetSchema, SchemaColumn, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NAME,
-    META_LOW_CARDINALITY, META_MAX_LENGTH, META_OLD_KEY_OF, META_OLD_VALUE_OF, META_PRIMARY_KEY,
-    META_SYSTEM_ROLE, META_ALWAYS_PRESENT_ON_UPDATE, META_UPDATE_VALUE_PRESENCE,
-    META_DELETE_VALUE_PRESENCE,
+    DatasetSchema, SchemaColumn, META_ALWAYS_PRESENT_ON_UPDATE, META_ARROW_EXTENSION_METADATA,
+    META_ARROW_EXTENSION_NAME, META_DELETE_VALUE_PRESENCE, META_LOW_CARDINALITY, META_MAX_LENGTH,
+    META_OLD_KEY_OF, META_OLD_VALUE_OF, META_PRIMARY_KEY, META_SYSTEM_ROLE,
+    META_UPDATE_VALUE_PRESENCE,
 };
 use crate::data::system_columns::SystemColumnKind;
 use crate::sink::SinkBatch;
@@ -374,7 +374,9 @@ pub fn validate_batch_against_discovery<'a>(
                 .get(META_PRIMARY_KEY)
                 .is_some_and(|value| value == "true")
                 == expected_column.primary_key
-                && metadata.get(META_ALWAYS_PRESENT_ON_UPDATE).map(String::as_str)
+                && metadata
+                    .get(META_ALWAYS_PRESENT_ON_UPDATE)
+                    .map(String::as_str)
                     == expected_column.always_present_on_update.then_some("true")
                 && metadata.get(META_UPDATE_VALUE_PRESENCE).map(String::as_str)
                     == expected_column.update_value_presence.metadata_value()

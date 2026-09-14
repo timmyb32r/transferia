@@ -277,15 +277,19 @@ fn snapshot_query_converts_only_opted_in_columns_and_guards_original_types() {
     assert!(query.contains("source.`id` AS `id`"), "{query}");
     assert!(!query.contains("toString(source.`id`)"), "{query}");
     assert!(
-        query.contains("CAST(toString(source.`payload`) AS Nullable(String)) AS `payload`"),
+        query.contains("CAST(if(isNull(source.`payload`), NULL, toString(source.`payload`)) AS Nullable(String)) AS `payload`"),
         "{query}"
     );
     assert!(
-        query.contains("throwIf(toTypeName(source.`payload`) != 'Dynamic'"),
+        query.contains(
+            "throwIf(toTypeName(source.`payload`) != toTypeName(defaultValueOfTypeName('Dynamic'))"
+        ),
         "{query}"
     );
     assert!(
-        query.contains("throwIf(toTypeName(source.`id`) != 'Int64'"),
+        query.contains(
+            "throwIf(toTypeName(source.`id`) != toTypeName(defaultValueOfTypeName('Int64'))"
+        ),
         "{query}"
     );
 }

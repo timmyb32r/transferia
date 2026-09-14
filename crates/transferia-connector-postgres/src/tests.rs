@@ -6,11 +6,32 @@ fn catalog_type_mappings_are_registered_from_runtime_resolvers() -> anyhow::Resu
     register(&mut builder, &Arc::new(MetricsRegistry::new()))?;
     let registry = builder.build();
     let definition = &registry.definitions()[0];
-    let source = definition.source.as_ref().unwrap().type_mapping.as_ref().unwrap();
-    assert!(source.rows.iter().any(|r| r.input == "int4" && r.output.as_deref() == Some("Int32")));
-    let sink = definition.sink.as_ref().unwrap().type_mapping.as_ref().unwrap();
-    assert!(sink.rows.iter().any(|r| r.input == "Int32" && r.output.is_some()));
-    assert!(sink.rows.iter().any(|r| r.input == "Null" && r.error.is_some()));
+    let source = definition
+        .source
+        .as_ref()
+        .unwrap()
+        .type_mapping
+        .as_ref()
+        .unwrap();
+    assert!(source
+        .rows
+        .iter()
+        .any(|r| r.input == "int4" && r.output.as_deref() == Some("Int32")));
+    let sink = definition
+        .sink
+        .as_ref()
+        .unwrap()
+        .type_mapping
+        .as_ref()
+        .unwrap();
+    assert!(sink
+        .rows
+        .iter()
+        .any(|r| r.input == "Int32" && r.output.is_some()));
+    assert!(sink
+        .rows
+        .iter()
+        .any(|r| r.input == "Null" && r.error.is_some()));
     Ok(())
 }
 

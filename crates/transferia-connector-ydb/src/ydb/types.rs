@@ -21,7 +21,8 @@ pub(super) const YDB_TZ_TIMESTAMP_EXTENSION: &str = "transferia.ydb.tz_timestamp
 pub(super) const YDB_DYNUMBER_EXTENSION: &str = "transferia.ydb.dynumber";
 pub(super) const ARROW_UUID_EXTENSION: &str = "arrow.uuid";
 
-pub(crate) fn source_type_mapping() -> transferia_registry::type_mapping::TypeMapping {
+#[must_use]
+pub fn source_type_mapping() -> transferia_registry::type_mapping::TypeMapping {
     use transferia_registry::type_mapping::{TypeMapping, TypeMappingRow};
     use PrimitiveTypeId as P;
     TypeMapping { context: "Evaluated by YDB discovery's primitive resolver. Source extensions are shown after the Arrow type; Optional preserves nullability. Decimal precision/scale are validated separately.".to_owned(),
@@ -228,9 +229,16 @@ fn column_kind(value: &Type) -> anyhow::Result<(ColumnKind, bool)> {
 
 fn native_type_label(value: &Type) -> Option<String> {
     match value.r#type.as_ref()? {
-        r#type::Type::TypeId(id) => PrimitiveTypeId::try_from(*id).ok().map(|kind| format!("{kind:?}")),
-        r#type::Type::OptionalType(optional) => Some(format!("Optional<{}>", native_type_label(optional.item.as_deref()?)?)),
-        r#type::Type::DecimalType(decimal) => Some(format!("Decimal({}, {})", decimal.precision, decimal.scale)),
+        r#type::Type::TypeId(id) => PrimitiveTypeId::try_from(*id)
+            .ok()
+            .map(|kind| format!("{kind:?}")),
+        r#type::Type::OptionalType(optional) => Some(format!(
+            "Optional<{}>",
+            native_type_label(optional.item.as_deref()?)?
+        )),
+        r#type::Type::DecimalType(decimal) => {
+            Some(format!("Decimal({}, {})", decimal.precision, decimal.scale))
+        }
         _ => None,
     }
 }

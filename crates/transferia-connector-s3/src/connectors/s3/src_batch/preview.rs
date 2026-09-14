@@ -18,7 +18,11 @@ pub(super) async fn sample_data(
     cancellation: CancellationToken,
 ) -> anyhow::Result<Vec<transferia_core::TableData>> {
     limits.validate()?;
-    let prefix = if config.path_prefix.is_empty() { None } else { Some(Path::parse(&config.path_prefix)?) };
+    let prefix = if config.path_prefix.is_empty() {
+        None
+    } else {
+        Some(Path::parse(&config.path_prefix)?)
+    };
     let object = tokio::select! {
         biased;
         () = cancellation.cancelled() => anyhow::bail!("S3 sample cancelled"),
@@ -61,24 +65,52 @@ pub(super) async fn sample_data(
         return tokio::task::spawn_blocking(move || {
             anyhow::ensure!(!cancellation.is_cancelled(), "S3 sample cancelled");
             let input_bytes = payload.len();
-            let builder = parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(payload)?;
+            let builder =
+                parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(payload)?;
             admit_parquet_sample(builder.metadata(), input_bytes, limits)?;
             let schema = builder.schema().clone();
-            let mut reader = builder.with_batch_size(limits.row_limit).with_limit(limits.row_limit).build()?;
-            let batch = reader.next().transpose()?.unwrap_or_else(|| arrow::record_batch::RecordBatch::new_empty(schema));
-            limits.check_bytes(input_bytes.checked_add(batch.get_array_memory_size())
-                .ok_or_else(|| anyhow::anyhow!("Parquet sample allocation overflow"))?)?;
+            let mut reader = builder
+                .with_batch_size(limits.row_limit)
+                .with_limit(limits.row_limit)
+                .build()?;
+            let batch = reader
+                .next()
+                .transpose()?
+                .unwrap_or_else(|| arrow::record_batch::RecordBatch::new_empty(schema));
+            limits.check_bytes(
+                input_bytes
+                    .checked_add(batch.get_array_memory_size())
+                    .ok_or_else(|| anyhow::anyhow!("Parquet sample allocation overflow"))?,
+            )?;
             anyhow::ensure!(!cancellation.is_cancelled(), "S3 sample cancelled");
-            Ok(vec![transferia_core::TableData::new(name, false, batch, Default::default())])
-        }).await?;
+            Ok(vec![transferia_core::TableData::new(
+                name,
+                false,
+                batch,
+                transferia_core::SystemColumns::default(),
+            )])
+        })
+        .await?;
     }
     let message = transferia_core::data::message::Message {
-        value: payload, tombstone: false, key: None, headers: Arc::from([]),
+        value: payload,
+        tombstone: false,
+        key: None,
+        headers: Arc::from([]),
         meta: transferia_core::data::message::MessageMeta {
-            topic: Some(Arc::from(object.location.as_ref())), partition: Some(0), offset: Some(0), write_timestamp_ms: None,
+            topic: Some(Arc::from(object.location.as_ref())),
+            partition: Some(0),
+            offset: Some(0),
+            write_timestamp_ms: None,
         },
     };
-    transferia_connector_support::source_sample::parse_sample(parser, vec![message], limits, cancellation).await
+    transferia_connector_support::source_sample::parse_sample(
+        parser,
+        vec![message],
+        limits,
+        cancellation,
+    )
+    .await
 }
 
 pub(super) fn admit_parquet_sample(
@@ -89,7 +121,9 @@ pub(super) fn admit_parquet_sample(
     let mut remaining = limits.row_limit;
     let mut bound = input_bytes;
     for group in metadata.row_groups() {
-        if remaining == 0 { break; }
+        if remaining == 0 {
+            break;
+        }
         let rows = usize::try_from(group.num_rows())?;
         let selected = rows.min(remaining);
         for column in group.columns() {
@@ -99,9 +133,22 @@ pub(super) fn admit_parquet_sample(
             // column. Repeated nested values can all belong to a single row.
             // Account for page/dictionary storage, output expansion, and the
             // definition/repetition/offset buffers before starting decoding.
-            let output_values = if column.column_descr().max_rep_level() == 0 { selected.min(values) } else { values };
-            bound = decoded.checked_mul(output_values.checked_add(1).ok_or_else(|| anyhow::anyhow!("Parquet sample allocation overflow"))?)
-                .and_then(|size| values.checked_mul(4 * std::mem::size_of::<u64>()).and_then(|indices| size.checked_add(indices)))
+            let output_values = if column.column_descr().max_rep_level() == 0 {
+                selected.min(values)
+            } else {
+                values
+            };
+            bound = decoded
+                .checked_mul(
+                    output_values
+                        .checked_add(1)
+                        .ok_or_else(|| anyhow::anyhow!("Parquet sample allocation overflow"))?,
+                )
+                .and_then(|size| {
+                    values
+                        .checked_mul(4 * std::mem::size_of::<u64>())
+                        .and_then(|indices| size.checked_add(indices))
+                })
                 .and_then(|size| bound.checked_add(size))
                 .ok_or_else(|| anyhow::anyhow!("Parquet sample allocation overflow"))?;
             limits.check_bytes(bound)?;

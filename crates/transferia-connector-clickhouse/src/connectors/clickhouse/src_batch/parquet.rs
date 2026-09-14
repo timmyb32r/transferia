@@ -225,6 +225,8 @@ impl ParquetTransport {
             .append_pair("output_format_parquet_row_group_size", &row_group_rows)
             .append_pair("output_format_parquet_parallel_encoding", "1")
             .append_pair("output_format_parquet_string_as_string", "0")
+            // The decoder restores enum labels from the discovered code map.
+            .append_pair("output_format_parquet_enum_as_byte_array", "0")
             .append_pair("output_format_parquet_write_page_index", "0")
             .append_pair("output_format_parquet_write_bloom_filter", "0");
         let query = format!("{} FORMAT Parquet", super::connector::snapshot_query(table));

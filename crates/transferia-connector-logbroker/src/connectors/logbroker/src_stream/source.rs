@@ -1130,13 +1130,24 @@ pub(super) fn decode_message(codec: Codec, data: Vec<u8>) -> anyhow::Result<Byte
     decode_message_bounded(codec, data, MAX_DECOMPRESSED_MESSAGE_BYTES)
 }
 
-pub(super) fn decode_message_bounded(codec: Codec, data: Vec<u8>, max_bytes: usize) -> anyhow::Result<Bytes> {
+pub(super) fn decode_message_bounded(
+    codec: Codec,
+    data: Vec<u8>,
+    max_bytes: usize,
+) -> anyhow::Result<Bytes> {
     match codec {
         Codec::Raw => {
-            anyhow::ensure!(data.len() <= max_bytes, "YDB Topic decoded message exceeds {max_bytes} bytes");
+            anyhow::ensure!(
+                data.len() <= max_bytes,
+                "YDB Topic decoded message exceeds {max_bytes} bytes"
+            );
             Ok(Bytes::from(data))
         }
-        Codec::Gzip => read_bounded(flate2::read::GzDecoder::new(data.as_slice()), "gzip", max_bytes),
+        Codec::Gzip => read_bounded(
+            flate2::read::GzDecoder::new(data.as_slice()),
+            "gzip",
+            max_bytes,
+        ),
         Codec::Zstd => {
             let decoder = zstd::stream::read::Decoder::new(data.as_slice())
                 .map_err(|error| fatal(anyhow!("Invalid YDB Topic zstd payload: {error}")))?;
@@ -1149,11 +1160,19 @@ pub(super) fn decode_message_bounded(codec: Codec, data: Vec<u8>, max_bytes: usi
     }
 }
 
-fn read_bounded(mut reader: impl std::io::Read, codec: &str, max_bytes: usize) -> anyhow::Result<Bytes> {
+fn read_bounded(
+    mut reader: impl std::io::Read,
+    codec: &str,
+    max_bytes: usize,
+) -> anyhow::Result<Bytes> {
     let mut decoded = Vec::new();
     reader
         .by_ref()
-        .take(u64::try_from(max_bytes)?.checked_add(1).ok_or_else(|| anyhow!("Message decode budget overflow"))?)
+        .take(
+            u64::try_from(max_bytes)?
+                .checked_add(1)
+                .ok_or_else(|| anyhow!("Message decode budget overflow"))?,
+        )
         .read_to_end(&mut decoded)
         .map_err(|error| fatal(anyhow!("Invalid YDB Topic {codec} payload: {error}")))?;
     if decoded.len() > max_bytes {

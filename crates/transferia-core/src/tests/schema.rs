@@ -4,10 +4,12 @@ use super::{SchemaColumn, META_ARROW_EXTENSION_METADATA, META_ARROW_EXTENSION_NA
 
 #[test]
 fn normalized_presence_is_separate_from_wire_presence_and_nullability() {
-    use super::{ValuePresence, META_UPDATE_VALUE_PRESENCE, META_DELETE_VALUE_PRESENCE};
+    use super::{ValuePresence, META_DELETE_VALUE_PRESENCE, META_UPDATE_VALUE_PRESENCE};
     let base = SchemaColumn::new("text".into(), DataType::Utf8, true);
     assert_eq!(base.update_value_presence, ValuePresence::MayBeAbsent);
-    assert!(!base.arrow_metadata().contains_key(META_UPDATE_VALUE_PRESENCE));
+    assert!(!base
+        .arrow_metadata()
+        .contains_key(META_UPDATE_VALUE_PRESENCE));
     let mut full = base.clone();
     full.update_value_presence = ValuePresence::Guaranteed;
     full.delete_value_presence = ValuePresence::Guaranteed;
@@ -16,7 +18,10 @@ fn normalized_presence_is_separate_from_wire_presence_and_nullability() {
     assert!(!full.always_present_on_update);
     assert_eq!(full, full.clone());
     for key in [META_UPDATE_VALUE_PRESENCE, META_DELETE_VALUE_PRESENCE] {
-        assert_eq!(full.arrow_metadata().get(key).map(String::as_str), Some("guaranteed"));
+        assert_eq!(
+            full.arrow_metadata().get(key).map(String::as_str),
+            Some("guaranteed")
+        );
     }
 }
 
@@ -24,7 +29,7 @@ fn normalized_presence_is_separate_from_wire_presence_and_nullability() {
 fn native_source_declaration_is_preserved_but_not_a_wire_or_compatibility_constraint() {
     let plain = SchemaColumn::new("value".into(), DataType::Utf8, false);
     let native = plain.clone().with_source_type("public.amount_domain");
-    assert_eq!(native.clone().source_type.as_deref(), Some("public.amount_domain"));
+    assert_eq!(native.source_type.as_deref(), Some("public.amount_domain"));
     assert_eq!(plain, native);
     assert_eq!(plain.arrow_metadata(), native.arrow_metadata());
 }
@@ -35,9 +40,12 @@ fn update_presence_is_an_explicit_guarantee_independent_of_nullability() {
     let key = super::META_ALWAYS_PRESENT_ON_UPDATE;
     assert!(!column.arrow_metadata().contains_key(key));
     column.always_present_on_update = true;
-    assert_eq!(column.arrow_metadata().get(key).map(String::as_str), Some("true"));
+    assert_eq!(
+        column.arrow_metadata().get(key).map(String::as_str),
+        Some("true")
+    );
     assert!(column.nullable);
-    assert!(column.clone().always_present_on_update);
+    assert!(column.always_present_on_update);
 }
 
 #[test]

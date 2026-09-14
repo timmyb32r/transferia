@@ -26,9 +26,18 @@ fn type_mapping_examples_are_evaluated_and_keep_rejections() {
         Ok(format!("resolved {:?}", column.data_type))
     });
     assert_eq!(calls.get(), report.rows.len());
-    assert!(report.rows.iter().all(|row| row.output.is_some() != row.error.is_some()));
-    assert_eq!(report.rows[0].error.as_deref(), Some("unsupported test input"));
-    assert!(report.rows.iter().any(|row| row.output.as_deref() == Some("resolved Int32")));
+    assert!(report
+        .rows
+        .iter()
+        .all(|row| row.output.is_some() != row.error.is_some()));
+    assert_eq!(
+        report.rows[0].error.as_deref(),
+        Some("unsupported test input")
+    );
+    assert!(report
+        .rows
+        .iter()
+        .any(|row| row.output.as_deref() == Some("resolved Int32")));
 }
 
 fn sample_limits(row_limit: usize) -> TableSampleLimits {
@@ -67,8 +76,8 @@ fn typed_table_sample_byte_budget_is_explicit_and_fail_closed() {
 }
 
 #[tokio::test]
-async fn typed_table_sample_rejects_namespace_less_parser_identity_before_reading() -> anyhow::Result<()>
-{
+async fn typed_table_sample_rejects_namespace_less_parser_identity_before_reading(
+) -> anyhow::Result<()> {
     let called = Arc::new(AtomicBool::new(false));
     let observed = Arc::clone(&called);
     let mut builder = RegistryBuilder::new();

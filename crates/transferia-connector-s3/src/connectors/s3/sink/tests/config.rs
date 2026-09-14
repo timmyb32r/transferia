@@ -5,7 +5,10 @@ fn operational_tuning_is_grouped_without_exposing_partition_routing() {
     let schema = serde_json::to_value(schemars::schema_for!(S3SinkConfig))
         .expect("S3 sink schema must serialize");
 
-    assert_eq!(schema["properties"]["partitioning"]["x-ui"]["widget"], "hidden");
+    assert_eq!(
+        schema["properties"]["partitioning"]["x-ui"]["widget"],
+        "hidden"
+    );
     for field in ["rotation", "buffering", "upload", "retry"] {
         assert_eq!(
             schema

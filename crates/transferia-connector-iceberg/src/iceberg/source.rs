@@ -37,7 +37,8 @@ pub struct IcebergSourceConnector {
     counters: Mutex<HashMap<i64, Arc<SourceCounters>>>,
 }
 
-pub(crate) fn type_mapping() -> transferia_registry::type_mapping::TypeMapping {
+#[must_use]
+pub fn type_mapping() -> transferia_registry::type_mapping::TypeMapping {
     use transferia_registry::type_mapping::{TypeMapping, TypeMappingRow};
     TypeMapping { context: "Evaluated by Iceberg discovery using the native Iceberg schema converter. Concrete primitive examples; nested fields and identifier constraints are preserved by discovery.".to_owned(),
         rows: ["boolean", "int", "long", "float", "double", "decimal(18,4)", "date", "time", "timestamp", "timestamptz", "string", "uuid", "fixed[16]", "binary"]
@@ -322,7 +323,8 @@ fn dataset_schema(
                     false,
                     None,
                 );
-                column.source_type = iceberg_schema.field_by_name(field.name())
+                column.source_type = iceberg_schema
+                    .field_by_name(field.name())
                     .map(|native| native.field_type.to_string());
                 column
             })

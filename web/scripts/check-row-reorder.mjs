@@ -21,7 +21,7 @@ try {
     const rowSelector = kind === "transforms" ? ".middleware-list > .middleware-strip" : ".column-table tbody > .config-table-row";
     const handleSelector = kind === "transforms" ? ".middleware-drag" : ".drag-handle";
     if (kind !== "transforms") {
-      const add = page.getByRole("button", { name: "Add column", exact: true });
+      const add = page.getByRole("button", { name: /^\+?\s*Add column$/ });
       await add.waitFor();
       while (await page.locator(rowSelector).count() < 3) await add.click();
     }

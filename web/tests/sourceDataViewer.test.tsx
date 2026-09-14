@@ -84,7 +84,8 @@ it("Escape dismisses the table dropdown before dismissing the viewer", async () 
   vi.spyOn(api, "previewSource").mockResolvedValue({ frames: [frame] });
   const close = vi.fn();
   const view = render(<SourceMetadataContext.Provider value={metadata}><SourceDataViewer source={source} onClose={close} /></SourceMetadataContext.Provider>);
-  const trigger = await view.findByRole("button", { name: /public\.events/ });
+  const trigger = view.getByRole("button", { name: "Sample table" });
+  await waitFor(() => expect(trigger.title).toBe("public.events"));
   fireEvent.click(trigger);
   expect(view.getByRole("listbox")).toBeTruthy();
   fireEvent.keyDown(view.getByRole("searchbox"), { key: "Escape" });
@@ -136,7 +137,7 @@ it("automatically samples a newly chosen table and discards the previous table's
   const state = { ...metadata, discovery: { state: "success", tables: [table, other] } } as unknown as SourceMetadata;
   const view = render(<SourceMetadataContext.Provider value={state}><SourceDataViewer source={source} onClose={() => {}} /></SourceMetadataContext.Provider>);
   await waitFor(() => expect(sample).toHaveBeenCalledOnce());
-  fireEvent.click(view.getByRole("button", { name: "public.events" }));
+  fireEvent.click(view.getByRole("button", { name: "Sample table" }));
   fireEvent.click(view.getByRole("option", { name: "public.users" }));
   expect(sample).toHaveBeenCalledTimes(2);
   expect(sample.mock.calls[1]![0].table).toEqual(other);
@@ -146,10 +147,10 @@ it("automatically samples a newly chosen table and discards the previous table's
   expect(view.queryByText("9007199254740993")).toBeNull();
   await act(async () => pending[1]!.finish({ frames: [{ ...frame, table: other, rows: [{ id: "42" }] }] }));
   expect(view.getByText("42")).toBeTruthy();
-  fireEvent.click(view.getByRole("button", { name: "public.users" }));
+  fireEvent.click(view.getByRole("button", { name: "Sample table" }));
   fireEvent.click(view.getByRole("option", { name: "public.users" }));
   expect(sample).toHaveBeenCalledTimes(2);
-  fireEvent.click(view.getByRole("button", { name: "public.users" }));
+  fireEvent.click(view.getByRole("button", { name: "Sample table" }));
   fireEvent.click(view.getByRole("option", { name: "public.events" }));
   expect(sample).toHaveBeenCalledTimes(3);
   expect(sample.mock.calls[2]![0].table).toEqual(table);

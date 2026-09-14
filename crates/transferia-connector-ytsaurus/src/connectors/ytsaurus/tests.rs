@@ -984,7 +984,8 @@ fn source_read_ordering_is_a_performance_ordered_by_default_choice() {
         .collect::<Vec<_>>();
     assert_eq!(advanced, ["proxy_role"]);
     assert_eq!(properties["table_reader"]["x-ui"]["section"], "performance");
-    for name in ["trusted_native_rpc_plaintext"] {
+    {
+        let name = "trusted_native_rpc_plaintext";
         assert_eq!(
             properties[name]
                 .pointer("/x-ui/widget")

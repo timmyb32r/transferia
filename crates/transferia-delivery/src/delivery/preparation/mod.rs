@@ -408,9 +408,16 @@ pub async fn validate_middlewares(
     if middlewares.is_empty() {
         return Ok(discovery);
     }
-    let found_main = discovery.datasets.iter().any(|dataset| dataset.role == DatasetRole::Main);
+    let found_main = discovery
+        .datasets
+        .iter()
+        .any(|dataset| dataset.role == DatasetRole::Main);
     for (index, middleware) in middlewares.iter().enumerate() {
-        for main in discovery.datasets.iter_mut().filter(|dataset| dataset.role == DatasetRole::Main) {
+        for main in discovery
+            .datasets
+            .iter_mut()
+            .filter(|dataset| dataset.role == DatasetRole::Main)
+        {
             *main = middleware.output_dataset(main).await.with_context(|| {
                 format!(
                     "middleware {index} is incompatible with dataset {:?}",
@@ -428,7 +435,9 @@ pub async fn validate_middlewares(
 
 /// Coalesce destination declarations, never data rows. Called only after explicit
 /// middleware projection; ordinary source name collisions still fail validation.
-pub(crate) fn merge_compatible_datasets(datasets: &mut Vec<transferia_core::DiscoveredDataset>) -> anyhow::Result<()> {
+pub(crate) fn merge_compatible_datasets(
+    datasets: &mut Vec<transferia_core::DiscoveredDataset>,
+) -> anyhow::Result<()> {
     let mut identities = std::collections::BTreeMap::new();
     let mut ambiguous_source_types = Vec::new();
     let mut retained = Vec::with_capacity(datasets.len());
@@ -446,8 +455,10 @@ pub(crate) fn merge_compatible_datasets(datasets: &mut Vec<transferia_core::Disc
                 && previous.update_policy == dataset.update_policy,
                 "Cannot merge tables into {:?}.{:?}: incompatible output schemas or record semantics; column order, types, nullability, keys and metadata must be identical",
                 dataset.namespace, dataset.name);
-            for (incoming, (left, right)) in [(false, (&previous.stored_schema, &dataset.stored_schema)),
-                (true, (&previous.incoming_schema, &dataset.incoming_schema))] {
+            for (incoming, (left, right)) in [
+                (false, (&previous.stored_schema, &dataset.stored_schema)),
+                (true, (&previous.incoming_schema, &dataset.incoming_schema)),
+            ] {
                 for (column, (left, right)) in left.columns.iter().zip(&right.columns).enumerate() {
                     if left.source_type != right.source_type {
                         ambiguous_source_types.push((previous_index, incoming, column));
@@ -464,20 +475,24 @@ pub(crate) fn merge_compatible_datasets(datasets: &mut Vec<transferia_core::Disc
     }
     // All validation completes before changing the discovery.
     for (dataset, incoming, column) in ambiguous_source_types {
-        let schema = if incoming { &mut datasets[dataset].incoming_schema }
-            else { &mut datasets[dataset].stored_schema };
+        let schema = if incoming {
+            &mut datasets[dataset].incoming_schema
+        } else {
+            &mut datasets[dataset].stored_schema
+        };
         schema.columns[column].source_type = None;
     }
     let mut index = 0;
     let mut retained = retained.into_iter().peekable();
     datasets.retain(|_| {
         let keep = retained.peek() == Some(&index);
-        if keep { retained.next(); }
+        if keep {
+            retained.next();
+        }
         index += 1;
         keep
     });
     Ok(())
-
 }
 
 #[cfg(test)]

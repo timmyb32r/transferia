@@ -24,7 +24,7 @@ export function FormField({
       <label class="field-label" for={controlId}>
         <span>
           {label}
-          {optional && <small class="optional">(optional)</small>}
+          {optional && <> <small class="optional">(optional)</small></>}
         </span>
         {description && (
           <span class="help" tabindex={0} aria-describedby={tooltipId} title={description}>
@@ -65,7 +65,7 @@ export function TopField({
     >
       <span>
         {label}
-        {!required && <small class="optional">(optional)</small>}
+        {!required && <> <small class="optional">(optional)</small></>}
       </span>
       {children}
     </label>

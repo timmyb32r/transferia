@@ -13,19 +13,37 @@ fn performance_placements(
     let performance = performance || node["x-ui"]["section"] == "performance";
     let visible = visible && node["x-ui"]["widget"] != "hidden";
     if let Some(reference) = node["$ref"].as_str() {
-        return performance_placements(root, root.pointer(reference.strip_prefix('#').unwrap()).unwrap(), path, performance, visible);
+        return performance_placements(
+            root,
+            root.pointer(reference.strip_prefix('#').unwrap()).unwrap(),
+            path,
+            performance,
+            visible,
+        );
     }
     if path.is_empty() {
         return vec![performance && visible];
     }
     let mut placements = Vec::new();
     if let Some(child) = node["properties"].get(path[0]) {
-        placements.extend(performance_placements(root, child, &path[1..], performance, visible));
+        placements.extend(performance_placements(
+            root,
+            child,
+            &path[1..],
+            performance,
+            visible,
+        ));
     }
     for keyword in ["oneOf", "anyOf", "allOf"] {
         if let Some(branches) = node[keyword].as_array() {
             for branch in branches {
-                placements.extend(performance_placements(root, branch, path, performance, visible));
+                placements.extend(performance_placements(
+                    root,
+                    branch,
+                    path,
+                    performance,
+                    visible,
+                ));
             }
         }
     }
@@ -33,20 +51,29 @@ fn performance_placements(
 }
 
 #[test]
-fn every_registered_autotuning_parameter_is_editable_in_performance_options() -> anyhow::Result<()> {
+fn every_registered_autotuning_parameter_is_editable_in_performance_options() -> anyhow::Result<()>
+{
     use transferia_registry::{Composition, EndpointRole};
     let transferia = transferia_connectors::extension::Transferia::public()?;
     let registry = transferia.build_registry(&std::sync::Arc::new(
         transferia_connectors::metrics::MetricsRegistry::new(),
     ))?;
     for connector in transferia.composition().connector_definitions() {
-        for (endpoint, role) in [(connector.source.as_ref(), EndpointRole::Source), (connector.sink.as_ref(), EndpointRole::Sink)] {
+        for (endpoint, role) in [
+            (connector.source.as_ref(), EndpointRole::Source),
+            (connector.sink.as_ref(), EndpointRole::Sink),
+        ] {
             let Some(endpoint) = endpoint else { continue };
             for parameter in registry.tuning_parameters(connector.key, role)? {
                 let path = parameter.pointer().split('/').skip(1).collect::<Vec<_>>();
-                let placements = performance_placements(&endpoint.schema, &endpoint.schema, &path, false, true);
-                assert!(!placements.is_empty() && placements.iter().all(|placed| *placed),
-                    "{} {role:?} {} is missing, hidden, or outside Performance options", connector.key, parameter.pointer());
+                let placements =
+                    performance_placements(&endpoint.schema, &endpoint.schema, &path, false, true);
+                assert!(
+                    !placements.is_empty() && placements.iter().all(|placed| *placed),
+                    "{} {role:?} {} is missing, hidden, or outside Performance options",
+                    connector.key,
+                    parameter.pointer()
+                );
             }
         }
     }
@@ -88,15 +115,45 @@ fn manually_benchmarked_controls_remain_editable_in_performance_options() -> any
 #[test]
 fn database_type_examples_reach_the_ui_catalog_without_losing_errors() -> anyhow::Result<()> {
     let catalog = build_ui_catalog()?;
-    for key in ["postgres", "clickhouse", "mysql", "ydb", "ytsaurus", "iceberg", "opensearch"] {
-        let connector = catalog.connectors.iter().find(|connector| connector.key == key).unwrap();
+    for key in [
+        "postgres",
+        "clickhouse",
+        "mysql",
+        "ydb",
+        "ytsaurus",
+        "iceberg",
+        "opensearch",
+    ] {
+        let connector = catalog
+            .connectors
+            .iter()
+            .find(|connector| connector.key == key)
+            .unwrap();
         for endpoint in [connector.source.as_ref(), connector.sink.as_ref()] {
-            let mapping = endpoint.unwrap().type_mapping.as_ref().expect("native endpoints must expose runtime examples");
+            let mapping = endpoint
+                .unwrap()
+                .type_mapping
+                .as_ref()
+                .expect("native endpoints must expose runtime examples");
             assert!(!mapping.context.is_empty());
-            assert!(mapping.rows.iter().any(|row| row.output.is_some()), "{key}: every example was rejected");
-            assert!(mapping.rows.iter().all(|row| row.output.is_some() != row.error.is_some()));
-            let inputs = mapping.rows.iter().map(|row| &row.input).collect::<std::collections::BTreeSet<_>>();
-            assert_eq!(inputs.len(), mapping.rows.len(), "{key}: duplicate example inputs");
+            assert!(
+                mapping.rows.iter().any(|row| row.output.is_some()),
+                "{key}: every example was rejected"
+            );
+            assert!(mapping
+                .rows
+                .iter()
+                .all(|row| row.output.is_some() != row.error.is_some()));
+            let inputs = mapping
+                .rows
+                .iter()
+                .map(|row| &row.input)
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(
+                inputs.len(),
+                mapping.rows.len(),
+                "{key}: duplicate example inputs"
+            );
         }
     }
     Ok(())

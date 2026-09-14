@@ -325,14 +325,14 @@ impl SourceConnector for OpenSearchSourceConnector {
 
 pub(super) fn document_schema() -> DatasetSchema {
     DatasetSchema::new(vec![
-        SchemaColumn::new("_id".to_owned(), DataType::Utf8, false).with_constraints(
-            true,
-            false,
-            Some(OPEN_SEARCH_ID_MAX_BYTES),
-        ).with_source_type("string (document ID)"),
-        SchemaColumn::new("_routing".to_owned(), DataType::Utf8, true).with_source_type("string (routing)"),
+        SchemaColumn::new("_id".to_owned(), DataType::Utf8, false)
+            .with_constraints(true, false, Some(OPEN_SEARCH_ID_MAX_BYTES))
+            .with_source_type("string (document ID)"),
+        SchemaColumn::new("_routing".to_owned(), DataType::Utf8, true)
+            .with_source_type("string (routing)"),
         SchemaColumn::new("_source".to_owned(), DataType::Utf8, false)
-            .with_arrow_extension(ARROW_JSON_EXTENSION_NAME).with_source_type("JSON object (document source)"),
+            .with_arrow_extension(ARROW_JSON_EXTENSION_NAME)
+            .with_source_type("JSON object (document source)"),
         SchemaColumn::new("_routing_key".to_owned(), DataType::Utf8, false)
             .with_constraints(true, false, None),
     ])

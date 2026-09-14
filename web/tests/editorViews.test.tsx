@@ -376,13 +376,11 @@ describe("endpoint connection check", () => {
       ],
     });
     const onConfig = vi.fn();
-    const scrollIntoView = vi.fn();
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
     const parserSettings = document.createElement("section");
     parserSettings.className = "parser-details-card";
     parserSettings.tabIndex = -1;
-    Object.defineProperty(parserSettings, "scrollIntoView", {
-      value: scrollIntoView,
-    });
+    vi.spyOn(parserSettings, "getBoundingClientRect").mockReturnValue({ top: 900, height: 40 } as DOMRect);
     document.body.append(parserSettings);
     const config = {
       source: {
@@ -416,9 +414,9 @@ describe("endpoint connection check", () => {
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
-    expect(scrollIntoView).toHaveBeenCalledWith({
+    expect(scrollTo).toHaveBeenCalledWith({
       behavior: "smooth",
-      block: "start",
+      top: Math.max(0, window.scrollY + 920 - window.innerHeight * 0.6),
     });
     expect(document.activeElement).toBe(parserSettings);
     view.unmount();

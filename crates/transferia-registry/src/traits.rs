@@ -69,16 +69,31 @@ impl TableIdentity {
                     _ => anyhow::bail!("Table identity: escape only literal dots and backslashes"),
                 },
                 '.' => {
-                    anyhow::ensure!(namespace.is_none(), "Table identity: escape literal dots inside namespace or table name");
-                    anyhow::ensure!(!part.trim().is_empty(), "Table identity: namespace must not be empty");
+                    anyhow::ensure!(
+                        namespace.is_none(),
+                        "Table identity: escape literal dots inside namespace or table name"
+                    );
+                    anyhow::ensure!(
+                        !part.trim().is_empty(),
+                        "Table identity: namespace must not be empty"
+                    );
                     namespace = Some(std::mem::take(&mut part));
                 }
                 other => part.push(other),
             }
         }
-        anyhow::ensure!(!part.trim().is_empty(), "Table identity: name must not be empty");
-        anyhow::ensure!(!value.contains('\0'), "Table identity: must not contain NUL");
-        Ok(Self { namespace: namespace.unwrap_or_default(), name: part })
+        anyhow::ensure!(
+            !part.trim().is_empty(),
+            "Table identity: name must not be empty"
+        );
+        anyhow::ensure!(
+            !value.contains('\0'),
+            "Table identity: must not contain NUL"
+        );
+        Ok(Self {
+            namespace: namespace.unwrap_or_default(),
+            name: part,
+        })
     }
 
     #[must_use]
@@ -90,6 +105,7 @@ impl TableIdentity {
     }
 }
 
+#[must_use]
 pub fn qualified_table_name(namespace: Option<&str>, name: &str) -> String {
     let escape = |part: &str| part.replace('\\', "\\\\").replace('.', "\\.");
     namespace.map_or_else(
@@ -187,7 +203,9 @@ pub trait SourceConnector: Send + Sync {
         _limits: crate::TableSampleLimits,
         _cancellation: CancellationToken,
     ) -> BoxFuture<'_, anyhow::Result<Vec<transferia_core::TableData>>> {
-        Box::pin(async { anyhow::bail!("Configured source data sampling is not supported by this source") })
+        Box::pin(async {
+            anyhow::bail!("Configured source data sampling is not supported by this source")
+        })
     }
 
     /// An editor-owned, metadata-only reader. Never used to construct workers.

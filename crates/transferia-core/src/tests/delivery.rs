@@ -110,7 +110,9 @@ fn discovery_rejects_repeated_system_roles_even_with_distinct_names() {
         dataset.system_columns.push(system);
         let error = validate_stored_projection(&discovery, &discovery.datasets[0])
             .expect_err("duplicate semantic roles must fail before runtime");
-        assert!(error.to_string().contains("repeats system column kind Offset"));
+        assert!(error
+            .to_string()
+            .contains("repeats system column kind Offset"));
     }
 }
 

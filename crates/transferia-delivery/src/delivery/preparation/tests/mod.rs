@@ -7,9 +7,16 @@ struct UnusedComposition;
 struct EmptyComposition;
 
 impl Composition for EmptyComposition {
-    fn fingerprint(&self) -> &'static str { "empty-test-composition" }
-    fn definitions(&self) -> &[transferia_registry::ConnectorDefinition] { &[] }
-    fn build_registry(&self, _: &Arc<MetricsRegistry>) -> anyhow::Result<transferia_registry::Registry> {
+    fn fingerprint(&self) -> &'static str {
+        "empty-test-composition"
+    }
+    fn definitions(&self) -> &[transferia_registry::ConnectorDefinition] {
+        &[]
+    }
+    fn build_registry(
+        &self,
+        _: &Arc<MetricsRegistry>,
+    ) -> anyhow::Result<transferia_registry::Registry> {
         Ok(transferia_registry::RegistryBuilder::new().build())
     }
     fn resolve_many(
@@ -18,14 +25,17 @@ impl Composition for EmptyComposition {
         _: EndpointRole,
         _: serde_yaml::Value,
         _: CancellationToken,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<Vec<serde_yaml::Value>>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = anyhow::Result<Vec<serde_yaml::Value>>> + Send + '_>,
+    > {
         Box::pin(async { panic!("direct pipeline construction must not resolve endpoints") })
     }
 }
 
 #[tokio::test]
 async fn invalid_transform_is_rejected_before_connector_construction() -> anyhow::Result<()> {
-    let config = Config::from_yaml(r"
+    let config = Config::from_yaml(
+        r"
 delivery_id: static-validation
 delivery_name: Static validation
 delivery_type: batch
@@ -35,11 +45,22 @@ sink: {unregistered: {}}
 middlewares:
   - tables: {include: '[' , include_mode: regex}
     unregistered: {}
-")?;
+",
+    )?;
     let error = build_pipeline_plan(
-        config, None, "unregistered", "unregistered", CancellationToken::new(),
-        &EmptyComposition, 1, 0, None,
-    ).await.err().expect("invalid transform must fail before unknown source construction");
+        config,
+        None,
+        "unregistered",
+        "unregistered",
+        CancellationToken::new(),
+        &EmptyComposition,
+        1,
+        0,
+        None,
+    )
+    .await
+    .err()
+    .expect("invalid transform must fail before unknown source construction");
     assert!(error.to_string().contains("transform step 1"), "{error:#}");
     Ok(())
 }
@@ -147,11 +168,19 @@ struct RecordingLimits {
 }
 
 #[tokio::test]
-async fn renamed_tables_merge_only_identical_schemas_into_one_destination_declaration() -> anyhow::Result<()> {
+async fn renamed_tables_merge_only_identical_schemas_into_one_destination_declaration(
+) -> anyhow::Result<()> {
     use transferia_middleware_rename_table::{RenameTableConfig, RenameTableMiddleware};
     for config in [
-        RenameTableConfig::Exact { name: "events".into(), last_part_only: true },
-        RenameTableConfig::Regex { pattern: "^raw_".into(), replacement: "".into(), last_part_only: true },
+        RenameTableConfig::Exact {
+            name: "events".into(),
+            last_part_only: true,
+        },
+        RenameTableConfig::Regex {
+            pattern: "^raw_".into(),
+            replacement: String::new(),
+            last_part_only: true,
+        },
     ] {
         let schema = transferia_core::DatasetSchema::default();
         let discovery = DeliveryDiscovery {
@@ -159,24 +188,42 @@ async fn renamed_tables_merge_only_identical_schemas_into_one_destination_declar
             source_topology: transferia_core::SourceTopology::StaticPartitions(vec![0]),
             schema_origin: transferia_core::SchemaOrigin::SourceNative,
             keep_system_columns: false,
-            datasets: ["raw_events", "events"].into_iter().map(|name| transferia_core::DiscoveredDataset {
-                namespace: Some(Arc::from("public")), name: Arc::from(name),
-                role: DatasetRole::Main,
-                update_policy: transferia_core::delivery::UpdatePolicy::Strict,
-                incoming_schema: schema.clone(), stored_schema: schema.clone(), system_columns: Vec::new(),
-            }).collect(),
+            datasets: ["raw_events", "events"]
+                .into_iter()
+                .map(|name| transferia_core::DiscoveredDataset {
+                    namespace: Some(Arc::from("public")),
+                    name: Arc::from(name),
+                    role: DatasetRole::Main,
+                    update_policy: transferia_core::delivery::UpdatePolicy::Strict,
+                    incoming_schema: schema.clone(),
+                    stored_schema: schema.clone(),
+                    system_columns: Vec::new(),
+                })
+                .collect(),
             performance_advice: Vec::new(),
         };
-        let middleware: Vec<Box<dyn Middleware>> = vec![Box::new(RenameTableMiddleware::new(config)?)];
+        let middleware: Vec<Box<dyn Middleware>> =
+            vec![Box::new(RenameTableMiddleware::new(config)?)];
         let transformed = validate_middlewares(&middleware, discovery.clone()).await?;
         assert_eq!(transformed.datasets.len(), 1);
-        let limits = RecordingLimits { called: AtomicBool::new(false) };
+        let limits = RecordingLimits {
+            called: AtomicBool::new(false),
+        };
         let endpoint = transferia_delivery_contracts::semantics::EndpointDescriptor::ClickHouse;
         validate_discovered_pipeline(&endpoint, &endpoint, &limits, &transformed, false)?;
         assert!(limits.called.load(Ordering::SeqCst));
         let mut incompatible = discovery;
-        incompatible.datasets[1].stored_schema.columns.push(transferia_core::SchemaColumn::new("extra".into(), arrow::datatypes::DataType::Utf8, true));
-        let error = validate_middlewares(&middleware, incompatible).await.unwrap_err();
+        incompatible.datasets[1]
+            .stored_schema
+            .columns
+            .push(transferia_core::SchemaColumn::new(
+                "extra".into(),
+                arrow::datatypes::DataType::Utf8,
+                true,
+            ));
+        let error = validate_middlewares(&middleware, incompatible)
+            .await
+            .unwrap_err();
         assert!(format!("{error:#}").contains("incompatible output schemas"));
     }
     Ok(())
@@ -184,14 +231,17 @@ async fn renamed_tables_merge_only_identical_schemas_into_one_destination_declar
 
 #[test]
 fn merge_schema_comparison_preserves_every_column_attribute_and_order() {
-    use transferia_core::{DatasetSchema, SchemaColumn, DiscoveredDataset};
     use arrow::datatypes::DataType;
+    use transferia_core::{DatasetSchema, DiscoveredDataset, SchemaColumn};
     let column = SchemaColumn::new("value".into(), DataType::Int64, false);
     let original = DiscoveredDataset {
-        namespace: None, name: Arc::from("united"), role: DatasetRole::Main,
+        namespace: None,
+        name: Arc::from("united"),
+        role: DatasetRole::Main,
         update_policy: transferia_core::delivery::UpdatePolicy::Strict,
         incoming_schema: DatasetSchema::new(vec![column.clone()]),
-        stored_schema: DatasetSchema::new(vec![column]), system_columns: vec![],
+        stored_schema: DatasetSchema::new(vec![column]),
+        system_columns: vec![],
     };
     for attribute in 0..10 {
         let mut changed = original.clone();
@@ -209,18 +259,31 @@ fn merge_schema_comparison_preserves_every_column_attribute_and_order() {
             _ => changed.incoming_schema.columns[0].nullable = true,
         }
         let mut datasets = vec![original.clone(), changed];
-        assert!(merge_compatible_datasets(&mut datasets).is_err(), "attribute {attribute}");
-        assert_eq!(datasets.len(), 2, "failed validation must not mutate the declarations");
+        assert!(
+            merge_compatible_datasets(&mut datasets).is_err(),
+            "attribute {attribute}"
+        );
+        assert_eq!(
+            datasets.len(),
+            2,
+            "failed validation must not mutate the declarations"
+        );
     }
     let mut keyed = original.clone();
     keyed.stored_schema.columns[0].primary_key = true;
-    assert!(merge_compatible_datasets(&mut vec![keyed.clone(), keyed]).unwrap_err().to_string().contains("primary-key"));
+    assert!(merge_compatible_datasets(&mut vec![keyed.clone(), keyed])
+        .unwrap_err()
+        .to_string()
+        .contains("primary-key"));
     let mut first = original.clone();
     first.stored_schema.columns[0].source_type = Some("bigint".into());
     first.incoming_schema.columns[0].source_type = Some("bigint".into());
     let mut same = vec![first.clone(), first.clone()];
     merge_compatible_datasets(&mut same).unwrap();
-    assert_eq!(same[0].stored_schema.columns[0].source_type.as_deref(), Some("bigint"));
+    assert_eq!(
+        same[0].stored_schema.columns[0].source_type.as_deref(),
+        Some("bigint")
+    );
     let mut mixed = vec![first, original];
     merge_compatible_datasets(&mut mixed).unwrap();
     assert_eq!(mixed.len(), 1);

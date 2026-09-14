@@ -40,5 +40,5 @@ it("retains the same feedback slot and surrounding controls across connection st
     expect(Array.from(result.parentElement!.children)).toEqual(slots);
     expect(button.getAttribute("aria-busy")).toBe(String(check.state === "checking"));
   }
-  expect(result.hasAttribute("title")).toBe(false);
+  expect(result.title).toBe(""); // Clearing a reflected DOM property may retain an empty attribute.
 });

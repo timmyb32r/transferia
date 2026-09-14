@@ -203,7 +203,10 @@ async fn preview_source(
 ) -> Result<impl IntoResponse, ApiError> {
     let cancellation = state.control_plane.request_cancellation();
     let _cancel_on_drop = CancelOnDrop(cancellation.clone());
-    let result = state.control_plane.preview_source(request, cancellation).await?;
+    let result = state
+        .control_plane
+        .preview_source(request, cancellation)
+        .await?;
     Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
 }
 

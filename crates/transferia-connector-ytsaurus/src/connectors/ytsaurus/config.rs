@@ -277,15 +277,11 @@ pub enum YTsaurusReadOrdering {
         compressed_data_size_per_partition: u64,
 
         #[serde(default = "default_partition_count")]
-        #[schemars(
-            title = "Maximum partition count"
-        )]
+        #[schemars(title = "Maximum partition count")]
         max_partition_count: usize,
 
         #[serde(default = "default_partition_concurrency")]
-        #[schemars(
-            title = "Concurrent partition readers"
-        )]
+        #[schemars(title = "Concurrent partition readers")]
         concurrency: usize,
     },
 }

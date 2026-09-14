@@ -1657,18 +1657,18 @@ pub(super) fn assemble_metadata_table(
     // Both individual and batched discovery pass this boundary. The guarantee
     // describes normalized CDC output, not physical new-tuple TOAST eligibility.
     for column in &mut columns {
-        column.update_value_presence = if replica_identity == "f" || column.always_present_on_update {
-            transferia_core::ValuePresence::Guaranteed
-        } else {
-            transferia_core::ValuePresence::MayBeAbsent
-        };
-        column.delete_value_presence = if replica_identity == "f"
-            || (replica_identity == "d" && column.primary_key)
+        column.update_value_presence = if replica_identity == "f" || column.always_present_on_update
         {
             transferia_core::ValuePresence::Guaranteed
         } else {
             transferia_core::ValuePresence::MayBeAbsent
         };
+        column.delete_value_presence =
+            if replica_identity == "f" || (replica_identity == "d" && column.primary_key) {
+                transferia_core::ValuePresence::Guaranteed
+            } else {
+                transferia_core::ValuePresence::MayBeAbsent
+            };
     }
     Ok(DiscoveredTable {
         config: table,

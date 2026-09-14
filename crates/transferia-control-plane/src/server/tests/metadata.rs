@@ -26,11 +26,17 @@ impl SourceMetadataReader for Reader {
             let schema = Arc::new(arrow::datatypes::Schema::new(vec![
                 arrow::datatypes::Field::new("id", arrow::datatypes::DataType::Int64, false),
             ]));
-            let batch = arrow::record_batch::RecordBatch::try_new(schema, vec![
-                Arc::new(arrow::array::Int64Array::from(vec![1])),
-            ])?;
-            Ok(transferia_core::TableData::new(Arc::from(table.name), false, batch, Default::default())
-                .with_namespace(Arc::from(table.namespace)))
+            let batch = arrow::record_batch::RecordBatch::try_new(
+                schema,
+                vec![Arc::new(arrow::array::Int64Array::from(vec![1]))],
+            )?;
+            Ok(transferia_core::TableData::new(
+                Arc::from(table.name),
+                false,
+                batch,
+                transferia_core::SystemColumns::default(),
+            )
+            .with_namespace(Arc::from(table.namespace)))
         })
     }
 
@@ -87,7 +93,12 @@ impl SourceMetadataReader for Reader {
                     .into_iter()
                     .map(|table| {
                         let schema = DatasetSchema::new(vec![SchemaColumn::new(
-                            if self.different_schema && table.name == "other" { "other_column" } else { "id" }.into(),
+                            if self.different_schema && table.name == "other" {
+                                "other_column"
+                            } else {
+                                "id"
+                            }
+                            .into(),
                             arrow::datatypes::DataType::Int64,
                             false,
                         )]);
@@ -124,8 +135,14 @@ fn source() -> Value {
 fn source_sample_request(name: &str) -> transferia_server_contracts::api::SourcePreviewRequest {
     transferia_server_contracts::api::SourcePreviewRequest {
         metadata_id: Some("cache".into()),
-        source: transferia_server_contracts::api::TransformPreviewSource { connector: "postgres".into(), config: source() },
-        table: Some(table(name)), row_limit: 20, max_sample_bytes: 16_777_216, timeout_ms: 30_000,
+        source: transferia_server_contracts::api::TransformPreviewSource {
+            connector: "postgres".into(),
+            config: source(),
+        },
+        table: Some(table(name)),
+        row_limit: 20,
+        max_sample_bytes: 16_777_216,
+        timeout_ms: 30_000,
     }
 }
 
@@ -134,9 +151,15 @@ async fn source_viewer_reads_raw_rows_and_only_loads_the_requested_schema() -> a
     let reader = Arc::new(Reader::default());
     let metadata = session("cache", vec![table("good"), table("bad")], reader.clone());
     let service = super::super::tests::service();
-    service.metadata_sessions.lock().await.insert("cache".into(), metadata.clone());
+    service
+        .metadata_sessions
+        .lock()
+        .await
+        .insert("cache".into(), metadata.clone());
     for _ in 0..2 {
-        let result = service.preview_source(source_sample_request("good"), CancellationToken::new()).await?;
+        let result = service
+            .preview_source(source_sample_request("good"), CancellationToken::new())
+            .await?;
         assert_eq!(result.frames.len(), 1);
         let frame = &result.frames[0];
         assert_eq!(frame.table.name, "good");
@@ -156,7 +179,10 @@ async fn source_viewer_reads_raw_rows_and_only_loads_the_requested_schema() -> a
 async fn source_viewer_rejects_invalid_limits_changed_source_and_unselected_tables_before_io() {
     let reader = Arc::new(Reader::default());
     let service = super::super::tests::service();
-    service.metadata_sessions.lock().await.insert("cache".into(), session("cache", vec![table("good")], reader.clone()));
+    service.metadata_sessions.lock().await.insert(
+        "cache".into(),
+        session("cache", vec![table("good")], reader.clone()),
+    );
     for case in 0..7 {
         let mut request = source_sample_request("good");
         match case {
@@ -168,10 +194,17 @@ async fn source_viewer_rejects_invalid_limits_changed_source_and_unselected_tabl
             5 => request.table = Some(table("missing")),
             _ => request.metadata_id = Some("missing".into()),
         }
-        assert!(service.preview_source(request, CancellationToken::new()).await.is_err());
+        assert!(service
+            .preview_source(request, CancellationToken::new())
+            .await
+            .is_err());
     }
-    let cancellation = CancellationToken::new(); cancellation.cancel();
-    assert!(service.preview_source(source_sample_request("good"), cancellation).await.is_err());
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    assert!(service
+        .preview_source(source_sample_request("good"), cancellation)
+        .await
+        .is_err());
     assert_eq!(reader.loads.load(Ordering::SeqCst), 0);
     assert_eq!(reader.samples.load(Ordering::SeqCst), 0);
 }
@@ -180,8 +213,14 @@ async fn source_viewer_rejects_invalid_limits_changed_source_and_unselected_tabl
 async fn source_viewer_does_not_sample_failed_schemas() {
     let reader = Arc::new(Reader::default());
     let service = super::super::tests::service();
-    service.metadata_sessions.lock().await.insert("cache".into(), session("cache", vec![table("bad")], reader.clone()));
-    assert!(service.preview_source(source_sample_request("bad"), CancellationToken::new()).await.is_err());
+    service.metadata_sessions.lock().await.insert(
+        "cache".into(),
+        session("cache", vec![table("bad")], reader.clone()),
+    );
+    assert!(service
+        .preview_source(source_sample_request("bad"), CancellationToken::new())
+        .await
+        .is_err());
     assert_eq!(reader.samples.load(Ordering::SeqCst), 0);
 }
 
@@ -223,7 +262,10 @@ fn context() -> SourceDiscoveryContext {
     }
 }
 
-fn rename_preview_request(steps: Value, source_config: Value) -> anyhow::Result<transferia_server_contracts::api::TransformPreviewRequest> {
+fn rename_preview_request(
+    steps: &Value,
+    source_config: &Value,
+) -> anyhow::Result<transferia_server_contracts::api::TransformPreviewRequest> {
     let through_step = steps.as_array().unwrap().len() - 1;
     Ok(serde_json::from_value(serde_json::json!({
         "metadata_id":"cache", "middlewares":steps, "through_step":through_step,
@@ -234,16 +276,30 @@ fn rename_preview_request(steps: Value, source_config: Value) -> anyhow::Result<
 }
 
 #[tokio::test]
-async fn rename_preview_validates_unsampled_matched_tables_before_any_source_read() -> anyhow::Result<()> {
+async fn rename_preview_validates_unsampled_matched_tables_before_any_source_read(
+) -> anyhow::Result<()> {
     let reader = Arc::new(Reader::default());
-    let session = session("cache", vec![table("events"), table("other")], reader.clone());
+    let session = session(
+        "cache",
+        vec![table("events"), table("other")],
+        reader.clone(),
+    );
     // No schema is loaded: regex failure must precede even schema readiness checks.
-    let request = rename_preview_request(serde_json::json!([
-        {"rename_table":{"mode":"regex", "pattern":"^events$", "replacement":"events2", "last_part_only":true}}
-    ]), source())?;
+    let request = rename_preview_request(
+        &serde_json::json!([
+            {"rename_table":{"mode":"regex", "pattern":"^events$", "replacement":"events2", "last_part_only":true}}
+        ]),
+        &source(),
+    )?;
     let error = ControlPlane::preview_transforms_with(
-        &Transferia::public()?, request, CancellationToken::new(), Some(session),
-    ).await.unwrap_err().to_string();
+        &Transferia::public()?,
+        request,
+        CancellationToken::new(),
+        Some(session),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
     assert!(error.contains("public.other"), "{error}");
     assert!(error.contains("does not match"), "{error}");
     assert_eq!(reader.samples.load(Ordering::SeqCst), 0);
@@ -253,10 +309,18 @@ async fn rename_preview_validates_unsampled_matched_tables_before_any_source_rea
 }
 
 #[tokio::test]
-async fn rename_preview_honors_source_and_step_scopes_and_projects_preceding_names() -> anyhow::Result<()> {
+async fn rename_preview_honors_source_and_step_scopes_and_projects_preceding_names(
+) -> anyhow::Result<()> {
     for scope in ["source", "include", "exclude", "system", "preceding"] {
         let reader = Arc::new(Reader::default());
-        let other = if scope == "system" { TableIdentity { namespace:"pg_catalog".into(), name:"other".into() } } else { table("other") };
+        let other = if scope == "system" {
+            TableIdentity {
+                namespace: "pg_catalog".into(),
+                name: "other".into(),
+            }
+        } else {
+            table("other")
+        };
         let session = session("cache", vec![table("events"), other], reader.clone());
         session.ensure_tables(&[table("events")]).await?;
         let mut source_config = source();
@@ -264,20 +328,38 @@ async fn rename_preview_honors_source_and_step_scopes_and_projects_preceding_nam
             {"rename_table":{"mode":"regex", "pattern":"^public\\.events$", "replacement":"archive.events2"}}
         ]);
         match scope {
-            "source" => source_config["tables"] = serde_json::json!({"type":"selected", "rules":[{"include":"public.events"}]}),
+            "source" => {
+                source_config["tables"] =
+                    serde_json::json!({"type":"selected", "rules":[{"include":"public.events"}]});
+            }
             "include" => steps[0]["tables"] = serde_json::json!({"include":"public.events"}),
-            "exclude" => steps[0]["tables"] = serde_json::json!({"include":"*", "exclude":"public.other"}),
+            "exclude" => {
+                steps[0]["tables"] = serde_json::json!({"include":"*", "exclude":"public.other"});
+            }
             "system" => source_config["hide_system_tables"] = Value::Bool(true),
-            "preceding" => steps = serde_json::json!([
-                {"tables":{"include":"public.events"}, "rename_table":{"mode":"exact", "name":"archive.events"}},
-                {"tables":{"include":"archive.*"}, "rename_table":{"mode":"regex", "pattern":"^archive\\.events$", "replacement":"archive.events2"}},
-            ]),
-            _ => unreachable!(),
+            "preceding" => {
+                steps = serde_json::json!([
+                    {"tables":{"include":"public.events"}, "rename_table":{"mode":"exact", "name":"archive.events"}},
+                    {"tables":{"include":"archive.*"}, "rename_table":{"mode":"regex", "pattern":"^archive\\.events$", "replacement":"archive.events2"}},
+                ]);
+            }
+            _ => anyhow::bail!("unknown test scope: {scope}"),
         }
         let result = ControlPlane::preview_transforms_with(
-            &Transferia::public()?, rename_preview_request(steps, source_config)?, CancellationToken::new(), Some(session),
-        ).await?;
-        assert_eq!(result.before.table.namespace.as_deref(), Some(if scope == "preceding" { "archive" } else { "public" }));
+            &Transferia::public()?,
+            rename_preview_request(&steps, &source_config)?,
+            CancellationToken::new(),
+            Some(session),
+        )
+        .await?;
+        assert_eq!(
+            result.before.table.namespace.as_deref(),
+            Some(if scope == "preceding" {
+                "archive"
+            } else {
+                "public"
+            })
+        );
         assert_eq!(result.after.table.namespace.as_deref(), Some("archive"));
         assert_eq!(result.after.table.name, "events2");
         assert_eq!(reader.samples.load(Ordering::SeqCst), 1);
@@ -286,21 +368,40 @@ async fn rename_preview_honors_source_and_step_scopes_and_projects_preceding_nam
 }
 
 #[tokio::test]
-async fn rename_preview_rejects_invalid_outputs_in_unsampled_tables_and_source_mismatch() -> anyhow::Result<()> {
+async fn rename_preview_rejects_invalid_outputs_in_unsampled_tables_and_source_mismatch(
+) -> anyhow::Result<()> {
     for invalid_source in [false, true] {
         let reader = Arc::new(Reader::default());
-        let session = session("cache", vec![table("events"), table("other")], reader.clone());
+        let session = session(
+            "cache",
+            vec![table("events"), table("other")],
+            reader.clone(),
+        );
         let mut config = source();
-        if invalid_source { config["database"] = Value::String("different".into()); }
-        let request = rename_preview_request(serde_json::json!([
-            {"rename_table":{"mode":"regex", "pattern":"^(events)?(?:other)?$", "replacement":"$1", "last_part_only":true}}
-        ]), config)?;
+        if invalid_source {
+            config["database"] = Value::String("different".into());
+        }
+        let request = rename_preview_request(
+            &serde_json::json!([
+                {"rename_table":{"mode":"regex", "pattern":"^(events)?(?:other)?$", "replacement":"$1", "last_part_only":true}}
+            ]),
+            &config,
+        )?;
         let error = ControlPlane::preview_transforms_with(
-            &Transferia::public()?, request, CancellationToken::new(), Some(session),
-        ).await.unwrap_err().to_string();
+            &Transferia::public()?,
+            request,
+            CancellationToken::new(),
+            Some(session),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
         if invalid_source {
             assert!(error.contains("Source changed"), "{error}");
-            assert!(!error.contains("other"), "catalog must not leak on source mismatch: {error}");
+            assert!(
+                !error.contains("other"),
+                "catalog must not leak on source mismatch: {error}"
+            );
         } else {
             assert!(error.contains("capture 1 did not participate"), "{error}");
             assert!(error.contains("other"), "{error}");
@@ -321,32 +422,78 @@ async fn preview_and_preparation_reject_the_same_unsampled_schema_errors() -> an
         serde_json::json!({"rename_table":{"mode":"regex", "pattern":".*", "replacement":"united"}}),
         serde_json::json!({"datafusion":{"sql":"SELECT id FROM input"}}),
     ] {
-        let reader = Arc::new(Reader { different_schema: true, ..Reader::default() });
-        let session = session("cache", vec![table("events"), table("other")], reader.clone());
-        let request = rename_preview_request(serde_json::json!([action.clone()]), source())?;
+        let reader = Arc::new(Reader {
+            different_schema: true,
+            ..Reader::default()
+        });
+        let session = session(
+            "cache",
+            vec![table("events"), table("other")],
+            reader.clone(),
+        );
+        let request = rename_preview_request(&serde_json::json!([action.clone()]), &source())?;
         let error = ControlPlane::preview_transforms_with(
-            &Transferia::public()?, request, CancellationToken::new(), Some(session.clone()),
-        ).await.unwrap_err();
-        assert_eq!(reader.samples.load(Ordering::SeqCst), 0, "must not sample the valid table before checking other");
-        let discovery = session.preview_discovery(&transferia_server_contracts::api::TransformPreviewSource {
-            connector: "postgres".into(), config: source(),
-        }, &CancellationToken::new()).await?;
-        let registry = Transferia::public()?.build_registry(&Arc::new(transferia_connectors::metrics::MetricsRegistry::new()))?;
-        let middleware = transferia_delivery::middleware::build_middlewares(&registry, &[serde_json::from_value(action)?])?;
-        let validation = transferia_delivery::delivery::preparation::validate_middlewares(&middleware, discovery).await.unwrap_err();
-        assert!(error.to_string().contains(&format!("{validation:#}")), "preview: {error}; validate: {validation:#}");
+            &Transferia::public()?,
+            request,
+            CancellationToken::new(),
+            Some(session.clone()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            reader.samples.load(Ordering::SeqCst),
+            0,
+            "must not sample the valid table before checking other"
+        );
+        let discovery = session
+            .preview_discovery(
+                &transferia_server_contracts::api::TransformPreviewSource {
+                    connector: "postgres".into(),
+                    config: source(),
+                },
+                &CancellationToken::new(),
+            )
+            .await?;
+        let registry = Transferia::public()?.build_registry(&Arc::new(
+            transferia_connectors::metrics::MetricsRegistry::new(),
+        ))?;
+        let middleware = transferia_delivery::middleware::build_middlewares(
+            &registry,
+            &[serde_json::from_value(action)?],
+        )?;
+        let validation = transferia_delivery::delivery::preparation::validate_middlewares(
+            &middleware,
+            discovery,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            error.to_string().contains(&format!("{validation:#}")),
+            "preview: {error}; validate: {validation:#}"
+        );
     }
     Ok(())
 }
 
 #[tokio::test]
-async fn preview_accepts_equal_schema_merge_and_reads_the_requested_physical_table() -> anyhow::Result<()> {
+async fn preview_accepts_equal_schema_merge_and_reads_the_requested_physical_table(
+) -> anyhow::Result<()> {
     let reader = Arc::new(Reader::default());
-    let session = session("cache", vec![table("events"), table("other")], reader.clone());
-    let result = ControlPlane::preview_transforms_with(&Transferia::public()?,
-        rename_preview_request(serde_json::json!([{"rename_table":{"mode":"exact", "name":"united"}}]), source())?,
-        CancellationToken::new(), Some(session),
-    ).await?;
+    let session = session(
+        "cache",
+        vec![table("events"), table("other")],
+        reader.clone(),
+    );
+    let result = ControlPlane::preview_transforms_with(
+        &Transferia::public()?,
+        rename_preview_request(
+            &serde_json::json!([{"rename_table":{"mode":"exact", "name":"united"}}]),
+            &source(),
+        )?,
+        CancellationToken::new(),
+        Some(session),
+    )
+    .await?;
     assert_eq!(result.after.table.name, "united");
     assert_eq!(reader.samples.load(Ordering::SeqCst), 1);
     assert_eq!(reader.loads.load(Ordering::SeqCst), 2);
@@ -354,31 +501,61 @@ async fn preview_accepts_equal_schema_merge_and_reads_the_requested_physical_tab
 }
 
 #[tokio::test]
-async fn preview_reuses_successful_schema_validation_but_revalidates_changed_configuration() -> anyhow::Result<()> {
+async fn preview_reuses_successful_schema_validation_but_revalidates_changed_configuration(
+) -> anyhow::Result<()> {
     let reader = Arc::new(Reader::default());
-    let session = session("cache", vec![table("events"), table("other")], reader.clone());
+    let session = session(
+        "cache",
+        vec![table("events"), table("other")],
+        reader.clone(),
+    );
     for target in ["united", "united", "renamed"] {
-        ControlPlane::preview_transforms_with(&Transferia::public()?,
-            rename_preview_request(serde_json::json!([{"rename_table":{"mode":"exact", "name":target}}]), source())?,
-            CancellationToken::new(), Some(session.clone()),
-        ).await?;
+        ControlPlane::preview_transforms_with(
+            &Transferia::public()?,
+            rename_preview_request(
+                &serde_json::json!([{"rename_table":{"mode":"exact", "name":target}}]),
+                &source(),
+            )?,
+            CancellationToken::new(),
+            Some(session.clone()),
+        )
+        .await?;
     }
     assert_eq!(reader.samples.load(Ordering::SeqCst), 3);
     assert_eq!(reader.loads.load(Ordering::SeqCst), 2);
-    assert_eq!(reader.assemblies.load(Ordering::SeqCst), 2, "same prefix is validated once, changed prefix is revalidated");
+    assert_eq!(
+        reader.assemblies.load(Ordering::SeqCst),
+        2,
+        "same prefix is validated once, changed prefix is revalidated"
+    );
     Ok(())
 }
 
 #[tokio::test]
-async fn merge_compares_schemas_after_preceding_sql_not_original_source_schemas() -> anyhow::Result<()> {
-    let reader = Arc::new(Reader { different_schema: true, ..Reader::default() });
-    let session = session("cache", vec![table("events"), table("other")], reader.clone());
-    let result = ControlPlane::preview_transforms_with(&Transferia::public()?,
-        rename_preview_request(serde_json::json!([
-            {"datafusion":{"sql":"SELECT 1 AS id FROM input"}},
-            {"rename_table":{"mode":"exact", "name":"united"}},
-        ]), source())?, CancellationToken::new(), Some(session),
-    ).await?;
+async fn merge_compares_schemas_after_preceding_sql_not_original_source_schemas(
+) -> anyhow::Result<()> {
+    let reader = Arc::new(Reader {
+        different_schema: true,
+        ..Reader::default()
+    });
+    let session = session(
+        "cache",
+        vec![table("events"), table("other")],
+        reader.clone(),
+    );
+    let result = ControlPlane::preview_transforms_with(
+        &Transferia::public()?,
+        rename_preview_request(
+            &serde_json::json!([
+                {"datafusion":{"sql":"SELECT 1 AS id FROM input"}},
+                {"rename_table":{"mode":"exact", "name":"united"}},
+            ]),
+            &source(),
+        )?,
+        CancellationToken::new(),
+        Some(session),
+    )
+    .await?;
     assert_eq!(result.after.table.name, "united");
     assert_eq!(reader.samples.load(Ordering::SeqCst), 1);
     Ok(())

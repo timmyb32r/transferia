@@ -432,7 +432,8 @@ async fn speedtest_tune_never_echoes_full_endpoint_configuration() -> anyhow::Re
 }
 
 #[tokio::test]
-async fn table_selection_projects_sequential_renames_and_keeps_physical_source_lineage() -> anyhow::Result<()> {
+async fn table_selection_projects_sequential_renames_and_keeps_physical_source_lineage(
+) -> anyhow::Result<()> {
     let (app, root) = test_router().await?;
     let request = serde_json::json!({
         "catalog": [{"namespace":"public","name":"raw_events"}, {"namespace":"public","name":"other"}],
@@ -443,39 +444,72 @@ async fn table_selection_projects_sequential_renames_and_keeps_physical_source_l
         ],
         "selection": {"type":"selected","rules":[{"include":"public.archive"}]}
     });
-    let response = app.oneshot(Request::post("/api/v1/table-selection/preview")
-        .header(CONTENT_TYPE, "application/json")
-        .body(Body::from(serde_json::to_vec(&request)?))?).await?;
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/table-selection/preview")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&request)?))?,
+        )
+        .await?;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
-    let body: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
-    assert_eq!(body["cards"][0]["selected"], serde_json::json!([{"namespace":"public","name":"archive"}]));
-    assert_eq!(body["lineage"], serde_json::json!([
-        {"source":{"namespace":"public","name":"raw_events"},"current":{"namespace":"public","name":"archive"}},
-        {"source":{"namespace":"public","name":"other"},"current":{"namespace":"public","name":"other"}}
-    ]));
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    assert_eq!(
+        body["cards"][0]["selected"],
+        serde_json::json!([{"namespace":"public","name":"archive"}])
+    );
+    assert_eq!(
+        body["lineage"],
+        serde_json::json!([
+            {"source":{"namespace":"public","name":"raw_events"},"current":{"namespace":"public","name":"archive"}},
+            {"source":{"namespace":"public","name":"other"},"current":{"namespace":"public","name":"other"}}
+        ])
+    );
     tokio::fs::remove_dir_all(root).await?;
     Ok(())
 }
 
 #[tokio::test]
-async fn table_selection_reports_rename_errors_and_collisions_without_choosing_an_origin() -> anyhow::Result<()> {
+async fn table_selection_reports_rename_errors_and_collisions_without_choosing_an_origin(
+) -> anyhow::Result<()> {
     let (app, root) = test_router().await?;
     for (rename, expected) in [
-        (serde_json::json!({"mode":"regex","pattern":"[","replacement":"x"}), "regex"),
-        (serde_json::json!({"mode":"regex","pattern":"(.*)","replacement":"$2"}), "unknown capture"),
-        (serde_json::json!({"mode":"regex","pattern":"^.*$","replacement":""}), "must not be empty"),
+        (
+            serde_json::json!({"mode":"regex","pattern":"[","replacement":"x"}),
+            "regex",
+        ),
+        (
+            serde_json::json!({"mode":"regex","pattern":"(.*)","replacement":"$2"}),
+            "unknown capture",
+        ),
+        (
+            serde_json::json!({"mode":"regex","pattern":"^.*$","replacement":""}),
+            "must not be empty",
+        ),
     ] {
         let request = serde_json::json!({
             "catalog":[{"namespace":"public","name":"one"},{"namespace":"public","name":"two"}],
             "preceding_middlewares":[{"rename_table":rename}], "selection":{"type":"all"}
         });
-        let response = app.clone().oneshot(Request::post("/api/v1/table-selection/preview")
-            .header(CONTENT_TYPE, "application/json")
-            .body(Body::from(serde_json::to_vec(&request)?))?).await?;
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/api/v1/table-selection/preview")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_vec(&request)?))?,
+            )
+            .await?;
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-        let body: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
-        assert!(body["error"]["message"].as_str().unwrap().contains(expected), "{body}");
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains(expected),
+            "{body}"
+        );
     }
     tokio::fs::remove_dir_all(root).await?;
     Ok(())
@@ -492,16 +526,27 @@ async fn table_selection_tracks_full_namespace_renames_for_following_steps() -> 
         ],
         "selection":{"type":"selected", "rules":[{"include":"archive.sql_features3"}]},
     });
-    let response = app.oneshot(Request::post("/api/v1/table-selection/preview")
-        .header(CONTENT_TYPE, "application/json")
-        .body(Body::from(serde_json::to_vec(&request)?))?).await?;
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/table-selection/preview")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&request)?))?,
+        )
+        .await?;
     assert_eq!(response.status(), StatusCode::OK);
-    let body: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
-    assert_eq!(body["cards"][0]["selected"], serde_json::json!([{"namespace":"archive", "name":"sql_features3"}]));
-    assert_eq!(body["lineage"], serde_json::json!([{
-        "source":{"namespace":"information_schema", "name":"sql_features"},
-        "current":{"namespace":"archive", "name":"sql_features3"},
-    }]));
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    assert_eq!(
+        body["cards"][0]["selected"],
+        serde_json::json!([{"namespace":"archive", "name":"sql_features3"}])
+    );
+    assert_eq!(
+        body["lineage"],
+        serde_json::json!([{
+            "source":{"namespace":"information_schema", "name":"sql_features"},
+            "current":{"namespace":"archive", "name":"sql_features3"},
+        }])
+    );
     tokio::fs::remove_dir_all(root).await?;
     Ok(())
 }

@@ -10,7 +10,7 @@ import { DELIVERY_TYPES } from "../src/recordSemantics";
 import { compatibilityRoutes } from "../src/ui/CompatibilityMatrixDialog";
 import { render } from "./support/render";
 import { httpControlPlane as api } from "../src/infrastructure/controlPlane/httpControlPlane";
-import type { DiscoveryResult } from "../src/types";
+import type { DiscoveryResult, JsonObject } from "../src/types";
 
 // Keep the production visibility gate, without mounting network-backed endpoint fields.
 vi.mock("../src/delivery/EditorViews", () => ({
@@ -47,8 +47,8 @@ it("connects Logbroker parser tables to transforms, matched tables and Use witho
   const preview = vi.spyOn(api, "previewTables").mockResolvedValue({ cards: [{ selected: [table], excluded: [] }], issues: [] });
   const discover = vi.spyOn(api, "discover");
   const metadata = vi.spyOn(api, "connectMetadata");
-  const onConfig = vi.fn();
-  const config = { delivery_type: "stream",
+  const onConfig = vi.fn((next: JsonObject) => { config = next; });
+  let config: JsonObject = { delivery_type: "stream",
     source: { logbroker: { parser: { common: { table_name: "events" }, json_parser: { columns: [] } } } },
     sink: { clickhouse: {} }, middlewares: [{ tables: { include: "*" }, datafusion: { sql: "SELECT * FROM input" } }],
   };
@@ -69,7 +69,7 @@ it("connects Logbroker parser tables to transforms, matched tables and Use witho
   fireEvent.click(view.getByRole("button", { name: "Expand transform 1" }));
   expect(view.container.querySelector(".middleware-scope-status")?.textContent)
     .toBe("Complete the parser configuration and wait for its table schemas to load.");
-  const include = view.getByRole("combobox", { name: "Include transform 1" });
+  const include = view.getByLabelText("Include transform 1");
   const available = view.getByRole("button", { name: "Available tables for transform 1" }) as HTMLButtonElement;
   const scopeStatus = view.container.querySelector(".middleware-scope-status");
   view.rerender(configuration(discovered));
@@ -90,14 +90,15 @@ it("connects Logbroker parser tables to transforms, matched tables and Use witho
   expect(within(dialog).queryByText("failed_messages")).toBeNull();
   fireEvent.click(within(dialog).getByRole("button", { name: "Use events in Include" }));
   expect(view.queryByRole("dialog")).toBeNull();
-  expect(onConfig.mock.lastCall?.[0].middlewares[0].tables.include).toBe("events");
+  expect(onConfig.mock.lastCall?.[0]).toMatchObject({ middlewares: [{ tables: { include: "events" } }] });
   fireEvent.click(view.getByRole("button", { name: "Preview transform 1" }));
   expect((view.getByRole("button", { name: "Run preview" }) as HTMLButtonElement).disabled).toBe(true);
   expect(discover).not.toHaveBeenCalled();
   expect(metadata).not.toHaveBeenCalled();
   view.rerender(configuration(undefined));
   expect(add.disabled).toBe(true);
-  expect(available.disabled).toBe(true);
+  await waitFor(() => expect(available.disabled).toBe(true));
+  expect(view.getByRole("button", { name: "Available tables for transform 1" })).toBe(available);
   expect((view.getByRole("button", { name: "Clone transform 1" }) as HTMLButtonElement).disabled).toBe(true);
 });
 it("places one transforms island directly below source and destination", () => {

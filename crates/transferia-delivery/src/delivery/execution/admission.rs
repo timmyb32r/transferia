@@ -34,8 +34,13 @@ impl transferia_pipeline::DatasetAdmission for AdmissionCoordinator {
             if !self.middlewares.is_empty() {
                 crate::delivery::preparation::merge_compatible_datasets(&mut combined.datasets)
                     .map_err(DataPlaneFailure::fatal)?;
-                added.datasets.retain(|dataset| !self.context.discovery.datasets.iter().any(|existing|
-                    existing.namespace == dataset.namespace && existing.name == dataset.name && existing.role == dataset.role));
+                added.datasets.retain(|dataset| {
+                    !self.context.discovery.datasets.iter().any(|existing| {
+                        existing.namespace == dataset.namespace
+                            && existing.name == dataset.name
+                            && existing.role == dataset.role
+                    })
+                });
             }
             crate::delivery::preparation::validate_discovered_pipeline(
                 &self.source,

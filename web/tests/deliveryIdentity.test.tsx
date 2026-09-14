@@ -65,14 +65,14 @@ it("updates the sizing mirror synchronously for wrapping, newlines and deletion 
 });
 
 it("keeps identity controls, caret and sizing content unchanged on unrelated editor updates", () => {
-  const view = render(<IdentityForm description="First line\nSecond line" />);
+  const view = render(<IdentityForm description={"First line\nSecond line"} />);
   const name = view.getByRole("textbox", { name: "Delivery name" });
   const field = view.getByRole("textbox", { name: /Description/ }) as HTMLTextAreaElement;
   const type = view.container.querySelector(".identity-form .select")!;
   const mirror = field.parentElement!.querySelector("[aria-hidden='true']")!;
   field.focus();
   field.setSelectionRange(4, 8);
-  view.rerender(<IdentityForm description="First line\nSecond line" revision={1} />);
+  view.rerender(<IdentityForm description={"First line\nSecond line"} revision={1} />);
   expect(view.getByRole("textbox", { name: "Delivery name" })).toBe(name);
   expect(view.getByRole("textbox", { name: /Description/ })).toBe(field);
   expect(view.container.querySelector(".identity-form .select")).toBe(type);

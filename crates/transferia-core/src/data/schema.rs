@@ -50,6 +50,7 @@ impl DatasetSchema {
 }
 
 /// Availability of a normalized source value, independent of SQL nullability.
+///
 /// `Guaranteed` includes a present SQL NULL, but never an omitted value replaced
 /// with NULL. Sources must prove this after reconstruction, before Arrow creation.
 /// Derived columns must not inherit a guarantee without proving their semantics.
@@ -73,6 +74,11 @@ impl ValuePresence {
 
 /// One logical column expressed in Arrow types, before sink-specific mapping.
 #[derive(Debug, Clone)]
+// These are independent column properties, not mutually exclusive states.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent schema properties"
+)]
 pub struct SchemaColumn {
     pub name: String,
     /// Source-authored native declaration for inspection, not an Arrow type or
@@ -239,7 +245,8 @@ impl SchemaColumn {
 // them would reject otherwise compatible tables renamed into one output.
 impl PartialEq for SchemaColumn {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.data_type == other.data_type
+        self.name == other.name
+            && self.data_type == other.data_type
             && self.nullable == other.nullable
             && self.always_present_on_update == other.always_present_on_update
             && self.update_value_presence == other.update_value_presence

@@ -11,8 +11,9 @@ mod transform_preview;
 
 #[test]
 fn column_view_keeps_native_declaration_separate_from_arrow_type() {
-    let column = transferia_core::SchemaColumn::new("value".into(), arrow::datatypes::DataType::Utf8, true)
-        .with_source_type("numeric(38,12)");
+    let column =
+        transferia_core::SchemaColumn::new("value".into(), arrow::datatypes::DataType::Utf8, true)
+            .with_source_type("numeric(38,12)");
     let view = column_view(&column);
     assert_eq!(view.source_type.as_deref(), Some("numeric(38,12)"));
     assert_eq!(view.arrow_type, "Utf8");

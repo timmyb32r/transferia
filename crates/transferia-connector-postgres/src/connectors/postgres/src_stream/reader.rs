@@ -604,9 +604,13 @@ pub(super) fn events_to_table_data(
     for (row, event) in events.iter().enumerate() {
         anyhow::ensure!(
             event.values.len() == table.schema.columns.len()
-                && event.old_values.as_ref().is_none_or(|values| values.len() == table.schema.columns.len()),
+                && event
+                    .old_values
+                    .as_ref()
+                    .is_none_or(|values| values.len() == table.schema.columns.len()),
             "PostgreSQL row {row} tuple width does not match discovery for '{}.{}'",
-            table.config.schema, table.config.name,
+            table.config.schema,
+            table.config.name,
         );
         if event.operation == ChangeOperation::Update {
             for (column, value) in table.schema.columns.iter().zip(&event.values) {
@@ -629,9 +633,13 @@ pub(super) fn events_to_table_data(
                 ChangeOperation::Create | ChangeOperation::SnapshotRead => continue,
             };
             if presence == transferia_core::ValuePresence::Guaranteed {
-                let value = event_value(event, index, LogicalProjection::Current {
-                    old_fallback: table.replica_identity_full,
-                });
+                let value = event_value(
+                    event,
+                    index,
+                    LogicalProjection::Current {
+                        old_fallback: table.replica_identity_full,
+                    },
+                );
                 anyhow::ensure!(
                     !matches!(value, LogicalValue::UnchangedToast),
                     "PostgreSQL {:?} row {row} column '{}.{}.{}' violates guaranteed normalized value presence",

@@ -255,7 +255,7 @@ it.each(["postgres", "mysql", "clickhouse"])("shows discovery and locks only dep
   expect(available.disabled).toBe(true);
   expect(available.textContent).toContain("Available tables (—)");
   expect((view.getByLabelText(/^Password/) as HTMLInputElement).disabled).toBe(false);
-  expect(group.contains(view.getByText("Advanced settings"))).toBe(false);
+  expect(group.contains(view.getByText("Performance options"))).toBe(false);
 });
 
 it.each(["postgres", "mysql", "clickhouse"])("browses the verified %s catalog with system-table filtering", async connectorKey => {

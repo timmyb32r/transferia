@@ -17,22 +17,32 @@ pub async fn parse_sample(
     limits.validate()?;
     let task = tokio::task::spawn_blocking(move || {
         anyhow::ensure!(!cancellation.is_cancelled(), "Source sample cancelled");
-        let retained = messages.iter().try_fold(0_usize, |size, message| {
-            let size = size.checked_add(message.value.len())?
-                .checked_add(message.key.as_ref().map_or(0, |key| key.len()))?
-                .checked_add(message.meta.topic.as_ref().map_or(0, |topic| topic.len()))?;
-            message.headers.iter().try_fold(size, |size, header| {
-                size.checked_add(header.key.len())?.checked_add(header.value.as_ref().map_or(0, |value| value.len()))
+        let retained = messages
+            .iter()
+            .try_fold(0_usize, |size, message| {
+                let size = size
+                    .checked_add(message.value.len())?
+                    .checked_add(message.key.as_ref().map_or(0, bytes::Bytes::len))?
+                    .checked_add(message.meta.topic.as_ref().map_or(0, |topic| topic.len()))?;
+                message.headers.iter().try_fold(size, |size, header| {
+                    size.checked_add(header.key.len())?
+                        .checked_add(header.value.as_ref().map_or(0, bytes::Bytes::len))
+                })
             })
-        }).ok_or_else(|| anyhow::anyhow!("Source sample byte count overflow"))?;
+            .ok_or_else(|| anyhow::anyhow!("Source sample byte count overflow"))?;
         let mut parser = factory.create_session(limits.max_bytes);
-        let allocation = retained.checked_add(parser.output_memory_bound(&messages))
+        let allocation = retained
+            .checked_add(parser.output_memory_bound(&messages))
             .ok_or_else(|| anyhow::anyhow!("Source sample allocation overflow"))?;
         limits.check_bytes(allocation)?;
         let (main, dlq) = parser.parse_into(messages)?;
         anyhow::ensure!(!cancellation.is_cancelled(), "Source sample cancelled");
         let tables = std::iter::once(main).chain(dlq).collect::<Vec<_>>();
-        let bytes = tables.iter().try_fold(0_usize, |bytes, table| bytes.checked_add(table.batch.get_array_memory_size()))
+        let bytes = tables
+            .iter()
+            .try_fold(0_usize, |bytes, table| {
+                bytes.checked_add(table.batch.get_array_memory_size())
+            })
             .ok_or_else(|| anyhow::anyhow!("Source sample Arrow byte count overflow"))?;
         limits.check_bytes(bytes)?;
         Ok(tables)

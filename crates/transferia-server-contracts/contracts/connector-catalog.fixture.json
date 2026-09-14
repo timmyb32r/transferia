@@ -449,7 +449,7 @@
               }
             },
             "read_buffer_bytes": {
-              "description": "Read buffer for the YDB driver. Keep the default when using PQv1.",
+              "description": "Read buffer for the YDB driver. Keep the default when using `PQv1`.",
               "type": "integer",
               "format": "uint",
               "minimum": 0,
@@ -460,7 +460,7 @@
               }
             },
             "pqv1_decompression_concurrency": {
-              "description": "Parallel decompression across PQv1 partition sessions. Keep the default\nwhen using the YDB driver; one partition is still decoded sequentially.",
+              "description": "Parallel decompression across `PQv1` partition sessions. Keep the default\nwhen using the YDB driver; one partition is still decoded sequentially.",
               "type": "integer",
               "format": "uint",
               "minimum": 0,

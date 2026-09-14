@@ -72,7 +72,7 @@ try {
     await dialog.waitFor();
     const sample = page.getByRole("button", { name: "Load sample", exact: true });
     const close = page.getByRole("button", { name: "Close data viewer", exact: true });
-    if (mode === "tables") await page.getByRole("button", { name: /public\.events/ }).waitFor();
+    if (mode === "tables") await page.waitForFunction(() => document.querySelector('.source-data-viewer-controls .select-trigger')?.title === "public.events");
     assert.equal(await page.getByLabel("Max sample MiB").count(), 0);
     assert.equal(await page.getByLabel("Timeout seconds").count(), 0);
     const targets = [dialog, sample, close, page.getByLabel("Sample rows"), page.getByLabel("Source sample")];
@@ -82,7 +82,7 @@ try {
       if (state === "error") {
         next = new Promise(resolve => { receive = resolve; });
         if (mode === "tables") {
-          await page.getByRole("button", { name: "public.events", exact: true }).click();
+          await page.getByRole("button", { name: "Sample table", exact: true }).click();
           await page.getByRole("option", { name: "public.users", exact: true }).click();
         } else {
           await page.getByLabel("Sample rows").fill("42");

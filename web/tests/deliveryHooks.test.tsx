@@ -535,13 +535,13 @@ describe("delivery controllers", () => {
     const renamed = { ...initial, localRevision: 2, config: {
       ...initial.config, source: { logbroker: { parser: { table_name: "renamed" } } },
     } };
-    rerender({ editor: renamed, complete: true });
+    await act(async () => rerender({ editor: renamed, complete: true }));
     expect(result.current.sourceDiscovery).toBeUndefined();
     expect(result.current.discovery).toBe(discovered);
     await act(async () => { await vi.advanceTimersByTimeAsync(450); });
     expect(result.current.sourceDiscovery).toBeUndefined();
     const updated = { ...discovered, datasets: [{ ...discovered.datasets[0]!, name: "renamed" }] };
-    await act(async () => { resolveRefresh(updated); });
+    await act(async () => { resolveRefresh(updated); await vi.advanceTimersByTimeAsync(0); });
     expect(result.current.sourceDiscovery).toBe(updated);
     expect(result.current.currentDiscovery).toBe(updated);
     rerender({ editor: { ...renamed, localRevision: 3 }, complete: true });

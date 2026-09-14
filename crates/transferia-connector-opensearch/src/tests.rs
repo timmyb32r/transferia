@@ -160,7 +160,10 @@ fn registration_publishes_batch_source_and_append_only_sink() -> anyhow::Result<
             );
         }
     }
-    assert_eq!(sink.schema["properties"]["routed_identity"]["x-ui"]["widget"], "hidden");
+    assert_eq!(
+        sink.schema["properties"]["routed_identity"]["x-ui"]["widget"],
+        "hidden"
+    );
     assert_eq!(
         source.schema["$defs"]["OpenSearchAuth"]["oneOf"][0]["properties"]["password"]["x-ui"]
             ["widget"],

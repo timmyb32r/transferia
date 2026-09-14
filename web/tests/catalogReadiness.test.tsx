@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, within } from "@testing-library/preact";
+import { act, cleanup, fireEvent, within } from "@testing-library/preact";
 import { afterEach, describe, expect, it } from "vitest";
 
 import catalogFixture from "../../crates/transferia-server-contracts/contracts/connector-catalog.fixture.json";
@@ -347,7 +347,7 @@ describe("connector catalog readiness", () => {
     ).toBeUndefined();
   });
 
-  it("uses delivery type for PostgreSQL without a replication toggle or nested advanced options", () => {
+  it("uses delivery type for PostgreSQL without a replication toggle or nested advanced options", async () => {
     const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
     const postgres = catalog.connectors.find((connector) => connector.key === "postgres")!.source!;
     const schema = compileSchema(postgres.schema, productionWidgetRegistry);
@@ -368,10 +368,9 @@ describe("connector catalog readiness", () => {
     expect(view.queryByText("Plugin")).toBeNull();
     expect(view.queryByText("Replication bootstrap timeout")).toBeNull();
     expect(view.queryByText("COPY TO format")).not.toBeNull();
-    const advancedCount = view.queryAllByText("Advanced settings").length;
     for (const deliveryType of ["stream", "batch_and_stream", "batch", "stream"]) {
-      view.rerender(<SchemaForm node={schema} value={postgres.initial} deliveryType={deliveryType} onChange={() => undefined} />);
-      expect(view.queryAllByText("Advanced settings")).toHaveLength(advancedCount);
+      await act(async () => view.rerender(<SchemaForm node={schema} value={postgres.initial} deliveryType={deliveryType} onChange={() => undefined} />));
+      expect(view.queryAllByText("Advanced settings")).toHaveLength(1);
       expect(view.queryByText("Replication")).toBeNull();
       expect(view.queryByText("Replication bootstrap timeout")).toBeNull();
       expect(view.queryByText("Plugin") !== null).toBe(deliveryType !== "batch");
@@ -805,6 +804,9 @@ function completeWitness(
   seed: JsonValue | undefined,
   required = true,
 ): JsonValue {
+  if (node.xUi.widget === "table_selection" && isObject(seed) && seed.type === "selected"
+      && Array.isArray(seed.rules) && seed.rules.length === 0)
+    return { ...seed, rules: [{ include: "configured" }] };
   if (seed !== undefined && isFieldComplete(node, seed, required))
     return structuredClone(seed);
   switch (node.kind) {
@@ -925,6 +927,9 @@ function visibleWitness(
   required: boolean,
   forces: ReadonlyMap<CompiledNode, number>,
 ): JsonValue {
+  if (node.xUi.widget === "table_selection" && isObject(seed) && seed.type === "selected"
+      && Array.isArray(seed.rules) && seed.rules.length === 0)
+    return { ...seed, rules: [{ include: "configured" }] };
   if (node.hidden === true)
     return seed === undefined ? createValue(node) : structuredClone(seed);
   const forcedInSubtree = containsForcedUnion(node, forces);

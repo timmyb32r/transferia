@@ -311,7 +311,10 @@ const fn default_parquet_row_group_rows() -> usize {
 /// Two queued batches per decoder; Tokio's semaphore bounds channel capacity.
 /// Validate before any transport is built, without clamping authored values.
 pub(super) fn parquet_channel_capacity(decode_threads: usize) -> anyhow::Result<usize> {
-    anyhow::ensure!(decode_threads > 0, "clickhouse Parquet decode_threads must be positive");
+    anyhow::ensure!(
+        decode_threads > 0,
+        "clickhouse Parquet decode_threads must be positive"
+    );
     let maximum = tokio::sync::Semaphore::MAX_PERMITS / 2;
     anyhow::ensure!(
         decode_threads <= maximum,

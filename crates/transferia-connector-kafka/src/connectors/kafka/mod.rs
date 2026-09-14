@@ -121,8 +121,10 @@ async fn read_preview_record(
             config.request_timeout_ms,
         ))??.detach(),
     };
-    anyhow::ensure!(source::record_retained_bytes(&message)? <= max_bytes,
-        "Kafka message and metadata exceed the sample byte budget");
+    anyhow::ensure!(
+        source::record_retained_bytes(&message)? <= max_bytes,
+        "Kafka message and metadata exceed the sample byte budget"
+    );
     Ok(message)
 }
 
@@ -139,16 +141,26 @@ fn source_consumer(config: &KafkaSourceConfig, group: &str) -> anyhow::Result<St
 }
 
 impl SourceConnector for KafkaSourceConnector {
-    fn sample_data(&self, limits: transferia_registry::TableSampleLimits,
+    fn sample_data(
+        &self,
+        limits: transferia_registry::TableSampleLimits,
         cancellation: tokio_util::sync::CancellationToken,
     ) -> BoxFuture<'_, anyhow::Result<Vec<transferia_core::TableData>>> {
         Box::pin(async move {
             limits.validate()?;
             let record = transferia_connector_support::external_request::observe_external_request(
-                "kafka", "sample_read", read_preview_record(&self.config, limits.max_bytes, cancellation.clone()),
-            ).await?;
+                "kafka",
+                "sample_read",
+                read_preview_record(&self.config, limits.max_bytes, cancellation.clone()),
+            )
+            .await?;
             transferia_connector_support::source_sample::parse_sample(
-                self.parser(), vec![source::source_message(&record)], limits, cancellation).await
+                self.parser(),
+                vec![source::source_message(&record)],
+                limits,
+                cancellation,
+            )
+            .await
         })
     }
 

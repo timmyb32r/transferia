@@ -197,6 +197,7 @@ impl MiddlewareRegistration {
 
 impl ComponentRegistration {
     /// Publishes examples evaluated by the connector's production type resolver.
+    #[must_use]
     pub fn source_type_mapping(mut self, mapping: crate::type_mapping::TypeMapping) -> Self {
         if let Some((definition, _)) = self.source.as_mut() {
             definition.type_mapping = Some(mapping);
@@ -204,6 +205,7 @@ impl ComponentRegistration {
         self
     }
 
+    #[must_use]
     pub fn sink_type_mapping(mut self, mapping: crate::type_mapping::TypeMapping) -> Self {
         if let Some((definition, _)) = self.sink.as_mut() {
             definition.type_mapping = Some(mapping);

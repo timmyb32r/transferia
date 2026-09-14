@@ -616,7 +616,9 @@ describe("ordered transform strips", () => {
 
   it("uses the drag handle instead of duplicate up/down buttons", () => {
     const view = render(<Editor />);
-    expect(view.getByRole("button", { name: "Reorder transform 1" }).getAttribute("draggable")).toBe("true");
+    const handle = view.getByRole("button", { name: "Reorder transform 1" });
+    expect(handle.classList.contains("middleware-drag")).toBe(true);
+    expect(handle.getAttribute("draggable")).toBeNull(); // Shared pointer reordering, not native drag images.
     expect(view.queryByRole("button", { name: /Move transform/ })).toBeNull();
     expect(view.queryByRole("button", { name: /settings for transform/ })).toBeNull();
     expect(view.getByRole("button", { name: "Reorder transform 1" }).title).not.toContain("Alt");

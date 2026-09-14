@@ -447,18 +447,36 @@ fn arrow_creation_rejects_omitted_fixed_width_updates_from_both_decoders() {
     table.schema.columns[0].always_present_on_update = true;
     table.schema.columns[2].always_present_on_update = true;
     let mut decoder = PgOutputDecoder::default();
-    for message in [relation_message(), begin_message(), toasted_update_message()] {
+    for message in [
+        relation_message(),
+        begin_message(),
+        toasted_update_message(),
+    ] {
         decoder.decode(&message).unwrap();
     }
-    let pg = decoder.decode(&commit_message()).unwrap().into_iter()
-        .map(|event| normalize_pgoutput_event(&table, event).unwrap()).collect::<Vec<_>>();
-    let json = wal2json::decode(wal2json_toasted_transaction().as_bytes()).unwrap().events.into_iter()
-        .map(|event| normalize_wal2json_event(&table, event).unwrap()).collect::<Vec<_>>();
+    let pg = decoder
+        .decode(&commit_message())
+        .unwrap()
+        .into_iter()
+        .map(|event| normalize_pgoutput_event(&table, event).unwrap())
+        .collect::<Vec<_>>();
+    let json = wal2json::decode(wal2json_toasted_transaction().as_bytes())
+        .unwrap()
+        .events
+        .into_iter()
+        .map(|event| normalize_wal2json_event(&table, event).unwrap())
+        .collect::<Vec<_>>();
     for mut events in [pg, json] {
         let data = events_to_table_data(&table, "postgres", &events).unwrap();
-        assert_eq!(data.batch.schema().field(2).metadata().get(
-            transferia_core::data::schema::META_ALWAYS_PRESENT_ON_UPDATE
-        ).map(String::as_str), Some("true"));
+        assert_eq!(
+            data.batch
+                .schema()
+                .field(2)
+                .metadata()
+                .get(transferia_core::data::schema::META_ALWAYS_PRESENT_ON_UPDATE)
+                .map(String::as_str),
+            Some("true")
+        );
         events[0].values[2] = LogicalValue::Null;
         // A present SQL NULL is not an omitted value (storage nullability is
         // separately validated by the delivery's changelog contract).
@@ -468,16 +486,18 @@ fn arrow_creation_rejects_omitted_fixed_width_updates_from_both_decoders() {
         assert!(error.to_string().contains("always-present-on-update"));
         assert!(error.to_string().contains("balance"));
         table.replica_identity_full = true;
-        assert!(events_to_table_data(&table, "postgres", &events).unwrap_err()
-            .to_string().contains("always-present-on-update"));
+        assert!(events_to_table_data(&table, "postgres", &events)
+            .unwrap_err()
+            .to_string()
+            .contains("always-present-on-update"));
         table.replica_identity_full = false;
     }
 }
 
 #[test]
 fn normalized_presence_is_checked_after_full_reconstruction_before_arrow() {
-    use transferia_core::ValuePresence;
     use super::event::OldValuesKind;
+    use transferia_core::ValuePresence;
     let mut table = discovered_table();
     for column in &mut table.schema.columns {
         column.update_value_presence = ValuePresence::Guaranteed;
@@ -486,11 +506,19 @@ fn normalized_presence_is_checked_after_full_reconstruction_before_arrow() {
     table.replica_identity_full = true;
     table.replica_identity = "f".into();
     let mut decoder = PgOutputDecoder::default();
-    for message in [relation_message_with_identity(b'f'), begin_message(), full_identity_update_message()] {
+    for message in [
+        relation_message_with_identity(b'f'),
+        begin_message(),
+        full_identity_update_message(),
+    ] {
         decoder.decode(&message).unwrap();
     }
-    let mut events = decoder.decode(&commit_message()).unwrap().into_iter()
-        .map(|event| normalize_pgoutput_event(&table, event).unwrap()).collect::<Vec<_>>();
+    let mut events = decoder
+        .decode(&commit_message())
+        .unwrap()
+        .into_iter()
+        .map(|event| normalize_pgoutput_event(&table, event).unwrap())
+        .collect::<Vec<_>>();
     // Unchanged text is reconstructed from the full old row, including SQL NULL.
     events[0].values[1] = LogicalValue::UnchangedToast;
     events[0].old_values.as_mut().unwrap()[1] = LogicalValue::Null;
@@ -498,9 +526,19 @@ fn normalized_presence_is_checked_after_full_reconstruction_before_arrow() {
         events[0].operation = operation;
         let data = events_to_table_data(&table, "postgres", &events).unwrap();
         assert!(data.batch.column(1).is_null(0));
-        for key in [transferia_core::data::schema::META_UPDATE_VALUE_PRESENCE,
-                    transferia_core::data::schema::META_DELETE_VALUE_PRESENCE] {
-            assert_eq!(data.batch.schema().field(1).metadata().get(key).map(String::as_str), Some("guaranteed"));
+        for key in [
+            transferia_core::data::schema::META_UPDATE_VALUE_PRESENCE,
+            transferia_core::data::schema::META_DELETE_VALUE_PRESENCE,
+        ] {
+            assert_eq!(
+                data.batch
+                    .schema()
+                    .field(1)
+                    .metadata()
+                    .get(key)
+                    .map(String::as_str),
+                Some("guaranteed")
+            );
         }
     }
     events[0].old_values.as_mut().unwrap()[1] = LogicalValue::UnchangedToast;
@@ -512,8 +550,10 @@ fn normalized_presence_is_checked_after_full_reconstruction_before_arrow() {
     events[0].old_values_kind = Some(OldValuesKind::Key);
     for operation in [ChangeOperation::Update, ChangeOperation::Delete] {
         events[0].operation = operation;
-        assert!(events_to_table_data(&table, "postgres", &events).unwrap_err()
-            .to_string().contains("guaranteed normalized value presence"));
+        assert!(events_to_table_data(&table, "postgres", &events)
+            .unwrap_err()
+            .to_string()
+            .contains("guaranteed normalized value presence"));
     }
 }
 
