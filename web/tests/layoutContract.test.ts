@@ -550,6 +550,15 @@ describe("delivery layout contract", () => {
     expect(styles).toMatch(/\.notice button\.notice-copy\s*\{[^}]*flex:\s*0 0 28px;[^}]*width:\s*28px;/s);
   });
 
+  it("keeps Copy beside Close at the right edge even for a short success notice", () => {
+    const rule = (selector: string) => styles.split(`\n${selector} {`)[1]?.split("}")[0];
+    // Two auto margins split spare space and strand Copy in the middle.
+    expect(rule(".notice button")).toContain("margin-left: 0;");
+    expect(rule(".notice button.notice-copy")).toContain("margin-left: auto;");
+    expect(rule(".notice")).toContain("gap: 10px;");
+    expect(rule(".operation-notices")).toContain("position: fixed;");
+  });
+
   it("keeps dynamic selects compact and option errors outside document flow", () => {
     expect(styles).toMatch(
       /\.dynamic-select\s*\{[^}]*position:\s*relative;/s,

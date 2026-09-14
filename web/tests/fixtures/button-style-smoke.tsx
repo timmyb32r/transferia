@@ -5,6 +5,7 @@ import { CopyButton, CopyIcon } from "../../src/ui/CopyButton";
 import { SegmentedControl } from "../../src/ui/SegmentedControl";
 import { SelectControl } from "../../src/ui/SelectControl";
 import { MatchedTablesDisclosure } from "../../src/features/tableSelection/MatchedTablesDisclosure";
+import { OperationNotices } from "../../src/delivery/EditorChrome";
 import "../../src/style.css";
 
 document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
@@ -20,6 +21,15 @@ function Fixture() {
   const [mode, setMode] = useState("selected");
   const [table, setTable] = useState("logs");
   const row = { display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" } as const;
+  if (new URLSearchParams(location.search).has("notices")) {
+    return <>
+      <Button class="fixture-notice-neighbour">Underlying action</Button>
+      <OperationNotices operations={{
+        validate: { requestId: 1, success: "Configuration is valid." },
+        save: { requestId: 2, error: "Validation failed: " + "long_unbroken_diagnostic_".repeat(12) },
+      }} onDismiss={() => {}} />
+    </>;
+  }
   return <main style={{ maxWidth: "1000px", margin: "24px auto", padding: "0 20px", display: "grid", gap: "20px" }}>
     <header class="page-header">
       <div class="transfer-id-line">

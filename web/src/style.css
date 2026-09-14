@@ -3111,11 +3111,12 @@ button:not([aria-busy="true"]):is(:disabled, .diagnostic-disabled) > .disabled-l
   background: transparent;
   font-size: 18px;
   padding: 0;
-  margin-left: auto;
+  margin-left: 0;
 }
 .notice button.notice-copy {
   flex: 0 0 28px;
   width: 28px;
+  margin-left: auto;
 }
 .spinner {
   display: inline-block;

@@ -148,6 +148,41 @@ try {
     assert.deepEqual(await paint(action), colors);
     await action.evaluate(element => element.classList.add("secondary-button"));
   }
+  // Real notification geometry: Copy and Close stay adjacent, including the
+  // short Validate success that previously split both buttons' auto margins.
+  const noticeUrl = new URL(process.env.TRANSFERIA_UI_URL ?? "http://127.0.0.1:5184/tests/fixtures/button-style-smoke.html");
+  noticeUrl.searchParams.set("notices", "1");
+  await page.goto(noticeUrl.href);
+  for (const design of ["airy-v0", "classic"]) for (const theme of ["light", "dark"]) {
+    await page.evaluate(([design, theme]) => {
+      document.documentElement.dataset.design = design;
+      document.documentElement.dataset.theme = theme;
+    }, [design, theme]);
+    for (const width of [1100, 390]) {
+      await page.setViewportSize({ width, height: 1100 });
+      const neighbour = page.locator(".fixture-notice-neighbour");
+      const neighbourBox = await neighbour.boundingBox();
+      for (const notice of await page.locator(".notice").all()) {
+        const copy = notice.getByRole("button", { name: "Copy message" });
+        const close = notice.locator(":scope > button:last-child");
+        const copyBox = await copy.boundingBox(), closeBox = await close.boundingBox();
+        const layout = await notice.evaluate(element => {
+          const style = getComputedStyle(element), box = element.getBoundingClientRect();
+          return { right: box.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight), gap: parseFloat(style.columnGap) };
+        });
+        assert(Math.abs(closeBox.x - copyBox.x - copyBox.width - layout.gap) < 0.6, "Copy must be directly beside Close");
+        assert(Math.abs(closeBox.x + closeBox.width - layout.right) < 0.6, "Close must be right-aligned");
+        await copy.click();
+        assert.equal(await copy.getAttribute("aria-busy"), "true");
+        sameBox(copyBox, await copy.boundingBox());
+        sameBox(closeBox, await close.boundingBox());
+        await page.waitForFunction(element => element.dataset.copyState === "copied", await copy.elementHandle());
+        sameBox(copyBox, await copy.boundingBox());
+        sameBox(closeBox, await close.boundingBox());
+        sameBox(neighbourBox, await neighbour.boundingBox());
+      }
+    }
+  }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, report, screenshots: output, widths: [1100, 760, 390] }));
 } finally {
