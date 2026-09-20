@@ -1,0 +1,782 @@
+[
+  {
+    "key": "transferia-go",
+    "name": "Transferia Go",
+    "kind": "автоматическое / настраиваемое",
+    "how": "PostgreSQL: секции наследования; для одиночного serial/identity-ключа полного snapshot обычной таблицы — percentile_disc, при ошибке min/max; для полностью числового PK без фильтра/view — modulo суммы; остальные поддержанные случаи — hashtext(row(keys)::text). MySQL: существующие PARTITION. Oracle: диапазоны ROWID по dba_extents и общий SCN. MongoDB: отсортированные sample _id задают ranges; смешанные BSON type brackets отклоняются, filter/offset не делятся. Другие источники имеют собственные splitter-реализации.",
+    "tradeoffs": "Диапазоны используют индекс и учитывают skew через квантили; точный percentile требует дополнительного прохода/сортировки. Hash/modulo обычно не дают index range scan. Настройка параллелизма одна, фактические стратегии разных БД существенно различаются.",
+    "references": [
+      {
+        "path": "pkg/providers/postgres/sharding_storage.go",
+        "line": 25,
+        "url": "https://github.com/transferia/transferia/blob/d32b451f3579688a5cebd88032a266565bc96c35/pkg/providers/postgres/sharding_storage.go#L25",
+        "excerpt": "//   - tables with non-empty 'Offset' - not sharded\n//   - tables with non-empty 'Filter' (dolivochki or ad-hoc upload_table) - sharded\n//   - views where filled explicitKeys - sharded\nfunc (s *Storage) ShardTable(ctx context.Context, table abstract.TableDescription) ([]abstract.TableDescription, error) {\n\n\t// prerequisites\n\n\tif table.Offset != 0 {\n\t\treturn nil, abstract.NewNonShardableError(xerrors.Errorf(\"Table %v will not be sharded, offset: %v\", table.Fqtn(), table.Offset))\n\t}\n\n\tif s.Config.SnapshotDegreeOfParallelism <= 1 {\n\t\treturn nil, abstract.NewNonShardableError(xerrors.Errorf(\"Parallel loading disabled due to SnapshotDegreeOfParallelism(%v) option, table %v will be loaded as single shard\", s.Config.SnapshotDegreeOfParallelism, table.Fqtn()))"
+      },
+      {
+        "path": "pkg/providers/postgres/sharding_storage_sequence.go",
+        "line": 83,
+        "url": "https://github.com/transferia/transferia/blob/d32b451f3579688a5cebd88032a266565bc96c35/pkg/providers/postgres/sharding_storage_sequence.go#L83",
+        "excerpt": "func (s *Storage) getBoundsBySequenceColumn(ctx context.Context, table abstract.TableDescription, idCol abstract.ColSchema, partCount uint64) ([]int64, error) {\n\tpercentileContext, percentileCancel := context.WithTimeout(ctx, 10*time.Minute)\n\tdefer percentileCancel()\n\tbounds, err := s.getBoundsByPercentileDisc(percentileContext, table, idCol, partCount)\n\tif err == nil {\n\t\treturn bounds, nil\n\t}\n\n\tlogger.Log.Warnf(\"failed to get bounds by percentile disc: %s\", err.Error())\n\tbounds, err = s.getBoundsByMinMax(ctx, table, idCol, partCount)\n\tif err != nil {\n\t\treturn nil, xerrors.Errorf(\"failed to get bounds by min/max: %w\", err)\n\t}"
+      },
+      {
+        "path": "pkg/providers/mysql/storage_sharding.go",
+        "line": 13,
+        "url": "https://github.com/transferia/transferia/blob/d32b451f3579688a5cebd88032a266565bc96c35/pkg/providers/mysql/storage_sharding.go#L13",
+        "excerpt": ")\n\nfunc (s *Storage) ShardTable(ctx context.Context, table abstract.TableDescription) ([]abstract.TableDescription, error) {\n\tpartitions, err := s.resolvePartitions(ctx, table)\n\tif err != nil {\n\t\tlogger.Log.Warnf(\"unable to load child tables: %v\", err)\n\t}\n\tif len(partitions) > 0 {\n\t\treturn partitions, nil\n\t}\n\n\treturn []abstract.TableDescription{table}, nil\n}"
+      },
+      {
+        "path": "pkg/providers/oracle/provider/sharding_storage.go",
+        "line": 36,
+        "url": "https://github.com/transferia/transferia/blob/d32b451f3579688a5cebd88032a266565bc96c35/pkg/providers/oracle/provider/sharding_storage.go#L36",
+        "excerpt": "\tBytes       uint64 // cumulative bytes up to the end of this range\n}\n\n// extentRow is a single extent from dba_extents, as consumed by splitByROWID.\ntype extentRow struct {\n\tRID   string `db:\"RID\"`\n\tBytes uint64 `db:\"BYTES\"`\n}\n\n// splitByROWID queries dba_extents and returns balanced ROWID-range WHERE clauses.\n// Each range covers ≈ bytesPerShard bytes (or targetBytesPerShard if the field is 0).\n// Returns nil if dba_extents is inaccessible or the table has fewer than 2 usable ranges.\nfunc (s *OracleStorage) splitByROWID(ctx context.Context, schemaName, tableName string) ([]rowIDRange, error) {"
+      },
+      {
+        "path": "pkg/providers/mongo/sharding_storage.go",
+        "line": 148,
+        "url": "https://github.com/transferia/transferia/blob/d32b451f3579688a5cebd88032a266565bc96c35/pkg/providers/mongo/sharding_storage.go#L148",
+        "excerpt": "}\n\n// getRandomIdentifiers returns desired amount of random document identifiers\nfunc getRandomIdentifiers(ctx context.Context, collection *mongo_driver.Collection, amount uint64) ([]delimiter, error) {\n\t// db.coll.aggregate([{ $sample: { size: 3 } }, { $sort : { _id : 1 }}])\n\t// if delimiter count is larger than collection, all documents will be returned in order\n\tpipeline := mongo_driver.Pipeline{\n\t\tbson.D{bson.E{Key: \"$sample\", Value: bson.D{{Key: \"size\", Value: amount}}}},\n\t\tbson.D{bson.E{Key: \"$project\", Value: bson.D{{Key: \"_id\", Value: 1}}}},\n\t\tbson.D{bson.E{Key: \"$sort\", Value: bson.D{{Key: \"_id\", Value: 1}}}},\n\t}\n\trandDocsCursor, err := collection.Aggregate(ctx, pipeline)\n\tif err != nil {"
+      }
+    ]
+  },
+  {
+    "key": "seatunnel",
+    "name": "Apache SeaTunnel",
+    "kind": "автоматическое / настраиваемое",
+    "how": "JDBC: FixedChunkSplitter делит заданный/вычисленный диапазон; DynamicChunkSplitter выбирает равномерное числовое разбиение либо запросы границ по данным. Строки: hash, legacy charset/collation-aware и новые RANGE/AUTO. В проверенном MySQL dialect RANGE требует *_bin collation и sample до 256 printable ASCII значений одинаковой длины; это выборочная проверка. AUTO при неподходящих данных выбирает HASH/NONE, а при неподдерживаемом dialect ошибается. CDC — отдельный путь.",
+    "tradeoffs": "Больше вариантов типов и адаптации, чем простой min/max; строковый диапазон обязан соответствовать collation БД. Автоматический переход к hash может резко изменить стоимость чтения. JDBC batch сам по себе не доказывает общий MVCC snapshot.",
+    "references": [
+      {
+        "path": "seatunnel-connectors-v2/connector-jdbc/src/main/java/org/apache/seatunnel/connectors/seatunnel/jdbc/source/FixedChunkSplitter.java",
+        "line": 63,
+        "url": "https://github.com/apache/seatunnel/blob/ea3df1667719520c51d40546d04f50912ba24313/seatunnel-connectors-v2/connector-jdbc/src/main/java/org/apache/seatunnel/connectors/seatunnel/jdbc/source/FixedChunkSplitter.java#L63",
+        "excerpt": "    }\n\n    @Override\n    protected Collection<JdbcSourceSplit> createSplits(\n            JdbcSourceTable table, SeaTunnelRowType splitKey) throws SQLException {\n\n        String splitKeyName = splitKey.getFieldNames()[0];\n        SeaTunnelDataType splitKeyType = splitKey.getFieldType(0);\n        if (splitKeyType instanceof DecimalType) {\n            int scale = ((DecimalType) splitKeyType).getScale();\n            if (scale != 0) {\n                throw new JdbcConnectorException(\n                        CommonErrorCodeDeprecated.ILLEGAL_ARGUMENT,"
+      },
+      {
+        "path": "seatunnel-connectors-v2/connector-jdbc/src/main/java/org/apache/seatunnel/connectors/seatunnel/jdbc/source/DynamicChunkSplitter.java",
+        "line": 60,
+        "url": "https://github.com/apache/seatunnel/blob/ea3df1667719520c51d40546d04f50912ba24313/seatunnel-connectors-v2/connector-jdbc/src/main/java/org/apache/seatunnel/connectors/seatunnel/jdbc/source/DynamicChunkSplitter.java#L60",
+        "excerpt": "import static org.apache.seatunnel.shade.com.google.common.base.Preconditions.checkArgument;\n\n@Slf4j\npublic class DynamicChunkSplitter extends ChunkSplitter {\n\n    private final boolean useCharsetBasedStringSplitter =\n            StringSplitMode.CHARSET_BASED.equals(config.getStringSplitMode());\n\n    public DynamicChunkSplitter(JdbcSourceConfig config) {\n        super(config);\n    }\n\n    @Override"
+      },
+      {
+        "path": "seatunnel-connectors-v2/connector-jdbc/src/main/java/org/apache/seatunnel/connectors/seatunnel/jdbc/source/CollationBasedSplitter.java",
+        "line": 26,
+        "url": "https://github.com/apache/seatunnel/blob/ea3df1667719520c51d40546d04f50912ba24313/seatunnel-connectors-v2/connector-jdbc/src/main/java/org/apache/seatunnel/connectors/seatunnel/jdbc/source/CollationBasedSplitter.java#L26",
+        "excerpt": "import java.util.Arrays;\n\n@Slf4j\npublic class CollationBasedSplitter {\n\n    public static BigInteger encodeStringToNumericRange(\n            String str,\n            int maxLength,\n            boolean paddingAtEnd,\n            boolean isCaseInsensitive,\n            String orderedCharset,\n            int radix) {\n        log.info("
+      },
+      {
+        "path": "seatunnel-connectors-v2/connector-jdbc/src/main/java/org/apache/seatunnel/connectors/seatunnel/jdbc/source/ChunkSplitter.java",
+        "line": 202,
+        "url": "https://github.com/apache/seatunnel/blob/ea3df1667719520c51d40546d04f50912ba24313/seatunnel-connectors-v2/connector-jdbc/src/main/java/org/apache/seatunnel/connectors/seatunnel/jdbc/source/ChunkSplitter.java#L202",
+        "excerpt": "                null);\n    }\n\n    protected StringSplitStrategy resolveStringSplitStrategy(\n            JdbcSourceTable table, String splitKeyName) throws SQLException {\n        StringSplitStrategy requestedStrategy = config.getStringSplitStrategy();\n        if (requestedStrategy == null\n                || (requestedStrategy != StringSplitStrategy.RANGE\n                        && requestedStrategy != StringSplitStrategy.AUTO)) {\n            return requestedStrategy;\n        }\n\n        if (!jdbcDialect.supportStringRangeSplit()) {"
+      },
+      {
+        "path": "seatunnel-connectors-v2/connector-jdbc/src/main/java/org/apache/seatunnel/connectors/seatunnel/jdbc/internal/dialect/mysql/MysqlDialect.java",
+        "line": 243,
+        "url": "https://github.com/apache/seatunnel/blob/ea3df1667719520c51d40546d04f50912ba24313/seatunnel-connectors-v2/connector-jdbc/src/main/java/org/apache/seatunnel/connectors/seatunnel/jdbc/internal/dialect/mysql/MysqlDialect.java#L243",
+        "excerpt": "    }\n\n    @Override\n    public StringRangeSplitDecision validateStringRangeSplit(\n            Connection connection, JdbcSourceTable table, String columnName, int sampleSize)\n            throws SQLException {\n        if (table.getTablePath() == null\n                || TablePath.DEFAULT.getFullName().equals(table.getTablePath().getFullName())) {\n            return StringRangeSplitDecision.unsafe(\n                    \"missing physical table path for MySQL string range split validation\");\n        }\n\n        String collation = queryColumnCollation(connection, table, columnName);"
+      }
+    ]
+  },
+  {
+    "key": "datax",
+    "name": "Alibaba DataX",
+    "kind": "настраиваемое",
+    "how": "Общий RDBMS reader: splitPk, MIN/MAX, арифметические диапазоны целого ключа; в общем utility есть строковое разбиение и специальный Oracle-путь. NULL выделяется отдельным заданием. Произвольные querySql можно задать списком; это не автоматический splitter произвольного SELECT.",
+    "tradeoffs": "Дешёвое планирование, хорошо для плотного индексированного ID; skew и пробелы дают неравные объёмы. Нельзя переносить возможности общего utility на любой reader без проверки его валидации.",
+    "references": [
+      {
+        "path": "plugin-rdbms-util/src/main/java/com/alibaba/datax/plugin/rdbms/reader/util/SingleTableSplitUtil.java",
+        "line": 30,
+        "url": "https://github.com/alibaba/DataX/blob/80ec23d5c5328eb90ca364d2749e92dfaf44541e/plugin-rdbms-util/src/main/java/com/alibaba/datax/plugin/rdbms/reader/util/SingleTableSplitUtil.java#L30",
+        "excerpt": "    private static final Logger LOG = LoggerFactory\n            .getLogger(SingleTableSplitUtil.class);\n\n    public static DataBaseType DATABASE_TYPE;\n\n    private SingleTableSplitUtil() {\n    }\n\n    public static List<Configuration> splitSingleTable(\n            Configuration configuration, int adviceNum) {\n        List<Configuration> pluginParams = new ArrayList<Configuration>();\n        List<String> rangeList;\n        String splitPkName = configuration.getString(Key.SPLIT_PK);"
+      },
+      {
+        "path": "plugin-rdbms-util/src/main/java/com/alibaba/datax/plugin/rdbms/reader/util/SingleTableSplitUtil.java",
+        "line": 113,
+        "url": "https://github.com/alibaba/DataX/blob/80ec23d5c5328eb90ca364d2749e92dfaf44541e/plugin-rdbms-util/src/main/java/com/alibaba/datax/plugin/rdbms/reader/util/SingleTableSplitUtil.java#L113",
+        "excerpt": "            pluginParams.add(tempConfig);\n        }\n\n        // deal pk is null\n        Configuration tempConfig = configuration.clone();\n        tempQuerySql = buildQuerySql(column, table, where)\n                + (hasWhere ? \" and \" : \" where \")\n                + String.format(\" %s IS NULL\", splitPkName);\n\n        allQuerySql.add(tempQuerySql);\n\n        LOG.info(\"After split(), allQuerySql=[\\n{}\\n].\",\n                StringUtils.join(allQuerySql, \"\\n\"));"
+      },
+      {
+        "path": "plugin-rdbms-util/src/main/java/com/alibaba/datax/plugin/rdbms/reader/util/ReaderSplitUtil.java",
+        "line": 59,
+        "url": "https://github.com/alibaba/DataX/blob/80ec23d5c5328eb90ca364d2749e92dfaf44541e/plugin-rdbms-util/src/main/java/com/alibaba/datax/plugin/rdbms/reader/util/ReaderSplitUtil.java#L59",
+        "excerpt": "\n                Validate.isTrue(null != tables && !tables.isEmpty(), \"您读取数据库表配置错误.\");\n\n                String splitPk = originalSliceConfig.getString(Key.SPLIT_PK, null);\n\n                //最终切分份数不一定等于 eachTableShouldSplittedNumber\n                boolean needSplitTable = eachTableShouldSplittedNumber > 1\n                        && StringUtils.isNotBlank(splitPk);\n                if (needSplitTable) {\n                    if (tables.size() == 1) {\n                        //原来:如果是单表的，主键切分num=num*2+1\n                        // splitPk is null这类的情况的数据量本身就比真实数据量少很多, 和channel大小比率关系时，不建议考虑\n                        //eachTableShouldSplittedNumber = eachTableShouldSplittedNumber * 2 + 1;// 不应该加1导致长尾"
+      }
+    ]
+  },
+  {
+    "key": "nifi",
+    "name": "Apache NiFi",
+    "kind": "настраиваемое",
+    "how": "GenerateTableFetch генерирует отдельные SQL-запросы: страницы по номеру строки/LIMIT-OFFSET либо интервалы значений одной колонки. FlowFiles можно исполнять downstream параллельно. Maximum-value columns задают инкрементальную фильтрацию отдельно.",
+    "tradeoffs": "Прозрачный SQL и удобное управление задачами; большие OFFSET дороги. Без стабильного ORDER BY и общего снимка страницы изменяемой таблицы могут пересекаться/пропускаться.",
+    "references": [
+      {
+        "path": "nifi-extension-bundles/nifi-standard-bundle/nifi-standard-processors/src/main/java/org/apache/nifi/processors/standard/GenerateTableFetch.java",
+        "line": 142,
+        "url": "https://github.com/apache/nifi/blob/29236d6bee259dc661d95670bfdaadaa75ede9cc/nifi-extension-bundles/nifi-standard-bundle/nifi-standard-processors/src/main/java/org/apache/nifi/processors/standard/GenerateTableFetch.java#L142",
+        "excerpt": "            .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)\n            .build();\n\n    static final PropertyDescriptor COLUMN_FOR_VALUE_PARTITIONING = new PropertyDescriptor.Builder()\n            .name(\"Column for Value Partitioning\")\n            .description(\"The name of a column whose values will be used for partitioning. The default behavior is to use row numbers on the result set for partitioning into \"\n                    + \"'pages' to be fetched from the database, using an offset/limit strategy. However for certain databases, it can be more efficient under the right circumstances to use \"\n                    + \"the column values themselves to define the 'pages'. This property should only be used when the default queries are not performing well, when there is no maximum-value \"\n                    + \"column or a single maximum-value column whose type can be coerced to a long integer (i.e. not date or timestamp), and the column values are evenly distributed and not \"\n                    + \"sparse, for best performance.\")\n            .required(false)\n            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)\n            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)"
+      },
+      {
+        "path": "nifi-extension-bundles/nifi-standard-bundle/nifi-standard-processors/src/main/java/org/apache/nifi/processors/standard/GenerateTableFetch.java",
+        "line": 469,
+        "url": "https://github.com/apache/nifi/blob/29236d6bee259dc661d95670bfdaadaa75ede9cc/nifi-extension-bundles/nifi-standard-bundle/nifi-standard-processors/src/main/java/org/apache/nifi/processors/standard/GenerateTableFetch.java#L469",
+        "excerpt": "                final long numberOfFetches;\n                if (useColumnValsForPaging) {\n                    final long valueRangeSize = maxValueForPartitioning == null ? 0 : (maxValueForPartitioning - minValueForPartitioning + 1);\n                    numberOfFetches = (partitionSize == 0) ? 1 : (valueRangeSize / partitionSize) + (valueRangeSize % partitionSize == 0 ? 0 : 1);\n                } else {\n                    numberOfFetches = (partitionSize == 0) ? 1 : (rowCount / partitionSize) + (rowCount % partitionSize == 0 ? 0 : 1);\n                }\n\n                // Generate SQL statements to read \"pages\" of data\n                final String fragmentIdentifier = UUID.randomUUID().toString();\n                List<FlowFile> flowFilesToTransfer = new ArrayList<>();\n\n                Map<String, String> baseAttributes = new HashMap<>();"
+      }
+    ]
+  },
+  {
+    "key": "chunjun",
+    "name": "ChunJun / FlinkX",
+    "kind": "настраиваемое",
+    "how": "JdbcInputFormat поддерживает splitStrategy=range и mod: диапазон split key либо остаток деления, задания распределяются по parallelism. Есть отдельная логика polling/incremental и конечной границы.",
+    "tradeoffs": "Range лучше использует индекс; modulo проще распределяет числовые значения, но обычно перечитывает источник. Это не эквивалент DBLog/согласованного CDC snapshot.",
+    "references": [
+      {
+        "path": "chunjun-connectors/chunjun-connector-jdbc-base/src/main/java/com/dtstack/chunjun/connector/jdbc/source/JdbcInputFormat.java",
+        "line": 136,
+        "url": "https://github.com/DTStack/chunjun/blob/cff5fbffb498a60e0fb700f77073deeebb7ed3e6/chunjun-connectors/chunjun-connector-jdbc-base/src/main/java/com/dtstack/chunjun/connector/jdbc/source/JdbcInputFormat.java#L136",
+        "excerpt": "\n        if (jdbcConfig.getParallelism() > 1\n                && StringUtils.equalsIgnoreCase(\"range\", jdbcConfig.getSplitStrategy())) {\n            // splitStrategy = range\n            return createSplitsInternalBySplitRange(minNumSplits);\n        } else {\n            // default,splitStrategy = mod\n            return createSplitsInternalBySplitMod(minNumSplits, jdbcConfig.getStartLocation());\n        }\n    }\n\n    /** Create split for modSplitStrategy */\n    public JdbcInputSplit[] createSplitsInternalBySplitMod(int minNumSplits, String startLocation) {"
+      },
+      {
+        "path": "chunjun-connectors/chunjun-connector-jdbc-base/src/main/java/com/dtstack/chunjun/connector/jdbc/source/JdbcInputFormat.java",
+        "line": 598,
+        "url": "https://github.com/DTStack/chunjun/blob/cff5fbffb498a60e0fb700f77073deeebb7ed3e6/chunjun-connectors/chunjun-connector-jdbc-base/src/main/java/com/dtstack/chunjun/connector/jdbc/source/JdbcInputFormat.java#L598",
+        "excerpt": "                && !\"null\".equalsIgnoreCase(splitRangeFromDb.getLeft())) {\n            left = new BigDecimal(splitKeyUtil.transToLocationValue(splitRangeFromDb.getLeft()));\n            right = new BigDecimal(splitKeyUtil.transToLocationValue(splitRangeFromDb.getRight()));\n            splits.addAll(createRangeSplits(left, right, minNumSplits));\n            if (jdbcConfig.isPolling()) {\n                // rangeSplit in polling mode,range first then mod.we need to change the last range\n                // shard here to <= endLocationOfSplit\n                splits.get(splits.size() - 1).setRangeEndLocationOperator(\" <= \");\n            }\n        }\n        // create modSplit for polling\n        if (jdbcConfig.isPolling()) {\n            splits.addAll("
+      }
+    ]
+  },
+  {
+    "key": "flink-cdc",
+    "name": "Apache Flink CDC",
+    "kind": "параллельный snapshot + журнал",
+    "how": "JdbcSourceChunkSplitter: числовые MIN/MAX и оценка плотности (distribution factor); иначе последовательный поиск следующей границы по chunk key через ограниченный упорядоченный запрос. Snapshot splits распределяются воркерам; чтение журнала между low/high watermark согласует каждый chunk с CDC. MySQL имеет собственный аналог splitter.",
+    "tradeoffs": "Нет одного длительного snapshot на всю таблицу; устойчивее для долгих backfill. Нужны корректный chunk key, журнал, состояние splits и reconciliation; не все коннекторы имеют одинаковые возможности.",
+    "references": [
+      {
+        "path": "flink-cdc-connect/flink-cdc-source-connectors/flink-cdc-base/src/main/java/org/apache/flink/cdc/connectors/base/source/assigner/splitter/JdbcSourceChunkSplitter.java",
+        "line": 346,
+        "url": "https://github.com/apache/flink-cdc/blob/a1ec262c5f1564ba009681832c77e685478f84a8/flink-cdc-connect/flink-cdc-source-connectors/flink-cdc-base/src/main/java/org/apache/flink/cdc/connectors/base/source/assigner/splitter/JdbcSourceChunkSplitter.java#L346",
+        "excerpt": "\n        final int chunkSize = sourceConfig.getSplitSize();\n        final int dynamicChunkSize =\n                getDynamicChunkSize(tableId, splitColumn, min, max, chunkSize, approximateRowCnt);\n        if (dynamicChunkSize != -1) {\n            LOG.debug(\"finish evenly splitting table {} into chunks\", tableId);\n            List<ChunkRange> chunks =\n                    splitEvenlySizedChunks(\n                            tableId, min, max, approximateRowCnt, chunkSize, dynamicChunkSize);\n            return Optional.of(createSnapshotSplit(tableId, chunks));\n        } else {\n            LOG.debug(\"beginning unevenly splitting table {} into chunks\", tableId);\n            return Optional.empty();"
+      },
+      {
+        "path": "flink-cdc-connect/flink-cdc-source-connectors/flink-cdc-base/src/main/java/org/apache/flink/cdc/connectors/base/source/assigner/SnapshotSplitAssigner.java",
+        "line": 70,
+        "url": "https://github.com/apache/flink-cdc/blob/a1ec262c5f1564ba009681832c77e685478f84a8/flink-cdc-connect/flink-cdc-source-connectors/flink-cdc-base/src/main/java/org/apache/flink/cdc/connectors/base/source/assigner/SnapshotSplitAssigner.java#L70",
+        "excerpt": "import static org.apache.flink.cdc.connectors.base.source.assigner.AssignerStatus.isSnapshotAssigningFinished;\n\n/** Assigner for snapshot split. */\npublic class SnapshotSplitAssigner<C extends SourceConfig> implements SplitAssigner {\n    private static final Logger LOG = LoggerFactory.getLogger(SnapshotSplitAssigner.class);\n\n    private final List<TableId> alreadyProcessedTables;\n    private final List<SchemalessSnapshotSplit> remainingSplits;\n    private final Map<String, SchemalessSnapshotSplit> assignedSplits;\n    private final Map<TableId, TableChanges.TableChange> tableSchemas;\n    private final Map<String, Offset> splitFinishedOffsets;\n\n    private AssignerStatus assignerStatus;"
+      },
+      {
+        "path": "flink-cdc-connect/flink-cdc-source-connectors/flink-connector-mysql-cdc/src/main/java/org/apache/flink/cdc/connectors/mysql/debezium/reader/SnapshotSplitReader.java",
+        "line": 77,
+        "url": "https://github.com/apache/flink-cdc/blob/a1ec262c5f1564ba009681832c77e685478f84a8/flink-cdc-connect/flink-cdc-source-connectors/flink-connector-mysql-cdc/src/main/java/org/apache/flink/cdc/connectors/mysql/debezium/reader/SnapshotSplitReader.java#L77",
+        "excerpt": " * A snapshot reader that reads data from Table in split level, the split is assigned by primary key\n * range.\n */\npublic class SnapshotSplitReader implements DebeziumReader<SourceRecords, MySqlSplit> {\n\n    private static final Logger LOG = LoggerFactory.getLogger(SnapshotSplitReader.class);\n    private final StatefulTaskContext statefulTaskContext;\n    private final ExecutorService executorService;\n    private final SnapshotPhaseHooks hooks;\n\n    private volatile ChangeEventQueue<DataChangeEvent> queue;\n    private volatile boolean currentTaskRunning;\n    private volatile Throwable readException;"
+      }
+    ]
+  },
+  {
+    "key": "inlong",
+    "name": "Apache InLong",
+    "kind": "коннекторное",
+    "how": "В sort-слое есть CDC split/assigner-реализации семейства Flink CDC: диапазоны snapshot и далее binlog/CDC. Это коннекторная возможность, а не общее разбиение любого входящего потока.",
+    "tradeoffs": "Наследует преимущества и ограничения chunk-key/watermark подхода; важно различать версии sort/Flink и конкретный коннектор.",
+    "references": [
+      {
+        "path": "inlong-sort/sort-flink/sort-flink-v1.13/sort-connectors/postgres-cdc/src/main/java/org/apache/inlong/sort/cdc/postgres/source/PostgresChunkSplitter.java",
+        "line": 130,
+        "url": "https://github.com/apache/inlong/blob/13c437946fcf503aa5d9c5cb7d9e3ae135e1911b/inlong-sort/sort-flink/sort-flink-v1.13/sort-connectors/postgres-cdc/src/main/java/org/apache/inlong/sort/cdc/postgres/source/PostgresChunkSplitter.java#L130",
+        "excerpt": "            Column splitColumn = getSplitColumn(table, sourceConfig.getChunkKeyColumn());\n            final List<ChunkRange> chunks;\n            try {\n                chunks = splitTableIntoChunks(jdbc, tableId, splitColumn);\n            } catch (SQLException e) {\n                throw new FlinkRuntimeException(\"Failed to split chunks for table \" + tableId, e);\n            }\n\n            // convert chunks into splits\n            List<SnapshotSplit> splits = new ArrayList<>();\n            RowType splitType = getSplitType(splitColumn);\n            for (int i = 0; i < chunks.size(); i++) {\n                ChunkRange chunk = chunks.get(i);"
+      }
+    ]
+  },
+  {
+    "key": "debezium",
+    "name": "Debezium",
+    "kind": "последовательные incremental chunks; initial parallelism отдельно",
+    "how": "Incremental snapshot проходит таблицу упорядоченными порциями ключа, ограничивает верхний ключ, открывает/закрывает watermark window и удаляет из буфера snapshot-записи, для которых пришли изменения. Initial snapshot имеет pool задач по таблицам; сам размер incremental chunk не означает параллельное чтение одной таблицы.",
+    "tradeoffs": "Хорошая интеграция с CDC и ограниченный буфер; не следует приписывать Debezium intra-table parallelism только по snapshot.max.threads. Гарантии зависят от коннектора и режима сигналов/read-only.",
+    "references": [
+      {
+        "path": "debezium-connector-common/src/main/java/io/debezium/pipeline/source/snapshot/incremental/AbstractIncrementalSnapshotChangeEventSource.java",
+        "line": 201,
+        "url": "https://github.com/debezium/debezium/blob/93cd1a45e7e0344fdb6024014130b2fdbc88e7ef/debezium-connector-common/src/main/java/io/debezium/pipeline/source/snapshot/incremental/AbstractIncrementalSnapshotChangeEventSource.java#L201",
+        "excerpt": "        return new SnapshotChangeRecordEmitter<>(partition, offsetContext, row, clock, connectorConfig);\n    }\n\n    protected void deduplicateWindow(DataCollectionId dataCollectionId, Object key) {\n        if (context.currentDataCollectionId() == null || !context.currentDataCollectionId().getId().equals(dataCollectionId)) {\n            return;\n        }\n        if (key instanceof Struct) {\n            if (window.remove((Struct) key) != null) {\n                LOGGER.info(\"Removed '{}' from window\", maybeRedactSensitiveData(key));\n            }\n        }\n    }"
+      },
+      {
+        "path": "debezium-connector-common/src/main/java/io/debezium/relational/RelationalSnapshotChangeEventSource.java",
+        "line": 206,
+        "url": "https://github.com/debezium/debezium/blob/93cd1a45e7e0344fdb6024014130b2fdbc88e7ef/debezium-connector-common/src/main/java/io/debezium/relational/RelationalSnapshotChangeEventSource.java#L206",
+        "excerpt": "                // debezium/dbz#1479: no data is snapshotted (e.g. snapshot.mode=no_data/schema_only), so mark every\n                // captured table as completed with zero rows; otherwise the RemainingTableCount metric would\n                // stay at the full captured-table count forever, since only the data snapshot drains it.\n                for (TableId tableId : ctx.capturedTables) {\n                    snapshotProgressListener.dataCollectionSnapshotCompleted(ctx.partition, tableId, 0);\n                }\n                ctx.offset.preSnapshotCompletion();\n                ctx.offset.postSnapshotCompletion();\n            }\n\n            postSnapshot();\n            dispatcher.alwaysDispatchHeartbeatEvent(ctx.partition, ctx.offset);\n            return SnapshotResult.completed(ctx.offset);"
+      }
+    ]
+  },
+  {
+    "key": "peerdb",
+    "name": "PeerDB",
+    "kind": "несколько стратегий",
+    "how": "PostgreSQL QRep: NTILE по упорядоченному watermark для примерно равного числа строк; min/max для равных диапазонов значений; CTID block ranges, включая обход leaf partitions/наследования. NULL может выделяться отдельной partition.",
+    "tradeoffs": "CTID избегает сортировки и случайного индексного чтения; NTILE дороже планировать, но лучше баланс строк. QRep и initial CDC snapshot — разные жизненные циклы; не всякий watermark подходит для точного CDC.",
+    "references": [
+      {
+        "path": "flow/connectors/postgres/qrep_partition.go",
+        "line": 35,
+        "url": "https://github.com/PeerDB-io/peerdb/blob/971d47b06419bed37a804eece2bb784ceaf58549/flow/connectors/postgres/qrep_partition.go#L35",
+        "excerpt": "\ntype PartitioningFunc func(context.Context, PartitionParams) ([]*protos.QRepPartition, error)\n\n// NTileBucketPartitioningFunc is a table partition implementation that divides rows into approximately\n// equal-sized partitions based on row count. It uses the NTILE window function to assign rows\n// to buckets and ensures more balanced row distribution across partitions.\nfunc NTileBucketPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {\n\tconst queryTemplate = `SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end\n\t\tFROM (\n\t\t\tSELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s %[4]s\n\t\t) subquery\n\t\tGROUP BY bucket\n\t\tORDER BY start`"
+      },
+      {
+        "path": "flow/connectors/postgres/qrep_partition.go",
+        "line": 81,
+        "url": "https://github.com/PeerDB-io/peerdb/blob/971d47b06419bed37a804eece2bb784ceaf58549/flow/connectors/postgres/qrep_partition.go#L81",
+        "excerpt": "\treturn partitionHelper.GetPartitions(), nil\n}\n\n// MinMaxRangePartitioningFunc is a table partition strategy where partitions are created\n// by uniformly splitting the min/max value range. Note that partition boundaries are uniform,\n// but actual row distribution may be skewed due to non-uniform data distribution, gaps in the\n// value range, or deleted rows.\nfunc MinMaxRangePartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {\n\tif pp.numPartitions <= 0 {\n\t\treturn nil, fmt.Errorf(\"expect numPartitions to be greater than 0\")\n\t}\n\n\tconst queryTemplate = \"SELECT MIN(%[2]s),MAX(%[2]s) FROM %[1]s %[3]s\""
+      },
+      {
+        "path": "flow/connectors/postgres/qrep_partition.go",
+        "line": 119,
+        "url": "https://github.com/PeerDB-io/peerdb/blob/971d47b06419bed37a804eece2bb784ceaf58549/flow/connectors/postgres/qrep_partition.go#L119",
+        "excerpt": "\treturn partitionHelper.GetPartitions(), nil\n}\n\n// CTIDBlockPartitioningFunc is a table partition strategy where partitions are created by dividing table\n// blocks uniformly. Note that partition boundaries (block ranges) are uniform, but actual row distribution\n// may be skewed due to table bloat, deleted tuples, or uneven data distribution across blocks.\nfunc CTIDBlockPartitioningFunc(ctx context.Context, pp PartitionParams) ([]*protos.QRepPartition, error) {\n\tif pp.numPartitions <= 0 {\n\t\treturn nil, fmt.Errorf(\"expect numPartitions to be greater than 0\")\n\t}\n\n\ttc, err := classifyTable(ctx, pp.tx, pp.watermarkTable)\n\tif err != nil {"
+      }
+    ]
+  },
+  {
+    "key": "pgstream",
+    "name": "pgstream",
+    "kind": "физические диапазоны",
+    "how": "PostgreSQL ctidReader экспортирует snapshot на schema-session и читает таблицы через очередь диапазонов heap-страниц, SELECT FROM ONLY ... WHERE ctid BETWEEN .... Максимальная страница определяется SELECT MAX(ctid), а не устаревающим relpages.",
+    "tradeoffs": "Не требует PK и сохраняет согласованность читателей в живом snapshot. Нужно учитывать leaf relations, TOAST/пустые страницы и невозможность восстановить исчезнувший MVCC snapshot по одному сохранённому CTID. MAX(ctid) может потребовать дополнительного полного прохода: физическое разбиение не гарантирует бесплатное планирование.",
+    "references": [
+      {
+        "path": "pkg/snapshot/generator/postgres/data/ctid_table_reader.go",
+        "line": 23,
+        "url": "https://github.com/xataio/pgstream/blob/732afff71df94ad3c2b06f0234b6f0e40626692d/pkg/snapshot/generator/postgres/data/ctid_table_reader.go#L23",
+        "excerpt": "// in beginSchema and imported by every page range transaction, which lets the\n// reader parallelise the work across page ranges while keeping a consistent\n// view of each table.\ntype ctidReader struct {\n\tconn         pglib.Querier\n\tlogger       loglib.Logger\n\tsink         rowSink\n\ttableWorkers uint\n\tbatchBytes   uint64\n}\n\n// beginSchema opens the transaction that exports the shared transaction\n// snapshot and keeps it open for the duration of fn, so that every read the"
+      },
+      {
+        "path": "pkg/snapshot/generator/postgres/data/ctid_table_reader.go",
+        "line": 134,
+        "url": "https://github.com/xataio/pgstream/blob/732afff71df94ad3c2b06f0234b6f0e40626692d/pkg/snapshot/generator/postgres/data/ctid_table_reader.go#L134",
+        "excerpt": "\treturn nil\n}\n\nconst pageRangeQuery = \"SELECT %s FROM ONLY %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'\"\n\n// buildPageRangeQuery spells columns out.\nfunc buildPageRangeQuery(t *table, r pageRange) string {\n\tquotedTable := pglib.QuoteQualifiedIdentifier(t.schema, t.name)\n\tif len(t.columns) == 0 {\n\t\treturn fmt.Sprintf(pageRangeQuery, allColumns, quotedTable, r.start, r.end)\n\t}\n\n\tquotedColumns := make([]string, len(t.columns))"
+      },
+      {
+        "path": "pkg/snapshot/generator/postgres/data/snapshot_tx.go",
+        "line": 12,
+        "url": "https://github.com/xataio/pgstream/blob/732afff71df94ad3c2b06f0234b6f0e40626692d/pkg/snapshot/generator/postgres/data/snapshot_tx.go#L12",
+        "excerpt": "\tpglib \"github.com/xataio/pgstream/internal/postgres\"\n)\n\n// snapshot_tx.go groups the helpers used to read from a shared transaction\n// snapshot. A transaction snapshot is exported once per schema and imported by\n// every reader transaction so that all workers observe the same stable view of\n// the database, which is what allows the ctid based reader to parallelise the\n// work.\n// https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-SNAPSHOT-SYNCHRONIZATION\n\nconst exportSnapshotQuery = `SELECT pg_export_snapshot()`\n\nfunc exportSnapshot(ctx context.Context, tx pglib.Tx) (string, error) {"
+      }
+    ]
+  },
+  {
+    "key": "sequin",
+    "name": "Sequin",
+    "kind": "keyset backfill",
+    "how": "Читает bounded batches через keyset cursor: сортировочная колонка плюс PK, либо только составной PK. TableReader сохраняет cursor и маркирует backfill watermark. Один cursor-проход сам по себе не является N независимыми диапазонами одной таблицы.",
+    "tradeoffs": "Эффективный resume по индексу без растущего OFFSET; скорость одного прохода ограничена зависимостью следующей страницы от предыдущей. Конкретные sentinel/типовые границы требуют отдельного аудита, это не готовый образец lossless-контракта.",
+    "references": [
+      {
+        "path": "lib/sequin/runtime/keyset_cursor.ex",
+        "line": 21,
+        "url": "https://github.com/sequinstream/sequin/blob/46ce4e1048437575ce3c40ebb3eb589a4b9e4f27/lib/sequin/runtime/keyset_cursor.ex#L21",
+        "excerpt": "  end\n\n  @spec cursor_columns(Table.t()) :: [Table.Column.t()]\n  def cursor_columns(%Table{sort_column_attnum: nil} = table) do\n    # When sort_column_attnum is nil, just use primary keys in order of attnum\n    table.columns |> Enum.filter(& &1.is_pk?) |> Enum.sort_by(& &1.attnum)\n  end\n\n  @spec cursor_columns(Table.t()) :: [Table.Column.t()]\n  def cursor_columns(%Table{sort_column_attnum: sort_column_attnum} = table) do\n    sort_column = Sequin.Enum.find!(table.columns, fn column -> column.attnum == sort_column_attnum end)\n    sorted_pks = table.columns |> Enum.filter(& &1.is_pk?) |> Enum.sort_by(& &1.attnum)\n"
+      },
+      {
+        "path": "lib/sequin/runtime/keyset_cursor.ex",
+        "line": 94,
+        "url": "https://github.com/sequinstream/sequin/blob/46ce4e1048437575ce3c40ebb3eb589a4b9e4f27/lib/sequin/runtime/keyset_cursor.ex#L94",
+        "excerpt": "  def min_for_type(_), do: \"\"\n\n  @spec where_sql(Table.t(), String.t()) :: String.t()\n  def where_sql(%Table{} = table, operator) do\n    columns = cursor_columns(table)\n\n    quoted_columns =\n      columns\n      |> quoted_column_names()\n      |> Enum.join(\", \")\n\n    lhs = \"(#{quoted_columns})\"\n    rhs = \"(#{Enum.map_join(1..Enum.count(columns), \", \", fn _ -> \"?\" end)})\""
+      },
+      {
+        "path": "lib/sequin/runtime/table_reader.ex",
+        "line": 129,
+        "url": "https://github.com/sequinstream/sequin/blob/46ce4e1048437575ce3c40ebb3eb589a4b9e4f27/lib/sequin/runtime/table_reader.ex#L129",
+        "excerpt": "\n  # Queries\n  @emit_logical_message_sql \"select pg_logical_emit_message(true, $1, $2)\"\n  def with_watermark(%PostgresDatabase{} = db, replication_slot_id, backfill_id, current_batch_id, table_oid, fun) do\n    payload =\n      Jason.encode!(%{\n        table_oid: table_oid,\n        batch_id: current_batch_id,\n        backfill_id: backfill_id,\n        replication_slot_id: replication_slot_id\n      })\n\n    with {:ok, conn} <- ConnectionCache.connection(db),"
+      }
+    ]
+  },
+  {
+    "key": "dsync",
+    "name": "Adiom dsync",
+    "kind": "коннекторное / пользовательские границы",
+    "how": "SQL batch принимает PartitionQuery, превращает его строки в partition cursors; запрос чтения параметризуется ими. У MongoDB, DynamoDB и Cosmos собственные планировщики/сегменты, а не SQL MIN/MAX на все источники.",
+    "tradeoffs": "Полезная абстракция task cursor; корректность SQL-разбиения перекладывается на контракт PartitionQuery. Границы/целостность snapshot надо проверять отдельно для каждого источника.",
+    "references": [
+      {
+        "path": "connectors/sqlbatch/conn.go",
+        "line": 39,
+        "url": "https://github.com/adiom-data/dsync/blob/9c0e12db57fa10bd69220482b4ce151f7620eb30/connectors/sqlbatch/conn.go#L39",
+        "excerpt": "\tNamespace      string\n\tCountQuery     string\n\tQuery          string\n\tPartitionQuery string\n\tLimit          int\n\tDecodeJSON     []string\n\tdecodeJSON     map[string]struct{}\n\tNoCount        bool\n\n\tChanges  []ChangeMapping\n\tCols     []string\n\tFetchers int\n}"
+      },
+      {
+        "path": "connectors/sqlbatch/conn.go",
+        "line": 219,
+        "url": "https://github.com/adiom-data/dsync/blob/9c0e12db57fa10bd69220482b4ce151f7620eb30/connectors/sqlbatch/conn.go#L219",
+        "excerpt": "\n// GeneratePlan implements adiomv1connect.ConnectorServiceHandler.\nfunc (c *conn) GeneratePlan(ctx context.Context, r *connect.Request[adiomv1.GeneratePlanRequest]) (*connect.Response[adiomv1.GeneratePlanResponse], error) {\n\tvar allPartitions []*adiomv1.Partition\n\tnamespaces := r.Msg.GetNamespaces()\n\tif len(namespaces) == 0 {\n\t\tnamespaces = []string{}\n\t\tfor k := range c.config.Mappings {\n\t\t\tnamespaces = append(namespaces, k)\n\t\t}\n\t}\n\tif r.Msg.InitialSync {\n\t\tfor _, namespace := range namespaces {"
+      },
+      {
+        "path": "connectors/mongo/planner.go",
+        "line": 26,
+        "url": "https://github.com/adiom-data/dsync/blob/9c0e12db57fa10bd69220482b4ce151f7620eb30/connectors/mongo/planner.go#L26",
+        "excerpt": ")\n\n// creates a filter for the change stream to include only the specified namespaces\nfunc createChangeStreamNamespaceFilterFromTasks(tasks []iface.ReadPlanTask) bson.D {\n\tvar filters []bson.D\n\tfor _, task := range tasks {\n\t\tfilters = append(filters, bson.D{{\"ns.db\", task.Def.Db}, {\"ns.coll\", task.Def.Col}})\n\t}\n\t// add dummyDB and dummyCol to the filter so that we can track the changes in the dummy collection to get the cluster time (otherwise we can't use the resume token)\n\tfilters = append(filters, bson.D{{\"ns.db\", dummyDB}, {\"ns.coll\", dummyCol}})\n\treturn bson.D{{\"$or\", filters}}\n}\n"
+      }
+    ]
+  },
+  {
+    "key": "pgcopydb",
+    "name": "pgcopydb",
+    "kind": "ключ / физические страницы",
+    "how": "Крупные PostgreSQL-таблицы делятся по уникальной целочисленной колонке либо CTID; расчёт границ зависит от размера и числа table jobs. Для CTID проверяется применимость, relpages и наличие статистики; возможен отказ от разбиения.",
+    "tradeoffs": "Хорошая практическая модель для PostgreSQL bulk COPY. Оценки числа страниц/размера неточны; общий snapshot и блокировки DDL критичны. Не всякий table access method поддерживает дешёвый CTID range scan.",
+    "references": [
+      {
+        "path": "src/bin/pgcopydb/copydb_schema.c",
+        "line": 821,
+        "url": "https://github.com/dimitri/pgcopydb/blob/d8c1ec51f7104a0c80feaa02bfcd56fa3e35ff5e/src/bin/pgcopydb/copydb_schema.c#L821",
+        "excerpt": "\n\t/*\n\t * Now compute partition scheme for same-table COPY concurrency, either\n\t * using a integer field that is unique, or relying on CTID range scans\n\t * otherwise.\n\t *\n\t * When the Table Access Method used is not \"heap\" we don't know if the\n\t * CTID range scan is supported (see columnar storage extensions), so\n\t * we skip partitioning altogether in that case.\n\t *\n\t * When the source is a standby (pg_is_in_recovery()), ANALYZE cannot run\n\t * because it writes WAL. We skip ANALYZE below but still partition using\n\t * the pre-existing pg_class.relpages statistics replicated from the"
+      },
+      {
+        "path": "src/bin/pgcopydb/schema.c",
+        "line": 1363,
+        "url": "https://github.com/dimitri/pgcopydb/blob/d8c1ec51f7104a0c80feaa02bfcd56fa3e35ff5e/src/bin/pgcopydb/schema.c#L1363",
+        "excerpt": "\t * setting min to 0 and max to table->relpages, we ensure that each\n\t * partition covers the entire range of pages in the table.\n\t */\n\tbool splitByCTID = streq(table->partKey, \"ctid\");\n\n\tif (splitByCTID)\n\t{\n\t\tmin = 0;\n\t\tmax = table->relpages;\n\n\t\t/*\n\t\t * Get the block size from the origin in the first attempt\n\t\t * and then memoize it."
+      }
+    ]
+  },
+  {
+    "key": "pgloader",
+    "name": "pgloader",
+    "kind": "MySQL integer ranges",
+    "how": "MySQL multiple-readers: выбирает подходящий числовой ключ, вычисляет MIN/MAX, делит значения на rows-per-range и распределяет интервалы между readers. Название rows-per-range здесь не гарантирует равное фактическое число строк.",
+    "tradeoffs": "Просто и хорошо при плотном ключе; статическое распределение страдает от skew/дыр. Нельзя переносить этот механизм на все поддерживаемые источники pgloader.",
+    "references": [
+      {
+        "path": "src/sources/mysql/mysql.lisp",
+        "line": 10,
+        "url": "https://github.com/dimitri/pgloader/blob/231ab86778ca5ffd7de40878714760c8b4860cdf/src/sources/mysql/mysql.lisp#L10",
+        "excerpt": ";;;\n;;; Implement the specific methods\n;;;\n(defmethod concurrency-support ((mysql copy-mysql) concurrency)\n  \"Splits the read work thanks WHERE clauses when possible and relevant,\n   return nil if we decide to read all in a single thread, and a list of as\n   many copy-mysql instances as CONCURRENCY otherwise. Each copy-mysql\n   instance in the returned list embeds specifications about how to read\n   only its partition of the source data.\"\n  (unless (= 1 concurrency)\n    (let* ((indexes (table-index-list (target mysql)))\n           (pkey    (first (remove-if-not #'index-primary indexes)))\n           (pcol    (when pkey (first (index-columns pkey))))"
+      },
+      {
+        "path": "src/sources/mysql/mysql.lisp",
+        "line": 46,
+        "url": "https://github.com/dimitri/pgloader/blob/231ab86778ca5ffd7de40878714760c8b4860cdf/src/sources/mysql/mysql.lisp#L46",
+        "excerpt": "                      (mapcar #'parse-integer result)))\n              ;; generate a list of ranges from min to max\n              (when (and min max)\n                (let ((range-list (split-range min max *rows-per-range*)))\n                  (unless (< (length range-list) concurrency)\n                    ;; affect those ranges to each reader, we have CONCURRENCY\n                    ;; of them\n                    (let ((partitions (distribute range-list concurrency)))\n                      (loop :for part :in partitions :collect\n                         (make-instance 'copy-mysql\n                                        :source-db  (clone-connection\n                                                     (source-db mysql))\n                                        :target-db  (target-db mysql)"
+      }
+    ]
+  },
+  {
+    "key": "ora2pg",
+    "name": "Ora2Pg",
+    "kind": "секции / modulo",
+    "how": "Oracle exports могут идти по partitions/subpartitions; параллельные копии одной таблицы используют ABS(MOD(key, oracle_copies)) с автоматически выбранным либо DEFINED_PK ключом. JOBS на стороне загрузки — отдельный уровень.",
+    "tradeoffs": "Секции дают pruning; modulo может требовать несколько полных сканов. ORACLE_COPIES, число таблиц и число writers нельзя смешивать в одну метрику параллелизма.",
+    "references": [
+      {
+        "path": "lib/Ora2Pg.pm",
+        "line": 11257,
+        "url": "https://github.com/darold/ora2pg/blob/cc2c434f1185af72891122abcb219d07c5aa7e35/lib/Ora2Pg.pm#L11257",
+        "excerpt": "\t\tif ($self->{preserve_case}) {\n\t\t\t$colpk = '\"' . $colpk . '\"';\n\t\t}\n\t\tmy $cond = \" ABS(MOD($colpk, $self->{oracle_copies})) = ?\";\n\t\t$cond = \" ABS($colpk % $self->{oracle_copies}) = ?\" if ($self->{is_mssql});\n\t\tif ($s_out !~ s/\\bWHERE\\s+/WHERE $cond AND /)\n\t\t{\n\t\t\tif ($s_out !~ s/\\b(ORDER\\s+BY\\s+.*)/WHERE $cond $1/) {\n\t\t\t\tif ($self->{type} eq 'INSERT')\n                                # When using INSERT the WHERE clause needs to be added to the end\n                                {\n\t\t\t\t        $s_out .= \" WHERE $cond\";\n                                }"
+      },
+      {
+        "path": "lib/Ora2Pg.pm",
+        "line": 984,
+        "url": "https://github.com/darold/ora2pg/blob/cc2c434f1185af72891122abcb219d07c5aa7e35/lib/Ora2Pg.pm#L984",
+        "excerpt": "\t$self->{rename_partition} = 0;\n\n\t# Do not use parellel export for partition, backward compatibility with <= 25.0\n\t$self->{disable_parallel_partition} = 0;\n\n\t# Use to preserve the data export type with geometry objects\n\t$self->{local_type} = '';\n\n\t# Shall we log on error during data import or abort.\n\t$self->{log_on_error} = 0;\n\n\t# Initialize some variable related to export of mysql database\n\t$self->{is_mysql} = 0;"
+      }
+    ]
+  },
+  {
+    "key": "mydumper",
+    "name": "mydumper / myloader",
+    "kind": "адаптивные диапазоны",
+    "how": "Отдельные integer, string и partition chunkers. Диапазоны могут дробиться и передаваться свободным threads; MIN:START:MAX для rows задаёт адаптацию размера по времени запроса. В текущем checkout есть отдельное планирование строковых PK.",
+    "tradeoffs": "Снижает straggler tail и не ограничивается числовым PK. Много граничных случаев: составные ключи, collation, экстремальные значения; consistency определяется также locks/transaction snapshot, а не splitter.",
+    "references": [
+      {
+        "path": "src/mydumper/mydumper_integer_chunks.c",
+        "line": 349,
+        "url": "https://github.com/mydumper/mydumper/blob/c01ca9dd4bce063b333ece6b6176a337a1513fb7/src/mydumper/mydumper_integer_chunks.c#L349",
+        "excerpt": "        g_mutex_unlock(csi->mutex);\n        return csi;\n      }\n      if (csi->status == UNSPLITTABLE)\n      {\n        if (csi->next)\n          g_async_queue_push(dbt->chunks_queue, csi);\n        goto end;\n      }\n      if (csi->status == COMPLETED)\n      {\n        goto end;\n      }"
+      },
+      {
+        "path": "src/mydumper/mydumper_string_chunks.c",
+        "line": 307,
+        "url": "https://github.com/mydumper/mydumper/blob/c01ca9dd4bce063b333ece6b6176a337a1513fb7/src/mydumper/mydumper_string_chunks.c#L307",
+        "excerpt": "      g_mutex_unlock(csi->mutex);\n      return csi;\n    }\n    if (csi->status == UNSPLITTABLE)\n    {\n      if (csi->next)\n        g_async_queue_push(dbt->chunks_queue, csi);\n      goto end;\n    }\n    if (csi->status == COMPLETED || csi->status == DUMPING_CHUNK)\n    {\n      goto end;\n    }"
+      },
+      {
+        "path": "src/mydumper/mydumper_arguments.c",
+        "line": 396,
+        "url": "https://github.com/mydumper/mydumper/blob/c01ca9dd4bce063b333ece6b6176a337a1513fb7/src/mydumper/mydumper_arguments.c#L396",
+        "excerpt": "    {\"split-string-pk\", 0, 0, G_OPTION_ARG_NONE, &split_string_pk,\n        \"Enables the split of string primary keys\", NULL},\n    {\"rows\", 'r', 0, G_OPTION_ARG_CALLBACK, &arguments_callback,\n        \"Splitting tables into chunks of this many rows. It can be MIN:START_AT:MAX. MAX can be 0 which means that there is no limit. It will double the chunk size if query takes less than 1 second and half of the size if it is more than 2 seconds\", NULL},\n    {\"rows-hard\", 0, 0, G_OPTION_ARG_CALLBACK, &arguments_callback,\n        \"This set the MIN and MAX limit when even if --rows is 0\", NULL},\n    {\"max-split-of-step-in-integer-chunk\", 0, 0, G_OPTION_ARG_INT, &max_split_of_step_in_integer_chunk,\n        \"Limits the amount of times a step in the integer chunk will be split. Default: 0 which means no limit, it will cut based on the information of the rows in the EXPLAIN\", NULL},\n    {\"max-char-size\", 0, 0, G_OPTION_ARG_INT, &max_char_size,\n        \"When the primary key is an string, it will split up to this amount of character. Default: 2\", NULL},\n    {\"max-items-per-string-chunk\", 0, 0, G_OPTION_ARG_INT, &max_items_per_string_chunk,\n        \"Limits the amount of string will be covered in a string chunk. Default: 0 which means no limit, it will cut based on the information of the rows in the EXPLAIN\", NULL},\n    {\"string-pk-planner\", 0, G_OPTION_FLAG_OPTIONAL_ARG, G_OPTION_ARG_CALLBACK, &arguments_callback,"
+      }
+    ]
+  },
+  {
+    "key": "mysql-shell",
+    "name": "MySQL Shell dump/copy utilities",
+    "kind": "адаптивные индексные диапазоны",
+    "how": "Chunking по выбранному PK/unique index, в том числе составному; bytesPerChunk переводится в ожидаемое число строк по средней ширине, это не жёсткий предел размера. NULL nullable unique-index добавляются в первый chunk. Числовой путь умеет постоянный шаг или адаптивные EXPLAIN-пробы, последующие столбцы уточняют диапазоны. Работы читаются параллельно; chunks файлов не следует путать с input ranges.",
+    "tradeoffs": "Оценка в байтах лучше для широких строк, чем фиксированное число строк. EXPLAIN дешевле точного COUNT, но неточен; сложнее planner и работа с корреляцией составных ключей.",
+    "references": [
+      {
+        "path": "modules/util/dump/dumper.cc",
+        "line": 202,
+        "url": "https://github.com/mysql/mysql-shell/blob/977806ff9412abf13da82a1d6ed49e2b909bc121/modules/util/dump/dumper.cc#L202",
+        "excerpt": "\n// Returns a `FORCE INDEX (...)` clause (with leading space) that pins the query\n// to the index used by the chunker, or an empty string when no index is in use.\n// Used by the EXPLAIN COUNT(*) probes in `adaptive_step_v2` for the integer\n// chunking path, to stabilize optimizer row-count estimates - without it, the\n// optimizer may pick a different access path (e.g. a `ref` lookup on a shorter\n// index that ignores the BETWEEN predicate on a later key part), making the\n// EXPLAIN row counts non-monotonic in the range width and breaking the binary\n// chop loop.\nstd::string force_index_clause(const Instance_cache::Index *index) {\n  if (!index) {\n    return {};\n  }"
+      },
+      {
+        "path": "modules/util/dump/dumper.cc",
+        "line": 1909,
+        "url": "https://github.com/mysql/mysql-shell/blob/977806ff9412abf13da82a1d6ed49e2b909bc121/modules/util/dump/dumper.cc#L1909",
+        "excerpt": "  }\n\n  template <typename T>\n  std::size_t chunk_integer_column(const Chunking_info &info, const T &min,\n                                   const T &max) const {\n    // if rows_per_chunk <= 1 it may mean that the rows are bigger than chunk\n    // size, which means we # chunks ~= # rows\n    const auto estimated_chunks =\n        info.rows_per_chunk > 0\n            ? std::max(info.row_count / info.rows_per_chunk, UINT64_C(1))\n            : info.row_count;\n\n    using step_t = std::remove_cvref_t<decltype(min)>;"
+      },
+      {
+        "path": "modules/util/dump/ddl_dumper_options.cc",
+        "line": 48,
+        "url": "https://github.com/mysql/mysql-shell/blob/977806ff9412abf13da82a1d6ed49e2b909bc121/modules/util/dump/ddl_dumper_options.cc#L48",
+        "excerpt": "\nnamespace {\n\nconstexpr auto k_minimum_chunk_size = \"128k\";\n\n// The chunk size will determine the size of transactions when loading them and\n// GR has a default group_replication_transaction_size_limit of 143MB. Because\n// chunk sizes will not be exact and can offshoot what's configured, we leave\n// the default chunk size at 64MB to leave a healthy margin and be on the safe\n// side.\nconstexpr auto k_default_chunk_size = \"64M\";\n\n}  // namespace"
+      }
+    ]
+  },
+  {
+    "key": "dumpling",
+    "name": "TiDB Data Migration / Dumpling",
+    "kind": "MIN/MAX / native regions",
+    "how": "DM использует Dumpling: MySQL-путь выбирает split field и MIN/MAX; TiDB-путь использует TABLESAMPLE/границы регионов и handles. При неподходящем ключе/малом объёме splitter не применяется.",
+    "tradeoffs": "Native ranges используют физическую организацию распределённой БД; min/max сохраняет проблему skew. TiDB snapshot timestamp/consistency не переносится автоматически на MySQL.",
+    "references": [
+      {
+        "path": "dumpling/export/dump.go",
+        "line": 841,
+        "url": "https://github.com/pingcap/tidb/blob/b44616b44d0ffed028b76b6da9e95418105bae87/dumpling/export/dump.go#L841",
+        "excerpt": "\tif conf.Rows == UnspecifiedSize {\n\t\treturn d.sequentialDumpTable(tctx, conn, meta, taskChan)\n\t}\n\treturn d.concurrentDumpTable(tctx, conn, meta, taskChan)\n}\n\nfunc (d *Dumper) buildConcatTask(tctx *tcontext.Context, conn *BaseConn, meta TableMeta) (*TaskTableData, error) {\n\ttableChan := make(chan Task, 128)\n\terrCh := make(chan error, 1)\n\tgo func() {\n\t\t// adjust rows to suitable rows for this table\n\t\td.conf.Rows = GetSuitableRows(meta.AvgRowLength())\n\t\terr := d.concurrentDumpTable(tctx, conn, meta, tableChan)"
+      },
+      {
+        "path": "dumpling/export/dump.go",
+        "line": 1107,
+        "url": "https://github.com/pingcap/tidb/blob/b44616b44d0ffed028b76b6da9e95418105bae87/dumpling/export/dump.go#L1107",
+        "excerpt": "\t\thandleVals     [][]string\n\t\terr            error\n\t)\n\t// for TiDB v5.0+, we can use table sample directly\n\tif d.conf.ServerInfo.ServerVersion.Compare(*tableSampleVersion) >= 0 {\n\t\ttctx.L().Debug(\"dumping TiDB tables with TABLESAMPLE\",\n\t\t\tzap.String(\"database\", db), zap.String(\"table\", tbl))\n\t\thandleColNames, handleVals, err = selectTiDBTableSample(tctx, conn, meta)\n\t} else {\n\t\t// for TiDB v3.0+, we can use table region decode in TiDB directly\n\t\ttctx.L().Debug(\"dumping TiDB tables with TABLE REGIONS\",\n\t\t\tzap.String(\"database\", db), zap.String(\"table\", tbl))\n\t\tvar partitions []string"
+      }
+    ]
+  },
+  {
+    "key": "spark",
+    "name": "Apache Spark JDBC",
+    "kind": "равные интервалы / ручные predicates",
+    "how": "partitionColumn + lowerBound/upperBound + numPartitions создают диапазоны чисел/date/timestamp. Первая часть включает NULL, крайние части открыты: bounds задают шаг, а не фильтр всего набора. Можно передать собственные SQL predicates через JDBC API.",
+    "tradeoffs": "Простая параллельная экстракция с ограничением соединений; диапазоны равны по значениям, не строкам. Отдельные JDBC соединения сами по себе не имеют общего source snapshot.",
+    "references": [
+      {
+        "path": "sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JDBCRelation.scala",
+        "line": 71,
+        "url": "https://github.com/apache/spark/blob/e151681a240a419f3921ecb337c6090572f0fbe9/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JDBCRelation.scala#L71",
+        "excerpt": "   * @param jdbcOptions JDBC options that contains url\n   * @return an array of partitions with where clause for each partition\n   */\n  def columnPartition(\n      schema: StructType,\n      resolver: Resolver,\n      timeZoneId: String,\n      jdbcOptions: JDBCOptions): Array[Partition] = {\n    val partitioning = {\n      import JDBCOptions._\n\n      val partitionColumn = jdbcOptions.partitionColumn\n      val lowerBound = jdbcOptions.lowerBound"
+      },
+      {
+        "path": "sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JDBCRelation.scala",
+        "line": 164,
+        "url": "https://github.com/apache/spark/blob/e151681a240a419f3921ecb337c6090572f0fbe9/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JDBCRelation.scala#L164",
+        "excerpt": "        if (uBound == null) {\n          lBound\n        } else if (lBound == null) {\n          s\"$uBound or $column is null\"\n        } else {\n          s\"$lBound AND $uBound\"\n        }\n      ans += JDBCPartition(whereClause, i)\n      i = i + 1\n    }\n    val partitions = ans.toArray\n    val clauses = partitions.map(_.asInstanceOf[JDBCPartition].whereClause).mkString(\", \")\n    logInfo(log\"Number of partitions: ${MDC(NUM_PARTITIONS, numPartitions)}, \" +"
+      }
+    ]
+  },
+  {
+    "key": "flink-jdbc",
+    "name": "Apache Flink JDBC",
+    "kind": "числовые/временные интервалы / параметры",
+    "how": "SQL/Table API scan.partition.* задаёт колонку, число частей и bounds; BETWEEN-предикаты ограничивают результат и не включают NULL. JdbcNumericBetweenParametersProvider, произвольные parameter providers и sliding timing provider также есть в legacy Java API; возможности этого API нельзя автоматически приписывать Table API.",
+    "tradeoffs": "Удобно для явно ограниченного batch; неправильные bounds могут исключить строки. JDBC batch partitioning не равно Flink CDC watermark snapshot.",
+    "references": [
+      {
+        "path": "flink-connector-jdbc-core/src/main/java/org/apache/flink/connector/jdbc/split/JdbcNumericBetweenParametersProvider.java",
+        "line": 46,
+        "url": "https://github.com/apache/flink-connector-jdbc/blob/73a3f34f455d43aa252106b109ea02d27fc3fadb/flink-connector-jdbc-core/src/main/java/org/apache/flink/connector/jdbc/split/JdbcNumericBetweenParametersProvider.java#L46",
+        "excerpt": " *     PreparedSplitterEnumerator.of(query, minValue, maxValue, batchNum).\n */\n@Deprecated\npublic class JdbcNumericBetweenParametersProvider implements JdbcParameterValuesProvider {\n\n    private final long minVal;\n    private final long maxVal;\n\n    private long batchSize;\n    private int batchNum;\n\n    /**\n     * NumericBetweenParametersProviderJdbc constructor."
+      },
+      {
+        "path": "flink-connector-jdbc-core/src/main/java/org/apache/flink/connector/jdbc/core/table/source/JdbcDynamicTableSource.java",
+        "line": 164,
+        "url": "https://github.com/apache/flink-connector-jdbc/blob/73a3f34f455d43aa252106b109ea02d27fc3fadb/flink-connector-jdbc-core/src/main/java/org/apache/flink/connector/jdbc/core/table/source/JdbcDynamicTableSource.java#L164",
+        "excerpt": "                        new String[0]);\n        final List<String> predicates = new ArrayList<String>();\n\n        if (readOptions.getPartitionColumnName().isPresent()) {\n            long lowerBound = readOptions.getPartitionLowerBound().get();\n            long upperBound = readOptions.getPartitionUpperBound().get();\n            int numPartitions = readOptions.getNumPartitions().get();\n\n            Serializable[][] allPushdownParams = replicatePushdownParamsForN(numPartitions);\n            JdbcParameterValuesProvider allParams =\n                    new CompositeJdbcParameterValuesProvider(\n                            new JdbcNumericBetweenParametersProvider(lowerBound, upperBound)\n                                    .ofBatchNum(numPartitions),"
+      }
+    ]
+  },
+  {
+    "key": "beam",
+    "name": "Apache Beam JdbcIO",
+    "kind": "диапазоны / расширяемый helper",
+    "how": "readWithPartitions вычисляет или принимает bounds и numPartitions; стандартные helpers — Long и DateTime. Auto bounds получают через MIN/MAX, COUNT нужен при вычислении числа partitions. JdbcReadWithPartitionsHelper позволяет задать поддержку других типов.",
+    "tradeoffs": "Переносимо между runners, отделяет планирование от чтения. Generic SplittableDoFn не означает, что именно JdbcIO умеет динамически разделить уже выполняемый запрос. В проверенных ranges нет NULL-ветки; Long helper вычисляет upperBound+1, что требует проверки крайнего overflow. Это статические наблюдения, не runtime воспроизведение.",
+    "references": [
+      {
+        "path": "sdks/java/io/jdbc/src/main/java/org/apache/beam/sdk/io/jdbc/JdbcIO.java",
+        "line": 218,
+        "url": "https://github.com/apache/beam/blob/2448f5ac7d6a3bcbc61a7acd6edeeb400829ced1/sdks/java/io/jdbc/src/main/java/org/apache/beam/sdk/io/jdbc/JdbcIO.java#L218",
+        "excerpt": " *\n * <p>Beam supports partitioned reading of all data from a table. Automatic partitioning is\n * supported for a few data types: {@link Long}, {@link org.joda.time.DateTime}. To enable this, use\n * {@link JdbcIO#readWithPartitions(TypeDescriptor)}. For other types, use {@link\n * ReadWithPartitions#readWithPartitions(JdbcReadWithPartitionsHelper)} with custom {@link\n * JdbcReadWithPartitionsHelper}.\n *\n * <p>The partitioning scheme depends on these parameters, which can be user-provided, or\n * automatically inferred by Beam (for the supported types):\n *\n * <ul>\n *   <li>Upper bound\n *   <li>Lower bound"
+      },
+      {
+        "path": "sdks/java/io/jdbc/src/main/java/org/apache/beam/sdk/io/jdbc/JdbcReadWithPartitionsHelper.java",
+        "line": 31,
+        "url": "https://github.com/apache/beam/blob/2448f5ac7d6a3bcbc61a7acd6edeeb400829ced1/sdks/java/io/jdbc/src/main/java/org/apache/beam/sdk/io/jdbc/JdbcReadWithPartitionsHelper.java#L31",
+        "excerpt": " *\n * @param <PartitionT> Element type of the column used for partition.\n */\npublic interface JdbcReadWithPartitionsHelper<PartitionT>\n    extends PreparedStatementSetter<KV<PartitionT, PartitionT>>,\n        RowMapper<KV<Long, KV<PartitionT, PartitionT>>> {\n\n  /**\n   * Calculate the range of each partition from the lower and upper bound, and number of partitions.\n   *\n   * <p>Return a list of pairs for each lower and upper bound within each partition.\n   */\n  Iterable<KV<PartitionT, PartitionT>> calculateRanges("
+      },
+      {
+        "path": "sdks/java/io/jdbc/src/main/java/org/apache/beam/sdk/io/jdbc/JdbcUtil.java",
+        "line": 476,
+        "url": "https://github.com/apache/beam/blob/2448f5ac7d6a3bcbc61a7acd6edeeb400829ced1/sdks/java/io/jdbc/src/main/java/org/apache/beam/sdk/io/jdbc/JdbcUtil.java#L476",
+        "excerpt": "  }\n\n  /** Create partitions on a table. */\n  static class PartitioningFn<T> extends DoFn<KV<Long, KV<T, T>>, KV<T, T>> {\n    private static final Logger LOG = LoggerFactory.getLogger(PartitioningFn.class);\n    final JdbcReadWithPartitionsHelper<T> partitionsHelper;\n\n    PartitioningFn(JdbcReadWithPartitionsHelper<T> partitionsHelper) {\n      this.partitionsHelper = partitionsHelper;\n    }\n\n    @ProcessElement\n    public void processElement(ProcessContext c) {"
+      }
+    ]
+  },
+  {
+    "key": "daft",
+    "name": "Daft",
+    "kind": "MIN/MAX / percentile",
+    "how": "SQLScanOperator для numeric/temporal partition_col делает COUNT(*), в том числе при заданном num_partitions. Границы — min-max либо PERCENTILE_DISC; при ошибке percentile переходит к min-max. Если все границы одинаковы, читает одним scan.",
+    "tradeoffs": "COUNT и percentile добавляют работу до чтения. Multi-range >=/< predicates не включают NULL; min-max integer arithmetic использует float, поэтому большие integer требуют проверки точности. Это ограничения увиденного кода, без runtime repro. Равные quantiles не гарантируют равные байты; общий snapshot отдельно не доказан.",
+    "references": [
+      {
+        "path": "daft/sql/sql_scan.py",
+        "line": 41,
+        "url": "https://github.com/Eventual-Inc/Daft/blob/1feced9b5af78586da19dc10d32c5bc0c25855e0/daft/sql/sql_scan.py#L41",
+        "excerpt": "    return all(bounds[i] == bounds[i + 1] for i in range(len(bounds) - 1))\n\n\nclass PartitionBoundStrategy(Enum):\n    PERCENTILE = \"percentile\"\n    MIN_MAX = \"min-max\"\n\n    @classmethod\n    def from_str(cls, value: str) -> PartitionBoundStrategy:\n        try:\n            return cls(value.lower())\n        except ValueError:\n            raise ValueError(f\"Invalid PartitionBoundStrategy: {value}, must be either 'percentile' or 'min-max'\")"
+      },
+      {
+        "path": "daft/sql/sql_scan.py",
+        "line": 102,
+        "url": "https://github.com/Eventual-Inc/Daft/blob/1feced9b5af78586da19dc10d32c5bc0c25855e0/daft/sql/sql_scan.py#L102",
+        "excerpt": "        if num_scan_tasks == 1 or self._partition_col is None:\n            return self._single_scan_task(pushdowns, total_rows, total_size)\n\n        partition_bounds = self._get_partition_bounds(num_scan_tasks)\n        if partition_bounds is None:\n            warnings.warn(\n                \"Unable to partition the data using the specified column. Falling back to a single scan task.\"\n            )\n            return self._single_scan_task(pushdowns, total_rows, total_size)\n\n        if _partition_bounds_are_degenerate(partition_bounds):\n            warnings.warn(\n                \"Partition bounds are degenerate (e.g. min equals max, zero-width ranges). \""
+      },
+      {
+        "path": "daft/sql/sql_scan.py",
+        "line": 183,
+        "url": "https://github.com/Eventual-Inc/Daft/blob/1feced9b5af78586da19dc10d32c5bc0c25855e0/daft/sql/sql_scan.py#L183",
+        "excerpt": "        num_scan_tasks = min(num_scan_tasks, total_rows)\n        return total_rows, total_size, num_scan_tasks\n\n    def _get_num_rows(self) -> int:\n        num_rows_sql = self.conn.construct_sql_query(self.sql, projection=[\"COUNT(*)\"])\n        pa_table = self.conn.execute_sql_query(num_rows_sql)\n\n        if pa_table.num_rows != 1:\n            raise RuntimeError(\n                \"Failed to get the number of rows: COUNT(*) query returned an unexpected number of rows.\"\n            )\n        if pa_table.num_columns != 1:\n            raise RuntimeError("
+      }
+    ]
+  },
+  {
+    "key": "ray",
+    "name": "Ray Data",
+    "kind": "hash/modulo",
+    "how": "SQLDatasource создаёт запросы MOD(ABS(hash(shard_keys)), parallelism)=task_id; для нескольких полей использует CONCAT. Проверяет поддержку выражений, иначе один read task.",
+    "tradeoffs": "Балансирует распределение ключей, но без функционального индекса обычно делает несколько полных сканов. Это маршрутизация, а не доказательство идентичности ключей; NULL/collisions в маршрутизации нужно рассматривать отдельно.",
+    "references": [
+      {
+        "path": "python/ray/data/_internal/datasource/sql_datasource.py",
+        "line": 114,
+        "url": "https://github.com/ray-project/ray/blob/674900c91faad20ed39074a754505186c3a02f19/python/ray/data/_internal/datasource/sql_datasource.py#L114",
+        "excerpt": "    def estimate_inmemory_data_size(self) -> Optional[int]:\n        return None\n\n    def supports_sharding(self, parallelism: int) -> bool:\n        \"\"\"Check if database supports sharding with MOD/ABS/CONCAT operations.\n\n        Args:\n            parallelism: The number of shards to split the read into.\n\n        Returns:\n            bool: True if sharding is supported, False otherwise.\n        \"\"\"\n        if parallelism <= 1 or self.shard_keys is None:"
+      },
+      {
+        "path": "python/ray/data/_internal/datasource/sql_datasource.py",
+        "line": 202,
+        "url": "https://github.com/ray-project/ray/blob/674900c91faad20ed39074a754505186c3a02f19/python/ray/data/_internal/datasource/sql_datasource.py#L202",
+        "excerpt": "        hash_fn = self.shard_hash_fn\n        query = (\n            f\"SELECT * FROM ({self.sql}) as T \"\n            f\"WHERE MOD(ABS({hash_fn}({self.shard_keys})), {parallelism}) = {task_id}\"\n        )\n\n        def read_fn() -> Iterable[Block]:\n            with _connect(self.connection_factory) as cursor:\n                _execute(cursor, query, self.sql_params)\n                block = _cursor_to_block(cursor)\n                return [block]\n\n        return read_fn"
+      }
+    ]
+  },
+  {
+    "key": "dask",
+    "name": "Dask DataFrame SQL",
+    "kind": "диапазоны index_col",
+    "how": "Пользовательские divisions либо равномерные numeric/time boundaries из MIN/MAX; число partitions явно или по оценке bytes_per_chunk из первых строк и COUNT. Последний интервал включает верхнюю границу.",
+    "tradeoffs": "Поддерживает ручные skew-aware границы; выборка первых строк может неверно оценить среднюю ширину. SQL NULL и общий snapshot требуют отдельного решения.",
+    "references": [
+      {
+        "path": "dask/dataframe/io/sql.py",
+        "line": 17,
+        "url": "https://github.com/dask/dask/blob/9dc535daa30d7d36d63d4a003b54342fbc7032db/dask/dataframe/io/sql.py#L17",
+        "excerpt": "from dask.utils import parse_bytes\n\n\ndef read_sql_query(\n    sql,\n    con,\n    index_col,\n    divisions=None,\n    npartitions=None,\n    limits=None,\n    bytes_per_chunk=\"256 MiB\",\n    head_rows=5,\n    meta=None,"
+      },
+      {
+        "path": "dask/dataframe/io/sql.py",
+        "line": 172,
+        "url": "https://github.com/dask/dask/blob/9dc535daa30d7d36d63d4a003b54342fbc7032db/dask/dataframe/io/sql.py#L172",
+        "excerpt": "            divisions[0] = mini\n            divisions[-1] = maxi\n        elif dtype.kind in [\"i\", \"u\", \"f\"]:\n            divisions = np.linspace(mini, maxi, npartitions + 1, dtype=dtype).tolist()\n        else:\n            raise TypeError(\n                f'Provided index column is of type \"{dtype}\".  If divisions is not provided the '\n                \"index column type must be numeric or datetime.\"\n            )\n\n    parts = []\n    lowers, uppers = divisions[:-1], divisions[1:]\n    for i, (lower, upper) in enumerate(zip(lowers, uppers)):"
+      }
+    ]
+  },
+  {
+    "key": "connectorx",
+    "name": "Polars через ConnectorX",
+    "kind": "делегированные MIN/MAX ranges",
+    "how": "read_database_uri с engine=connectorx передаёт partition_on/partition_range/partition_num либо список SQL. Сам ConnectorX вычисляет диапазоны и запускает независимые запросы. ADBC — другой backend, его возможности не следует приравнивать к ConnectorX.",
+    "tradeoffs": "Низкий overhead загрузки Arrow и явное управление параллелизмом; range skew и MVCC остаются. Это функция чтения, не полноценный CDC/checkpoint protocol.",
+    "references": [
+      {
+        "path": "connectorx/src/partition.rs",
+        "line": 76,
+        "url": "https://github.com/sfu-db/connector-x/blob/6bd1ec90a27dc67abdf403af645993f4abad0295/connectorx/src/partition.rs#L76",
+        "excerpt": "    }\n}\n\npub fn partition(part: &PartitionQuery, source_conn: &SourceConn) -> OutResult<Vec<CXQuery>> {\n    let mut queries = vec![];\n    let num = part.num as i64;\n    let (min, max) = match (part.min, part.max) {\n        (None, None) => get_col_range(source_conn, &part.query, &part.column)?,\n        (Some(min), Some(max)) => (min, max),\n        _ => throw!(anyhow!(\n            \"partition_query range can not be partially specified\",\n        )),\n    };"
+      },
+      {
+        "path": "connectorx/src/sql.rs",
+        "line": 354,
+        "url": "https://github.com/sfu-db/connector-x/blob/6bd1ec90a27dc67abdf403af645993f4abad0295/connectorx/src/sql.rs#L354",
+        "excerpt": "}\n\n#[throws(ConnectorXError)]\npub fn single_col_partition_query<T: Dialect>(\n    sql: &str,\n    col: &str,\n    lower: i64,\n    upper: i64,\n    dialect: &T,\n) -> String {\n    trace!(\"Incoming query: {}\", sql);\n    const PART_TMP_TAB_NAME: &str = \"CXTMPTAB_PART\";\n"
+      }
+    ]
+  },
+  {
+    "key": "duckdb-postgres",
+    "name": "DuckDB PostgreSQL extension",
+    "kind": "CTID + общий snapshot",
+    "how": "Postgres scanner выдаёт page-range задачи, ограничивает threads, экспортирует pg_export_snapshot и подключает readers к нему; бинарный COPY и CTID scan связаны ограничениями реализации.",
+    "tradeoffs": "Особенно полезный образец для быстрой PostgreSQL full-table экстракции. Возможности зависят от relation/protocol; generic DuckDB file row groups — другой механизм.",
+    "references": [
+      {
+        "path": "src/postgres_scanner.cpp",
+        "line": 88,
+        "url": "https://github.com/duckdb/postgres_scanner/blob/d57412f6f442819137ad0ed8524cc115fa11d48a/src/postgres_scanner.cpp#L88",
+        "excerpt": "\t// reader threads can use the same snapshot\n\tauto &con = gstate.GetConnection();\n\t// snapshot export works on replicas since PostgreSQL 10 and on RDS/Aurora, so no recovery check is needed\n\tauto result = con.TryQuery(context, \"SELECT pg_export_snapshot()\");\n\tif (result) {\n\t\tgstate.snapshot = result->GetString(0, 0);\n\t}\n}\n\nvoid PostgresScanFunction::PrepareBind(PostgresVersion version, ClientContext &context, PostgresBindData &bind_data,\n                                       int64_t approx_num_pages, optional_ptr<PostgresCatalog> pg_catalog) {\n\t// resolve the protocol before any decision that depends on it (ctid scan, max threads)\n\t// note that bind_data.use_text_protocol holds the value of the pg_use_text_protocol setting here"
+      },
+      {
+        "path": "src/postgres_scanner.cpp",
+        "line": 106,
+        "url": "https://github.com/duckdb/postgres_scanner/blob/d57412f6f442819137ad0ed8524cc115fa11d48a/src/postgres_scanner.cpp#L106",
+        "excerpt": "\t\tbind_data.use_text_protocol = true;\n\t}\n\tValue pages_per_task;\n\tif (context.TryGetCurrentSetting(\"pg_pages_per_task\", pages_per_task)) {\n\t\tbind_data.pages_per_task = UBigIntValue::Get(pages_per_task);\n\t\tif (bind_data.pages_per_task == 0) {\n\t\t\tbind_data.pages_per_task = PostgresBindData::DEFAULT_PAGES_PER_TASK;\n\t\t}\n\t}\n\tbool use_ctid_scan = true;\n\tValue pg_use_ctid_scan;\n\tif (context.TryGetCurrentSetting(\"pg_use_ctid_scan\", pg_use_ctid_scan)) {\n\t\tuse_ctid_scan = BooleanValue::Get(pg_use_ctid_scan);"
+      },
+      {
+        "path": "src/postgres_scanner.cpp",
+        "line": 256,
+        "url": "https://github.com/duckdb/postgres_scanner/blob/d57412f6f442819137ad0ed8524cc115fa11d48a/src/postgres_scanner.cpp#L256",
+        "excerpt": "\tlstate.exec = false;\n\tlstate.done = false;\n\tif (bind_data->pages_approx > 0) {\n\t\tfilter = StringUtil::Format(\"WHERE ctid BETWEEN '(%d,0)'::tid AND '(%d,0)'::tid\", task_min, task_max);\n\t}\n\tif (!filter_string.empty()) {\n\t\tif (filter.empty()) {\n\t\t\tfilter += \"WHERE \";\n\t\t} else {\n\t\t\tfilter += \" AND \";\n\t\t}\n\t\tfilter += filter_string;\n\t}"
+      }
+    ]
+  },
+  {
+    "key": "risingwave",
+    "name": "RisingWave",
+    "kind": "параллельный CDC backfill",
+    "how": "В текущем коде PostgreSQL external reader есть even/uneven snapshot splits по выбранной колонке PK; ParallelizedCdcBackfillExecutor распределяет splits, хранит прогресс и согласует snapshot с upstream CDC.",
+    "tradeoffs": "Встроенная интеграция с barriers/stateful engine; это существенно больше обычного SQL splitter. Наличие executor в исходниках не гарантирует доступность во всех редакциях/конфигурациях.",
+    "references": [
+      {
+        "path": "src/connector/src/source/cdc/external/postgres.rs",
+        "line": 187,
+        "url": "https://github.com/risingwavelabs/risingwave/blob/ee8b82b3a8bb9cce2160e062670564b8af70600f/src/connector/src/source/cdc/external/postgres.rs#L187",
+        "excerpt": "    }\n\n    #[try_stream(boxed, ok = CdcTableSnapshotSplit, error = ConnectorError)]\n    async fn get_parallel_cdc_splits(&self, options: CdcTableSnapshotSplitOption) {\n        let backfill_num_rows_per_split = options.backfill_num_rows_per_split;\n        if backfill_num_rows_per_split == 0 {\n            return Err(anyhow::anyhow!(\n                \"invalid backfill_num_rows_per_split, must be greater than 0\"\n            )\n            .into());\n        }\n        if options.backfill_split_pk_column_index as usize >= self.pk_indices.len() {\n            return Err(anyhow::anyhow!(format!("
+      },
+      {
+        "path": "src/stream/src/executor/backfill/cdc/cdc_backill_v2.rs",
+        "line": 48,
+        "url": "https://github.com/risingwavelabs/risingwave/blob/ee8b82b3a8bb9cce2160e062670564b8af70600f/src/stream/src/executor/backfill/cdc/cdc_backill_v2.rs#L48",
+        "excerpt": "use crate::executor::prelude::*;\nuse crate::executor::source::get_infinite_backoff_strategy;\nuse crate::task::cdc_progress::CdcProgressReporter;\npub struct ParallelizedCdcBackfillExecutor<S: StateStore> {\n    actor_ctx: ActorContextRef,\n\n    /// The external table to be backfilled\n    external_table: ExternalStorageTable,\n\n    /// Upstream changelog stream which may contain metadata columns, e.g. `_rw_offset`\n    upstream: Executor,\n\n    /// The column indices need to be forwarded to the downstream from the upstream and table scan."
+      }
+    ]
+  },
+  {
+    "key": "gobblin",
+    "name": "Apache Gobblin",
+    "kind": "watermark ranges; Salesforce histogram/PK chunking",
+    "how": "Extractor Partitioner делит watermark interval в work units. Salesforce-source отдельно строит histogram buckets и может запросить серверный PKChunking через Bulk API.",
+    "tradeoffs": "Histogram учитывает плотность, server-side chunking использует возможности источника. У timestamp-watermark свои late-arrival/изменяемый-ключ ограничения; не заменяет CDC для DELETE.",
+    "references": [
+      {
+        "path": "gobblin-core/src/main/java/org/apache/gobblin/source/extractor/partition/Partitioner.java",
+        "line": 50,
+        "url": "https://github.com/apache/gobblin/blob/cb6650da4742252b3e18315338596e4ca63ed802/gobblin-core/src/main/java/org/apache/gobblin/source/extractor/partition/Partitioner.java#L50",
+        "excerpt": "/**\n * An implementation of default partitioner for all types of sources\n */\npublic class Partitioner {\n  private static final Logger LOG = LoggerFactory.getLogger(Partitioner.class);\n\n  public static final String WATERMARKTIMEFORMAT = \"yyyyMMddHHmmss\";\n  public static final String HAS_USER_SPECIFIED_PARTITIONS = \"partitioner.hasUserSpecifiedPartitions\";\n  public static final String USER_SPECIFIED_PARTITIONS = \"partitioner.userSpecifiedPartitions\";\n  public static final String IS_EARLY_STOPPED = \"partitioner.isEarlyStopped\";\n  public static final String ALLOW_EQUAL_WATERMARK_BOUNDARY = \"partitioner.allowEqualWatermarkBoundary\";\n\n  public static final Comparator<Partition> ascendingComparator = new Comparator<Partition>() {"
+      },
+      {
+        "path": "gobblin-salesforce/src/main/java/org/apache/gobblin/salesforce/SalesforceHistogramService.java",
+        "line": 57,
+        "url": "https://github.com/apache/gobblin/blob/cb6650da4742252b3e18315338596e4ca63ed802/gobblin-salesforce/src/main/java/org/apache/gobblin/salesforce/SalesforceHistogramService.java#L57",
+        "excerpt": " * mapping of number of records to be fetched by time intervals.\n */\n@Slf4j\npublic class SalesforceHistogramService {\n  private static final int MIN_SPLIT_TIME_MILLIS = 1000;\n  private static final String ZERO_TIME_SUFFIX = \"-00:00:00\";\n  private static final Gson GSON = new Gson();\n  // this is used to generate histogram buckets smaller than the target partition size to allow for more even\n  // packing of the generated partitions\n  private static final String PROBE_TARGET_RATIO = \"salesforce.probeTargetRatio\";\n  private static final double DEFAULT_PROBE_TARGET_RATIO = 0.60;\n  private static final String DYNAMIC_PROBING_LIMIT = \"salesforce.dynamicProbingLimit\";\n  private static final int DEFAULT_DYNAMIC_PROBING_LIMIT = 1000;"
+      },
+      {
+        "path": "gobblin-salesforce/src/main/java/org/apache/gobblin/salesforce/SalesforceExtractor.java",
+        "line": 721,
+        "url": "https://github.com/apache/gobblin/blob/cb6650da4742252b3e18315338596e4ca63ed802/gobblin-salesforce/src/main/java/org/apache/gobblin/salesforce/SalesforceExtractor.java#L721",
+        "excerpt": "      jobRequest.setOperation(OperationEnum.queryAll);\n      jobRequest.setConcurrencyMode(ConcurrencyMode.Parallel);\n      log.info(\"Enabling pk chunking with size {}\", this.pkChunkingSize);\n      connection.addHeader(\"Sforce-Enable-PKChunking\", \"chunkSize=\" + this.pkChunkingSize);\n      // Result type as CSV\n      jobRequest.setContentType(ContentType.CSV);\n      JobInfo createdJob = connection.createJob(jobRequest);\n      log.info(\"Created bulk job: {}\", createdJob.getId());\n      this.bulkJob = createdJob; // other functions need to use it TODO: remove bulkJob from this class\n      String jobId = createdJob.getId();\n      JobInfo jobResponse = connection.getJobStatus(jobId);\n      // Construct query with the predicates\n      String query = this.updatedQuery;"
+      }
+    ]
+  },
+  {
+    "key": "apex-malhar",
+    "name": "Apache Apex / Malhar (архив)",
+    "kind": "статические ranges + poller",
+    "how": "JdbcPollInputOperator создаёт непересекающиеся ranges для имеющихся строк и дополнительную polling partition для новых значений ключа.",
+    "tradeoffs": "Полезный исторический паттерн bootstrap+append; предполагает возрастающий ключ и не является журналовым CDC для произвольных updates/deletes.",
+    "references": [
+      {
+        "path": "library/src/main/java/org/apache/apex/malhar/lib/db/jdbc/AbstractJdbcPollInputOperator.java",
+        "line": 76,
+        "url": "https://github.com/apache/apex-malhar/blob/0f016c82e4e1363b3f7de4ae28138bc7ba896d37/library/src/main/java/org/apache/apex/malhar/lib/db/jdbc/AbstractJdbcPollInputOperator.java#L76",
+        "excerpt": " * Abstract operator for consuming data using JDBC interface<br>\n * User needs to provide tableName, dbConnection, columnsExpression, look-up key<br>\n * Optionally batchSize, pollInterval and a where clause can be given <br>\n * This operator uses static partitioning to arrive at range queries to\n * idempotent reads<br>\n * This operator will create a configured number of non-polling static\n * partitions for fetching the existing data in the table. And an additional\n * single partition for polling additive data. Assumption is that there is an\n * ordered unique column using which range queries can be formed<br>\n *\n * Only newly added data will be fetched by the polling jdbc partition, also\n * assumption is rows won't be added or deleted in middle during scan.\n *"
+      },
+      {
+        "path": "library/src/main/java/org/apache/apex/malhar/lib/db/jdbc/AbstractJdbcPollInputOperator.java",
+        "line": 465,
+        "url": "https://github.com/apache/apex-malhar/blob/0f016c82e4e1363b3f7de4ae28138bc7ba896d37/library/src/main/java/org/apache/apex/malhar/lib/db/jdbc/AbstractJdbcPollInputOperator.java#L465",
+        "excerpt": "   * range\n   */\n  @Override\n  public Collection<com.datatorrent.api.Partitioner.Partition<AbstractJdbcPollInputOperator<T>>> definePartitions(\n      Collection<Partition<AbstractJdbcPollInputOperator<T>>> partitions, PartitioningContext context)\n  {\n    List<Partition<AbstractJdbcPollInputOperator<T>>> newPartitions = new ArrayList<>(\n        getPartitionCount());\n\n    final List<KeyValPair<Integer, Integer>> partitionRanges;\n    try {\n      store.connect();\n      dslContext = createDSLContext();"
+      }
+    ]
+  },
+  {
+    "key": "sqoop",
+    "name": "Apache Sqoop (архив)",
+    "kind": "типизированные JDBC splitters",
+    "how": "DataDrivenDBInputFormat и реализации Integer/BigDecimal/Float/Text/Date splitters формируют диапазоны split-by по bounds/boundary-query; Oracle имеет отдельный путь. Mapper count задаёт плановый параллелизм.",
+    "tradeoffs": "Исторический источник многих современных подходов. Text/collation, NULL и типовая арифметика требуют внимания; Hadoop startup невыгоден для малых таблиц.",
+    "references": [
+      {
+        "path": "src/java/org/apache/sqoop/mapreduce/db/DataDrivenDBInputFormat.java",
+        "line": 140,
+        "url": "https://github.com/apache/sqoop/blob/f8beae32a067d72bf9ed6e903b041ad347ca5491/src/java/org/apache/sqoop/mapreduce/db/DataDrivenDBInputFormat.java#L140",
+        "excerpt": "\n  @Override\n  /** {@inheritDoc} */\n  public List<InputSplit> getSplits(JobContext job) throws IOException {\n\n    int targetNumTasks = ConfigurationHelper.getJobNumMaps(job);\n    String boundaryQuery = getDBConf().getInputBoundingQuery();\n\n    long splitLimit = org.apache.sqoop.config.ConfigurationHelper\n      .getSplitLimit(job.getConfiguration());\n    // If user do not forced us to use his boundary query and we don't have to\n    // bacause there is only one mapper we will return single split that\n    // separates nothing. This can be considerably more optimal for a large"
+      },
+      {
+        "path": "src/java/org/apache/sqoop/mapreduce/db/TextSplitter.java",
+        "line": 37,
+        "url": "https://github.com/apache/sqoop/blob/f8beae32a067d72bf9ed6e903b041ad347ca5491/src/java/org/apache/sqoop/mapreduce/db/TextSplitter.java#L37",
+        "excerpt": "/**\n * Implement DBSplitter over text strings.\n */\npublic class TextSplitter extends BigDecimalSplitter {\n\n  public static final String ALLOW_TEXT_SPLITTER_PROPERTY = \"org.apache.sqoop.splitter.allow_text_splitter\";\n\n  private static final Log LOG = LogFactory.getLog(TextSplitter.class);\n\n  private boolean useNCharStrings = false;\n\n  /**\n   * This method needs to determine the splits between two user-provided"
+      },
+      {
+        "path": "src/java/org/apache/sqoop/mapreduce/db/OracleDataDrivenDBInputFormat.java",
+        "line": 33,
+        "url": "https://github.com/apache/sqoop/blob/f8beae32a067d72bf9ed6e903b041ad347ca5491/src/java/org/apache/sqoop/mapreduce/db/OracleDataDrivenDBInputFormat.java#L33",
+        "excerpt": "/**\n * A InputFormat that reads input data from an SQL table in an Oracle db.\n */\npublic class OracleDataDrivenDBInputFormat<T extends DBWritable>\n    extends DataDrivenDBInputFormat<T> implements Configurable {\n\n  /**\n   * @return the DBSplitter implementation to use to divide the table/query\n   * into InputSplits.\n   */\n  @Override\n  protected DBSplitter getSplitter(int sqlDataType, long splitLimit) {\n    switch (sqlDataType) {"
+      }
+    ]
+  },
+  {
+    "key": "sling",
+    "name": "Sling OSS vs CLI Pro/Platform",
+    "kind": "граница поставок",
+    "how": "Открытый ProcessChunks знает chunk_size/chunk_count/chunk_expr, но ChunkByColumnRange/ChunkByCount/ChunkByExpression в публичном дереве возвращают ошибку «use official release». Реализованное автоматическое chunking нельзя засчитать OSS-сборке только по этим настройкам. Возможности Pro описаны отдельно в коммерческой матрице.",
+    "tradeoffs": "Важный пример различия интерфейса и реализации; ручные SQL streams остаются другим механизмом, ответственность за покрытие диапазонов у автора конфигурации.",
+    "references": [
+      {
+        "path": "core/dbio/database/schemata.go",
+        "line": 59,
+        "url": "https://github.com/slingdata-io/sling-cli/blob/9db0426f81e45f8c8cf841e2883f50b38a3fb740/core/dbio/database/schemata.go#L59",
+        "excerpt": "\treturn []Table{table}, g.Error(\"please use the official sling-cli release for chunking columns\")\n}\n\nvar ChunkByColumnRange = func(conn Connection, t Table, c string, cs, min, max string) ([]Chunk, error) {\n\treturn []Chunk{}, g.Error(\"please use the official sling-cli release for chunking\")\n}\n\nvar ChunkByCount = func(conn Connection, t Table, c string, cc int, min, max string) ([]Chunk, string, error) {\n\treturn []Chunk{}, \"\", g.Error(\"please use the official sling-cli release for chunking\")\n}\n\nvar ChunkByExpression = func(conn Connection, t Table, e string, cc int) ([]Chunk, error) {\n\treturn []Chunk{}, g.Error(\"please use the official sling-cli release for chunking\")"
+      },
+      {
+        "path": "core/sling/replication.go",
+        "line": 688,
+        "url": "https://github.com/slingdata-io/sling-cli/blob/9db0426f81e45f8c8cf841e2883f50b38a3fb740/core/sling/replication.go#L688",
+        "excerpt": "\treturn hooks, nil\n}\n\nfunc (rd *ReplicationConfig) ProcessChunks() (err error) {\n\t// determine which stream is backfill mode, has range and chunk_size\n\ttype Stream struct {\n\t\tname   string\n\t\tconfig ReplicationStreamConfig\n\t\tchunks []Stream\n\t}\n\tstreamsToChunk := []Stream{}\n\tfor _, name := range rd.streamsOrdered {\n\t\tstream := rd.Streams[name]"
+      }
+    ]
+  },
+  {
+    "key": "estuary-connectors",
+    "name": "Estuary Flow: публичный PostgreSQL connector (BSL)",
+    "kind": "keyset / keyless CTID chunks",
+    "how": "ScanTableChunk читает bounded ordered key chunks и хранит resume key; для keyless таблиц есть bounded CTID ranges. SQL capture согласует backfill с журналом. В checkout действует BSL по умолчанию; разрешение Apache/MIT требует письменного согласия. Это source-available, не OSS.",
+    "tradeoffs": "Normal keyed backfill и keyless physical mode имеют разные гарантии: документация прямо ограничивает correctness keyless режима. Не использовать его как lossless-default для изменяемой таблицы.",
+    "references": [
+      {
+        "path": "source-postgres/backfill.go",
+        "line": 21,
+        "url": "https://github.com/estuary/connectors/blob/262fcee1dab22b57a234e247f8b65b93a7bf0032/source-postgres/backfill.go#L21",
+        "excerpt": "var statementTimeoutRegexp = regexp.MustCompile(`canceling statement due to statement timeout`)\n\n// ScanTableChunk fetches a chunk of rows from the specified table, resuming from `resumeKey` if non-nil.\nfunc (db *postgresDatabase) ScanTableChunk(ctx context.Context, info *sqlcapture.DiscoveryInfo, state *sqlcapture.TableState, backfillFilter string, callback func(event sqlcapture.ChangeEvent) error) (bool, []byte, error) {\n\tvar keyColumns = state.KeyColumns\n\tvar resumeAfter = state.Scanned\n\tvar schema, table = info.Schema, info.Name\n\tvar streamID = sqlcapture.JoinStreamID(schema, table)\n\tvar logEntry = logrus.WithField(\"stream\", streamID)\n\n\tvar columnTypes = make(map[string]interface{})\n\tfor name, column := range info.Columns {\n\t\tcolumnTypes[name] = column.DataType"
+      },
+      {
+        "path": "source-postgres/backfill.go",
+        "line": 349,
+        "url": "https://github.com/estuary/connectors/blob/262fcee1dab22b57a234e247f8b65b93a7bf0032/source-postgres/backfill.go#L349",
+        "excerpt": "\nfunc (db *postgresDatabase) keylessScanQuery(_ *sqlcapture.DiscoveryInfo, schemaName, tableName, backfillFilter string) string {\n\t// Generate a list of individual WHERE clauses which should be ANDed together\n\tvar whereClauses = []string{\"ctid > $1\", \"ctid <= $2\"}\n\tvar xidFiltered = db.config.Advanced.MinimumBackfillXID != \"\"\n\tif xidFiltered {\n\t\twhereClauses = append(whereClauses, db.backfillQueryFilterXMIN())\n\t}\n\tif backfillFilter != \"\" {\n\t\twhereClauses = append(whereClauses, fmt.Sprintf(\"(%s)\", backfillFilter))\n\t}\n\n\tvar query = new(strings.Builder)"
+      }
+    ]
+  }
+]

@@ -1,5 +1,6 @@
 //! Connector-neutral runtime component registry.
 
+pub mod arrow_examples;
 mod definition;
 pub mod durable;
 mod registry;
@@ -7,7 +8,6 @@ pub mod table_selection;
 mod traits;
 pub mod tuning;
 pub mod type_mapping;
-pub mod arrow_examples;
 mod ui_contract;
 
 pub use definition::{ConnectorDefinition, DeliveryMode, EndpointDefinition, MiddlewareDefinition};

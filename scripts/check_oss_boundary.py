@@ -10,6 +10,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECKER = Path(__file__).resolve()
+# The public repository URL is not an environment-specific identity.
+PUBLIC_REPOSITORY_URL = re.compile(
+    r"https://github\.com/timmyb32r/transferia(?:\.git)?(?=$|[\s)`>#/])"
+)
 FORBIDDEN = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
@@ -55,7 +59,8 @@ def violations(paths: list[Path]) -> list[str]:
         except ValueError:
             label = path
         for number, line in enumerate(text.splitlines(), 1):
-            if any(pattern.search(line) for pattern in FORBIDDEN):
+            checked_line = PUBLIC_REPOSITORY_URL.sub("", line)
+            if any(pattern.search(checked_line) for pattern in FORBIDDEN):
                 errors.append(f"{label}:{number}: {line.strip()}")
     return errors
 

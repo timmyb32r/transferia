@@ -30,7 +30,7 @@
 
 - **Нет** — проверенные конфигурация/контракты/реализация не предоставляют описанную возможность.
 - **Частично** — есть близкая функция, но указанного поведения не хватает. Колонка «Сейчас» объясняет разницу.
-- **T1–T10** — проверяемые доказательства по локальным исходникам в [BASELINE.md](/Users/timmyb32r/cursor/ai/005_rust/docs/research/competitor-gaps-2026-09-19/BASELINE.md). Это не результат одного поиска по ключевому слову.
+- **T1–T10** — проверяемые доказательства по локальным исходникам в [BASELINE.md](../docs/research/competitor-gaps-2026-09-19/BASELINE.md). Это не результат одного поиска по ключевому слову.
 - Приоритет — моя оценка для высокопроизводительной, надёжной **one-way data integration**. Учитываются ущерб от сбоя, частота сценария, throughput/операционная польза и близость к текущему продукту. Номер задаёт убывающую важность; соседние пункты не имеют математически точного превосходства. Для публичного multi-user сервиса № 14 и № 29–30 становятся обязательными до запуска.
 
 ## Какие продукты выбраны
@@ -98,7 +98,7 @@ Migration-first инструменты вроде YugabyteDB Voyager, pgloader, 
 | **12** | **Rate shaping источника/destination**: rows/s, bytes/s, burst и scope per-delivery/table | **Частично**: memory backpressure и batch/concurrency limits есть; общего read-rate limit нет. T6–T8 | Ограничивает ущерб production-БД, не только RAM нашего процесса. [DataX speed controls](https://github.com/alibaba/DataX/blob/master/introduction.md) задают channel/byte/record limits. Общая квота и per-partition квота — разные вещи; burst/scopes — требования к нашему дизайну, не обещание всех этих настроек у DataX. |
 | **13** | **Coordinated savepoint → inspect → restore/drain** как управляемая операция | **Частично**: connector checkpoints и stop/start есть; нет переносимого savepoint artifact и multi-worker barrier. T6–T7 | Обслуживание и обновления без ручного редактирования state. [SeaTunnel REST lifecycle](https://seatunnel.apache.org/docs/engines/zeta/rest-api-job-lifecycle/) документирует savepoint/recovery; эта неприкреплённая страница относится к текущей docs-линии, не обещание поддержки в каждом старом релизе. |
 | **14** | **Authenticated multi-user control plane: SSO/API identity/RBAC** | **Частично** только local safety: loopback, private files, CAS; нет user/resource authorization. T7 | Обязательный барьер перед shared/network deployment. [Fivetran RBAC](https://fivetran.com/docs/using-fivetran/fivetran-dashboard/account-settings/role-based-access-control), [NiFi administration](https://nifi.apache.org/nifi-docs/administration-guide.html). Это расширение local-only продукта, не обвинение localhost-сервера в обходе заявленной модели. |
-| **15** | **Spill больших незавершённых CDC-транзакций на диск** с recovery и лимитом диска | **Нет** общего механизма; MySQL держит bounded transaction buffer и явно отказывает при превышении настроенных limits | Позволяет обрабатывать большие legitimate transactions без увеличения RAM/разрыва atomicity. [HVR agent disk/spill](https://fivetran.com/docs/hvr6/install-and-upgrade/system-requirements/agent-disk-requirements), [capture checkpoints](https://fivetran.com/docs/hvr6/advanced-operations/tuning-capture-checkpoints). Основание у нас: [MySQL stream config](/Users/timmyb32r/cursor/ai/005_rust/crates/transferia-connector-mysql/src/connectors/mysql/src_stream/config.rs). Не подменять spill неявным дроблением транзакции. |
+| **15** | **Spill больших незавершённых CDC-транзакций на диск** с recovery и лимитом диска | **Нет** общего механизма; MySQL держит bounded transaction buffer и явно отказывает при превышении настроенных limits | Позволяет обрабатывать большие legitimate transactions без увеличения RAM/разрыва atomicity. [HVR agent disk/spill](https://fivetran.com/docs/hvr6/install-and-upgrade/system-requirements/agent-disk-requirements), [capture checkpoints](https://fivetran.com/docs/hvr6/advanced-operations/tuning-capture-checkpoints). Основание у нас: [MySQL stream config](../crates/transferia-connector-mysql/src/connectors/mysql/src_stream/config.rs). Не подменять spill неявным дроблением транзакции. |
 | **16** | **Параллельные S3 file/split readers с сохраняемым progress** | **Нет** в текущем S3 source: один logical partition, последовательные objects/active Parquet stream, commit_offsets no-op. T9 | Большой набор файлов упирается в serial extraction. [SeaTunnel S3File 2.3.13](https://seatunnel.apache.org/docs/2.3.13/connectors/source/S3File/) документирует parallelism и snapshot прочитанных splits; [LocalFile](https://seatunnel.apache.org/docs/2.3.13/connectors/source/LocalFile/) отдельно описывает large-file splitting. Parquet row-group splitting — следующий уровень, его не нужно приписывать любому file connector. Нужны stable object/version checks; concurrent S3 uploads у нас уже есть. |
 
 ### II. Полноценные integration pipelines и ежедневная эксплуатация: № 17–36
@@ -199,11 +199,11 @@ Chunked incremental snapshot с последующим согласование�
 
 Полные первичные заметки содержат и **отклонённые/частично реализованные кандидаты**, а не только финальный backlog:
 
-- [План и критерии завершения](/Users/timmyb32r/cursor/ai/005_rust/docs/research/competitor-gaps-2026-09-19/PLAN.md).
-- [Проверенная база Transferia с указателями на код](/Users/timmyb32r/cursor/ai/005_rust/docs/research/competitor-gaps-2026-09-19/BASELINE.md).
-- [Engines/CDC: первичные источники и runtime-аудит](/Users/timmyb32r/cursor/ai/005_rust/docs/research/competitor-gaps-2026-09-19/etl-engines.md).
-- [Dataflows: первичные источники и аудит control plane](/Users/timmyb32r/cursor/ai/005_rust/docs/research/competitor-gaps-2026-09-19/etl-flows.md).
-- [Платформы: первичные источники и ограничения HVR/Striim](/Users/timmyb32r/cursor/ai/005_rust/docs/research/competitor-gaps-2026-09-19/etl-platforms.md).
+- [План и критерии завершения](../docs/research/competitor-gaps-2026-09-19/PLAN.md).
+- [Проверенная база Transferia с указателями на код](../docs/research/competitor-gaps-2026-09-19/BASELINE.md).
+- [Engines/CDC: первичные источники и runtime-аудит](../docs/research/competitor-gaps-2026-09-19/etl-engines.md).
+- [Dataflows: первичные источники и аудит control plane](../docs/research/competitor-gaps-2026-09-19/etl-flows.md).
+- [Платформы: первичные источники и ограничения HVR/Striim](../docs/research/competitor-gaps-2026-09-19/etl-platforms.md).
 
 ### Ограничения выводов
 

@@ -1,0 +1,1013 @@
+[
+  {
+    "key": "transferia-go",
+    "repo": "transferia/transferia",
+    "paths": [
+      "pkg/providers",
+      "library"
+    ]
+  },
+  {
+    "key": "seatunnel",
+    "repo": "apache/seatunnel",
+    "paths": [
+      "seatunnel-connectors-v2",
+      "seatunnel-api",
+      "docs"
+    ]
+  },
+  {
+    "key": "nifi",
+    "repo": "apache/nifi",
+    "paths": [
+      "nifi-extension-bundles/nifi-standard-bundle",
+      "nifi-extension-bundles/nifi-extension-utils"
+    ]
+  },
+  {
+    "key": "inlong",
+    "repo": "apache/inlong",
+    "paths": [
+      "inlong-sort",
+      "inlong-sort-standalone"
+    ]
+  },
+  {
+    "key": "datax",
+    "repo": "alibaba/DataX",
+    "paths": [
+      "common",
+      "plugin-rdbms-util",
+      "postgresqlreader",
+      "mysqlreader",
+      "oraclereader",
+      "sqlserverreader",
+      "hdfsreader"
+    ]
+  },
+  {
+    "key": "chunjun",
+    "repo": "DTStack/chunjun",
+    "paths": [
+      "chunjun-connectors/chunjun-connector-jdbc",
+      "chunjun-connectors/chunjun-connector-mysql",
+      "chunjun-connectors/chunjun-connector-postgresql",
+      "chunjun-connectors/chunjun-connector-jdbc-base"
+    ]
+  },
+  {
+    "key": "hop",
+    "repo": "apache/hop",
+    "paths": [
+      "plugins/transforms/tableinput",
+      "plugins/transforms/generaterows",
+      "plugins/transforms/partitioner",
+      "engine"
+    ]
+  },
+  {
+    "key": "meltano",
+    "repo": "meltano/meltano",
+    "paths": [
+      "src/meltano/core"
+    ]
+  },
+  {
+    "key": "singer-sdk",
+    "repo": "meltano/sdk",
+    "paths": [
+      "singer_sdk"
+    ]
+  },
+  {
+    "key": "dlt",
+    "repo": "dlt-hub/dlt",
+    "paths": [
+      "dlt/sources",
+      "dlt/extract"
+    ]
+  },
+  {
+    "key": "sling",
+    "repo": "slingdata-io/sling-cli",
+    "paths": [
+      "core"
+    ]
+  },
+  {
+    "key": "ingestr",
+    "repo": "bruin-data/ingestr",
+    "paths": [
+      "ingestr"
+    ]
+  },
+  {
+    "key": "mage",
+    "repo": "mage-ai/mage-ai",
+    "paths": [
+      "mage_ai/io",
+      "mage_ai/data_integrations"
+    ]
+  },
+  {
+    "key": "embulk",
+    "repo": "embulk/embulk",
+    "paths": [
+      "embulk-core"
+    ]
+  },
+  {
+    "key": "embulk-jdbc",
+    "repo": "embulk/embulk-input-jdbc",
+    "paths": []
+  },
+  {
+    "key": "singer-postgres",
+    "repo": "singer-io/tap-postgres",
+    "paths": []
+  },
+  {
+    "key": "gobblin",
+    "repo": "apache/gobblin",
+    "paths": [
+      "gobblin-core",
+      "gobblin-modules/gobblin-kafka-08",
+      "gobblin-salesforce"
+    ]
+  },
+  {
+    "key": "debezium",
+    "repo": "debezium/debezium",
+    "paths": [
+      "debezium-core/src/main",
+      "debezium-connector-mysql/src/main",
+      "debezium-connector-postgres/src/main",
+      "debezium-connector-oracle/src/main",
+      "debezium-connector-common/src/main",
+      "debezium-connector-binlog/src/main"
+    ]
+  },
+  {
+    "key": "flink-cdc",
+    "repo": "apache/flink-cdc",
+    "paths": [
+      "flink-cdc-connect",
+      "docs"
+    ]
+  },
+  {
+    "key": "symmetricds",
+    "repo": "JumpMind/symmetric-ds",
+    "paths": [
+      "symmetric-server",
+      "symmetric-core"
+    ]
+  },
+  {
+    "key": "peerdb",
+    "repo": "PeerDB-io/peerdb",
+    "paths": [
+      "flow"
+    ]
+  },
+  {
+    "key": "sequin",
+    "repo": "sequinstream/sequin",
+    "paths": [
+      "lib"
+    ]
+  },
+  {
+    "key": "dsync",
+    "repo": "adiom-data/dsync",
+    "paths": [
+      "connectors",
+      "protocol",
+      "coordinators"
+    ]
+  },
+  {
+    "key": "pgstream",
+    "repo": "xataio/pgstream",
+    "paths": [
+      "pkg",
+      "internal"
+    ]
+  },
+  {
+    "key": "canal",
+    "repo": "alibaba/canal",
+    "paths": [
+      "parse"
+    ]
+  },
+  {
+    "key": "maxwell",
+    "repo": "zendesk/maxwell",
+    "paths": [
+      "src/main"
+    ]
+  },
+  {
+    "key": "hudi",
+    "repo": "apache/hudi",
+    "paths": [
+      "hudi-utilities/src/main"
+    ]
+  },
+  {
+    "key": "paimon",
+    "repo": "apache/paimon",
+    "paths": [
+      "paimon-core/src/main",
+      "paimon-flink",
+      "paimon-common/src/main"
+    ]
+  },
+  {
+    "key": "fluss",
+    "repo": "apache/fluss",
+    "paths": [
+      "fluss-flink",
+      "fluss-common/src/main"
+    ]
+  },
+  {
+    "key": "postgres",
+    "repo": "postgres/postgres",
+    "paths": [
+      "src/backend/replication",
+      "src/bin/pg_dump",
+      "src/backend/access/heap"
+    ]
+  },
+  {
+    "key": "pglogical",
+    "repo": "2ndQuadrant/pglogical",
+    "paths": []
+  },
+  {
+    "key": "wal2json",
+    "repo": "eulerto/wal2json",
+    "paths": []
+  },
+  {
+    "key": "bucardo",
+    "repo": "bucardo/bucardo",
+    "paths": []
+  },
+  {
+    "key": "ticdc",
+    "repo": "pingcap/ticdc",
+    "paths": [
+      "cdc",
+      "downstreamadapter",
+      "logservice",
+      "pkg",
+      "dm"
+    ]
+  },
+  {
+    "key": "tiflow",
+    "repo": "pingcap/tiflow",
+    "paths": [
+      "dm",
+      "dumpling",
+      "cdc/entry"
+    ]
+  },
+  {
+    "key": "kafka",
+    "repo": "apache/kafka",
+    "paths": [
+      "connect",
+      "streams/src/main"
+    ]
+  },
+  {
+    "key": "bento",
+    "repo": "warpstreamlabs/bento",
+    "paths": [
+      "internal/impl/sql",
+      "internal/impl/postgresql",
+      "internal/impl"
+    ]
+  },
+  {
+    "key": "pulsar",
+    "repo": "apache/pulsar",
+    "paths": [
+      "pulsar-io"
+    ]
+  },
+  {
+    "key": "camel",
+    "repo": "apache/camel",
+    "paths": [
+      "components/camel-sql",
+      "components/camel-jdbc"
+    ]
+  },
+  {
+    "key": "spring-stream",
+    "repo": "spring-cloud/spring-cloud-stream",
+    "paths": [
+      "core"
+    ]
+  },
+  {
+    "key": "pekko",
+    "repo": "apache/pekko-connectors",
+    "paths": [
+      "jdbc",
+      "slick",
+      "cassandra"
+    ]
+  },
+  {
+    "key": "rabbitmq",
+    "repo": "rabbitmq/rabbitmq-server",
+    "paths": [
+      "deps/rabbitmq_shovel"
+    ]
+  },
+  {
+    "key": "nats",
+    "repo": "nats-io/nats-server",
+    "paths": [
+      "server"
+    ]
+  },
+  {
+    "key": "spark",
+    "repo": "apache/spark",
+    "paths": [
+      "sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc",
+      "sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/v2/jdbc"
+    ]
+  },
+  {
+    "key": "flink",
+    "repo": "apache/flink",
+    "paths": [
+      "flink-core/src/main",
+      "flink-connectors"
+    ]
+  },
+  {
+    "key": "flink-jdbc",
+    "repo": "apache/flink-connector-jdbc",
+    "paths": []
+  },
+  {
+    "key": "beam",
+    "repo": "apache/beam",
+    "paths": [
+      "sdks/java/io/jdbc",
+      "sdks/java/io/hadoop-format",
+      "sdks/python/apache_beam/io"
+    ]
+  },
+  {
+    "key": "risingwave",
+    "repo": "risingwavelabs/risingwave",
+    "paths": [
+      "src/connector",
+      "src/stream/src/executor/backfill"
+    ]
+  },
+  {
+    "key": "feldera",
+    "repo": "feldera/feldera",
+    "paths": [
+      "crates/adapters/src",
+      "docs"
+    ]
+  },
+  {
+    "key": "quix",
+    "repo": "quixio/quix-streams",
+    "paths": [
+      "quixstreams/sources"
+    ]
+  },
+  {
+    "key": "storm",
+    "repo": "apache/storm",
+    "paths": [
+      "external/storm-jdbc",
+      "storm-client/src/jvm/org/apache/storm/topology"
+    ]
+  },
+  {
+    "key": "ekuiper",
+    "repo": "lf-edge/ekuiper",
+    "paths": [
+      "internal/io",
+      "extensions/sources"
+    ]
+  },
+  {
+    "key": "node-red",
+    "repo": "node-red/node-red",
+    "paths": [
+      "packages/node_modules/@node-red/nodes"
+    ]
+  },
+  {
+    "key": "streampipes",
+    "repo": "apache/streampipes",
+    "paths": [
+      "streampipes-extensions"
+    ]
+  },
+  {
+    "key": "vector",
+    "repo": "vectordotdev/vector",
+    "paths": [
+      "src/sources"
+    ]
+  },
+  {
+    "key": "fluent-bit",
+    "repo": "fluent/fluent-bit",
+    "paths": [
+      "plugins"
+    ]
+  },
+  {
+    "key": "fluentd",
+    "repo": "fluent/fluentd",
+    "paths": [
+      "lib/fluent/plugin"
+    ]
+  },
+  {
+    "key": "otel",
+    "repo": "open-telemetry/opentelemetry-collector",
+    "paths": [
+      "receiver"
+    ]
+  },
+  {
+    "key": "otel-contrib",
+    "repo": "open-telemetry/opentelemetry-collector-contrib",
+    "paths": [
+      "receiver/sqlqueryreceiver",
+      "receiver/postgresqlreceiver"
+    ]
+  },
+  {
+    "key": "alloy",
+    "repo": "grafana/alloy",
+    "paths": [
+      "internal/component"
+    ]
+  },
+  {
+    "key": "data-prepper",
+    "repo": "opensearch-project/data-prepper",
+    "paths": [
+      "data-prepper-plugins/rds-source",
+      "data-prepper-plugins/jdbc-source",
+      "data-prepper-plugins/s3-source"
+    ]
+  },
+  {
+    "key": "syslog-ng",
+    "repo": "syslog-ng/syslog-ng",
+    "paths": [
+      "modules"
+    ]
+  },
+  {
+    "key": "rsyslog",
+    "repo": "rsyslog/rsyslog",
+    "paths": [
+      "plugins"
+    ]
+  },
+  {
+    "key": "multiwoven",
+    "repo": "Multiwoven/multiwoven",
+    "paths": [
+      "integrations",
+      "server"
+    ]
+  },
+  {
+    "key": "wso2",
+    "repo": "wso2/product-micro-integrator",
+    "paths": [
+      "components"
+    ]
+  },
+  {
+    "key": "activepieces",
+    "repo": "activepieces/activepieces",
+    "paths": [
+      "packages/pieces/community/postgres",
+      "packages/pieces/community/mysql",
+      "packages/shared"
+    ]
+  },
+  {
+    "key": "rclone",
+    "repo": "rclone/rclone",
+    "paths": [
+      "fs/operations",
+      "backend"
+    ]
+  },
+  {
+    "key": "rsync",
+    "repo": "RsyncProject/rsync",
+    "paths": []
+  },
+  {
+    "key": "pgloader",
+    "repo": "dimitri/pgloader",
+    "paths": [
+      "src"
+    ]
+  },
+  {
+    "key": "pgcopydb",
+    "repo": "dimitri/pgcopydb",
+    "paths": [
+      "src"
+    ]
+  },
+  {
+    "key": "ora2pg",
+    "repo": "darold/ora2pg",
+    "paths": [
+      "lib"
+    ]
+  },
+  {
+    "key": "mydumper",
+    "repo": "mydumper/mydumper",
+    "paths": [
+      "src"
+    ]
+  },
+  {
+    "key": "mysql-shell",
+    "repo": "mysql/mysql-shell",
+    "paths": [
+      "modules/util/dump",
+      "mysqlshdk/libs"
+    ]
+  },
+  {
+    "key": "airflow",
+    "repo": "apache/airflow",
+    "paths": [
+      "providers/postgres",
+      "providers/common/sql",
+      "airflow-core/src/airflow/models"
+    ]
+  },
+  {
+    "key": "dagster",
+    "repo": "dagster-io/dagster",
+    "paths": [
+      "python_modules/dagster/dagster/_core/definitions"
+    ]
+  },
+  {
+    "key": "prefect",
+    "repo": "PrefectHQ/prefect",
+    "paths": [
+      "src/prefect"
+    ]
+  },
+  {
+    "key": "kestra",
+    "repo": "kestra-io/kestra",
+    "paths": [
+      "core/src/main"
+    ]
+  },
+  {
+    "key": "kestra-jdbc",
+    "repo": "kestra-io/plugin-jdbc",
+    "paths": [
+      "plugin-jdbc",
+      "plugin-jdbc-postgres"
+    ]
+  },
+  {
+    "key": "dolphinscheduler",
+    "repo": "apache/dolphinscheduler",
+    "paths": [
+      "dolphinscheduler-task-plugin/dolphinscheduler-task-sql",
+      "dolphinscheduler-task-plugin/dolphinscheduler-task-datax"
+    ]
+  },
+  {
+    "key": "argo",
+    "repo": "argoproj/argo-workflows",
+    "paths": [
+      "workflow/controller"
+    ]
+  },
+  {
+    "key": "flyte",
+    "repo": "flyteorg/flyte",
+    "paths": [
+      "flyteidl",
+      "flyteplugins",
+      "flytepropeller"
+    ]
+  },
+  {
+    "key": "luigi",
+    "repo": "spotify/luigi",
+    "paths": [
+      "luigi/contrib"
+    ]
+  },
+  {
+    "key": "digdag",
+    "repo": "treasure-data/digdag",
+    "paths": [
+      "digdag-standards"
+    ]
+  },
+  {
+    "key": "bruin",
+    "repo": "bruin-data/bruin",
+    "paths": [
+      "pkg"
+    ]
+  },
+  {
+    "key": "streampark",
+    "repo": "apache/streampark",
+    "paths": [
+      "streampark-flink"
+    ]
+  },
+  {
+    "key": "dinky",
+    "repo": "DataLinkDC/dinky",
+    "paths": [
+      "dinky-cdc",
+      "dinky-connectors"
+    ]
+  },
+  {
+    "key": "daft",
+    "repo": "Eventual-Inc/Daft",
+    "paths": [
+      "daft/io",
+      "src/daft-scan",
+      "daft/sql"
+    ]
+  },
+  {
+    "key": "ray",
+    "repo": "ray-project/ray",
+    "paths": [
+      "python/ray/data/datasource",
+      "python/ray/data/_internal/datasource"
+    ]
+  },
+  {
+    "key": "dask",
+    "repo": "dask/dask",
+    "paths": [
+      "dask/dataframe/io"
+    ]
+  },
+  {
+    "key": "polars",
+    "repo": "pola-rs/polars",
+    "paths": [
+      "py-polars/src/polars/io/database",
+      "crates/polars-io/src"
+    ]
+  },
+  {
+    "key": "connectorx",
+    "repo": "sfu-db/connector-x",
+    "paths": [
+      "connectorx/src"
+    ]
+  },
+  {
+    "key": "duckdb",
+    "repo": "duckdb/duckdb",
+    "paths": [
+      "src/storage",
+      "src/function/table"
+    ]
+  },
+  {
+    "key": "duckdb-postgres",
+    "repo": "duckdb/postgres_scanner",
+    "paths": [
+      "src"
+    ]
+  },
+  {
+    "key": "dbt",
+    "repo": "dbt-labs/dbt-core",
+    "paths": [
+      "crates"
+    ]
+  },
+  {
+    "key": "sqlmesh",
+    "repo": "TobikoData/sqlmesh",
+    "paths": [
+      "sqlmesh/core"
+    ]
+  },
+  {
+    "key": "trino",
+    "repo": "trinodb/trino",
+    "paths": [
+      "plugin/trino-base-jdbc",
+      "plugin/trino-postgresql",
+      "plugin/trino-mysql"
+    ]
+  },
+  {
+    "key": "sqoop",
+    "repo": "apache/sqoop",
+    "paths": [
+      "src/java/org/apache/sqoop/mapreduce",
+      "src/java/org/apache/sqoop/manager"
+    ]
+  },
+  {
+    "key": "apex",
+    "repo": "apache/apex-core",
+    "paths": [
+      "engine/src/main"
+    ]
+  },
+  {
+    "key": "apex-malhar",
+    "repo": "apache/apex-malhar",
+    "paths": [
+      "contrib/src/main/java/com/datatorrent/contrib/db",
+      "library/src/main/java/org/apache/apex/malhar/lib/db"
+    ]
+  },
+  {
+    "key": "samza",
+    "repo": "apache/samza",
+    "paths": [
+      "samza-core/src/main"
+    ]
+  },
+  {
+    "key": "flume",
+    "repo": "apache/flume",
+    "paths": [
+      "flume-ng-core/src/main"
+    ]
+  },
+  {
+    "key": "heron",
+    "repo": "apache/incubator-heron",
+    "paths": [
+      "heron/spi"
+    ]
+  },
+  {
+    "key": "bytewax",
+    "repo": "bytewax/bytewax",
+    "paths": [
+      "pysrc/bytewax/connectors"
+    ]
+  },
+  {
+    "key": "pg-flo",
+    "repo": "shayonj/pg_flo",
+    "paths": [
+      "pkg"
+    ]
+  },
+  {
+    "key": "grouparoo",
+    "repo": "grouparoo/grouparoo",
+    "paths": [
+      "plugins"
+    ]
+  },
+  {
+    "key": "cloudquery",
+    "repo": "cloudquery/cloudquery",
+    "paths": [
+      "cli",
+      "plugins"
+    ]
+  },
+  {
+    "key": "pentaho",
+    "repo": "pentaho/pentaho-kettle",
+    "paths": [
+      "engine/src/main/java/org/pentaho/di/trans/steps/tableinput",
+      "engine/src/main/java/org/pentaho/di/trans/steps"
+    ]
+  },
+  {
+    "key": "knime",
+    "repo": "knime-oss/knime-database",
+    "paths": [
+      "org.knime.database"
+    ]
+  },
+  {
+    "key": "artie",
+    "repo": "artie-labs/transfer",
+    "paths": [
+      "lib",
+      "clients"
+    ]
+  },
+  {
+    "key": "spock",
+    "repo": "pgEdge/spock",
+    "paths": []
+  },
+  {
+    "key": "yugabyte",
+    "repo": "yugabyte/yugabyte-db",
+    "paths": [
+      "src/yb/cdc",
+      "src/yb/client",
+      "src/yb/tserver"
+    ]
+  },
+  {
+    "key": "confluent-jdbc",
+    "repo": "confluentinc/kafka-connect-jdbc",
+    "paths": [
+      "src/main"
+    ]
+  },
+  {
+    "key": "redpanda-connect",
+    "repo": "redpanda-data/connect",
+    "paths": [
+      "internal/impl/postgresql",
+      "internal/impl/sql",
+      "licenses"
+    ]
+  },
+  {
+    "key": "alpakka",
+    "repo": "akka/alpakka",
+    "paths": [
+      "jdbc",
+      "slick"
+    ]
+  },
+  {
+    "key": "proton",
+    "repo": "timeplus-io/proton",
+    "paths": [
+      "src/Storages/PostgreSQL",
+      "src/Storages/ExternalStream"
+    ]
+  },
+  {
+    "key": "pathway",
+    "repo": "pathwaycom/pathway",
+    "paths": [
+      "python/pathway/io",
+      "src/connectors"
+    ]
+  },
+  {
+    "key": "hazelcast",
+    "repo": "hazelcast/hazelcast",
+    "paths": [
+      "hazelcast/src/main/java/com/hazelcast/jet"
+    ]
+  },
+  {
+    "key": "emqx",
+    "repo": "emqx/emqx",
+    "paths": [
+      "apps/emqx_bridge_pgsql",
+      "apps/emqx_bridge_mysql"
+    ]
+  },
+  {
+    "key": "hivemq",
+    "repo": "hivemq/hivemq-community-edition",
+    "paths": [
+      "src/main"
+    ]
+  },
+  {
+    "key": "logstash",
+    "repo": "elastic/logstash",
+    "paths": [
+      "logstash-core/lib"
+    ]
+  },
+  {
+    "key": "logstash-jdbc",
+    "repo": "logstash-plugins/logstash-integration-jdbc",
+    "paths": [
+      "lib"
+    ]
+  },
+  {
+    "key": "bindplane",
+    "repo": "observIQ/bindplane-op",
+    "paths": []
+  },
+  {
+    "key": "tenzir",
+    "repo": "tenzir/tenzir",
+    "paths": [
+      "plugins"
+    ]
+  },
+  {
+    "key": "rudderstack",
+    "repo": "rudderlabs/rudder-server",
+    "paths": [
+      "processor",
+      "router"
+    ]
+  },
+  {
+    "key": "snowplow",
+    "repo": "snowplow/snowplow",
+    "paths": []
+  },
+  {
+    "key": "owox",
+    "repo": "OWOX/owox-data-marts",
+    "paths": [
+      "apps"
+    ]
+  },
+  {
+    "key": "pipedream",
+    "repo": "PipedreamHQ/pipedream",
+    "paths": [
+      "components/postgresql",
+      "components/mysql"
+    ]
+  },
+  {
+    "key": "sqlines",
+    "repo": "dmtolpeko/sqlines",
+    "paths": [
+      "sqlines",
+      "sqlparser",
+      "sqldata"
+    ]
+  },
+  {
+    "key": "dremio",
+    "repo": "dremio/dremio-oss",
+    "paths": [
+      "plugins/jdbc",
+      "plugins/postgres",
+      "plugins/elasticsearch"
+    ]
+  },
+  {
+    "key": "estuary-connectors",
+    "repo": "estuary/connectors",
+    "paths": [
+      "source-postgres",
+      "source-mysql",
+      "sqlcapture"
+    ]
+  },
+  {
+    "key": "spring-dataflow",
+    "repo": "spring-cloud/spring-cloud-dataflow",
+    "paths": [
+      "spring-cloud-dataflow-server-core"
+    ]
+  },
+  {
+    "key": "talend",
+    "repo": "Talend/tdi-studio-se",
+    "paths": [
+      "main/plugins/org.talend.designer.components.localprovider/components/tMysqlInput",
+      "main/plugins/org.talend.designer.components.localprovider/components/tPartitioner"
+    ]
+  },
+  {
+    "key": "dumpling",
+    "repo": "pingcap/tidb",
+    "paths": [
+      "dumpling/export"
+    ]
+  }
+]

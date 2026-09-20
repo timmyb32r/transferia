@@ -1,0 +1,654 @@
+[
+  {
+    "key": "dlt",
+    "title": "dlt: SQLDatabase и backend ConnectorX",
+    "mechanism": "Обычный SQLAlchemy backend выполняет один SELECT и режет уже полученный CursorResult на batch по chunk_size. Это ограничение памяти/размера выдачи, а не несколько независимых range-reader. Альтернативный ConnectorXTableLoader передаёт backend_kwargs в cx.read_sql; следовательно, параметры разбиения ConnectorX могут передаваться этому движку. Собственный универсальный SQL range planner в просмотренном TableLoader не обнаружен.",
+    "evaluation": "Один курсор — простое потоковое чтение без N повторных запросов, но без intra-table read parallelism. Через ConnectorX можно получить его parallel ranges; применимость зависит от ConnectorX, типа ключа и настроек. Нельзя считать chunk_size числом SQL-партиций.",
+    "references": [
+      {
+        "key": "dlt",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/dlt/dlt/sources/sql_database/helpers.py",
+        "path": "dlt/sources/sql_database/helpers.py",
+        "line": 301,
+        "commit": "3ec3cfcaa6312bf2136f6750494d7cc3075ebf37",
+        "url": "https://github.com/dlt-hub/dlt/blob/3ec3cfcaa6312bf2136f6750494d7cc3075ebf37/dlt/sources/sql_database/helpers.py#L301",
+        "excerpt": "        \"\"\"\n        with self.engine.connect() as conn:\n            result = conn.execution_options(yield_per=self.chunk_size).execute(query)\n            try:\n                yield from self._convert_result(result, backend_kwargs)\n            finally:\n                result.close()\n"
+      },
+      {
+        "key": "dlt",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/dlt/dlt/sources/sql_database/helpers.py",
+        "path": "dlt/sources/sql_database/helpers.py",
+        "line": 394,
+        "commit": "3ec3cfcaa6312bf2136f6750494d7cc3075ebf37",
+        "url": "https://github.com/dlt-hub/dlt/blob/3ec3cfcaa6312bf2136f6750494d7cc3075ebf37/dlt/sources/sql_database/helpers.py#L394",
+        "excerpt": "                yield cast_connectorx_temporal_columns(_maybe_fix_0000_timezone(table))\n        else:\n            df = cx.read_sql(conn, query_str, **backend_kwargs)\n            if len(df) > self.chunk_size:\n                logger.info(\n                    f\"The size of the dataset being loaded is more than {self.chunk_size},\"\n                    \" consider using streaming mode (see\"\n                    \" https://dlthub.com/docs/dlt-ecosystem/verified-sources/sql_database\""
+      }
+    ]
+  },
+  {
+    "key": "embulk-jdbc",
+    "title": "Embulk JDBC",
+    "mechanism": "Базовый AbstractJdbcInputPlugin при transaction передаёт control.run(..., schema, 1): один input task. Incremental-позиция/последний ключ и fetchSize не превращают этот task в несколько range scans. Вывод относится к данному JDBC plugin, а не к любому пользовательскому Embulk input.",
+    "evaluation": "Невысокая нагрузка на источник и простой курсор. Параллелизм output/обработки не устраняет предел одного source task; чтобы поделить одну таблицу, нужен другой plugin или явно разнесённые SQL-задания.",
+    "references": [
+      {
+        "key": "embulk-jdbc",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/embulk-jdbc/embulk-input-jdbc/src/main/java/org/embulk/input/jdbc/AbstractJdbcInputPlugin.java",
+        "path": "embulk-input-jdbc/src/main/java/org/embulk/input/jdbc/AbstractJdbcInputPlugin.java",
+        "line": 230,
+        "commit": "a23b50ef3c74b03a2f4186a4ce0fe00e8ab1b4c9",
+        "url": "https://github.com/embulk/embulk-input-jdbc/blob/a23b50ef3c74b03a2f4186a4ce0fe00e8ab1b4c9/embulk-input-jdbc/src/main/java/org/embulk/input/jdbc/AbstractJdbcInputPlugin.java#L230",
+        "excerpt": "        }\n\n        return buildNextConfigDiff(task, control.run(task.dump(), schema, 1));\n    }\n\n    protected Schema setupTask(JdbcInputConnection con, PluginTask task) throws SQLException\n    {\n        if (task.getTable().isPresent()) {"
+      }
+    ]
+  },
+  {
+    "key": "hudi",
+    "title": "Apache Hudi Streamer JDBC",
+    "mechanism": "JdbcSource принимает hoodie.streamer.jdbc.extra.options.* и передаёт опции Spark DataFrameReader. В том числе документирует lowerBound/upperBound. Разбиение JDBC-чтения делегируется Spark; это не самостоятельный Hudi splitter. Разбиение собственных Hudi snapshot/file groups — отдельный слой.",
+    "evaluation": "Переиспользует зрелый Spark JDBC parallel read. Нужны корректные partitionColumn/numPartitions/bounds и управление snapshot на стороне источника; равные интервалы значений наследуют перекос Spark. Не путать с Hudi output partition path.",
+    "references": [
+      {
+        "key": "hudi",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/hudi/hudi-utilities/src/main/java/org/apache/hudi/utilities/sources/JdbcSource.java",
+        "path": "hudi-utilities/src/main/java/org/apache/hudi/utilities/sources/JdbcSource.java",
+        "line": 131,
+        "commit": "fc3c08a0b22f4b58f8b2ba92b2fc725a482535bc",
+        "url": "https://github.com/apache/hudi/blob/fc3c08a0b22f4b58f8b2ba92b2fc725a482535bc/hudi-utilities/src/main/java/org/apache/hudi/utilities/sources/JdbcSource.java#L131",
+        "excerpt": "\n  /**\n   * Accepts spark JDBC options from the user in terms of EXTRA_OPTIONS adds them to {@link DataFrameReader} Example: In\n   * a normal spark code you would do something like: session.read.format('jdbc') .option(fetchSize,1000)\n   * .option(timestampFormat,\"yyyy-mm-dd hh:mm:ss\")\n   * <p>\n   * The way to pass these properties to HUDI is through the config file. Any property starting with\n   * hoodie.streamer.jdbc.extra.options. will be added."
+      },
+      {
+        "key": "hudi",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/hudi/hudi-utilities/src/main/java/org/apache/hudi/utilities/sources/JdbcSource.java",
+        "path": "hudi-utilities/src/main/java/org/apache/hudi/utilities/sources/JdbcSource.java",
+        "line": 155,
+        "commit": "fc3c08a0b22f4b58f8b2ba92b2fc725a482535bc",
+        "url": "https://github.com/apache/hudi/blob/fc3c08a0b22f4b58f8b2ba92b2fc725a482535bc/hudi-utilities/src/main/java/org/apache/hudi/utilities/sources/JdbcSource.java#L155",
+        "excerpt": "        if (!StringUtils.isNullOrEmpty(value)) {\n          log.info(\"Adding {} -> {} to jdbc options\", key, value);\n          dataFrameReader.option(key, value);\n        }\n      }\n    }\n  }\n"
+      }
+    ]
+  },
+  {
+    "key": "symmetricds",
+    "title": "SymmetricDS initial load",
+    "mechanism": "SelectFromTableSource строит initial-load SQL, допускающий override/WHERE, и читает queryForCursor. В DataExtractorService одна reload-выборка сознательно разбивается MultiBatchStagingWriter на N outgoing batches. Это подтверждённое разбиение транспортной выдачи; автоматически вычисленных непересекающихся диапазонов source-table в этом пути нет.",
+    "evaluation": "Пакеты помогают доставке/retry и ограничению размера сообщений. Они не доказывают parallel source scan. Явные initial-load predicates дают пользовательский отбор, но их полноту и непересечение нельзя приписать автоматическому планировщику. OSS core: AGPLv3 по README; коммерческие расширения оцениваются отдельно.",
+    "references": [
+      {
+        "key": "symmetricds",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/symmetricds/symmetric-core/src/main/java/org/jumpmind/symmetric/extract/SelectFromTableSource.java",
+        "path": "symmetric-core/src/main/java/org/jumpmind/symmetric/extract/SelectFromTableSource.java",
+        "line": 316,
+        "commit": "e02b4782f8398f0ddacbd497e74d9aaf190a977b",
+        "url": "https://github.com/JumpMind/symmetric-ds/blob/e02b4782f8398f0ddacbd497e74d9aaf190a977b/symmetric-core/src/main/java/org/jumpmind/symmetric/extract/SelectFromTableSource.java#L316",
+        "excerpt": "\n    protected ISqlReadCursor<Data> createCursor(ISymmetricDialect symmetricDialectToUse, SelectFromTableOptions options) {\n        return symmetricDialectToUse.getPlatform().getSqlTemplate().queryForCursor(options.getInitialLoadSql(), new ISqlRowMapper<Data>() {\n            public Data mapRow(Row row) {\n                if (options.isCheckRowLength()) {\n                    // Account for double byte characters and encoding\n                    long rowSize = row.getLength() * 2;\n                    if (rowSize > options.getRowMaxLength()) {"
+      },
+      {
+        "key": "symmetricds",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/symmetricds/symmetric-core/src/main/java/org/jumpmind/symmetric/service/impl/DataExtractorService.java",
+        "path": "symmetric-core/src/main/java/org/jumpmind/symmetric/service/impl/DataExtractorService.java",
+        "line": 2041,
+        "commit": "e02b4782f8398f0ddacbd497e74d9aaf190a977b",
+        "url": "https://github.com/JumpMind/symmetric-ds/blob/e02b4782f8398f0ddacbd497e74d9aaf190a977b/symmetric-core/src/main/java/org/jumpmind/symmetric/service/impl/DataExtractorService.java#L2041",
+        "excerpt": "                    Channel channel = configurationService.getChannel(batches.get(0).getChannelId());\n                    /*\n                     * \"Trick\" the extractor to extract one reload batch, but we will split it across the N batches when writing it\n                     */\n                    OutgoingBatch firstBatch = batches.get(0);\n                    processInfo.setCurrentLoadId(firstBatch.getLoadId());\n                    processInfo.setStatus(ProcessStatus.QUERYING);\n                    if (isRestarted) {"
+      }
+    ]
+  },
+  {
+    "key": "hop",
+    "title": "Apache Hop: TableInput и ModPartitioner",
+    "mechanism": "TableInput исполняет авторский SQL (включая параметры) через openQuery. ModPartitioner распределяет уже прочитанные строки по Math.abs(value) % nrPartitions, используя значение либо hash. Это параллелизм pipeline после SQL-чтения. Пользователь может задать разные WHERE для разных SQL-заданий; автоматического вычисления границ в рассмотренном TableInput нет.",
+    "evaluation": "Mod/hash после чтения полезен для downstream CPU, но не ускоряет исходный SELECT. Ручные SQL ranges гибки, зато snapshot и отсутствие пересечений обязан обеспечить автор pipeline.",
+    "references": [
+      {
+        "key": "hop",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/hop/plugins/transforms/tableinput/src/main/java/org/apache/hop/pipeline/transforms/tableinput/TableInput.java",
+        "path": "plugins/transforms/tableinput/src/main/java/org/apache/hop/pipeline/transforms/tableinput/TableInput.java",
+        "line": 246,
+        "commit": "40d77549c8f460320def782cc0f7d41433e1eeec",
+        "url": "https://github.com/apache/hop/blob/40d77549c8f460320def782cc0f7d41433e1eeec/plugins/transforms/tableinput/src/main/java/org/apache/hop/pipeline/transforms/tableinput/TableInput.java#L246",
+        "excerpt": "        data.rs = data.db.openQuery(sql, null, null, ResultSet.FETCH_FORWARD, false);\n      } else {\n        data.rs = data.db.openQuery(sql, boundMeta, boundData, ResultSet.FETCH_FORWARD, false);\n      }\n    } catch (HopDatabaseException ex) {\n      Throwable root = ex.getCause();\n      if (root instanceof SQLException) {\n        logError("
+      },
+      {
+        "key": "hop",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/hop/engine/src/main/java/org/apache/hop/pipeline/ModPartitioner.java",
+        "path": "engine/src/main/java/org/apache/hop/pipeline/ModPartitioner.java",
+        "line": 107,
+        "commit": "40d77549c8f460320def782cc0f7d41433e1eeec",
+        "url": "https://github.com/apache/hop/blob/40d77549c8f460320def782cc0f7d41433e1eeec/engine/src/main/java/org/apache/hop/pipeline/ModPartitioner.java#L107",
+        "excerpt": "    }\n\n    return (int) (Math.abs(value) % nrPartitions);\n  }\n\n  @Override\n  public String getDescription() {\n    String description = \"Mod partitioner\";"
+      }
+    ]
+  },
+  {
+    "key": "knime",
+    "title": "KNIME Database Reader",
+    "mechanism": "Проверенный DefaultDBReader выполняет SQLQuery одним Statement.executeQuery и обрабатывает ResultSet в локальной транзакции. Здесь нет автоматически порождённых range-запросов. Это не исключает построения нескольких SQL-query узлов/циклов пользователем или возможностей других KNIME extensions.",
+    "evaluation": "Простое семантически явное чтение одного запроса; распараллеливание workflow само по себе не означает partitioned extraction. Для ручных диапазонов нужны стабильные границы и общий snapshot. Модуль knime-database распространяется под GPLv3 с additional permissions, не под лицензией всего коммерческого продукта.",
+    "references": [
+      {
+        "key": "knime",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/knime/org.knime.database/src/org/knime/database/agent/reader/impl/DefaultDBReader.java",
+        "path": "org.knime.database/src/org/knime/database/agent/reader/impl/DefaultDBReader.java",
+        "line": 154,
+        "commit": "43942fd089a7ff2be8ff23c3b586cc02ff1a85ab",
+        "url": "https://github.com/knime-oss/knime-database/blob/43942fd089a7ff2be8ff23c3b586cc02ff1a85ab/org.knime.database/src/org/knime/database/agent/reader/impl/DefaultDBReader.java#L154",
+        "excerpt": "                LocalTransaction localTransaction = connection.beginLocalTransaction(ROLLBACK);\n                Statement stmt = connection.createStatement();\n                ResultSet rs = stmt.executeQuery(query.getQuery());\n                DBRowOutput result = readResult(exec, fileStoreFactory, rs, externalToKnime, 0)) {\n            return function.apply(result);\n        }\n    }\n"
+      },
+      {
+        "key": "knime",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/knime/org.knime.database/LICENSE.txt",
+        "path": "org.knime.database/LICENSE.txt",
+        "line": 2,
+        "commit": "43942fd089a7ff2be8ff23c3b586cc02ff1a85ab",
+        "url": "https://github.com/knime-oss/knime-database/blob/43942fd089a7ff2be8ff23c3b586cc02ff1a85ab/org.knime.database/LICENSE.txt#L2",
+        "excerpt": "\nPlease see below the General Public License (GPL), Version 3, \nand the Additional Permissions according to Sec. 7 \napplying to the files in this folder:\n\n*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** *** *** *** *** *** \n"
+      }
+    ]
+  },
+  {
+    "key": "logstash-jdbc",
+    "title": "Logstash JDBC integration",
+    "mechanism": "Auto paging использует Sequel each_page; explicit paging последовательно подставляет offset/size и прибавляет offset на jdbc_page_size, пока страница полная. Это последовательная пагинация одного input, а не P конкурентных source ranges. Пользовательский SQL/несколько inputs могут реализовать своё разбиение.",
+    "evaluation": "Память ограничивается страницей. OFFSET на больших таблицах может многократно перечитывать префиксы; необходим детерминированный ORDER BY, а при изменениях между запросами возможны сдвиги страниц. Apache-2.0 лицензия проверена для integration-jdbc, а не автоматически для всех компонентов Logstash.",
+    "references": [
+      {
+        "key": "logstash-jdbc",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/logstash-jdbc/lib/logstash/plugin_mixins/jdbc/statement_handler.rb",
+        "path": "lib/logstash/plugin_mixins/jdbc/statement_handler.rb",
+        "line": 86,
+        "commit": "f7586e67912852d5c5a6ec0f4db5f4a4f30e7806",
+        "url": "https://github.com/logstash-plugins/logstash-integration-jdbc/blob/f7586e67912852d5c5a6ec0f4db5f4a4f30e7806/lib/logstash/plugin_mixins/jdbc/statement_handler.rb#L86",
+        "excerpt": "    def perform_query(db, sql_last_value)\n      query = build_query(db, sql_last_value)\n      query.each_page(@jdbc_page_size) do |paged_dataset|\n        log_dataset_page(paged_dataset) if @logger.debug?\n        paged_dataset.each do |row|\n          yield row\n        end\n      end"
+      },
+      {
+        "key": "logstash-jdbc",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/logstash-jdbc/lib/logstash/plugin_mixins/jdbc/statement_handler.rb",
+        "path": "lib/logstash/plugin_mixins/jdbc/statement_handler.rb",
+        "line": 121,
+        "commit": "f7586e67912852d5c5a6ec0f4db5f4a4f30e7806",
+        "url": "https://github.com/logstash-plugins/logstash-integration-jdbc/blob/f7586e67912852d5c5a6ec0f4db5f4a4f30e7806/lib/logstash/plugin_mixins/jdbc/statement_handler.rb#L121",
+        "excerpt": "        end\n        break unless rows_in_page == page_size\n        offset += page_size\n      end\n    end\n  end\n\n  class PreparedStatementHandler < StatementHandler"
+      }
+    ]
+  },
+  {
+    "key": "postgres",
+    "title": "PostgreSQL native logical replication: tablesync",
+    "mechanism": "Tablesync worker делает initial COPY конкретной relation и затем догоняет WAL до согласованного состояния. copy_table создаёт COPY table либо COPY(SELECT...) для фильтров/особых relation. Единица рассмотренного начального sync — таблица; несколько tablesync workers не доказывают разрезание одной relation по CTID.",
+    "evaluation": "Нативный COPY и согласование с logical WAL дают эффективную встроенную доставку. Одна огромная таблица остаётся отдельной единицей initial sync в этом коде; для intra-table scan нужны pgcopydb/CTID readers или иное средство. Указана скачанная HEAD-ревизия, не обещание поведения всех выпущенных версий PostgreSQL.",
+    "references": [
+      {
+        "key": "postgres",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/postgres/src/backend/replication/logical/tablesync.c",
+        "path": "src/backend/replication/logical/tablesync.c",
+        "line": 1075,
+        "commit": "9e17d25e79d4756be08b4a5521b4b58450217137",
+        "url": "https://github.com/postgres/postgres/blob/9e17d25e79d4756be08b4a5521b4b58450217137/src/backend/replication/logical/tablesync.c#L1075",
+        "excerpt": " */\nstatic void\ncopy_table(Relation rel)\n{\n\tLogicalRepRelMapEntry *relmapentry;\n\tLogicalRepRelation lrel;\n\tList\t   *qual = NIL;\n\tWalRcvExecResult *res;"
+      },
+      {
+        "key": "postgres",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/postgres/src/backend/replication/logical/tablesync.c",
+        "path": "src/backend/replication/logical/tablesync.c",
+        "line": 34,
+        "commit": "9e17d25e79d4756be08b4a5521b4b58450217137",
+        "url": "https://github.com/postgres/postgres/blob/9e17d25e79d4756be08b4a5521b4b58450217137/src/backend/replication/logical/tablesync.c#L34",
+        "excerpt": " *\t   - Tablesync worker starts; changes table state from INIT to DATASYNC while\n *\t\t copying.\n *\t   - Tablesync worker does initial table copy; there is a FINISHEDCOPY (sync\n *\t\t worker specific) state to indicate when the copy phase has completed, so\n *\t\t if the worker crashes with this (non-memory) state then the copy will not\n *\t\t be re-attempted.\n *\t   - Tablesync worker then sets table state to SYNCWAIT; waits for state change.\n *\t   - Apply worker periodically checks for tables in SYNCWAIT state.  When"
+      }
+    ]
+  },
+  {
+    "key": "pglogical",
+    "title": "pglogical initial copy",
+    "mechanism": "copy_table_data копирует одну таблицу по COPY TO/COPY FROM; copy_tables_data обходит список таблиц. SQL может учитывать replication sets/фильтры. В исследованном пути единицей работы является table copy, а не автоматически рассчитанный набор диапазонов одной таблицы.",
+    "evaluation": "Хорошо соответствует PostgreSQL logical replication и фильтрации. Большой table copy не становится параллельным только из-за нескольких таблиц/репликационных workers; стоимость длинного snapshot и CDC catch-up остаётся.",
+    "references": [
+      {
+        "key": "pglogical",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/pglogical/pglogical_sync.c",
+        "path": "pglogical_sync.c",
+        "line": 522,
+        "commit": "9a0e182745885ad0152ea387988c95a483396a81",
+        "url": "https://github.com/2ndQuadrant/pglogical/blob/9a0e182745885ad0152ea387988c95a483396a81/pglogical_sync.c#L522",
+        "excerpt": "\n/*\n * COPY single table over wire.\n */\nstatic void\ncopy_table_data(PGconn *origin_conn, PGconn *target_conn,\n\t\t\t\tPGLogicalRemoteRel *remoterel, List *replication_sets)\n{"
+      },
+      {
+        "key": "pglogical",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/pglogical/pglogical_sync.c",
+        "path": "pglogical_sync.c",
+        "line": 743,
+        "commit": "9a0e182745885ad0152ea387988c95a483396a81",
+        "url": "https://github.com/2ndQuadrant/pglogical/blob/9a0e182745885ad0152ea387988c95a483396a81/pglogical_sync.c#L743",
+        "excerpt": "\t\t\t\t\t\t\t\t\t\t\t\t\t   replication_sets);\n\n\t\tcopy_table_data(origin_conn, target_conn, remoterel, replication_sets);\n\n\t\tCHECK_FOR_INTERRUPTS();\n\t}\n\n\t/* Finish the transactions and disconnect. */"
+      }
+    ]
+  },
+  {
+    "key": "spock",
+    "title": "pgEdge Spock initial copy",
+    "mechanism": "Spock также имеет copy_table_data: COPY одной relation с replication-set/row filters; источник удерживает REPEATABLE READ snapshot для COPY. Наблюдаемые изменения в sync/slot протоколе не являются новым внутри-табличным range planner.",
+    "evaluation": "Нативный COPY плюс строгий handoff к репликации. В просмотренном sync пути нет автоматических CTID/PK поддиапазонов; не переносим на Spock возможности отдельного pgcopydb или pgEdge Cloud без доказательства.",
+    "references": [
+      {
+        "key": "spock",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/spock/src/spock_sync.c",
+        "path": "src/spock_sync.c",
+        "line": 1046,
+        "commit": "69d584ae77652c8d506bc89bec12d3c402095b58",
+        "url": "https://github.com/pgEdge/spock/blob/69d584ae77652c8d506bc89bec12d3c402095b58/src/spock_sync.c#L1046",
+        "excerpt": "\n/*\n * COPY single table over wire.\n */\nstatic void\ncopy_table_data(PGconn *origin_conn, PGconn *target_conn,\n\t\t\t\tSpockRemoteRel *remoterel, List *replication_sets)\n{"
+      },
+      {
+        "key": "spock",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/spock/src/spock_sync.c",
+        "path": "src/spock_sync.c",
+        "line": 854,
+        "commit": "69d584ae77652c8d506bc89bec12d3c402095b58",
+        "url": "https://github.com/pgEdge/spock/blob/69d584ae77652c8d506bc89bec12d3c402095b58/src/spock_sync.c#L854",
+        "excerpt": "\t/*\n\t * Resume apply workers now that slot and progress are captured. The\n\t * REPEATABLE READ transaction (and its snapshot) remain open for the COPY\n\t * phase; the workers can resume safely.\n\t */\n\tres = PQexec(conn, \"SELECT spock.resume_apply_workers()\");\n\tif (PQresultStatus(res) != PGRES_TUPLES_OK)\n\t\telog(WARNING, \"could not resume apply workers on origin: %s\","
+      }
+    ]
+  },
+  {
+    "key": "hazelcast",
+    "title": "Hazelcast Jet JDBC source",
+    "mechanism": "Parallel JDBC API принимает resultSetFn(connection, totalParallelism, index). Пользователь сам пишет SQL каждой части; встроенный пример — MOD(id, parallelism)=index. Упрощённая перегрузка jdbc(String,String,...) прямо описана как single-worker/single-query.",
+    "evaluation": "Гибкость: можно реализовать range/hash/нативные партиции. Это интерфейс пользовательского splitter, а не авто-planner. Javadoc прямо предупреждает о пропусках/дубликатах при конкурентных изменениях и полном повторном чтении после restart; MOD без функционального индекса может потребовать P full scans. Проверенный Sources.java Apache-2.0; весь репозиторий mixed Apache/Hazelcast Community License.",
+    "references": [
+      {
+        "key": "hazelcast",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/hazelcast/hazelcast/src/main/java/com/hazelcast/jet/pipeline/Sources.java",
+        "path": "hazelcast/src/main/java/com/hazelcast/jet/pipeline/Sources.java",
+        "line": 1521,
+        "commit": "b823b0b2e294423b946a5086d088e7fc026784a8",
+        "url": "https://github.com/hazelcast/hazelcast/blob/b823b0b2e294423b946a5086d088e7fc026784a8/hazelcast/src/main/java/com/hazelcast/jet/pipeline/Sources.java#L1521",
+        "excerpt": "     *         () -> DriverManager.getConnection(DB_CONNECTION_URL),\n     *         (con, parallelism, index) -> {\n     *              PreparedStatement stmt = con.prepareStatement(\"SELECT * FROM TABLE WHERE MOD(id, ?) = ?)\");\n     *              stmt.setInt(1, parallelism);\n     *              stmt.setInt(2, index);\n     *              return stmt.executeQuery();\n     *         },\n     *         resultSet -> new Person(resultSet.getInt(1), resultSet.getString(2))))"
+      },
+      {
+        "key": "hazelcast",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/hazelcast/hazelcast/src/main/java/com/hazelcast/jet/pipeline/Sources.java",
+        "path": "hazelcast/src/main/java/com/hazelcast/jet/pipeline/Sources.java",
+        "line": 1530,
+        "commit": "b823b0b2e294423b946a5086d088e7fc026784a8",
+        "url": "https://github.com/hazelcast/hazelcast/blob/b823b0b2e294423b946a5086d088e7fc026784a8/hazelcast/src/main/java/com/hazelcast/jet/pipeline/Sources.java#L1530",
+        "excerpt": "     * <p>\n     * If the underlying table is modified while being read, the source may\n     * miss and/or duplicate some entries, because multiple queries for parts\n     * of the data on multiple members will be executed.\n     * <p>\n     * The source does not save any state to snapshot. If the job is restarted,\n     * it will re-emit all entries.\n     * <p>"
+      },
+      {
+        "key": "hazelcast",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/hazelcast/LICENSE",
+        "path": "LICENSE",
+        "line": 5,
+        "commit": "b823b0b2e294423b946a5086d088e7fc026784a8",
+        "url": "https://github.com/hazelcast/hazelcast/blob/b823b0b2e294423b946a5086d088e7fc026784a8/LICENSE#L5",
+        "excerpt": "(ii) the Hazelcast Community License (http://hazelcast.com/hazelcast-community-license)\n\nThe default license throughout the repository is Apache License 2.0\nunless the header specifies another license."
+      }
+    ]
+  },
+  {
+    "key": "feldera",
+    "title": "Feldera PostgreSQL CDC → feldera/etl",
+    "mechanism": "CDC adapter включает max_copy_connections_per_table и делегирует initial copy зафиксированному fork feldera/etl. Там partitioned parent раскрывается до leaf relations; реальные pg_relation_size/block_size дают блоки, статистика строк — только вес распределения. Планируется несколько CTID ranges на worker, диапазоны помещаются в общую очередь и большие запускаются раньше. Workers импортируют один exported snapshot; крайние ranges открыты наружу, чтобы оценка размера не отрезала видимые tuple.",
+    "evaluation": "Сильный образец physical splitter: не нужен PK для самого COPY, число work items отделено от соединений, динамическая очередь сглаживает хвост. CTID — адрес версии tuple, не identity для CDC или произвольного restart. Долгий snapshot и WAL всё равно требуют контроля. Статистика весов не гарантирует равное реальное время; проверенный код не является результатом benchmark. Feldera OSS MIT, ETL dependency Apache-2.0; enterprise файлы отдельно.",
+    "references": [
+      {
+        "key": "feldera",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/feldera/crates/adapters/src/integrated/postgres/cdc_input.rs",
+        "path": "crates/adapters/src/integrated/postgres/cdc_input.rs",
+        "line": 646,
+        "commit": "b4a369ea86e92b330cab1845ef63ca0f69bce839",
+        "url": "https://github.com/feldera/feldera/blob/b4a369ea86e92b330cab1845ef63ca0f69bce839/crates/adapters/src/integrated/postgres/cdc_input.rs#L646",
+        "excerpt": "            table_error_retry_max_attempts: PipelineConfig::DEFAULT_TABLE_ERROR_RETRY_MAX_ATTEMPTS,\n            max_table_sync_workers: PipelineConfig::DEFAULT_MAX_TABLE_SYNC_WORKERS,\n            max_copy_connections_per_table: PipelineConfig::DEFAULT_MAX_COPY_CONNECTIONS_PER_TABLE,\n            memory_refresh_interval_ms: PipelineConfig::DEFAULT_MEMORY_REFRESH_INTERVAL_MS,\n            memory_backpressure: Some(MemoryBackpressureConfig::default()),\n            table_sync_copy: TableSyncCopyConfig::IncludeAllTables,\n            table_sync_monitor_refresh_interval_ms:\n                PipelineConfig::DEFAULT_TABLE_SYNC_MONITOR_REFRESH_INTERVAL_MS,"
+      },
+      {
+        "key": "feldera",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/feldera/Cargo.toml",
+        "path": "Cargo.toml",
+        "line": 399,
+        "commit": "b4a369ea86e92b330cab1845ef63ca0f69bce839",
+        "url": "https://github.com/feldera/feldera/blob/b4a369ea86e92b330cab1845ef63ca0f69bce839/Cargo.toml#L399",
+        "excerpt": "# the check that holds is `cargo tree -p dbsp_adapters -e features -i rustls`,\n# where etl must appear only under `rustls feature \"aws-lc-rs\"`.\netl = { git = \"https://github.com/feldera/etl\", rev = \"248fa4077c5b0f3e7bc2918a9709be2a03efea73\", default-features = false, features = [\n    \"tls-rustls-aws-lc-rs\",\n] }\n\n[workspace.metadata.release]\nrelease = false"
+      },
+      {
+        "key": "feldera-etl",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/feldera-etl/crates/etl/src/replication/table_sync/copy.rs",
+        "path": "crates/etl/src/replication/table_sync/copy.rs",
+        "line": 285,
+        "commit": "248fa4077c5b0f3e7bc2918a9709be2a03efea73",
+        "url": "https://github.com/feldera/etl/blob/248fa4077c5b0f3e7bc2918a9709be2a03efea73/crates/etl/src/replication/table_sync/copy.rs#L285",
+        "excerpt": "    let start_time = Instant::now();\n    let copy_partitions =\n        plan_table_copy_partitions(replication_transaction, table_id, max_copy_connections).await?;\n    let worker_count = usize::from(max_copy_connections).min(copy_partitions.len());\n\n    if copy_partitions.is_empty() {\n        info!(table_id = table_id.0, \"table is empty, skipping table copy\");\n"
+      },
+      {
+        "key": "feldera-etl",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/feldera-etl/crates/etl/src/replication/table_sync/copy.rs",
+        "path": "crates/etl/src/replication/table_sync/copy.rs",
+        "line": 586,
+        "commit": "248fa4077c5b0f3e7bc2918a9709be2a03efea73",
+        "url": "https://github.com/feldera/etl/blob/248fa4077c5b0f3e7bc2918a9709be2a03efea73/crates/etl/src/replication/table_sync/copy.rs#L586",
+        "excerpt": "        }\n\n        let copy_partition = work_queue.lock().await.pop_front();\n        let Some(copy_partition) = copy_partition else {\n            // The queue is fully populated before workers start; an empty queue\n            // means all CTID work has been claimed.\n            child_replication_transaction.commit().await?;\n"
+      },
+      {
+        "key": "feldera-etl",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/feldera-etl/crates/etl/src/postgres/client/transaction.rs",
+        "path": "crates/etl/src/postgres/client/transaction.rs",
+        "line": 128,
+        "commit": "248fa4077c5b0f3e7bc2918a9709be2a03efea73",
+        "url": "https://github.com/feldera/etl/blob/248fa4077c5b0f3e7bc2918a9709be2a03efea73/crates/etl/src/postgres/client/transaction.rs#L128",
+        "excerpt": "/// time, not MVCC snapshot-visible row counts. They are used only to size CTID\n/// work ranges; the actual copied rows are selected later by COPY queries that\n/// run inside the exported snapshot. CTID planning therefore keeps the first\n/// and last ranges open-ended so a stale physical-size estimate cannot exclude\n/// visible tuples at the relation edges.\n#[derive(Debug)]\npub struct TableCopyPlanningEstimate {\n    /// Current physical relation size in Postgres blocks."
+      }
+    ]
+  },
+  {
+    "key": "pg-flo",
+    "title": "pg_flo v0.0.15: CTID initial copy",
+    "mechanism": "В восстановленном архиве Go module CopyTable читает pg_class.relpages, создаёт очередь диапазонов по 1000 heap pages, запускает MaxCopyWorkersPerTable. Последний range заканчивается максимальным uint32; SELECT использует ctid >= start AND ctid < end. Каждая range-транзакция импортирует snapshotID. Это историческая v0.0.15, не доказательство текущего состояния недоступного GitHub проекта.",
+    "evaluation": "Реальный parallel scan без выбора PK, общая очередь. В этой версии есть конкретный риск: generateRanges(0) возвращает пустой список, хотя relpages может быть устаревшей статистикой; также lookup только по relname требует проверки неоднозначных схем. Это вывод чтения кода, не воспроизведённый баг. Алгоритм нельзя копировать без безопасного покрытия пустых/устаревших оценок. GitHub permalinks могут быть недоступны; локальный module archive и metadata — сохраняемое доказательство.",
+    "references": [
+      {
+        "key": "pg-flo",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/pg-flo/pkg/replicator/copy_and_stream_replicator.go",
+        "path": "pkg/replicator/copy_and_stream_replicator.go",
+        "line": 163,
+        "commit": "33adfb2473093c9eb023fc56b5dd2fe97dadfbc3",
+        "url": "https://github.com/pgflo/pg_flo/blob/33adfb2473093c9eb023fc56b5dd2fe97dadfbc3/pkg/replicator/copy_and_stream_replicator.go#L163",
+        "excerpt": "\n// generateRanges creates a set of page ranges for copying.\nfunc (r *CopyAndStreamReplicator) generateRanges(relPages uint32) [][2]uint32 {\n\tvar ranges [][2]uint32\n\tbatchSize := uint32(1000)\n\tfor start := uint32(0); start < relPages; start += batchSize {\n\t\tend := start + batchSize\n\t\tif end >= relPages {"
+      },
+      {
+        "key": "pg-flo",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/pg-flo/pkg/replicator/copy_and_stream_replicator.go",
+        "path": "pkg/replicator/copy_and_stream_replicator.go",
+        "line": 155,
+        "commit": "33adfb2473093c9eb023fc56b5dd2fe97dadfbc3",
+        "url": "https://github.com/pgflo/pg_flo/blob/33adfb2473093c9eb023fc56b5dd2fe97dadfbc3/pkg/replicator/copy_and_stream_replicator.go#L155",
+        "excerpt": "\tvar relPages uint32\n\terr := r.BaseReplicator.StandardConn.QueryRow(ctx, `\n\t\tSELECT relpages\n\t\tFROM pg_class\n\t\tWHERE relname = $1\n\t`, tableName).Scan(&relPages)\n\treturn relPages, err\n}"
+      },
+      {
+        "key": "pg-flo",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/pg-flo/pkg/replicator/copy_and_stream_replicator.go",
+        "path": "pkg/replicator/copy_and_stream_replicator.go",
+        "line": 256,
+        "commit": "33adfb2473093c9eb023fc56b5dd2fe97dadfbc3",
+        "url": "https://github.com/pgflo/pg_flo/blob/33adfb2473093c9eb023fc56b5dd2fe97dadfbc3/pkg/replicator/copy_and_stream_replicator.go#L256",
+        "excerpt": "\t\t\tSELECT *\n\t\t\tFROM %s\n\t\t\tWHERE ctid >= '(%d,0)'::tid AND ctid < '(%d,0)'::tid`,\n\t\tpgx.Identifier{schema, tableName}.Sanitize(), startPage, endPage)\n\treturn query\n}\n\n// executeCopyQuery executes the copy query and publishes the results to NATS."
+      },
+      {
+        "key": "pg-flo",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/pg-flo/pkg/replicator/copy_and_stream_replicator.go",
+        "path": "pkg/replicator/copy_and_stream_replicator.go",
+        "line": 234,
+        "commit": "33adfb2473093c9eb023fc56b5dd2fe97dadfbc3",
+        "url": "https://github.com/pgflo/pg_flo/blob/33adfb2473093c9eb023fc56b5dd2fe97dadfbc3/pkg/replicator/copy_and_stream_replicator.go#L234",
+        "excerpt": "// setTransactionSnapshot sets the transaction snapshot.\nfunc (r *CopyAndStreamReplicator) setTransactionSnapshot(tx pgx.Tx, snapshotID string) error {\n\t_, err := tx.Exec(context.Background(), fmt.Sprintf(\"SET TRANSACTION SNAPSHOT '%s'\", snapshotID))\n\tif err != nil {\n\t\treturn fmt.Errorf(\"failed to set transaction snapshot: %v\", err)\n\t}\n\treturn nil\n}"
+      }
+    ]
+  },
+  {
+    "key": "ticdc",
+    "title": "TiCDC: native TiKV span scheduling",
+    "mechanism": "Табличный key span делится по границам native TiKV regions. regionCountSplitter группирует примерно равное количество regions либо соблюдает configured regions-per-span. writeBytesSplitter использует WrittenBytes + базовый вес каждого region и группирует соседние regions по ожидаемой write-нагрузке. Это распределение native CDC keyspace, не generic JDBC backfill внешнего MySQL.",
+    "evaluation": "Использует уже существующую физическую географию данных и метрики горячих диапазонов; не требует COUNT/NTILE SQL. Равное число regions не равно равной нагрузке, weighted вариант учитывает горячие участки. Цена — тесная привязка к TiKV/PD, свежести region metadata и корректному handoff spans.",
+    "references": [
+      {
+        "key": "ticdc",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/ticdc/maintainer/split/region_count_splitter.go",
+        "path": "maintainer/split/region_count_splitter.go",
+        "line": 73,
+        "commit": "d4bee4bfd64c322e93411feb46eccb7312fd2caa",
+        "url": "https://github.com/pingcap/ticdc/blob/d4bee4bfd64c322e93411feb46eccb7312fd2caa/maintainer/split/region_count_splitter.go#L73",
+        "excerpt": "\tstartTimestamp := time.Now()\n\tbo := tikv.NewBackoffer(ctx, 2000)\n\tregions, err := m.regionCache.LoadRegionsInKeyRange(bo, span.StartKey, span.EndKey)\n\tif err != nil {\n\t\tlog.Warn(\"load regions failed, skip split span\",\n\t\t\tzap.String(\"changefeed\", m.changefeedID.Name()),\n\t\t\tzap.String(\"span\", common.FormatTableSpan(span)),\n\t\t\tzap.Error(err))"
+      },
+      {
+        "key": "ticdc",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/ticdc/maintainer/split/region_count_splitter.go",
+        "path": "maintainer/split/region_count_splitter.go",
+        "line": 99,
+        "commit": "d4bee4bfd64c322e93411feb46eccb7312fd2caa",
+        "url": "https://github.com/pingcap/ticdc/blob/d4bee4bfd64c322e93411feb46eccb7312fd2caa/maintainer/split/region_count_splitter.go#L99",
+        "excerpt": "\t}\n\n\tstepper := newEvenlySplitStepper(len(regions), m.regionCountPerSpan, spansNum)\n\n\tspans := make([]*heartbeatpb.TableSpan, 0, stepper.SpanCount())\n\tstart, end := 0, stepper.Step()\n\tfor {\n\t\tstartKey := regions[start].StartKey()"
+      },
+      {
+        "key": "ticdc",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/ticdc/maintainer/split/write_bytes_splitter.go",
+        "path": "maintainer/split/write_bytes_splitter.go",
+        "line": 115,
+        "commit": "d4bee4bfd64c322e93411feb46eccb7312fd2caa",
+        "url": "https://github.com/pingcap/ticdc/blob/d4bee4bfd64c322e93411feb46eccb7312fd2caa/maintainer/split/write_bytes_splitter.go#L115",
+        "excerpt": "\ttotalWrite, totalWriteNormalized := uint64(0), uint64(0)\n\tfor i := range regions {\n\t\ttotalWrite += regions[i].WrittenBytes\n\t\tregions[i].WrittenBytes += regionWrittenKeyBase\n\t\ttotalWriteNormalized += regions[i].WrittenBytes\n\t}\n\n\t// calc the spansNum by totalWriteNormalized and writeKeyThreshold?"
+      }
+    ]
+  },
+  {
+    "key": "paimon",
+    "title": "Apache Paimon: splits собственного lake table",
+    "mechanism": "AppendOnlySplitGenerator сортирует DataFileMeta по sequence number и bin-pack группирует файлы по max(fileSize, openFileCost) до targetSplitSize. Streaming для bucket-aware таблиц сохраняет группу bucket целиком. ChainTableUtils дополнительно умеет batch splits по непересекающимся key-range sections внутри bucket.",
+    "evaluation": "Работа по metadata избегает сканирования пользовательских строк при планировании; open-file cost предотвращает чрезмерно мелкие tasks. Это split файлов/своего table format, а не SQL-ranges произвольной внешней БД. Переносим полезную идею стоимости I/O + открытия файла, а не приписываем Paimon JDBC snapshot.",
+    "references": [
+      {
+        "key": "paimon",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/paimon/paimon-core/src/main/java/org/apache/paimon/table/source/AppendOnlySplitGenerator.java",
+        "path": "paimon-core/src/main/java/org/apache/paimon/table/source/AppendOnlySplitGenerator.java",
+        "line": 56,
+        "commit": "10cf6ebc7c4f0ba6066d32d8aed2b0b85e0b8349",
+        "url": "https://github.com/apache/paimon/blob/10cf6ebc7c4f0ba6066d32d8aed2b0b85e0b8349/paimon-core/src/main/java/org/apache/paimon/table/source/AppendOnlySplitGenerator.java#L56",
+        "excerpt": "        files.sort(Comparator.comparing(DataFileMeta::minSequenceNumber));\n        Function<DataFileMeta, Long> weightFunc = file -> Math.max(file.fileSize(), openFileCost);\n        return BinPacking.packForOrdered(files, weightFunc, targetSplitSize).stream()\n                .map(SplitGroup::rawConvertibleGroup)\n                .collect(Collectors.toList());\n    }\n\n    @Override"
+      },
+      {
+        "key": "paimon",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/paimon/paimon-core/src/main/java/org/apache/paimon/table/source/AppendOnlySplitGenerator.java",
+        "path": "paimon-core/src/main/java/org/apache/paimon/table/source/AppendOnlySplitGenerator.java",
+        "line": 65,
+        "commit": "10cf6ebc7c4f0ba6066d32d8aed2b0b85e0b8349",
+        "url": "https://github.com/apache/paimon/blob/10cf6ebc7c4f0ba6066d32d8aed2b0b85e0b8349/paimon-core/src/main/java/org/apache/paimon/table/source/AppendOnlySplitGenerator.java#L65",
+        "excerpt": "        // When the bucket mode is unaware, we spit the files as batch, because unaware-bucket table\n        // only contains one bucket (bucket 0).\n        if (bucketMode == BucketMode.BUCKET_UNAWARE) {\n            return splitForBatch(files);\n        } else {\n            return Collections.singletonList(SplitGroup.rawConvertibleGroup(files));\n        }\n    }"
+      },
+      {
+        "key": "paimon",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/paimon/paimon-core/src/main/java/org/apache/paimon/utils/ChainTableUtils.java",
+        "path": "paimon-core/src/main/java/org/apache/paimon/utils/ChainTableUtils.java",
+        "line": 365,
+        "commit": "10cf6ebc7c4f0ba6066d32d8aed2b0b85e0b8349",
+        "url": "https://github.com/apache/paimon/blob/10cf6ebc7c4f0ba6066d32d8aed2b0b85e0b8349/paimon-core/src/main/java/org/apache/paimon/utils/ChainTableUtils.java#L365",
+        "excerpt": "\n    /**\n     * Builds {@link ChainSplit}s from the given snapshot and delta splits, optionally splitting\n     * each bucket's files into multiple splits by key range to improve batch read parallelism.\n     *\n     * <p>When {@code keyComparator} is non-null, each bucket's snapshot and delta files are split\n     * via interval partition: files with intersecting key ranges always go to the same split, so\n     * that all versions of a key across the snapshot and delta branches are merged together within"
+      }
+    ]
+  },
+  {
+    "key": "fluss",
+    "title": "Apache Fluss: buckets и hybrid splits",
+    "mechanism": "FlinkSourceEnumerator получает lake, KV snapshot и log splits собственной Fluss table. Он сохраняет правило: splits одного bucket назначаются одному reader; отдельно отслеживает native table partitions. Это native snapshot/log decomposition, а не авторазбиение SQL таблицы в сторонней БД.",
+    "evaluation": "Готовое физическое распределение уменьшает planning overhead и помогает сохранить порядок bucket. Перекошенный bucket может ограничивать параллелизм; физические buckets и логический SQL partition key — разные решения.",
+    "references": [
+      {
+        "key": "fluss",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/fluss/fluss-flink/fluss-flink-common/src/main/java/org/apache/fluss/flink/source/enumerator/FlinkSourceEnumerator.java",
+        "path": "fluss-flink/fluss-flink-common/src/main/java/org/apache/fluss/flink/source/enumerator/FlinkSourceEnumerator.java",
+        "line": 100,
+        "commit": "09130be63bce9b075146133ed70aaabebfec9589",
+        "url": "https://github.com/apache/fluss/blob/09130be63bce9b075146133ed70aaabebfec9589/fluss-flink/fluss-flink-common/src/main/java/org/apache/fluss/flink/source/enumerator/FlinkSourceEnumerator.java#L100",
+        "excerpt": " *\n * <ul>\n *   <li>Get the all splits(lake split + kv snapshot split + log split) for a table of Fluss to be\n *       read.\n *   <li>Assign the splits to readers with the guarantee that the splits belong to the same bucket\n *       will be assigned to same reader.\n * </ul>\n */"
+      },
+      {
+        "key": "fluss",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/fluss/fluss-flink/fluss-flink-common/src/main/java/org/apache/fluss/flink/source/enumerator/FlinkSourceEnumerator.java",
+        "path": "fluss-flink/fluss-flink-common/src/main/java/org/apache/fluss/flink/source/enumerator/FlinkSourceEnumerator.java",
+        "line": 103,
+        "commit": "09130be63bce9b075146133ed70aaabebfec9589",
+        "url": "https://github.com/apache/fluss/blob/09130be63bce9b075146133ed70aaabebfec9589/fluss-flink/fluss-flink-common/src/main/java/org/apache/fluss/flink/source/enumerator/FlinkSourceEnumerator.java#L103",
+        "excerpt": " *       read.\n *   <li>Assign the splits to readers with the guarantee that the splits belong to the same bucket\n *       will be assigned to same reader.\n * </ul>\n */\n@Internal\npublic class FlinkSourceEnumerator\n        implements SplitEnumerator<SourceSplitBase, SourceEnumeratorState> {"
+      }
+    ]
+  },
+  {
+    "key": "trino",
+    "title": "Trino generic JDBC",
+    "mechanism": "BaseJdbcClient.getSplits возвращает FixedSplitSource с одним JdbcSplit без additional predicate. Наличие универсальной distributed execution системы Trino не делает этот базовый JDBC reader автоматическим intra-table range planner. Другие connector implementations могут переопределять поведение.",
+    "evaluation": "Pushdown сокращает данные и использует мощность source SQL engine. Один generic split может быть bottleneck raw extraction; наличие Hive/Iceberg file splits не является доказательством JDBC range splitting.",
+    "references": [
+      {
+        "key": "trino",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/trino/plugin/trino-base-jdbc/src/main/java/io/trino/plugin/jdbc/BaseJdbcClient.java",
+        "path": "plugin/trino-base-jdbc/src/main/java/io/trino/plugin/jdbc/BaseJdbcClient.java",
+        "line": 630,
+        "commit": "cee1916bcda0327c53e21ba9c4ea95723d490e85",
+        "url": "https://github.com/trinodb/trino/blob/cee1916bcda0327c53e21ba9c4ea95723d490e85/plugin/trino-base-jdbc/src/main/java/io/trino/plugin/jdbc/BaseJdbcClient.java#L630",
+        "excerpt": "    public ConnectorSplitSource getSplits(ConnectorSession session, JdbcTableHandle tableHandle)\n    {\n        return new FixedSplitSource(new JdbcSplit(Optional.empty()));\n    }\n\n    @Override\n    public ConnectorSplitSource getSplits(ConnectorSession session, JdbcProcedureHandle procedureHandle)\n    {"
+      }
+    ]
+  },
+  {
+    "key": "maxwell",
+    "title": "Maxwell MySQL bootstrap",
+    "mechanism": "SynchronousBootstrapper строит SELECT * FROM table, добавляет пользовательский whereClause и ORDER BY PK, затем исполняет один streaming ResultSet (fetchSize=Integer.MIN_VALUE для драйвера). Это выборка/фильтр, а не автоматически вычисленные конкурентные chunks.",
+    "evaluation": "Простая выгрузка с малой клиентской памятью; whereClause позволяет вручную выбирать часть данных. Async bootstrap означает взаимодействие с потоком изменений, а не автоматический range partitioning; его consistency-риски нужно рассматривать отдельно.",
+    "references": [
+      {
+        "key": "maxwell",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/maxwell/src/main/java/com/zendesk/maxwell/bootstrap/SynchronousBootstrapper.java",
+        "path": "src/main/java/com/zendesk/maxwell/bootstrap/SynchronousBootstrapper.java",
+        "line": 207,
+        "commit": "310cf1cb85af5ea3a4aac63afbc8c006ebbfac60",
+        "url": "https://github.com/zendesk/maxwell/blob/310cf1cb85af5ea3a4aac63afbc8c006ebbfac60/src/main/java/com/zendesk/maxwell/bootstrap/SynchronousBootstrapper.java#L207",
+        "excerpt": "\t\tString pk = table.getPKString();\n\n\t\tString sql = String.format(\"select * from `%s`.`%s`\", databaseName, tableName);\n\n\t\tif ( whereClause != null && !whereClause.equals(\"\") ) {\n\t\t\tsql += String.format(\" where %s\", whereClause);\n\t\t}\n"
+      },
+      {
+        "key": "maxwell",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/maxwell/src/main/java/com/zendesk/maxwell/bootstrap/SynchronousBootstrapper.java",
+        "path": "src/main/java/com/zendesk/maxwell/bootstrap/SynchronousBootstrapper.java",
+        "line": 222,
+        "commit": "310cf1cb85af5ea3a4aac63afbc8c006ebbfac60",
+        "url": "https://github.com/zendesk/maxwell/blob/310cf1cb85af5ea3a4aac63afbc8c006ebbfac60/src/main/java/com/zendesk/maxwell/bootstrap/SynchronousBootstrapper.java#L222",
+        "excerpt": "\tprivate Statement createBatchStatement(Connection connection) throws SQLException {\n\t\tStatement statement = connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);\n\t\tstatement.setFetchSize(Integer.MIN_VALUE);\n\t\treturn statement;\n\t}\n\n\tprivate final String startBootstrapSQL = \"update `bootstrap` set started_at=NOW() where id=?\";\n\tprivate void setBootstrapRowToStarted(Long id) throws SQLException, NoSuchElementException, DuplicateProcessException {"
+      }
+    ]
+  },
+  {
+    "key": "bucardo",
+    "title": "Bucardo fullcopy и delta key batches",
+    "mechanism": "В examined copy loop fullcopy использует COPY(SELECT ... FROM ONLY table) без WHERE. Для дельт строятся порции изменённых PK и условия ANY/IN. Поэтому PK chunks в этом коде относятся к изменённым ключам, а не разбиению initial full table на равные диапазоны.",
+    "evaluation": "COPY эффективен для bulk, key batches уменьшают overhead передачи CDC-изменений. Нельзя приравнивать number_chunks в delta path к parallel full snapshot. Пользовательские sync/table filters остаются отдельным механизмом.",
+    "references": [
+      {
+        "key": "bucardo",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/bucardo/Bucardo.pm",
+        "path": "Bucardo.pm",
+        "line": 9936,
+        "commit": "d9919c804d2c84a25e9bd8895908e80932609160",
+        "url": "https://github.com/bucardo/bucardo/blob/d9919c804d2c84a25e9bd8895908e80932609160/Bucardo.pm#L9936",
+        "excerpt": "\n            ## If we are doing a small batch of single primary keys, use ANY\n            ## For a fullcopy mode, leave the WHERE clause out completely\n            if ($mode eq 'fullcopy' or $mode eq 'anyclause') {\n                my $srccmd = sprintf '%sCOPY (%s FROM ONLY %s %s) TO STDOUT%s',\n                    $self->{sqlprefix},\n                    $SELECT,\n                    $source_tablename,"
+      },
+      {
+        "key": "bucardo",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/bucardo/Bucardo.pm",
+        "path": "Bucardo.pm",
+        "line": 9928,
+        "commit": "d9919c804d2c84a25e9bd8895908e80932609160",
+        "url": "https://github.com/bucardo/bucardo/blob/d9919c804d2c84a25e9bd8895908e80932609160/Bucardo.pm#L9928",
+        "excerpt": "        my $number_chunks = @pkvals;\n\n        ## Loop through each chunk of primary keys to copy over\n        for my $pk_values (@pkvals) {\n\n            ## Start streaming rows from the source\n            my $pre = $number_chunks > 1 ? \"/* $loop of $number_chunks */ \" : '';\n            $self->glog(qq{${pre}Copying from $SourceDB->{name}.$source_tablename}, LOG_VERBOSE);"
+      }
+    ]
+  },
+  {
+    "key": "singer-postgres",
+    "title": "Singer tap-postgres (Stitch lineage)",
+    "mechanism": "Full-table sync читает один server-side cursor, сортирует по xmin и сохраняет xmin bookmark для resume. View sync — один SELECT. Размер itersize управляет порцией получения курсора; не найден N-range planner в рассматриваемой sync strategy.",
+    "evaluation": "Потоковое чтение и checkpoint не равны concurrent chunks. xmin имеет транзакционную, не primary-key семантику; алгоритм resume требует отдельного correctness-аудита и не должен автоматически становиться образцом нового splitter. Лицензия этого tap — AGPLv3; Singer protocol не определяет универсальный способ table partitioning.",
+    "references": [
+      {
+        "key": "singer-postgres",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/singer-postgres/tap_postgres/sync_strategies/full_table.py",
+        "path": "tap_postgres/sync_strategies/full_table.py",
+        "line": 43,
+        "commit": "821f1cfdc0942f3ca839d4cf5abacb18858ac64a",
+        "url": "https://github.com/singer-io/tap-postgres/blob/821f1cfdc0942f3ca839d4cf5abacb18858ac64a/tap_postgres/sync_strategies/full_table.py#L43",
+        "excerpt": "    with metrics.record_counter(None) as counter:\n        with post_db.open_connection(conn_info) as conn:\n            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor, name='stitch_cursor') as cur:\n                cur.itersize = post_db.cursor_iter_size\n                select_sql = 'SELECT {} FROM {}'.format(','.join(escaped_columns),\n                                                        post_db.fully_qualified_table_name(schema_name, stream['table_name']))\n\n                LOGGER.info(\"select %s with itersize %s\", select_sql, cur.itersize)"
+      },
+      {
+        "key": "singer-postgres",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/singer-postgres/tap_postgres/sync_strategies/full_table.py",
+        "path": "tap_postgres/sync_strategies/full_table.py",
+        "line": 123,
+        "commit": "821f1cfdc0942f3ca839d4cf5abacb18858ac64a",
+        "url": "https://github.com/singer-io/tap-postgres/blob/821f1cfdc0942f3ca839d4cf5abacb18858ac64a/tap_postgres/sync_strategies/full_table.py#L123",
+        "excerpt": "                    select_sql = \"\"\"SELECT {}, xmin::text::bigint\n                                      FROM {} where age(xmin::xid) <= age('{}'::xid)\n                                     ORDER BY xmin::text::bigint ASC\"\"\".format(','.join(escaped_columns),\n                                                                               post_db.fully_qualified_table_name(schema_name, stream['table_name']),\n                                                                               xmin)\n                else:\n                    LOGGER.info(\"Beginning new Full Table replication %s\", nascent_stream_version)\n                    select_sql = \"\"\"SELECT {}, xmin::text::bigint"
+      }
+    ]
+  },
+  {
+    "key": "singer-sdk",
+    "title": "Meltano Singer SDK generic SQLStream",
+    "mechanism": "Базовый SQLStream.get_records исполняет build_query(context) одним соединением. Если непустой partition context передан базовой реализации, она явно выбрасывает NotImplementedError: stream does not support partitioning. Subclass/plugin может реализовать это сам; state partitioning API Singer не означает готовый SQL boundary planner.",
+    "evaluation": "Расширяемый framework и явный отказ неподдерживаемого режима. Возможности конкретного tap нельзя выводить из наличия context/partition API в SDK; parallel SQL extraction нуждается в реализации connector.",
+    "references": [
+      {
+        "key": "singer-sdk",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/singer-sdk/singer_sdk/sql/stream.py",
+        "path": "singer_sdk/sql/stream.py",
+        "line": 267,
+        "commit": "ce2e8f2b7fc145fd610965c713794839d137fe1d",
+        "url": "https://github.com/meltano/sdk/blob/ce2e8f2b7fc145fd610965c713794839d137fe1d/singer_sdk/sql/stream.py#L267",
+        "excerpt": "        \"\"\"\n        if context:  # pragma: no cover\n            msg = f\"Stream '{self.name}' does not support partitioning.\"\n            raise NotImplementedError(msg)\n\n        with self.connector._connect() as conn:  # noqa: SLF001\n            for row in conn.execute(self.build_query(context=context)).mappings():\n                # https://github.com/sqlalchemy/sqlalchemy/discussions/10053#discussioncomment-6344965"
+      },
+      {
+        "key": "singer-sdk",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/singer-sdk/singer_sdk/sql/stream.py",
+        "path": "singer_sdk/sql/stream.py",
+        "line": 271,
+        "commit": "ce2e8f2b7fc145fd610965c713794839d137fe1d",
+        "url": "https://github.com/meltano/sdk/blob/ce2e8f2b7fc145fd610965c713794839d137fe1d/singer_sdk/sql/stream.py#L271",
+        "excerpt": "\n        with self.connector._connect() as conn:  # noqa: SLF001\n            for row in conn.execute(self.build_query(context=context)).mappings():\n                # https://github.com/sqlalchemy/sqlalchemy/discussions/10053#discussioncomment-6344965\n                yield dict(row)\n\n    @property\n    @override"
+      }
+    ]
+  },
+  {
+    "key": "kestra-jdbc",
+    "title": "Kestra JDBC plugin",
+    "mechanism": "Query исполняет один SQL statement; STORE потоково сохраняет результат во внутреннее хранилище, FETCH/FETCH_ONE возвращают результаты. Пользовательский orchestration может запускать много Query с разными параметрами, но fetchType/STORE не являются автоматическим делением таблицы на диапазоны.",
+    "evaluation": "Хорошо для явно управляемых SQL tasks и файловых staging результатов. Полнота, непересечение диапазонов и согласованный snapshot при нескольких Query — задача workflow/connector, не свойство fetchType.",
+    "references": [
+      {
+        "key": "kestra-jdbc",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/kestra-jdbc/plugin-jdbc/src/main/resources/doc/io.kestra.plugin.jdbc.md",
+        "path": "plugin-jdbc/src/main/resources/doc/io.kestra.plugin.jdbc.md",
+        "line": 11,
+        "commit": "4fcc170b244d5850de8d7babf842d39b953678a8",
+        "url": "https://github.com/kestra-io/plugin-jdbc/blob/4fcc170b244d5850de8d7babf842d39b953678a8/plugin-jdbc/src/main/resources/doc/io.kestra.plugin.jdbc.md#L11",
+        "excerpt": "## Tasks\n\n`Query` executes a single SQL statement. Control output with `fetchType`: `FETCH_ONE` returns the first row as a map, `FETCH` returns all rows as a list, `STORE` streams rows to a file in internal storage (best for large result sets), and `NONE` discards results. Use `parameters` for named bindings (`:paramName` syntax) and `afterSQL` to run a follow-up statement in the same transaction — useful for marking rows as processed after reading them.\n\n`Queries` executes multiple semicolon-separated statements in a single operation. With `transaction: true` (the default), a failure rolls back all statements.\n\n`Batch` bulk-inserts rows from a Kestra internal storage file into a table. Set `from` to the source file URI and either `sql` (a parameterized INSERT with `?` placeholders) or `table` to auto-generate the statement. Tune throughput with `chunk` (rows per batch commit, default 1000).\n"
+      }
+    ]
+  },
+  {
+    "key": "sqlines",
+    "title": "SQLines SQLData migration",
+    "mechanism": "Worker получает следующую таблицу из GetNextTask или авторский query из GetNextQueryTask. TransferRows открывает один source cursor; отдельно конвейеризует fetch следующего batch и запись текущего batch двумя потоками. Это parallel tables/queries и read-write pipeline, а не автоматически рассчитанные N диапазонов одной таблицы.",
+    "evaluation": "Конкурентный fetch/write может скрывать сетевую задержку при одном source scan. Ручные SQL query tasks могут описывать части таблицы, но условия полноты, snapshot и балансировки тогда задаёт пользователь. Число sessions само по себе не свидетельствует о разрезании одной таблицы.",
+    "references": [
+      {
+        "key": "sqlines",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/sqlines/sqldata/sqldata.cpp",
+        "path": "sqldata/sqldata.cpp",
+        "line": 1889,
+        "commit": "4d0d87896cead95481fc4656f831a8ac6d7ec291",
+        "url": "https://github.com/dmtolpeko/sqlines/blob/4d0d87896cead95481fc4656f831a8ac6d7ec291/sqldata/sqldata.cpp#L1889",
+        "excerpt": "\n// Get next table for processing\nstd::string SqlData::GetNextTask()\n{\n\tOs::EnterCriticalSection(&_task_queue_critical_section);\n\n\tstd::string table;\n"
+      },
+      {
+        "key": "sqlines",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/sqlines/sqldata/sqldata.cpp",
+        "path": "sqldata/sqldata.cpp",
+        "line": 1909,
+        "commit": "4d0d87896cead95481fc4656f831a8ac6d7ec291",
+        "url": "https://github.com/dmtolpeko/sqlines/blob/4d0d87896cead95481fc4656f831a8ac6d7ec291/sqldata/sqldata.cpp#L1909",
+        "excerpt": "\n// Get next query for processing\nbool SqlData::GetNextQueryTask(SqlDataReply &reply)\n{\n\tbool exists = false;\n\n\tOs::EnterCriticalSection(&_task_queue_critical_section);\n"
+      },
+      {
+        "key": "sqlines",
+        "local_path": "/Users/timmyb32r/cursor/transferia/target/research/table-splitting/sources/sqlines/sqldata/sqldb.cpp",
+        "path": "sqldata/sqldb.cpp",
+        "line": 943,
+        "commit": "4d0d87896cead95481fc4656f831a8ac6d7ec291",
+        "url": "https://github.com/dmtolpeko/sqlines/blob/4d0d87896cead95481fc4656f831a8ac6d7ec291/sqldata/sqldb.cpp#L943",
+        "excerpt": "\t\t\t_target_ca._void1 = cur_cols; \n\n\t\t\t// Fetch the next set of data, and insert the current set in 2 concurrent threads\n\t\t\trc = Execute(SQLDATA_CMD_FETCH_NEXT, SQLDATA_CMD_INSERT_NEXT);\n\n\t\t\tif(rc == -1)\n\t\t\t\tbreak;\n"
+      }
+    ]
+  }
+]

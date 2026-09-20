@@ -6,9 +6,7 @@ use std::sync::Arc;
 
 use arrow::array::*;
 use arrow::buffer::{OffsetBuffer, ScalarBuffer};
-use arrow::datatypes::{
-    DataType, Field, Int32Type, IntervalUnit, Schema, TimeUnit, UnionMode,
-};
+use arrow::datatypes::{DataType, Field, Int32Type, IntervalUnit, Schema, TimeUnit, UnionMode};
 use arrow::record_batch::RecordBatch;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 

@@ -31,7 +31,8 @@ fn catalog_type_mappings_are_registered_from_runtime_resolvers() -> anyhow::Resu
     assert!(sink
         .rows
         .iter()
-        .any(|r| r.input == "Null" && r.error.is_some()));
+        .any(|r| r.input == "Float16" && r.error.is_some()));
+    assert!(!sink.rows.iter().any(|row| row.input == "Null"));
     Ok(())
 }
 

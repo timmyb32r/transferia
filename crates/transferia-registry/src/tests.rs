@@ -31,7 +31,13 @@ fn type_mapping_examples_are_evaluated_and_keep_rejections() {
         .iter()
         .all(|row| row.output.is_some() != row.error.is_some()));
     assert_eq!(
-        report.rows.iter().find(|row| row.input == "Float16").unwrap().error.as_deref(),
+        report
+            .rows
+            .iter()
+            .find(|row| row.input == "Float16")
+            .unwrap()
+            .error
+            .as_deref(),
         Some("unsupported test input")
     );
     assert!(report
@@ -40,7 +46,14 @@ fn type_mapping_examples_are_evaluated_and_keep_rejections() {
         .any(|row| row.output.as_deref() == Some("resolved Int32")));
     for (_, data_type) in arrow_examples::types() {
         assert_ne!(data_type, arrow::datatypes::DataType::Null);
-        assert_eq!(report.rows.iter().filter(|row| row.input == format!("{data_type:?}")).count(), 1);
+        assert_eq!(
+            report
+                .rows
+                .iter()
+                .filter(|row| row.input == format!("{data_type:?}"))
+                .count(),
+            1
+        );
     }
 }
 

@@ -210,40 +210,45 @@ class SummaryTest(unittest.TestCase):
 
 class RunnerTest(unittest.TestCase):
     def test_run_once_captures_only_the_sample_window(self):
-        with tempfile.TemporaryDirectory() as directory:
+        line = (
+            "[stats p=0] source: 42 records/s | network-raw 42 B/s | "
+            "network-decoded 0 B/s | response-wait 1% | network-decode 0% busy || "
+            "parse: benchmark-discard || "
+            "sink: 0 rows/s | 0 B/s | 0 flushes/s | 0 source-msg/s | 0% busy | "
+            "0 retries | buffered N/A | objects 0/0/0 | 0% backpressure || "
+            "guarantee: destructive-benchmark | cpu: 5% rss: N/A\n"
+        )
+        process = mock.Mock()
+        process.poll.return_value = None
+
+        def populate_output(*, target, args, daemon):
+            _, lines, log_path = args
+            # The window is [110, 130]. Include both boundaries and exclude
+            # warmup/late samples with different rates, without wall-clock races.
+            samples = [(109, 999), (110, 42), (120, 42), (130, 42), (131, 999)]
+            log_path.write_text(line)
+            for timestamp, rate in samples:
+                lines.put((timestamp, line.replace("42 records/s", f"{rate} records/s")))
+            return mock.Mock()
+
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            BENCH.subprocess, "Popen", return_value=process
+        ) as popen, mock.patch.object(
+            BENCH.threading, "Thread", side_effect=populate_output
+        ), mock.patch.object(
+            BENCH.time, "monotonic", side_effect=[100, 111, 111, 120, 120, 130, 130]
+        ), mock.patch.object(BENCH, "terminate"):
             root = pathlib.Path(directory)
-            binary = root / "fake-transferia.py"
-            binary.write_text(
-                "#!/usr/bin/env python3\n"
-                "import os, signal, time\n"
-                "def stop(*_):\n"
-                "    raise SystemExit(0)\n"
-                "signal.signal(signal.SIGTERM, stop)\n"
-                "print('rep=' + os.environ['BENCHMARK_REPETITION'], flush=True)\n"
-                "print('destination=' + os.environ['BENCHMARK_RUN_NAMESPACE'], flush=True)\n"
-                "line = '[stats p=0] source: 42 records/s | network-raw 42 B/s | "
-                "network-decoded 0 B/s | response-wait 1% | network-decode 0% busy || "
-                "parse: benchmark-discard || "
-                "sink: 0 rows/s | 0 B/s | 0 flushes/s | 0 source-msg/s | 0% busy | "
-                "0 retries | buffered N/A | objects 0/0/0 | 0% backpressure || "
-                "guarantee: destructive-benchmark | cpu: 5% rss: N/A'\n"
-                "while True:\n"
-                "    print(line, flush=True)\n"
-                "    time.sleep(0.01)\n",
-                encoding="utf-8",
-            )
-            binary.chmod(0o755)
             config = root / "config.yaml"
             config.write_text("unused: true\n", encoding="utf-8")
+            result = BENCH.run_once(pathlib.Path("unused"), config, root, 3, 10, 20, 3)
 
-            result = BENCH.run_once(binary, config, root, 3, 0.05, 0.5, 3)
-
-            self.assertGreaterEqual(result["sample_count"], 3)
-            self.assertEqual(result["summary"]["source_records_per_s"]["median"], 42)
-            log = (root / "run-03.log").read_text()
-            self.assertIn("[stats p=0]", log)
-            self.assertIn("rep=3", log)
-            self.assertIn("destination=" + result["namespace"], log)
+            self.assertEqual(result["sample_count"], 3)
+            self.assertEqual(result["summary"]["source_records_per_s"]["min"], 42)
+            self.assertEqual(result["summary"]["source_records_per_s"]["max"], 42)
+            environment = popen.call_args.kwargs["env"]
+            self.assertEqual(environment["BENCHMARK_REPETITION"], "3")
+            self.assertEqual(environment["BENCHMARK_RUN_NAMESPACE"], result["namespace"])
 
     def test_run_once_rejects_pipeline_restart(self):
         process = mock.Mock()

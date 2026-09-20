@@ -861,7 +861,9 @@ async fn assets_and_missing_routes_have_correct_http_contracts() -> anyhow::Resu
     assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
     assert!(LOGO_PNG.starts_with(b"\x89PNG\r\n\x1a\n"));
     assert_eq!(
-        to_bytes(response.into_body(), LOGO_PNG.len()).await?.as_ref(),
+        to_bytes(response.into_body(), LOGO_PNG.len())
+            .await?
+            .as_ref(),
         LOGO_PNG,
     );
     let response = app

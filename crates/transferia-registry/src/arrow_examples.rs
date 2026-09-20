@@ -1,9 +1,11 @@
 //! Shared concrete Arrow examples for the generator and live type catalog.
+//!
 //! Null is excluded: it has no typed values. Parameters are examples, not an
 //! exhaustive statement about every precision, timezone or nested schema.
-use std::sync::Arc;
 use arrow::datatypes::{DataType, Field, IntervalUnit, TimeUnit, UnionFields, UnionMode};
+use std::sync::Arc;
 
+#[must_use]
 pub fn types() -> Vec<(&'static str, DataType)> {
     let item = Arc::new(Field::new("item", DataType::Int32, false));
     let fields = vec![Field::new("value", DataType::Int32, false)];
