@@ -1,3 +1,4 @@
+/target/
 benchmark-results/
 .transferia-server/
 web/node_modules/
