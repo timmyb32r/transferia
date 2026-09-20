@@ -14,30 +14,30 @@ use transferia_registry::TableIdentity;
 // tables/columns so they become explicit errors, not silently omitted datasets.
 pub(super) const CATALOG_QUERY: &str = r"
 WITH RECURSIVE requested AS (
-    SELECT * FROM unnest($1::text[], $2::text[]) WITH ORDINALITY AS r(namespace, name, request_ordinal)
+    SELECT * FROM ROWS FROM (pg_catalog.unnest($1::pg_catalog.text[]), pg_catalog.unnest($2::pg_catalog.text[])) WITH ORDINALITY AS r(namespace, name, request_ordinal)
 ), attributes AS (
     SELECT r.*, c.oid AS relation_oid, c.relreplident, a.attnum, a.attname, a.atttypid, a.attlen, a.atttypmod
     FROM requested r
-    LEFT JOIN pg_catalog.pg_namespace n ON n.nspname = r.namespace
-    LEFT JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid AND c.relname = r.name
-    LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+    LEFT JOIN pg_catalog.pg_namespace n ON n.nspname OPERATOR(pg_catalog.=) r.namespace
+    LEFT JOIN pg_catalog.pg_class c ON c.relnamespace OPERATOR(pg_catalog.=) n.oid AND c.relname OPERATOR(pg_catalog.=) r.name
+    LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid OPERATOR(pg_catalog.=) c.oid AND a.attnum OPERATOR(pg_catalog.>) 0 AND NOT a.attisdropped
 ), resolved_types AS (
     SELECT DISTINCT t.oid AS physical_oid, t.oid AS effective_oid, t.typbasetype, t.typname, t.typtype, t.typnamespace
-    FROM attributes a JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+    FROM attributes a JOIN pg_catalog.pg_type t ON t.oid OPERATOR(pg_catalog.=) a.atttypid
     UNION
     SELECT r.physical_oid, t.oid, t.typbasetype, t.typname, t.typtype, t.typnamespace
-    FROM resolved_types r JOIN pg_catalog.pg_type t ON t.oid = r.typbasetype WHERE r.typbasetype <> 0
+    FROM resolved_types r JOIN pg_catalog.pg_type t ON t.oid OPERATOR(pg_catalog.=) r.typbasetype WHERE r.typbasetype OPERATOR(pg_catalog.<>) 0
 )
-SELECT a.request_ordinal, a.relation_oid, a.relreplident::text AS replica_identity,
-    a.attnum, a.attname::text AS column_name, a.atttypid AS physical_oid, a.attlen,
+SELECT a.request_ordinal, a.relation_oid, a.relreplident::pg_catalog.text AS replica_identity,
+    a.attnum, a.attname::pg_catalog.text AS column_name, a.atttypid AS physical_oid, a.attlen,
     pg_catalog.format_type(a.atttypid, a.atttypmod) AS source_type,
-    t.effective_oid, t.typname::text AS type_name, t.typtype::text AS type_kind, tn.nspname::text AS type_namespace,
-    ic.is_nullable = 'YES' AS nullable,
-    EXISTS (SELECT 1 FROM pg_catalog.pg_index i WHERE i.indrelid = a.relation_oid AND i.indisprimary AND a.attnum = ANY(i.indkey)) AS primary_key
+    t.effective_oid, t.typname::pg_catalog.text AS type_name, t.typtype::pg_catalog.text AS type_kind, tn.nspname::pg_catalog.text AS type_namespace,
+    ic.is_nullable OPERATOR(pg_catalog.=) 'YES' AS nullable,
+    EXISTS (SELECT 1 FROM pg_catalog.pg_index i WHERE i.indrelid OPERATOR(pg_catalog.=) a.relation_oid AND i.indisprimary AND a.attnum OPERATOR(pg_catalog.=) ANY(i.indkey)) AS primary_key
 FROM attributes a
-LEFT JOIN resolved_types t ON t.physical_oid = a.atttypid AND t.typbasetype = 0
-LEFT JOIN pg_catalog.pg_namespace tn ON tn.oid = t.typnamespace
-LEFT JOIN information_schema.columns ic ON ic.table_schema = a.namespace AND ic.table_name = a.name AND ic.column_name = a.attname
+LEFT JOIN resolved_types t ON t.physical_oid OPERATOR(pg_catalog.=) a.atttypid AND t.typbasetype OPERATOR(pg_catalog.=) 0
+LEFT JOIN pg_catalog.pg_namespace tn ON tn.oid OPERATOR(pg_catalog.=) t.typnamespace
+LEFT JOIN information_schema.columns ic ON ic.table_schema OPERATOR(pg_catalog.=) a.namespace AND ic.table_name OPERATOR(pg_catalog.=) a.name AND ic.column_name OPERATOR(pg_catalog.=) a.attname
 ORDER BY a.request_ordinal, a.attnum
 ";
 

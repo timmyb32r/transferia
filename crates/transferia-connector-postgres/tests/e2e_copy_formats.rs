@@ -400,7 +400,9 @@ async fn read_snapshot(host: &str, port: u16, format: &str) -> anyhow::Result<Ve
     let mut rows = Vec::new();
     loop {
         match source.read_batch().await? {
-            SourceBatch::Typed { tables, .. } => {
+            SourceBatch::Typed { tables, commit_marker, source_rows, .. } => {
+                if let Some(marker) = commit_marker { source.commit_offsets(&[marker]).await?; }
+                if tables.is_empty() { assert_eq!(source_rows, 0); continue; }
                 assert_eq!(tables.len(), 1);
                 let batch = &tables[0].batch;
                 let ids = array::<Int64Array>(batch, 0);

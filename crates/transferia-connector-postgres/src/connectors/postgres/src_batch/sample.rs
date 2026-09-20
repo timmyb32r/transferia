@@ -14,7 +14,7 @@ use transferia_registry::{TableIdentity, TableSampleLimits};
 use super::copy_out::CopyOutReader;
 use super::reader::{column_array, source_select_projection, source_user_field};
 use crate::connectors::postgres::common::{
-    connect_sample, postgres_to_arrow, quote_identifier, PostgresCopyFormat, MAX_IDENTIFIER_BYTES,
+    connect_owned, postgres_to_arrow, quote_identifier, PostgresCopyFormat, MAX_IDENTIFIER_BYTES,
 };
 use crate::connectors::postgres::source::{discover_table, PostgresSourceConfig, TableConfig};
 use crate::metrics::SourceCounters;
@@ -67,7 +67,7 @@ pub(in crate::connectors::postgres) async fn sample_with_metadata(
         biased;
         () = cancellation.cancelled() => anyhow::bail!("PostgreSQL table sample cancelled"),
         result = async {
-            let client = observe_external_request("postgres", "connect_table_sample", connect_sample(&config.connection)).await?;
+            let client = observe_external_request("postgres", "connect_table_sample", connect_owned(&config.connection)).await?;
             observe_external_request("postgres", "begin_read_only_table_sample",
                 client.batch_execute(&format!("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL statement_timeout = {}", limits.timeout_ms))).await?;
             let discovered = observe_external_request("postgres", "discover_sample_table",

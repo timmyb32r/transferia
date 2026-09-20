@@ -342,7 +342,7 @@ fn postgres_types_use_native_arrow_where_lossless_and_canonical_text_otherwise()
                 crate::connectors::postgres::source::UnsupportedTypePolicy::Fail
             )
             .unwrap(),
-            "\"value\"::text AS \"value\""
+            "\"value\"::pg_catalog.text AS \"value\""
         );
     }
 }
@@ -447,7 +447,7 @@ fn user_defined_postgres_types_are_lossless_text_and_pseudo_types_fail_closed() 
                 crate::connectors::postgres::source::UnsupportedTypePolicy::Fail
             )
             .unwrap(),
-            "\"value\"::text AS \"value\""
+            "\"value\"::pg_catalog.text AS \"value\""
         );
     }
 
@@ -471,7 +471,7 @@ fn user_defined_postgres_types_are_lossless_text_and_pseudo_types_fail_closed() 
             crate::connectors::postgres::source::UnsupportedTypePolicy::ToString
         )
         .unwrap(),
-        "\"value\"::text AS \"value\""
+        "\"value\"::pg_catalog.text AS \"value\""
     );
 }
 #[test]

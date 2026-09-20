@@ -43,3 +43,14 @@ transferia-runtime-local  transferia-control-plane
 Dependencies must point downward through this graph. A lower-level crate must
 not use a dev-dependency back to a higher-level crate; cross-layer tests belong
 at the highest participating layer or require extraction of a narrower contract.
+
+## PostgreSQL snapshot execution
+
+PostgreSQL owns its snapshot planning policy, guarded snapshot epoch and shared
+task queue inside `transferia-connector-postgres`. Delivery preparation may
+refine a finite, co-located snapshot topology before destination preparation;
+it must preserve datasets, schemas and delivery semantics. The per-partition
+pipeline acknowledges task markers only after destination durability. All
+snapshot tasks must be acknowledged before an exact transition to replication.
+See the [snapshot planner contract](postgres-snapshot-planner.md) for ownership,
+pending-task adaptation, cancellation, diagnostics and evaluation evidence.

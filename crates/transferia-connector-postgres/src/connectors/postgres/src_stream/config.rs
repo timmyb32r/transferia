@@ -21,7 +21,7 @@ pub struct PostgresReplicationConfig {
     #[serde(default = "default_bootstrap_timeout_ms")]
     #[schemars(
         title = "Replication bootstrap timeout",
-        description = "Maximum time in milliseconds for opening the replication session and exporting the exact slot snapshot",
+        description = "Maximum time in milliseconds for opening the replication session and exporting the exact slot snapshot; also bounds snapshot cancellation and cleanup in both snapshot modes",
         extend("x-ui" = { "widget": "hidden" })
     )]
     pub bootstrap_timeout_ms: u64,

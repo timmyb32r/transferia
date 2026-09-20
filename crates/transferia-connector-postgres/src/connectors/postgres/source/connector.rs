@@ -9,8 +9,10 @@ use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
 use super::config::{PostgresSourceConfig, TableConfig};
-use crate::connectors::postgres::common::{connect, quote_identifier, validate_identifier};
-use crate::connectors::postgres::src_batch::{ExportedSnapshot, PostgresSource};
+use crate::connectors::postgres::common::{connect, connect_owned, quote_identifier, validate_identifier};
+use crate::connectors::postgres::src_batch::{ExportedSnapshot, PostgresSource, SnapshotGuard};
+use crate::connectors::postgres::src_batch::planning::{prepare_table, PreparedTable};
+use crate::connectors::postgres::src_batch::queue::SnapshotQueue;
 use crate::connectors::postgres::src_batch_and_stream::{
     AmbiguousReplicationSlotCreation, ReplicationSlotBootstrap, SnapshotStreamPreparation,
     SnapshotStreamTracker,
@@ -140,6 +142,7 @@ pub struct PostgresSourceConnector {
     discovered: tokio::sync::OnceCell<Arc<Vec<DiscoveredTable>>>,
     resolved_tables: tokio::sync::OnceCell<Vec<TableConfig>>,
     exported_snapshot: tokio::sync::OnceCell<Arc<ExportedSnapshot>>,
+    snapshot_plan: tokio::sync::OnceCell<Arc<SnapshotExecution>>,
     snapshot_stream: tokio::sync::OnceCell<Arc<SnapshotStreamExecution>>,
     stream_start_lsn: tokio::sync::OnceCell<Option<u64>>,
     replication_ownership: tokio::sync::OnceCell<HeldReplicationOwnership>,
@@ -192,6 +195,24 @@ struct SnapshotStreamExecution {
     source_identity: PostgresSourceIdentity,
 }
 
+/// Fixed runtime lanes consume table-local queues. Queue refinement never
+/// changes runtime partition identity or the snapshot-to-stream phase barrier.
+struct SnapshotExecution {
+    snapshot: Arc<ExportedSnapshot>,
+    tables: Arc<Vec<DiscoveredTable>>,
+    prepared: Vec<Arc<PreparedTable>>,
+    queues: Vec<Arc<SnapshotQueue>>,
+    lanes: Vec<(usize, u32)>,
+}
+
+impl SnapshotExecution {
+    fn topology(&self) -> anyhow::Result<SourceTopology> {
+        Ok(SourceTopology::CoLocatedStaticPartitions(
+            (0..self.lanes.len()).map(i64::try_from).collect::<Result<_, _>>()?
+        ))
+    }
+}
+
 impl PostgresSourceConnector {
     pub fn from_config(
         config: PostgresSourceConfig,
@@ -205,6 +226,7 @@ impl PostgresSourceConnector {
             discovered: tokio::sync::OnceCell::new(),
             resolved_tables: tokio::sync::OnceCell::new(),
             exported_snapshot: tokio::sync::OnceCell::new(),
+            snapshot_plan: tokio::sync::OnceCell::new(),
             snapshot_stream: tokio::sync::OnceCell::new(),
             stream_start_lsn: tokio::sync::OnceCell::new(),
             replication_ownership: tokio::sync::OnceCell::new(),
@@ -353,9 +375,55 @@ impl PostgresSourceConnector {
 
     async fn exported_snapshot(&self) -> anyhow::Result<Arc<ExportedSnapshot>> {
         self.exported_snapshot
-            .get_or_try_init(|| ExportedSnapshot::create(&self.config.connection))
+            .get_or_try_init(|| async {
+                ExportedSnapshot::create(&self.config.connection, self.resolved_tables().await?, self.snapshot_cleanup_timeout()).await
+            })
             .await
             .map(Arc::clone)
+    }
+
+    // The existing PostgreSQL operation budget also bounds snapshot cleanup.
+    // This is independent of runtime concurrency and the maximum part count.
+    fn snapshot_cleanup_timeout(&self) -> Duration {
+        Duration::from_millis(self.config.replication.bootstrap_timeout_ms)
+    }
+
+    async fn prepare_snapshot_plan(
+        &self,
+        snapshot: Arc<ExportedSnapshot>,
+        tables: Arc<Vec<DiscoveredTable>>,
+    ) -> anyhow::Result<Arc<SnapshotExecution>> {
+        self.snapshot_plan.get_or_try_init(|| async {
+            let client = snapshot.client().await?;
+            let mut prepared = Vec::with_capacity(tables.len());
+            let mut queues = Vec::with_capacity(tables.len());
+            let mut lanes = Vec::new();
+            for (table_index, table) in tables.iter().enumerate() {
+                snapshot.verify_relation(&table.config.schema, &table.config.name, table.relation_oid)?;
+                let plan = Arc::new(prepare_table(&client, table, self.config.max_snapshot_parts).await?);
+                let lane_count = plan.decision().lanes();
+                let queue = SnapshotQueue::new(plan.chunks().to_vec(), lane_count, self.config.max_snapshot_parts)?;
+                for lane in 0..lane_count { lanes.push((table_index, lane)); }
+                prepared.push(plan);
+                queues.push(queue);
+            }
+            drop(client);
+            tracing::info!(tables = tables.len(), lanes = lanes.len(),
+                max_parts_per_table = ?self.config.max_snapshot_parts,
+                "PostgreSQL snapshot queues prepared; runtime lanes share pending table parts");
+            Ok(Arc::new(SnapshotExecution { snapshot, tables, prepared, queues, lanes }))
+        }).await.map(Arc::clone)
+    }
+
+    async fn batch_snapshot_plan(&self) -> anyhow::Result<Arc<SnapshotExecution>> {
+        if let Some(plan) = self.snapshot_plan.get() { return Ok(Arc::clone(plan)); }
+        let snapshot = self.exported_snapshot().await?;
+        let client = snapshot.client().await?;
+        let tables = Arc::new(observe_external_request("postgres", "discover_snapshot_tables", discover_tables(
+            &client, self.resolved_tables().await?, self.config.unsupported_type_policy(DeliveryType::Batch)?
+        )).await?);
+        drop(client);
+        self.prepare_snapshot_plan(snapshot, tables).await
     }
 
     async fn snapshot_stream_execution(
@@ -399,6 +467,9 @@ impl PostgresSourceConnector {
                 .await?;
                 match preparation {
                     SnapshotStreamPreparation::Create(mut tracker) => {
+                        let guard = SnapshotGuard::acquire(
+                            &self.config.connection, self.resolved_tables().await?, self.snapshot_cleanup_timeout()
+                        ).await?;
                         let bootstrap = ReplicationSlotBootstrap::create(
                             &self.config.connection,
                             slot,
@@ -425,6 +496,8 @@ impl PostgresSourceConnector {
                         let snapshot = ExportedSnapshot::from_replication_slot(
                             &self.config.connection,
                             bootstrap,
+                            guard,
+                            self.snapshot_cleanup_timeout(),
                         )
                         .await?;
                         let snapshot_client = snapshot.client().await?;
@@ -912,7 +985,7 @@ struct PostgresMetadataReader {
 }
 
 struct PostgresMetadataState {
-    client: Option<super::super::common::SampleConnection>,
+    client: Option<super::super::common::OwnedConnection>,
     tables: std::collections::BTreeMap<transferia_registry::TableIdentity, DiscoveredTable>,
 }
 
@@ -1000,7 +1073,7 @@ impl transferia_registry::SourceMetadataReader for PostgresMetadataReader {
                 Some(client) => client,
                 None => tokio::select! {
                     () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata loading cancelled"),
-                    result = observe_external_request("postgres", "connect_metadata", super::super::common::connect_sample(&self.config.connection)) => result?,
+                    result = observe_external_request("postgres", "connect_metadata", super::super::common::connect_owned(&self.config.connection)) => result?,
                 },
             };
             let result = tokio::select! {
@@ -1060,7 +1133,7 @@ impl transferia_registry::SourceMetadataReader for PostgresMetadataReader {
                     tokio::select! {
                         () = cancellation.cancelled() => anyhow::bail!("PostgreSQL metadata validation cancelled"),
                         result = async {
-                            let client = observe_external_request("postgres", "connect_metadata_validation", super::super::common::connect_sample(&self.config.connection)).await?;
+                            let client = observe_external_request("postgres", "connect_metadata_validation", super::super::common::connect_owned(&self.config.connection)).await?;
                             validate_pgoutput_publication(&*client, publication, &tables, false).await
                         } => result?,
                     }
@@ -1158,8 +1231,27 @@ impl SourceConnector for PostgresSourceConnector {
                     .map_err(classify_replication_connector_error)?;
                 return Ok(None);
             }
-            if context.delivery_type != DeliveryType::BatchAndStream {
-                return Ok(None);
+            if context.delivery_type == DeliveryType::Batch {
+                let result = tokio::select! {
+                    biased;
+                    () = context.cancellation.cancelled() => Err(anyhow::anyhow!("PostgreSQL snapshot planning cancelled")),
+                    result = self.batch_snapshot_plan() => result,
+                };
+                let plan = match result {
+                    Ok(plan) => plan,
+                    Err(error) => {
+                        if let Some(snapshot) = self.exported_snapshot.get() {
+                            if let Err(cleanup_error) = snapshot.abort(self.snapshot_cleanup_timeout()).await {
+                                tracing::error!(error = %cleanup_error, "Snapshot abort released connections but found invalid ownership state");
+                            }
+                        }
+                        return Err(error);
+                    }
+                };
+                let mut discovery = build_delivery_discovery(false, DeliveryType::Batch, context.request, &plan.tables)?;
+                discovery.source_topology = plan.topology()?;
+                let remaining_phases = self.execution_phases(DeliveryType::Batch, &discovery)?;
+                return Ok(Some(PreparedSourceExecution { discovery, remaining_phases }));
             }
             let source_identity = source_identity.ok_or_else(|| {
                 anyhow::anyhow!("PostgreSQL replication configuration is missing")
@@ -1169,29 +1261,63 @@ impl SourceConnector for PostgresSourceConnector {
                     "PostgreSQL batch_and_stream replay identity is missing after validation"
                 )))
             })?;
-            let execution = self
-                .snapshot_stream_execution(
+            let initialized = tokio::select! {
+                biased;
+                () = context.cancellation.cancelled() => Err(anyhow::anyhow!("PostgreSQL snapshot initialization cancelled")),
+                result = self.snapshot_stream_execution(
                     context.durable,
-                    context.cancellation,
+                    context.cancellation.clone(),
                     source_identity,
                     replay_identity,
-                )
-                .await
-                .map_err(classify_replication_connector_error)?;
-            let discovery = build_delivery_discovery(
+                ) => result,
+            };
+            let execution = match initialized {
+                Ok(execution) => execution,
+                Err(error) => {
+                    let snapshot = self.snapshot_stream.get().and_then(|execution| {
+                        execution.snapshot.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+                    });
+                    if let Some(snapshot) = snapshot {
+                        if let Err(cleanup_error) = snapshot.abort(self.snapshot_cleanup_timeout()).await {
+                            tracing::error!(error = %cleanup_error, "Snapshot abort released connections but found invalid ownership state");
+                        }
+                    }
+                    return Err(classify_replication_connector_error(error));
+                }
+            };
+            let mut discovery = build_delivery_discovery(
                 true,
                 DeliveryType::BatchAndStream,
                 context.request,
                 &execution.tables,
             )?;
-            let mut remaining_phases =
-                self.execution_phases(DeliveryType::BatchAndStream, &discovery)?;
-            if execution
+            let streaming = execution
                 .start_lsn
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .is_some()
-            {
+                .is_some();
+            if !streaming {
+                let snapshot = execution.snapshot.lock()
+                    .map_err(|_| anyhow::anyhow!("PostgreSQL snapshot state is poisoned"))?
+                    .clone().ok_or_else(|| anyhow::anyhow!("PostgreSQL snapshot owner is unavailable"))?;
+                let result = tokio::select! {
+                    biased;
+                    () = context.cancellation.cancelled() => Err(anyhow::anyhow!("PostgreSQL snapshot planning cancelled")),
+                    result = self.prepare_snapshot_plan(Arc::clone(&snapshot), Arc::clone(&execution.tables)) => result,
+                };
+                let plan = match result {
+                    Ok(plan) => plan,
+                    Err(error) => {
+                        if let Err(cleanup_error) = snapshot.abort(self.snapshot_cleanup_timeout()).await {
+                            tracing::error!(error = %cleanup_error, "Snapshot abort released connections but found invalid ownership state");
+                        }
+                        return Err(error);
+                    }
+                };
+                discovery.source_topology = plan.topology()?;
+            }
+            let mut remaining_phases = self.execution_phases(DeliveryType::BatchAndStream, &discovery)?;
+            if streaming {
                 remaining_phases.remove(0);
             }
             Ok(Some(PreparedSourceExecution {
@@ -1239,10 +1365,13 @@ impl SourceConnector for PostgresSourceConnector {
         _cancellation: tokio_util::sync::CancellationToken,
     ) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
-            if phase != SourcePhase::Snapshot
-                || self.delivery_type.get() != Some(&DeliveryType::BatchAndStream)
-            {
+            if phase != SourcePhase::Snapshot {
                 return Ok(());
+            }
+            let plan = self.snapshot_plan.get().ok_or_else(|| anyhow::anyhow!("PostgreSQL snapshot queues were not prepared"))?;
+            for queue in &plan.queues { queue.ensure_complete()?; }
+            if self.delivery_type.get() == Some(&DeliveryType::Batch) {
+                return plan.snapshot.close(Duration::from_millis(self.config.replication.bootstrap_timeout_ms)).await;
             }
             let replication = &self.config.replication;
             let execution = self
@@ -1275,7 +1404,7 @@ impl SourceConnector for PostgresSourceConnector {
                 .clone();
             if let Some(snapshot) = snapshot {
                 snapshot
-                    .close_replication_owner(Duration::from_millis(
+                    .close(Duration::from_millis(
                         replication.bootstrap_timeout_ms,
                     ))
                     .await?;
@@ -1293,7 +1422,9 @@ impl SourceConnector for PostgresSourceConnector {
         &self,
         context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
-        Box::pin(async move {
+        let cancellation = context.cancellation.clone();
+        let snapshot = context.phase == SourcePhase::Snapshot;
+        let build = async move {
             self.bind_delivery_type(context.delivery_type)?;
             let partition_id = context.partition_id;
             let replay_identity = if context.delivery_type == DeliveryType::Batch {
@@ -1428,43 +1559,52 @@ impl SourceConnector for PostgresSourceConnector {
                     "PostgreSQL replication configuration supports snapshot reads only in batch_and_stream mode"
                 );
             }
-            let client = connect(&self.config.connection).await?;
-            let index = usize::try_from(partition_id)?;
-            let table = tables
-                .get(index)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("PostgreSQL source partition {partition_id} does not exist")
-                })?
-                .clone();
-            let (snapshot, changelog_snapshot) = match snapshot_stream {
-                Some(execution) => (
-                    execution
-                        .snapshot
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .clone()
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("PostgreSQL exact slot snapshot owner is unavailable")
-                        })?,
-                    true,
-                ),
-                None => (self.exported_snapshot().await?, false),
+            let execution = match snapshot_stream {
+                Some(stream) => {
+                    anyhow::ensure!(stream.snapshot.lock().map_err(|_| anyhow::anyhow!("PostgreSQL snapshot owner state is poisoned"))?.is_some(),
+                        "PostgreSQL snapshot owner is unavailable; completed snapshots cannot be replayed");
+                    self.snapshot_plan.get().cloned()
+                        .ok_or_else(|| anyhow::anyhow!("PostgreSQL snapshot queues were not prepared"))?
+                }
+                None => self.batch_snapshot_plan().await?,
             };
+            let (table_index, lane) = *execution.lanes.get(usize::try_from(partition_id)?)
+                .ok_or_else(|| anyhow::anyhow!("PostgreSQL snapshot lane {partition_id} does not exist"))?;
+            let table = execution.tables[table_index].clone();
+            let client = observe_external_request("postgres", "connect_snapshot_lane", connect_owned(&self.config.connection)).await?
+                .with_cancellation_timeout(self.snapshot_cleanup_timeout())?;
             Ok(Box::new(
                 PostgresSource::new(
                     client,
-                    snapshot,
+                    Arc::clone(&execution.snapshot),
                     partition_id,
+                    Arc::clone(&execution.queues[table_index]),
+                    lane,
+                    Arc::clone(&execution.prepared[table_index]),
                     table,
                     self.config.connection.database.clone(),
                     self.config.batch_rows,
                     self.config.copy_to_format,
                     self.config.unsupported_type_policy(context.delivery_type)?,
                     counters,
-                    changelog_snapshot,
+                    snapshot_stream.is_some(),
                 )
                 .await?,
             ) as Box<dyn Source>)
+        };
+        Box::pin(async move {
+            if snapshot {
+                // Construction can block before the pipeline owns a Source.
+                // Dropping this future releases an unpublished lane and lets
+                // its OwnedConnection send bounded PostgreSQL cancellation.
+                tokio::select! {
+                    biased;
+                    () = cancellation.cancelled() => anyhow::bail!("PostgreSQL snapshot source construction cancelled"),
+                    result = build => result,
+                }
+            } else {
+                build.await
+            }
         })
     }
 
@@ -1537,27 +1677,27 @@ pub async fn discover_table(
             .context("cannot prepare explicit PostgreSQL to_string projection")?;
     }
     let nullability = client.query(
-        "SELECT column_name, is_nullable = 'YES' FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
+        "SELECT column_name, is_nullable OPERATOR(pg_catalog.=) 'YES' FROM information_schema.columns WHERE table_schema OPERATOR(pg_catalog.=) $1 AND table_name OPERATOR(pg_catalog.=) $2",
         &[&table.schema, &table.name],
     ).await?.into_iter().map(|row| (row.get::<_, String>(0), row.get::<_, bool>(1))).collect::<HashMap<_, _>>();
     let physical_types = client
         .query(
             "SELECT a.attname, a.atttypid, EXISTS (\
-                 SELECT 1 FROM pg_index AS i \
-                 WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)\
+                 SELECT 1 FROM pg_catalog.pg_index AS i \
+                 WHERE i.indrelid OPERATOR(pg_catalog.=) c.oid AND i.indisprimary AND a.attnum OPERATOR(pg_catalog.=) ANY(i.indkey)\
              ) AS primary_key, a.attlen, pg_catalog.format_type(a.atttypid, a.atttypmod) AS source_type \
-             FROM pg_attribute AS a \
-             JOIN pg_class AS c ON c.oid = a.attrelid \
-             JOIN pg_namespace AS n ON n.oid = c.relnamespace \
-             WHERE n.nspname = $1 AND c.relname = $2 \
-               AND a.attnum > 0 AND NOT a.attisdropped \
+             FROM pg_catalog.pg_attribute AS a \
+             JOIN pg_catalog.pg_class AS c ON c.oid OPERATOR(pg_catalog.=) a.attrelid \
+             JOIN pg_catalog.pg_namespace AS n ON n.oid OPERATOR(pg_catalog.=) c.relnamespace \
+             WHERE n.nspname OPERATOR(pg_catalog.=) $1 AND c.relname OPERATOR(pg_catalog.=) $2 \
+               AND a.attnum OPERATOR(pg_catalog.>) 0 AND NOT a.attisdropped \
              ORDER BY a.attnum",
             &[&table.schema, &table.name],
         )
         .await?;
     let relation = client
         .query_one(
-            "SELECT c.oid, c.relreplident::text FROM pg_class AS c JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2",
+            "SELECT c.oid, c.relreplident::pg_catalog.text FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid OPERATOR(pg_catalog.=) c.relnamespace WHERE n.nspname OPERATOR(pg_catalog.=) $1 AND c.relname OPERATOR(pg_catalog.=) $2",
             &[&table.schema, &table.name],
         )
         .await?;

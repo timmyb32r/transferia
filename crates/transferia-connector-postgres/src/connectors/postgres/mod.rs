@@ -21,7 +21,7 @@ pub(crate) fn source_type_mapping() -> transferia_registry::type_mapping::TypeMa
 }
 
 pub use common::{
-    check_connection, check_network_connection, list_tables, PostgresConnectionCheckConfig,
+    check_connection, check_network_connection, connect, list_tables, PostgresConnectionCheckConfig,
     PostgresConnectionConfig, PostgresCopyFormat,
 };
 pub use sink::PostgresSinkConnector;

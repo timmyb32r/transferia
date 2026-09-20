@@ -36,6 +36,14 @@ pub struct PostgresSourceConfig {
     )]
     pub copy_to_format: PostgresCopyFormat,
 
+    #[serde(default)]
+    #[schemars(
+        title = "Maximum snapshot parts per table",
+        description = "Automatically choose how to split each snapshot table. Optionally set an upper bound on its total number of parts, including completed parts. This is a ceiling, not a requested part count or number of simultaneous readers. Leave unset for automatic planning. Applies to batch and the initial snapshot of batch_and_stream.",
+        extend("x-ui" = { "section": "performance", "delivery_types": ["batch", "batch_and_stream"] })
+    )]
+    pub max_snapshot_parts: Option<std::num::NonZeroU32>,
+
     #[serde(default, deserialize_with = "deserialize_unsupported_types")]
     #[schemars(
         with = "UnsupportedTypePolicy",

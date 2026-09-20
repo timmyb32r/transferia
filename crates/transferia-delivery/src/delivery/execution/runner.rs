@@ -794,10 +794,18 @@ fn validate_prepared_phase_suffix(
         "prepared source execution must retain a non-empty suffix of the validated preview phase plan"
     );
     let suffix = &preview[preview.len() - remaining.len()..];
-    anyhow::ensure!(
-        suffix == remaining,
-        "prepared source execution phases are not an exact suffix of the validated preview phase plan"
-    );
+    for (before, after) in suffix.iter().zip(remaining) {
+        let snapshot_refinement = before.phase == SourcePhase::Snapshot
+            && before.finite
+            && after.finite
+            && after.phase == before.phase
+            && matches!((&before.topology, &after.topology),
+                (transferia_core::delivery::SourceTopology::CoLocatedStaticPartitions(_),
+                 transferia_core::delivery::SourceTopology::CoLocatedStaticPartitions(_)));
+        anyhow::ensure!(before == after || snapshot_refinement,
+            "prepared source execution phases are not an exact suffix or a finite colocated snapshot refinement of the validated preview phase plan");
+        after.topology.validate()?;
+    }
     Ok(())
 }
 

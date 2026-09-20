@@ -6981,6 +6981,24 @@
                 "section": "performance"
               }
             },
+            "max_snapshot_parts": {
+              "title": "Maximum snapshot parts per table",
+              "description": "Automatically choose how to split each snapshot table. Optionally set an upper bound on its total number of parts, including completed parts. This is a ceiling, not a requested part count or number of simultaneous readers. Leave unset for automatic planning. Applies to batch and the initial snapshot of batch_and_stream.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 1,
+              "default": null,
+              "x-ui": {
+                "section": "performance",
+                "delivery_types": [
+                  "batch",
+                  "batch_and_stream"
+                ]
+              }
+            },
             "unsupported_types": {
               "title": "Unsupported source types",
               "description": "to_string (default for batch deliveries) casts unsupported columns to PostgreSQL text, preserving names and NULL. This changes the type and may not be reversible. Select Fail delivery to reject types without a supported Arrow representation instead. PostgreSQL output syntax and session settings determine the text. Conversion errors fail the delivery; values are never skipped. Available for batch deliveries only; stream and batch_and_stream always use Fail delivery.",
@@ -7161,7 +7179,7 @@
                 },
                 "bootstrap_timeout_ms": {
                   "title": "Replication bootstrap timeout",
-                  "description": "Maximum time in milliseconds for opening the replication session and exporting the exact slot snapshot",
+                  "description": "Maximum time in milliseconds for opening the replication session and exporting the exact slot snapshot; also bounds snapshot cancellation and cleanup in both snapshot modes",
                   "type": "integer",
                   "format": "uint64",
                   "minimum": 0,

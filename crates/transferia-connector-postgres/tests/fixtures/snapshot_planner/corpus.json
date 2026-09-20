@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "provenance": "Deterministic SQL fixtures inspired by the 2026-09-20 research. These are new datasets, not byte-identical generator output.",
+  "minimum_rows": 1000,
+  "row_multiple": 1000,
+  "profiles": [
+    {
+      "id": "uniform_numeric_sql_v1",
+      "table": "uniform_numeric",
+      "columns": 8,
+      "purpose": "Dense increasing key and fixed width",
+      "live_divisor": 1
+    },
+    {
+      "id": "nullable_logs_sql_v1",
+      "table": "nullable_logs",
+      "columns": 26,
+      "purpose": "Composite primary key and nullable log-shaped payload",
+      "live_divisor": 1
+    },
+    {
+      "id": "wide_permuted_sql_v1",
+      "table": "wide_permuted",
+      "columns": 105,
+      "purpose": "Wide rows with key order uncorrelated with insertion order",
+      "live_divisor": 1
+    },
+    {
+      "id": "key_skew_sql_v1",
+      "table": "key_skew",
+      "columns": 8,
+      "purpose": "90 percent of rows in the dense prefix of the key domain",
+      "live_divisor": 1
+    },
+    {
+      "id": "empty_prefix_sql_v1",
+      "table": "empty_prefix",
+      "columns": 8,
+      "purpose": "First 90 percent deleted; plain VACUUM retains empty heap prefix",
+      "live_divisor": 10
+    },
+    {
+      "id": "toast_tail_sql_v1",
+      "table": "toast_tail",
+      "columns": 2,
+      "purpose": "Final one percent has 64 KiB uncompressed external payload",
+      "live_divisor": 1
+    }
+  ],
+  "corner_groups": [
+    {
+      "table": "empty_rows",
+      "purpose": "Empty heap is still an explicit complete task"
+    },
+    {
+      "table": "one_row",
+      "purpose": "More requested parts than rows"
+    },
+    {
+      "table": "extreme_keys",
+      "purpose": "BIGINT extrema and sparse negative/positive keys"
+    },
+    {
+      "table": "nullable_composite",
+      "purpose": "Composite PK, nullable split candidates, duplicate values and NULL patterns"
+    },
+    {
+      "table": "special_values",
+      "purpose": "UUID, bytea, exact numeric, float infinities/NaN/signed zero, dates and timestamps"
+    },
+    {
+      "table": "ordered_keys",
+      "purpose": "Server text/enum/array ordering and long keys omitted from histograms"
+    },
+    {
+      "table": "mcv_keys",
+      "purpose": "Most-common values, duplicate boundaries, all-NULL column"
+    },
+    {
+      "table": "missing_statistics",
+      "purpose": "No ANALYZE and target zero do not imply an empty table"
+    },
+    {
+      "table": "stale_statistics",
+      "purpose": "New key extrema and changed distribution after ANALYZE"
+    },
+    {
+      "table": "partition_parent",
+      "purpose": "CTID is local to a physical relation; composite partitioned PK"
+    }
+  ]
+}

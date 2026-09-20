@@ -77,6 +77,26 @@ fn registration_exposes_only_the_bounded_copy_tuning_surface() -> anyhow::Result
     Ok(())
 }
 
+#[test]
+fn snapshot_part_limit_catalog_matches_the_registered_schema() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    register(&mut builder, &Arc::new(MetricsRegistry::new()))?;
+    let registry = builder.build();
+    let registered = &registry.definitions()[0].source.as_ref().unwrap().schema;
+    let catalog: serde_json::Value = serde_json::from_str(include_str!(
+        "../../transferia-server-contracts/contracts/connector-catalog.fixture.json"
+    ))?;
+    let committed = catalog["connectors"].as_array().unwrap().iter()
+        .find(|connector| connector["key"] == "postgres").unwrap();
+    let actual = &registered["properties"]["max_snapshot_parts"];
+    assert_eq!(actual, &committed["source"]["schema"]["properties"]["max_snapshot_parts"]);
+    assert_eq!(actual["minimum"], 1);
+    assert_eq!(actual["default"], serde_json::Value::Null);
+    assert_eq!(actual["x-ui"]["section"], "performance");
+    assert_eq!(actual["x-ui"]["delivery_types"], serde_json::json!(["batch", "batch_and_stream"]));
+    Ok(())
+}
+
 fn tuning_contract(
     parameters: &[transferia_registry::tuning::TuningParameter],
 ) -> anyhow::Result<Vec<(&str, serde_json::Value, Vec<serde_json::Value>)>> {

@@ -239,8 +239,10 @@ pub trait SourceConnector: Send + Sync {
     /// destination preparation or any destination side effect. A connector
     /// may create source-side execution state and return the authoritative raw
     /// discovery plus the phases which still need to run. Remaining phases must
-    /// be an exact, non-empty suffix of [`Self::execution_phases`], allowing a
-    /// durable connector to resume after a completed phase without replaying it.
+    /// retain a non-empty suffix of [`Self::execution_phases`]. A finite colocated
+    /// Snapshot may refine its partition IDs during preparation while retaining
+    /// its single-worker ownership; every other phase/topology is unchanged.
+    /// This also permits durable connectors to resume after a completed phase.
     /// The default does no additional I/O.
     fn prepare_execution(
         &self,
@@ -401,7 +403,8 @@ pub struct PreparedSourceExecution {
     /// Discovery produced from the source-side execution state.
     pub discovery: DeliveryDiscovery,
 
-    /// Exact non-empty suffix of the preview phase plan which still must run.
+    /// Non-empty suffix of preview phases, permitting only finite colocated
+    /// Snapshot partition refinement before destination preparation.
     pub remaining_phases: Vec<SourceExecutionPhase>,
 }
 

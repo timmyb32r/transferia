@@ -106,14 +106,57 @@ impl PostgresConnectionConfig {
     }
 }
 
-/// A request-scoped connection: dropping a cancelled preview must terminate its
-/// driver, not leave a detached task draining a query nobody can consume.
-pub(super) struct SampleConnection {
-    client: tokio_postgres::Client,
-    driver: tokio::task::JoinHandle<()>,
+/// A connection whose owner also owns the protocol driver. Cancellable snapshot
+/// connections configure an explicit cleanup deadline: abandoned work sends a
+/// PostgreSQL CancelRequest before closing its frontend socket. Closing TCP alone
+/// does not interrupt a PostgreSQL lock wait when client liveness checks are off.
+/// The immutable client view cannot be replaced independently of its driver.
+pub(super) struct OwnedConnection {
+    client: std::sync::Arc<tokio_postgres::Client>,
+    driver: Option<tokio::task::JoinHandle<()>>,
+    cancel_transport: CancelTransport,
+    cancel_timeout: Option<std::time::Duration>,
+    cancellation_armed: std::sync::atomic::AtomicBool,
 }
 
-impl std::ops::Deref for SampleConnection {
+impl OwnedConnection {
+    /// The deadline comes from owning operation configuration, never a hidden
+    /// transport constant. Configure it before starting a cancellable query.
+    pub(super) fn with_cancellation_timeout(mut self, timeout: std::time::Duration) -> anyhow::Result<Self> {
+        anyhow::ensure!(!timeout.is_zero(), "PostgreSQL cancellation timeout must be positive");
+        self.cancel_timeout = Some(timeout);
+        self.cancellation_armed.store(true, std::sync::atomic::Ordering::Release);
+        Ok(self)
+    }
+
+    /// Call only after a checked COMMIT/ROLLBACK or another proven idle boundary.
+    /// Subsequent Drop then closes the socket without an unnecessary CancelRequest.
+    pub(super) fn disarm_cancellation(&self) {
+        self.cancellation_armed.store(false, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Interrupt a blocked query, preserving TLS and keeping the frontend alive
+    /// until its cancellation packet has been sent (required by poolers).
+    /// PostgreSQL sends no cancellation acknowledgement: success means the
+    /// request was transmitted and the local driver closed, not that a backend
+    /// termination was observed.
+    pub(super) async fn cancel(&mut self) -> anyhow::Result<()> {
+        let Some(driver) = self.driver.take() else { return Ok(()); };
+        let driver = AbortDriver(Some(driver));
+        let timeout = self.cancel_timeout.ok_or_else(|| anyhow::anyhow!("PostgreSQL cancellation deadline was not configured"))?;
+        cancel_and_close(std::sync::Arc::clone(&self.client), self.cancel_transport.clone(), driver, timeout).await
+    }
+
+    /// Abort and join the driver so asynchronous shutdown returns only after
+    /// its socket has closed. This never waits for PostgreSQL to drain a query.
+    pub(super) async fn close(&mut self) -> anyhow::Result<()> {
+        let Some(driver) = self.driver.take() else { return Ok(()); };
+        self.disarm_cancellation();
+        AbortDriver(Some(driver)).close().await
+    }
+}
+
+impl std::ops::Deref for OwnedConnection {
     type Target = tokio_postgres::Client;
 
     fn deref(&self) -> &Self::Target {
@@ -121,27 +164,88 @@ impl std::ops::Deref for SampleConnection {
     }
 }
 
-impl Drop for SampleConnection {
+impl Drop for OwnedConnection {
     fn drop(&mut self) {
-        self.driver.abort();
+        let Some(driver) = self.driver.take() else { return; };
+        let driver = AbortDriver(Some(driver));
+        let configured = self.cancel_timeout.filter(|_| self.cancellation_armed.load(std::sync::atomic::Ordering::Acquire));
+        if let (Some(timeout), Ok(runtime)) = (configured, tokio::runtime::Handle::try_current()) {
+            let client = std::sync::Arc::clone(&self.client);
+            let transport = self.cancel_transport.clone();
+            drop(runtime.spawn(async move {
+                if cancel_and_close(client, transport, driver, timeout).await.is_err() {
+                    tracing::warn!(operation = "cancel_abandoned_postgres_request", "PostgreSQL cancellation request could not be sent; the local connection driver was closed");
+                }
+            }));
+        }
+        // Without a configured cancellation deadline/runtime, the local guard
+        // is still dropped and aborts its driver. No unbounded task is spawned.
     }
 }
 
-pub(super) async fn connect_sample(
+#[derive(Clone)]
+enum CancelTransport {
+    Plaintext,
+    Tls(tokio_postgres_rustls::MakeRustlsConnect),
+}
+
+impl CancelTransport {
+    async fn send(&self, token: tokio_postgres::CancelToken) -> anyhow::Result<()> {
+        transferia_connector_support::external_request::observe_external_request("postgres", "cancel_query", async {
+            let result = match self {
+                Self::Plaintext => token.cancel_query(tokio_postgres::NoTls).await,
+                Self::Tls(tls) => token.cancel_query(tls.clone()).await,
+            };
+            result.map_err(|error| anyhow::anyhow!("PostgreSQL cancellation transport failed (SQLSTATE {})", error.code().map_or("unavailable", tokio_postgres::error::SqlState::code)))
+        }).await
+    }
+}
+
+/// Closing this guard cannot recursively schedule another cancellation task.
+struct AbortDriver(Option<tokio::task::JoinHandle<()>>);
+
+impl AbortDriver {
+    async fn close(mut self) -> anyhow::Result<()> {
+        let Some(driver) = self.0.take() else { return Ok(()); };
+        driver.abort();
+        match driver.await {
+            Ok(()) => Ok(()),
+            Err(error) if error.is_cancelled() => Ok(()),
+            Err(_) => anyhow::bail!("PostgreSQL connection driver terminated unexpectedly"),
+        }
+    }
+}
+
+impl Drop for AbortDriver {
+    fn drop(&mut self) {
+        if let Some(driver) = &self.0 { driver.abort(); }
+    }
+}
+
+async fn cancel_and_close(client: std::sync::Arc<tokio_postgres::Client>, transport: CancelTransport, driver: AbortDriver, timeout: std::time::Duration) -> anyhow::Result<()> {
+    let cancellation = tokio::time::timeout(timeout, transport.send(client.cancel_token())).await
+        .map_err(|_| anyhow::anyhow!("PostgreSQL cancellation exceeded its configured deadline"));
+    let closed = driver.close().await;
+    drop(client);
+    cancellation??;
+    closed
+}
+
+pub(super) async fn connect_owned(
     config: &PostgresConnectionConfig,
-) -> anyhow::Result<SampleConnection> {
-    let (client, driver) = connect_with_driver(config).await?;
-    Ok(SampleConnection { client, driver })
+) -> anyhow::Result<OwnedConnection> {
+    let (client, driver, cancel_transport) = connect_with_driver(config).await?;
+    Ok(OwnedConnection { client: std::sync::Arc::new(client), driver: Some(driver), cancel_transport, cancel_timeout: None, cancellation_armed: std::sync::atomic::AtomicBool::new(false) })
 }
 
 pub async fn connect(config: &PostgresConnectionConfig) -> anyhow::Result<tokio_postgres::Client> {
-    let (client, _driver) = connect_with_driver(config).await?;
+    let (client, _driver, _cancel_transport) = connect_with_driver(config).await?;
     Ok(client)
 }
 
 async fn connect_with_driver(
     config: &PostgresConnectionConfig,
-) -> anyhow::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>)> {
+) -> anyhow::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>, CancelTransport)> {
     let mut connection_config = tokio_postgres::Config::new();
     connection_config
         .host(&config.host)
@@ -156,7 +260,7 @@ async fn connect_with_driver(
                 tracing::error!("PostgreSQL connection failed: {error}");
             }
         });
-        (client, driver)
+        (client, driver, CancelTransport::Plaintext)
     } else {
         drop(rustls::crypto::aws_lc_rs::default_provider().install_default());
         let mut roots = rustls::RootCertStore::empty();
@@ -174,15 +278,16 @@ async fn connect_with_driver(
         let tls = rustls::ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth();
+        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(tls);
         let (client, connection) = connection_config
-            .connect(tokio_postgres_rustls::MakeRustlsConnect::new(tls))
+            .connect(tls.clone())
             .await?;
         let driver = tokio::spawn(async move {
             if let Err(error) = connection.await {
                 tracing::error!("PostgreSQL TLS connection failed: {error}");
             }
         });
-        (client, driver)
+        (client, driver, CancelTransport::Tls(tls))
     };
     Ok(connection)
 }
@@ -192,7 +297,7 @@ async fn connect_with_driver(
 pub async fn list_tables(
     config: &PostgresConnectionConfig,
 ) -> anyhow::Result<Vec<transferia_registry::TableIdentity>> {
-    let client = connect_sample(config).await?;
+    let client = connect_owned(config).await?;
     let rows = transferia_connector_support::external_request::observe_external_request(
         "postgres",
         "list_tables",
@@ -200,8 +305,10 @@ pub async fn list_tables(
         // Parse/bind/execute together without a session-scoped named statement.
         client.query_typed(
             "SELECT n.nspname, c.relname FROM pg_catalog.pg_class c \
-             JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
-             WHERE c.relkind IN ('r', 'p') AND c.relpersistence = 'p' \
+             JOIN pg_catalog.pg_namespace n ON n.oid OPERATOR(pg_catalog.=) c.relnamespace \
+             WHERE (c.relkind OPERATOR(pg_catalog.=) 'r'::pg_catalog.\"char\" \
+                    OR c.relkind OPERATOR(pg_catalog.=) 'p'::pg_catalog.\"char\") \
+             AND c.relpersistence OPERATOR(pg_catalog.=) 'p'::pg_catalog.\"char\" \
              AND pg_catalog.has_schema_privilege(n.oid, 'USAGE') \
              AND pg_catalog.has_table_privilege(c.oid, 'SELECT') \
              ORDER BY n.nspname, c.relname",

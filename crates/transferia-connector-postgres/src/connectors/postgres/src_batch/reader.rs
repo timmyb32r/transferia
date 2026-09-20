@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use arrow::array::{
     new_null_array, ArrayRef, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array,
@@ -9,11 +10,14 @@ use arrow::array::{
 use arrow::datatypes::{Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
-use tokio_postgres::{Client, Column, Statement};
+use tokio_postgres::{Column, Statement};
+use tracing::Instrument as _;
 
 use super::copy_out::{CopyOutReader, RawCopyRow};
+use super::planning::PreparedTable;
+use super::queue::{ClaimedChunk, LaneLease, SnapshotQueue};
 use crate::connectors::postgres::common::{
-    postgres_requires_text_projection, postgres_to_arrow, quote_identifier, PostgresCopyFormat,
+    postgres_requires_text_projection, postgres_to_arrow, quote_identifier, OwnedConnection, PostgresCopyFormat,
 };
 use crate::connectors::postgres::source::{
     discover_table, incoming_user_schema, old_key_column_name, old_value_column_name,
@@ -34,13 +38,10 @@ use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, Syst
 use transferia_core::data::table_data::TableData;
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::source::{CommitMarker, Source};
+use transferia_connector_support::external_request::observe_external_request;
 
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "these flags independently track snapshot and changelog lifecycle guarantees"
-)]
 pub struct PostgresSource {
-    client: Client,
+    client: OwnedConnection,
 
     _exported_snapshot: Arc<ExportedSnapshot>,
 
@@ -53,6 +54,18 @@ pub struct PostgresSource {
     statement: Statement,
 
     copy: Option<CopyOutReader>,
+
+    active: Option<ActiveRead>,
+
+    prepared: Arc<PreparedTable>,
+
+    lease: LaneLease,
+
+    select: String,
+
+    membership_predicate: String,
+
+    span: tracing::Span,
 
     schema: DatasetSchema,
 
@@ -70,8 +83,6 @@ pub struct PostgresSource {
 
     offset: i64,
 
-    copy_done: bool,
-
     finished: bool,
 
     counters: Arc<SourceCounters>,
@@ -79,11 +90,22 @@ pub struct PostgresSource {
     changelog_snapshot: bool,
 }
 
+struct ActiveRead {
+    task: ClaimedChunk,
+    started: Instant,
+    query_start: Duration,
+    bytes: u64,
+    ended: bool,
+}
+
 impl PostgresSource {
-    pub async fn new(
-        client: Client,
+    pub(in crate::connectors::postgres) async fn new(
+        client: OwnedConnection,
         exported_snapshot: Arc<ExportedSnapshot>,
         partition_id: i64,
+        queue: Arc<SnapshotQueue>,
+        lane_index: u32,
+        prepared: Arc<PreparedTable>,
         discovered: DiscoveredTable,
         database: String,
         batch_rows: usize,
@@ -92,11 +114,16 @@ impl PostgresSource {
         counters: Arc<SourceCounters>,
         changelog_snapshot: bool,
     ) -> anyhow::Result<Self> {
-        exported_snapshot.import(&client).await?;
-        let current = discover_table(&client, discovered.config.clone(), unsupported_types).await?;
+        anyhow::ensure!(batch_rows > 0, "PostgreSQL batch_rows must be positive");
+        let lease = queue.open_lane(usize::try_from(lane_index)?).map_err(DataPlaneFailure::fatal)?;
+        observe_external_request("postgres", "import_snapshot_reader", exported_snapshot.import(&client)).await?;
+        exported_snapshot.verify_relation(&discovered.config.schema, &discovered.config.name, discovered.relation_oid).map_err(DataPlaneFailure::fatal)?;
+        let current = observe_external_request("postgres", "validate_snapshot_schema", discover_table(&client, discovered.config.clone(), unsupported_types))
+            .await.map_err(|error| sanitized_request_failure("validate_snapshot_schema", error, false))?;
         if !discovered_schema_matches(&current.schema, &discovered.schema)
             || current.type_oids != discovered.type_oids
             || current.replica_identity_full != discovered.replica_identity_full
+            || current.relation_oid != discovered.relation_oid
         {
             return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
                 "PostgreSQL table '{}.{}' schema differs from the exported snapshot discovery",
@@ -105,31 +132,33 @@ impl PostgresSource {
             ))
             .into());
         }
+        // The keeper retains the relation guards for the whole epoch. Once
+        // checked under this imported snapshot, physical identity cannot change
+        // between this lane's task requests without violating those guards.
+        prepared.validate_identity(&client).await.map_err(DataPlaneFailure::fatal)?;
         let replica_identity_full = discovered.replica_identity_full;
         let table = discovered.config;
         let schema = incoming_user_schema(&discovered.schema);
-        let metadata = client
+        let metadata = observe_external_request("postgres", "prepare_snapshot_columns", client
             .prepare(&format!(
                 "SELECT * FROM {}.{} LIMIT 0",
                 quote_identifier(&table.schema),
                 quote_identifier(&table.name)
-            ))
-            .await?;
+            )))
+            .await.map_err(|error| sanitized_request_failure("prepare_snapshot_columns", error.into(), true))?;
         let projection = source_select_projection(metadata.columns(), unsupported_types)?;
+        let query_scope = exported_snapshot.query_scope(&table.schema, &table.name, discovered.relation_oid).map_err(DataPlaneFailure::fatal)?;
         let select = format!(
-            "SELECT {projection} FROM {}.{}",
-            quote_identifier(&table.schema),
-            quote_identifier(&table.name)
+            "SELECT {projection} FROM {}",
+            query_scope.from_sql(&table.schema, &table.name)
         );
-        let statement = client.prepare(&format!("{select} LIMIT 0")).await?;
-        let format = match copy_format {
-            PostgresCopyFormat::Binary => "BINARY",
-            PostgresCopyFormat::Text => "TEXT",
-        };
-        let stream = client
-            .copy_out(&format!("COPY ({select}) TO STDOUT (FORMAT {format})"))
-            .await?;
-        let copy = CopyOutReader::new(stream, copy_format, statement.columns().len());
+        let membership_predicate = query_scope.membership_predicate();
+        let statement = observe_external_request("postgres", "prepare_snapshot_projection", client.prepare(&format!("{select} LIMIT 0")))
+            .await.map_err(|error| sanitized_request_failure("prepare_snapshot_projection", error.into(), true))?;
+        let offset = lease.offset().map_err(DataPlaneFailure::fatal)?;
+        let span = tracing::info_span!(target: "transferia.postgres.snapshot", "postgres_snapshot_lane",
+            schema = %table.schema, table = %table.name, partition = partition_id,
+            lane = lane_index, snapshot_transaction = exported_snapshot.transaction_id);
         Ok(Self {
             client,
             _exported_snapshot: exported_snapshot.clone(),
@@ -137,7 +166,13 @@ impl PostgresSource {
             table,
             replica_identity_full,
             statement,
-            copy: Some(copy),
+            copy: None,
+            active: None,
+            prepared,
+            lease,
+            select,
+            membership_predicate,
+            span,
             schema,
             database,
             batch_rows,
@@ -145,8 +180,7 @@ impl PostgresSource {
             snapshot_lsn: exported_snapshot.lsn,
             snapshot_transaction_id: exported_snapshot.transaction_id,
             snapshot_timestamp_ns: exported_snapshot.timestamp_ns,
-            offset: 0,
-            copy_done: false,
+            offset,
             finished: false,
             counters,
             changelog_snapshot,
@@ -174,7 +208,11 @@ pub(super) fn discovered_schema_matches(current: &DatasetSchema, expected: &Data
             })
 }
 
-pub(in crate::connectors::postgres) fn source_select_projection(
+/// Build the exact snapshot projection from PostgreSQL statement metadata.
+/// The SQL expressions preserve supported values through the source's chosen
+/// type policy. Evaluators must reuse this function instead of measuring native
+/// COPY representations which the production reader does not consume.
+pub fn source_select_projection(
     columns: &[Column],
     policy: crate::connectors::postgres::source::UnsupportedTypePolicy,
 ) -> anyhow::Result<String> {
@@ -193,7 +231,9 @@ pub(in crate::connectors::postgres) fn source_column_expression(
     policy.arrow_type(data_type)?;
     let name = quote_identifier(name);
     if postgres_requires_text_projection(data_type) || postgres_to_arrow(data_type).is_err() {
-        Ok(format!("{name}::text AS {name}"))
+        // The declared source policy means PostgreSQL's text representation,
+        // regardless of user-defined types earlier in the session search_path.
+        Ok(format!("{name}::pg_catalog.text AS {name}"))
     } else {
         Ok(name)
     }
@@ -203,102 +243,150 @@ impl Source for PostgresSource {
     fn read_batch(
         &mut self,
     ) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<SourceBatch>> {
+        let span = self.span.clone();
         Box::pin(async move {
-            if self.finished {
-                return Ok(SourceBatch::Finished);
+            let result = self.read_next().await;
+            match result {
+                Err(error) if !self.lease.retry_allowed() => Err(DataPlaneFailure::fatal(
+                    error.into_source().context("snapshot epoch cannot retry after publishing incomplete COPY work"),
+                )),
+                result => result,
             }
-            let mut rows = Vec::with_capacity(self.batch_rows);
-            while rows.len() < self.batch_rows && !self.copy_done {
-                let copy = self.copy.as_mut().ok_or_else(|| {
-                    DataPlaneFailure::fatal(anyhow::anyhow!(
-                        "PostgreSQL COPY reader is unavailable before snapshot completion"
-                    ))
-                })?;
-                match copy.next_row(&self.counters).await? {
-                    Some(row) => rows.push(row),
-                    None => {
-                        self.copy_done = true;
-                        self.copy = None;
-                    }
-                }
-            }
-            if rows.is_empty() {
-                self.client
-                    .batch_execute("COMMIT")
-                    .await
-                    .map_err(|error| DataPlaneFailure::retryable(error.into()))?;
-                self.finished = true;
-                return Ok(SourceBatch::Finished);
-            }
-            let source_rows = rows.len() as u64;
-            let batch = rows_to_batch(
-                &self.schema,
-                &self.statement,
-                &rows,
-                self.copy_format,
-                self.offset,
-                self.partition_id,
-                SnapshotMetadata {
-                    database: &self.database,
-                    schema: &self.table.schema,
-                    table: &self.table.name,
-                    lsn: self.snapshot_lsn,
-                    transaction_id: self.snapshot_transaction_id,
-                    timestamp_ns: self.snapshot_timestamp_ns,
-                },
-                self.replica_identity_full,
-                self.changelog_snapshot,
-            )
-            .map_err(DataPlaneFailure::fatal)?;
-            self.offset = self
-                .offset
-                .checked_add(
-                    i64::try_from(rows.len())
-                        .map_err(|error| DataPlaneFailure::fatal(error.into()))?,
-                )
-                .ok_or_else(|| {
-                    DataPlaneFailure::fatal(anyhow::anyhow!("PostgreSQL source offset overflow"))
-                })?;
-            self.counters.add_records(source_rows);
-            let system_kinds = snapshot_system_columns(self.changelog_snapshot);
-            let system_start = batch.schema().fields().len() - system_kinds.len();
-            Ok(SourceBatch::Typed {
-                tables: vec![TableData::new(
-                    Arc::from(self.table.name.as_str()),
-                    false,
-                    batch,
-                    routing_system_columns(system_start, system_kinds),
-                )
-                .with_namespace(Arc::from(self.table.schema.as_str()))],
-                source_rows,
-                commit_marker: Some(CommitMarker::new(self.offset)),
-                memory: Vec::new(),
-            })
-        })
+        }.instrument(span))
     }
 
     fn commit_offsets<'a>(
         &'a mut self,
-        _markers: &'a [CommitMarker],
+        markers: &'a [CommitMarker],
     ) -> BoxFuture<'a, transferia_core::failure::DataPlaneResult<()>> {
-        Box::pin(async { Ok(()) })
+        let span = self.span.clone();
+        Box::pin(async move { self.lease.acknowledge(markers).map_err(DataPlaneFailure::fatal) }.instrument(span))
     }
 
     fn shutdown(&mut self) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<()>> {
+        let span = self.span.clone();
         Box::pin(async move {
             self.copy = None;
-            if self.finished {
-                return Ok(());
-            }
-            self.client
-                .batch_execute("ROLLBACK")
-                .await
-                .map_err(|error| DataPlaneFailure::retryable(error.into()))?;
+            self.active = None;
+            // ROLLBACK would queue behind abandoned COPY/lock work. Cancel the
+            // PostgreSQL query before closing its socket; TCP closure alone
+            // need not wake a backend blocked on a relation lock. Normal EOF
+            // already issued a checked COMMIT and only needs a clean close.
+            let cleanup = observe_external_request("postgres", "close_snapshot_reader", async {
+                if self.finished { self.client.close().await } else { self.client.cancel().await }
+            }).await.map_err(|error| sanitized_request_failure("close_snapshot_reader", error, false));
             self.finished = true;
-            Ok(())
-        })
+            self.lease.close().map_err(DataPlaneFailure::fatal)?;
+            cleanup
+        }.instrument(span))
     }
 }
+
+impl PostgresSource {
+    async fn read_next(&mut self) -> transferia_core::failure::DataPlaneResult<SourceBatch> {
+        if self.finished { return Ok(SourceBatch::Finished); }
+        if self.active.as_ref().is_some_and(|active| active.ended) {
+            return self.finish_task().await;
+        }
+        if self.active.is_none() {
+            let Some(task) = self.lease.claim().map_err(DataPlaneFailure::fatal)? else {
+                observe_external_request("postgres", "commit_snapshot_reader", self.client.batch_execute("COMMIT"))
+                    .await.map_err(|error| sanitized_request_failure("commit_snapshot_reader", error.into(), true))?;
+                self.client.disarm_cancellation();
+                self.finished = true;
+                // The pipeline closes parser input and drains outstanding task
+                // markers after this EOF, then calls shutdown to close the lease.
+                return Ok(SourceBatch::Finished);
+            };
+            let predicate = self.prepared.predicate(&task.chunk).map_err(DataPlaneFailure::fatal)?;
+            let format = match self.copy_format { PostgresCopyFormat::Binary => "BINARY", PostgresCopyFormat::Text => "TEXT" };
+            let query = format!("COPY ({} WHERE ({}) AND ({predicate})) TO STDOUT (FORMAT {format})", self.select, self.membership_predicate);
+            let started = Instant::now();
+            let stream = observe_external_request("postgres", "start_snapshot_chunk", self.client.copy_out(&query))
+                .await.map_err(|error| sanitized_request_failure("start_snapshot_chunk", error.into(), true))?;
+            tracing::debug!(target: "transferia.postgres.snapshot", schema = %self.table.schema, table = %self.table.name, partition = self.partition_id, task = task.id, "snapshot chunk COPY started");
+            self.active = Some(ActiveRead { task, started, query_start: started.elapsed(), bytes: 0, ended: false });
+            self.copy = Some(CopyOutReader::new(stream, self.copy_format, self.statement.columns().len()));
+        }
+        let rows = observe_external_request("postgres", "read_snapshot_chunk_batch", async {
+            let mut rows = Vec::with_capacity(self.batch_rows);
+            while rows.len() < self.batch_rows {
+                let copy = self.copy.as_mut().ok_or_else(|| DataPlaneFailure::fatal(anyhow::anyhow!("PostgreSQL COPY reader is missing for an owned task")))?;
+                let row = copy.next_row(&self.counters).await.map_err(|error| {
+                    let retryable = error.is_retryable();
+                    sanitized_request_failure("read_snapshot_chunk", error.into_source(), retryable)
+                })?;
+                let Some(row) = row else {
+                    self.copy = None;
+                    self.active.as_mut().ok_or_else(|| DataPlaneFailure::fatal(anyhow::anyhow!("snapshot task disappeared while reading COPY")))?.ended = true;
+                    break;
+                };
+                rows.push(row);
+            }
+            Ok::<_, DataPlaneFailure>(rows)
+        }).await?;
+        if rows.is_empty() { return self.finish_task().await; }
+        let source_rows = u64::try_from(rows.len()).map_err(|error| DataPlaneFailure::fatal(error.into()))?;
+        let bytes = rows.iter().flat_map(|row| &row.fields).flatten().try_fold(0_u64, |total, field| {
+            total.checked_add(u64::try_from(field.len()).ok()?)
+        }).ok_or_else(|| DataPlaneFailure::fatal(anyhow::anyhow!("snapshot payload byte count overflow")))?;
+        let batch = rows_to_batch(
+            &self.schema, &self.statement, &rows, self.copy_format, self.offset, self.partition_id,
+            SnapshotMetadata {
+                database: &self.database, schema: &self.table.schema, table: &self.table.name,
+                lsn: self.snapshot_lsn, transaction_id: self.snapshot_transaction_id,
+                timestamp_ns: self.snapshot_timestamp_ns,
+            }, self.replica_identity_full, self.changelog_snapshot,
+        ).map_err(DataPlaneFailure::fatal)?;
+        let active = self.active.as_mut().ok_or_else(|| DataPlaneFailure::fatal(anyhow::anyhow!("snapshot task disappeared before publication")))?;
+        let total_bytes = active.bytes.checked_add(bytes).ok_or_else(|| DataPlaneFailure::fatal(anyhow::anyhow!("snapshot payload byte count overflow")))?;
+        let (offset, marker) = self.lease.emit_rows(&active.task, self.offset, source_rows).map_err(DataPlaneFailure::fatal)?;
+        active.bytes = total_bytes;
+        self.offset = offset;
+        self.counters.add_records(source_rows);
+        let system_kinds = snapshot_system_columns(self.changelog_snapshot);
+        let system_start = batch.schema().fields().len() - system_kinds.len();
+        Ok(SourceBatch::Typed {
+            tables: vec![TableData::new(Arc::from(self.table.name.as_str()), false, batch, routing_system_columns(system_start, system_kinds))
+                .with_namespace(Arc::from(self.table.schema.as_str()))],
+            source_rows, commit_marker: Some(marker), memory: Vec::new(),
+        })
+    }
+
+    async fn finish_task(&mut self) -> transferia_core::failure::DataPlaneResult<SourceBatch> {
+        let active = self.active.as_ref().ok_or_else(|| DataPlaneFailure::fatal(anyhow::anyhow!("snapshot task EOF has no owned task")))?;
+        if !active.ended { return Err(DataPlaneFailure::fatal(anyhow::anyhow!("snapshot task is not at COPY EOF"))); }
+        // tokio-postgres COPY streams expose CopyDone before final SQL cleanup.
+        // Within this explicit transaction, a checked next command detects an
+        // aborted statement before we publish the task-completion marker.
+        observe_external_request("postgres", "finish_snapshot_chunk", self.client.simple_query("SELECT 1"))
+            .await.map_err(|error| sanitized_request_failure("finish_snapshot_chunk", error.into(), true))?;
+        let marker = self.lease.finish_read(&active.task, active.started.elapsed(), active.query_start, active.bytes)
+            .map_err(DataPlaneFailure::fatal)?;
+        self.active = None;
+        Ok(SourceBatch::Typed { tables: Vec::new(), source_rows: 0, commit_marker: Some(marker), memory: Vec::new() })
+    }
+}
+
+fn sanitized_request_failure(operation: &'static str, error: anyhow::Error, retryable: bool) -> DataPlaneFailure {
+    let code = error.chain().find_map(|cause| cause.downcast_ref::<tokio_postgres::Error>())
+        .and_then(tokio_postgres::Error::as_db_error).map(|database| database.code().code());
+    let message = match code {
+        Some(code) => anyhow::anyhow!("PostgreSQL snapshot request '{operation}' failed (SQLSTATE {code})"),
+        None => anyhow::anyhow!("PostgreSQL snapshot request '{operation}' failed"),
+    };
+    // Retrying malformed SQL, permissions, schema/type changes, or an expired
+    // snapshot cannot repair the same immutable task. Connection failures and
+    // explicitly transient server conditions may retry before publication.
+    let retryable = retryable && code.is_none_or(|code| {
+        code.starts_with("08") || matches!(code, "40001" | "40P01" | "55P03" | "57014" | "57P01" | "57P02" | "57P03" | "53300")
+    });
+    if retryable { DataPlaneFailure::retryable(message) } else { DataPlaneFailure::fatal(message) }
+}
+
+#[cfg(test)]
+#[path = "tests/reader.rs"]
+mod tests;
 
 fn routing_system_columns(base: usize, kinds: &[SystemColumnKind]) -> SystemColumns {
     SystemColumns::new(

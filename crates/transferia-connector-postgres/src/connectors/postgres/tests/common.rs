@@ -121,7 +121,7 @@ async fn cancelled_table_sample_closes_pending_driver_without_draining() {
             .unwrap()
     });
     let task = tokio::spawn(async move {
-        let connection = super::connect_sample(&super::PostgresConnectionConfig {
+        let connection = super::connect_owned(&super::PostgresConnectionConfig {
             host: address.ip().to_string(),
             port: address.port(),
             database: "sample".into(),

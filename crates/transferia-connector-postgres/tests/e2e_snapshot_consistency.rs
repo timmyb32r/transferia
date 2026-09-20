@@ -136,7 +136,7 @@ async fn anyarray_requires_explicit_text_policy_and_preserves_values_and_nulls(
             let mut found_null = false;
             loop {
                 match source.read_batch().await? {
-                    SourceBatch::Typed { tables, .. } => {
+                    SourceBatch::Typed { tables, commit_marker, .. } => {
                         for table in tables {
                             let values =
                                 array_by_name::<StringArray>(&table.batch, "attmissingval")?;
@@ -148,6 +148,7 @@ async fn anyarray_requires_explicit_text_policy_and_preserves_values_and_nulls(
                                 }
                             }
                         }
+                        if let Some(marker) = commit_marker { source.commit_offsets(&[marker]).await?; }
                     }
                     SourceBatch::Finished => break,
                     _ => panic!("expected typed PostgreSQL batch"),
@@ -278,7 +279,7 @@ async fn terminated_snapshot_owner_is_a_non_retryable_source_build_failure() -> 
         .query_one(
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
              WHERE datname = current_database() AND state = 'idle in transaction' \
-               AND pid <> pg_backend_pid() AND query LIKE '%pg_export_snapshot%' \
+               AND pid <> pg_backend_pid() AND application_name = 'transferia_snapshot_owner' \
              ORDER BY backend_start LIMIT 1",
             &[],
         )
@@ -390,8 +391,11 @@ async fn drain_partition(
             SourceBatch::Typed {
                 tables,
                 source_rows,
+                commit_marker,
                 ..
             } => {
+                if let Some(marker) = commit_marker { source.commit_offsets(&[marker]).await?; }
+                if tables.is_empty() { assert_eq!(source_rows, 0); continue; }
                 assert_eq!(tables.len(), 1);
                 let table = &tables[0];
                 assert_eq!(table.table.as_ref(), expected_table);

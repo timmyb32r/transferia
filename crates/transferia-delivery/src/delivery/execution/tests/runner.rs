@@ -745,6 +745,27 @@ async fn prepared_execution_rejects_a_non_suffix_before_sink_prepare() {
     assert_eq!(events.snapshot(), vec!["prepare_execution".to_owned()]);
 }
 
+#[test]
+fn prepared_snapshot_refines_only_finite_colocated_partitions() {
+    let snapshot = phase_plan(SourcePhase::Snapshot, SourceTopology::CoLocatedStaticPartitions(vec![0]), true);
+    let stream = phase_plan(SourcePhase::Stream, SourceTopology::CoLocatedStaticPartitions(vec![0]), false);
+    let refined = phase_plan(SourcePhase::Snapshot, SourceTopology::CoLocatedStaticPartitions(vec![0, 1, 2]), true);
+    assert!(validate_prepared_phase_suffix(&[snapshot.clone(), stream.clone()], &[refined.clone(), stream.clone()]).is_ok());
+    assert!(validate_prepared_phase_suffix(&[snapshot.clone(), stream.clone()], &[stream.clone()]).is_ok());
+    for invalid in [
+        phase_plan(SourcePhase::Snapshot, SourceTopology::StaticPartitions(vec![0, 1]), true),
+        phase_plan(SourcePhase::Snapshot, SourceTopology::CoLocatedStaticPartitions(vec![0, 1]), false),
+        phase_plan(SourcePhase::Snapshot, SourceTopology::CoLocatedStaticPartitions(vec![]), true),
+        phase_plan(SourcePhase::Snapshot, SourceTopology::CoLocatedStaticPartitions(vec![0, 0]), true),
+    ] {
+        assert!(validate_prepared_phase_suffix(&[snapshot.clone()], &[invalid]).is_err());
+    }
+    let changed_stream = phase_plan(SourcePhase::Stream, SourceTopology::CoLocatedStaticPartitions(vec![0, 1]), false);
+    assert!(validate_prepared_phase_suffix(&[snapshot.clone(), stream], &[refined, changed_stream]).is_err());
+    let distributed = phase_plan(SourcePhase::Snapshot, SourceTopology::StaticPartitions(vec![0]), true);
+    assert!(validate_prepared_phase_suffix(&[distributed], &[snapshot]).is_err());
+}
+
 #[tokio::test]
 async fn every_snapshot_partition_finishes_before_phase_completion_and_stream_build() {
     let events = Arc::new(PhaseEvents::default());

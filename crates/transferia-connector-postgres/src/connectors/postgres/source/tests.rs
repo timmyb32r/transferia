@@ -81,7 +81,7 @@ fn metadata_batch_keeps_native_types_and_explicit_pseudo_type_policy() -> anyhow
     assert!(catalog_type(90000, "unknown".into(), "?", "public".into()).is_err());
     assert!(super::metadata::CATALOG_QUERY.contains("WITH RECURSIVE"));
     assert!(super::metadata::CATALOG_QUERY
-        .contains("t.physical_oid = a.atttypid AND t.typbasetype = 0"));
+        .contains("t.physical_oid OPERATOR(pg_catalog.=) a.atttypid AND t.typbasetype OPERATOR(pg_catalog.=) 0"));
     Ok(())
 }
 
@@ -94,7 +94,7 @@ fn metadata_projection_batch_preserves_quoted_tables_without_combining_column_wi
                     namespace: "schema\"quoted".into(),
                     name: format!("table{index}"),
                 },
-                "\"id\", \"value\"::text AS \"value\"".into(),
+                "\"id\", \"value\"::pg_catalog.text AS \"value\"".into(),
             )
         })
         .collect::<Vec<_>>();
@@ -204,6 +204,30 @@ use transferia_delivery_contracts::DeliveryType;
 use transferia_registry::SourceConnector;
 
 const MINIMAL_SOURCE_CONFIG: &str = "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables: {type: all}\n";
+
+#[test]
+fn snapshot_part_ceiling_is_optional_positive_and_not_a_reader_setting() -> anyhow::Result<()> {
+    let automatic: PostgresSourceConfig = serde_yaml::from_str(MINIMAL_SOURCE_CONFIG)?;
+    assert!(automatic.max_snapshot_parts.is_none());
+    for invalid in ["0", "-1", "1.5", "4294967296"] {
+        assert!(serde_yaml::from_str::<PostgresSourceConfig>(&format!(
+            "{MINIMAL_SOURCE_CONFIG}max_snapshot_parts: {invalid}\n"
+        )).is_err());
+    }
+    let capped: PostgresSourceConfig = serde_yaml::from_str(&format!(
+        "{MINIMAL_SOURCE_CONFIG}max_snapshot_parts: 4\n"
+    ))?;
+    assert_eq!(capped.max_snapshot_parts.unwrap().get(), 4);
+    capped.validate()?;
+    let schema = serde_json::to_value(schemars::schema_for!(PostgresSourceConfig))?;
+    let field = &schema["properties"]["max_snapshot_parts"];
+    assert_eq!(field["minimum"], 1);
+    assert_eq!(field["x-ui"]["section"], "performance");
+    assert_eq!(field["x-ui"]["delivery_types"], serde_json::json!(["batch", "batch_and_stream"]));
+    assert!(schema["properties"].get("readers").is_none());
+    assert!(schema["properties"].get("max_heap_passes").is_none());
+    Ok(())
+}
 
 #[test]
 fn system_table_filter_defaults_to_enabled_above_table_selection() -> anyhow::Result<()> {
@@ -521,12 +545,14 @@ async fn batch_preparation_needs_no_replication_context_and_cannot_reuse_stream_
     let connector =
         PostgresSourceConnector::from_config(config.clone(), Arc::new(MetricsRegistry::default()))
             .unwrap();
-    // No server is listening: batch preparation must not connect or validate a slot ID.
-    assert!(connector
+    // Batch now discovers its snapshot plan, but still needs no replication
+    // identity. With no server listening it reaches the connection boundary.
+    let batch_error = connector
         .prepare_execution(context(DeliveryType::Batch))
         .await
-        .unwrap()
-        .is_none());
+        .unwrap_err();
+    assert!(batch_error.chain().any(|cause| cause.downcast_ref::<std::io::Error>().is_some()));
+    assert!(!batch_error.to_string().contains("replay identity"));
     let error = connector
         .prepare_execution(context(DeliveryType::Stream))
         .await
@@ -539,6 +565,52 @@ async fn batch_preparation_needs_no_replication_context_and_cannot_reuse_stream_
         .await
         .unwrap_err();
     assert!(error.to_string().contains("replay identity"));
+}
+
+#[tokio::test]
+async fn snapshot_source_construction_observes_cancellation_before_handshake_completes() {
+    use tokio::io::AsyncReadExt as _;
+    use std::time::Duration;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let mut config: PostgresSourceConfig = serde_yaml::from_str(MINIMAL_SOURCE_CONFIG).unwrap();
+    config.connection.host = address.ip().to_string();
+    config.connection.port = address.port();
+    let connector = PostgresSourceConnector::from_config(config, Arc::new(MetricsRegistry::default())).unwrap();
+    let cancellation = tokio_util::sync::CancellationToken::new();
+    let context = transferia_registry::SourceBuildContext {
+        partition_id: 0,
+        delivery_type: DeliveryType::Batch,
+        phase: transferia_registry::SourcePhase::Snapshot,
+        replay_identity: None,
+        cancellation: cancellation.clone(),
+        memory: transferia_core::PipelineMemory::new(1024),
+        durable: transferia_test_support::durable_context(),
+    };
+    let (started, observed) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let size = socket.read_u32().await.unwrap();
+        let mut startup = vec![0; usize::try_from(size - 4).unwrap()];
+        socket.read_exact(&mut startup).await.unwrap();
+        // The server accepts the startup packet but deliberately never sends
+        // AuthenticationOk. No query or snapshot task can have been published.
+        started.send(()).unwrap();
+        let mut byte = [0];
+        assert_eq!(tokio::time::timeout(Duration::from_secs(2), socket.read(&mut byte)).await
+            .expect("cancelled source construction retained its pending socket").unwrap(), 0);
+    });
+    let construction = tokio::spawn(async move { connector.build_source(context).await });
+    tokio::time::timeout(Duration::from_secs(2), observed).await.unwrap().unwrap();
+    cancellation.cancel();
+    // Cancelling only the supplied token must stop source construction; do not
+    // abort its task, which would conceal the missing production select.
+    let result = tokio::time::timeout(Duration::from_secs(2), construction).await
+        .expect("snapshot source construction ignored cancellation").unwrap();
+    let error = match result { Ok(_) => panic!("cancelled source unexpectedly constructed"), Err(error) => error };
+    assert_eq!(error.to_string(), "PostgreSQL snapshot source construction cancelled");
+    server.await.unwrap();
 }
 
 #[test]
