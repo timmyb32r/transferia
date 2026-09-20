@@ -221,6 +221,7 @@ fn snapshot_part_ceiling_is_optional_positive_and_not_a_reader_setting() -> anyh
     capped.validate()?;
     let schema = serde_json::to_value(schemars::schema_for!(PostgresSourceConfig))?;
     let field = &schema["properties"]["max_snapshot_parts"];
+    assert_eq!(schema["x-ui"]["capabilities"]["properties"], serde_json::json!(["parallel_table_snapshot"]));
     assert_eq!(field["minimum"], 1);
     assert_eq!(field["x-ui"]["section"], "performance");
     assert_eq!(field["x-ui"]["delivery_types"], serde_json::json!(["batch", "batch_and_stream"]));

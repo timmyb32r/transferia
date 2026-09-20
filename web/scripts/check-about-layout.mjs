@@ -61,6 +61,17 @@ try {
         stable(closeBefore, await close.boundingBox(), `${connector}: close remains stationary`);
       }
     }
+    await page.getByRole("tab", { name: "Properties", exact: true }).click();
+    const snapshotProperty = page.getByRole("button", { name: "Parallel table snapshot", exact: true });
+    await snapshotProperty.scrollIntoViewIfNeeded();
+    const propertyBefore = await snapshotProperty.boundingBox();
+    await snapshotProperty.click();
+    assert.equal(await snapshotProperty.getAttribute("aria-pressed"), "true");
+    const membership = page.getByRole("region", { name: "Property membership" });
+    assert(await membership.getByText("PostgreSQL", { exact: true }).isVisible());
+    assert.equal(await membership.getByRole("heading", { name: "Destinations", exact: true }).count(), 0);
+    stable(propertyBefore, await snapshotProperty.boundingBox(), "snapshot property selection preserves its hit target");
+    stable(closeBefore, await close.boundingBox(), "snapshot property selection preserves close");
     await close.click();
     stable(linkBefore, await link.boundingBox(), "closing About preserves launcher");
     assert(await link.evaluate(e => e === document.activeElement), "focus must return to About");

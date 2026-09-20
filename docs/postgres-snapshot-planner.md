@@ -302,6 +302,12 @@ automatic planning; a present value limits all task leaves, including completed
 ones. It does not specify simultaneous readers. There is no custom runtime page
 or strategy dropdown.
 
+About → Properties lists **Parallel table snapshot** for PostgreSQL sources,
+declared by the connector's `parallel_table_snapshot` catalog capability. It
+means the source can split an eligible table's snapshot, not that every table
+or live replication stream is read in parallel. It is separate from the general
+`Partitioned execution` capability.
+
 Structured English events cover:
 
 1. Planning started: selected table/epoch context and configured constraints.

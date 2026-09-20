@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, within } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import connectorCatalog from "../../crates/transferia-server-contracts/contracts/connector-catalog.fixture.json";
 
 import { AppearanceSettings } from "../src/ui/AppearanceSettings";
 import {
@@ -357,6 +358,32 @@ describe("appearance preferences", () => {
     expect(
       groups.some((group) => group.key.startsWith("component.parser.")),
     ).toBe(false);
+  });
+
+  it("declares parallel table snapshots separately from partitioned execution", () => {
+    const catalog = structuredClone(connectorCatalog) as unknown as UiCatalog;
+    const postgres = catalog.connectors.find((connector) => connector.key === "postgres")!;
+    postgres.source!.partitioned = false;
+    const group = catalogCapabilityGroups(catalog).find((item) => item.key === "parallel_table_snapshot")!;
+    expect(group.label).toBe("Parallel table snapshot");
+    expect([...group.members.get("source")!]).toEqual(["PostgreSQL"]);
+    expect(group.members.has("destination")).toBe(false);
+    expect(group.nonMembers.has("destination")).toBe(false);
+    expect(group.nonMembers.get("source")?.has("Kafka")).toBe(true);
+
+    const view = render(<AboutProvider catalog={catalog}><CompatibilityMatrixLauncher /></AboutProvider>);
+    fireEvent.click(view.getByRole("button", { name: "About", exact: true }));
+    fireEvent.click(view.getByRole("tab", { name: "Properties" }));
+    const property = view.getByRole("button", { name: "Parallel table snapshot", exact: true });
+    fireEvent.click(property);
+    expect(property.getAttribute("aria-pressed")).toBe("true");
+    const members = view.getByRole("region", { name: "Property membership" });
+    expect(within(members).getByText("PostgreSQL")).toBeTruthy();
+    expect(within(members).queryByRole("heading", { name: "Destinations" })).toBeNull();
+
+    postgres.source!.schema = {};
+    postgres.source!.partitioned = true;
+    expect(catalogCapabilityGroups(catalog).some((item) => item.key === "parallel_table_snapshot")).toBe(false);
   });
 
   it("opens a stable accessible compatibility dialog and restores focus", () => {

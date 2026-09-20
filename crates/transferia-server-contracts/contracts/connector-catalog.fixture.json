@@ -7053,7 +7053,10 @@
                 "append_only",
                 "changelog"
               ],
-              "batch_stream_handoff": "exact_switchover"
+              "batch_stream_handoff": "exact_switchover",
+              "properties": [
+                "parallel_table_snapshot"
+              ]
             }
           },
           "$defs": {

@@ -92,6 +92,7 @@ const PROPERTY_LABELS: Record<string, string> = {
   "component.serializer": "All serializers",
   "component.transformer": "All transformers",
   partitioned: "Partitioned execution",
+  parallel_table_snapshot: "Parallel table snapshot",
   connection_check: "Connection check",
   message_preview: "Message preview",
   playground: "Interactive playground",
@@ -151,6 +152,16 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
         add("connection_check", kind, connector.title);
       if (endpoint.message_preview)
         add("message_preview", kind, connector.title);
+      const ui = endpoint.schema["x-ui"];
+      const capabilities = ui && typeof ui === "object" && !Array.isArray(ui)
+        ? ui.capabilities
+        : undefined;
+      if (capabilities && typeof capabilities === "object" && !Array.isArray(capabilities)
+          && capabilities.component === kind && Array.isArray(capabilities.properties)) {
+        for (const property of capabilities.properties) {
+          if (typeof property === "string") add(property, kind, connector.title);
+        }
+      }
       collectSchemaCapabilities(
         endpoint.schema,
         add,
@@ -192,6 +203,7 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
 }
 
 function applicableKinds(property: string): CapabilityKind[] {
+  if (property === "parallel_table_snapshot") return ["source"];
   if (property.startsWith("component.")) {
     if (property.startsWith("component.parser.")) return ["parser"];
     return [property.slice("component.".length) as CapabilityKind];
@@ -437,8 +449,9 @@ export function CompatibilityMatrixDialog({
     )!;
   const normalizedMatrixSearch = matrixSearch.trim().toLocaleLowerCase();
   const deliveryTypeProperty = selectedProperty?.key.startsWith("delivery_mode.") ?? false;
+  const sourceOnlyProperty = deliveryTypeProperty || selectedProperty?.key === "parallel_table_snapshot";
   const handoffProperty = selectedProperty?.key === "delivery_mode.batch_and_stream";
-  const propertyEntityGroups = deliveryTypeProperty
+  const propertyEntityGroups = sourceOnlyProperty
     ? ENTITY_GROUPS.filter(({ kind }) => kind === "source")
     : ENTITY_GROUPS;
   const matchesMatrixSearch = (title: string) =>
@@ -754,7 +767,7 @@ export function CompatibilityMatrixDialog({
               </section>
             </nav>
             <section
-              class={`property-members${deliveryTypeProperty ? " sources-only" : ""}`}
+              class={`property-members${sourceOnlyProperty ? " sources-only" : ""}`}
               aria-label="Property membership"
               aria-live="polite"
             >
