@@ -1,4 +1,4 @@
-![Transferia — batch, streaming, and CDC with Rust, Apache Arrow, and DataFusion](docs/assets/transferia.png)
+![Transferia — batch, streaming, and CDC with Rust, Apache Arrow, and DataFusion](docs/assets/transferia-overview.png)
 
 # Transferia
 
