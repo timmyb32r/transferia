@@ -9,7 +9,6 @@ the table-rule membership again under the read lock. Restart reconstructs
 the destination actor from committed membership without preparing old tables
 again. A completely empty combined selection always rejects startup before
 destination preparation. Every individual rule must also select at least one table.
-See `table-selection-worklog.md` for acceptance and verification evidence.
 
 ## Scope
 

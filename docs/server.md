@@ -112,9 +112,11 @@ responses.
 
 ## Verification contracts
 
-`cargo build` regenerates TypeScript types, type-checks, and bundles the embedded
-UI from the committed Rust schema. The normal Cargo test
-suite invokes Vitest and also runs the real Rust catalog through the TypeScript
-schema compiler. `just check`/`just ci` enforce formatting, all-target/all-feature
-Clippy, Rust tests, UI contracts, and configured sink E2E tests. The internal
-extension has its own Cargo tests and never requires `ya make`.
+`cargo build -p transferia-composition --bin transferia` checks the committed UI
+contracts, type-checks, and bundles the embedded UI. Contract regeneration is an
+explicit `just api-contract` operation.
+
+`just check-affected` (also `just check`) selects compile checks for changed
+packages and the frontend. `just check-release` is the explicit full gate for
+formatting, Clippy, Rust and frontend tests, contracts, and sink E2E tests. These
+commands are run locally; the repository has no automatic GitHub Actions workflow.
