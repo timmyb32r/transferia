@@ -22,7 +22,8 @@ use super::api_contract::{
     YamlResponse,
 };
 use super::assets::{
-    APP_JS, APP_JS_GZIP, APP_JS_VERSION, INDEX_HTML, STYLE_CSS, STYLE_CSS_GZIP, STYLE_CSS_VERSION,
+    APP_JS, APP_JS_GZIP, APP_JS_VERSION, INDEX_HTML, LOGO_PNG, STYLE_CSS, STYLE_CSS_GZIP,
+    STYLE_CSS_VERSION,
 };
 use super::service::{ControlPlane, ServiceError};
 use super::ui_catalog::UiCatalog;
@@ -189,7 +190,8 @@ pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router
         Router::new()
             .route("/", get(index))
             .route("/app.js", get(app_js))
-            .route("/style.css", get(style_css)),
+            .route("/style.css", get(style_css))
+            .route("/transferia-logo.png", get(logo_png)),
     )
     .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
     .layer(axum::middleware::from_fn(no_store))
@@ -297,6 +299,10 @@ pub async fn serve(
 
 async fn index() -> Response {
     asset(INDEX_HTML, "text/html; charset=utf-8", true)
+}
+
+async fn logo_png() -> Response {
+    asset(LOGO_PNG, "image/png", false)
 }
 
 async fn app_js(uri: Uri, headers: HeaderMap) -> Response {
@@ -705,8 +711,8 @@ async fn worker_log(
     ))
 }
 
-fn asset(contents: &'static str, content_type: &'static str, html: bool) -> Response {
-    let mut response = Response::new(Body::from(contents));
+fn asset(contents: impl Into<Body>, content_type: &'static str, html: bool) -> Response {
+    let mut response = Response::new(contents.into());
     response
         .headers_mut()
         .insert(CONTENT_TYPE, HeaderValue::from_static(content_type));

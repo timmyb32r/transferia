@@ -17,7 +17,7 @@ async function sweep(page, locator, expectedCursor) {
     const rect = element.getBoundingClientRect();
     const points = [1, .25 * rect.width, .5 * rect.width, rect.width - 1]
       .map(x => [rect.x + x, rect.y + rect.height / 2]);
-    for (const child of element.querySelectorAll("input, span, strong, svg")) {
+    for (const child of element.querySelectorAll("input, span, strong, svg, img")) {
       if (child.closest(".help")) continue;
       const r = child.getBoundingClientRect();
       if (r.width && r.height) points.push([r.x + r.width / 2, r.y + r.height / 2]);
@@ -109,17 +109,39 @@ try {
     for (const width of [1440, 800, 390]) {
       const sidebar = await browser.newPage({ viewport: { width, height: 1000 } });
       sidebar.on("pageerror", error => errors.push(error.message));
-      await sidebar.goto(base + "data-schema-dialog-smoke.html");
-      await sidebar.evaluate(async ([design, theme]) => {
+      let receiveLogo;
+      const logoRequest = new Promise(resolve => { receiveLogo = resolve; });
+      await sidebar.route("**/transferia-logo.png", route => receiveLogo(route));
+      await sidebar.goto(base + "data-schema-dialog-smoke.html", { waitUntil: "domcontentloaded" });
+      await sidebar.evaluate(([design, theme]) => {
         Object.assign(document.documentElement.dataset, { design, theme });
-        await document.fonts.ready;
       }, [design, theme]);
-      for (const name of ["Data viewer", "Schema viewer", "Schema widget", "About"]) {
+      const targets = ["Open Transferia home", "+ New delivery", "Data viewer", "Schema viewer", "Schema widget", "About"]
+        .map(name => sidebar.getByRole("button", { name, exact: true }));
+      const boxes = await Promise.all(targets.map(target => target.boundingBox()));
+      const logo = sidebar.locator(".brand-mark");
+      const logoBox = await logo.boundingBox();
+      assert.equal(logoBox?.width, 32, "logo reserves its width before loading");
+      assert.equal(logoBox?.height, 32, "logo reserves its height before loading");
+      await (await logoRequest).fulfill({ contentType: "image/png",
+        path: fileURLToPath(new URL("../src/assets/transferia-logo.png", import.meta.url)) });
+      await logo.evaluate(image => image.decode());
+      stable(logoBox, await logo.boundingBox());
+      for (let index = 0; index < targets.length; index++) stable(boxes[index], await targets[index].boundingBox());
+      await sidebar.route("**/transferia-logo.png?unavailable", route => route.abort());
+      await logo.evaluate(image => { image.src = "/transferia-logo.png?unavailable"; });
+      await sidebar.waitForFunction(() => {
+        const image = document.querySelector(".brand-mark");
+        return image.complete && image.naturalWidth === 0;
+      });
+      stable(logoBox, await logo.boundingBox());
+      for (let index = 0; index < targets.length; index++) stable(boxes[index], await targets[index].boundingBox());
+      for (const name of ["Open Transferia home", "Data viewer", "Schema viewer", "Schema widget", "About"]) {
         await sweep(sidebar, sidebar.getByRole("button", { name, exact: true }), "pointer");
       }
       await sidebar.close();
     }
     assert.deepEqual(errors, []);
   }
-  console.log("PASS: Boolean label cursors, stable catalog hit targets through polling/focus, and sidebar hover in both designs/themes at 1440/800/390px.");
+  console.log("PASS: Boolean label cursors, stable catalog hit targets through polling/focus, and sidebar hover/logo loading in both designs/themes at 1440/800/390px.");
 } finally { await browser?.close(); await server.close(); }

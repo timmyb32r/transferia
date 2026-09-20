@@ -1,6 +1,11 @@
-![Transferia — data integration built in Rust](docs/assets/transferia.png)
+![Transferia — batch, streaming, and CDC with Rust, Apache Arrow, and DataFusion](docs/assets/transferia.png)
 
 # Transferia
+
+> [!WARNING]
+> ### EXPERIMENTAL PROJECT. BACKWARD COMPATIBILITY IS NOT GUARANTEED.
+>
+> Configuration, APIs, and persisted state formats may change between revisions.
 
 **Move data between databases, streams, and object storage.**
 
@@ -9,9 +14,6 @@ and DataFusion SQL transformations. Run batch transfers, consume streams, or
 replicate database changes from the web UI or a YAML configuration.
 
 [Quick start](#quick-start) · [Connectors](#connectors) · [Documentation](#documentation)
-
-Transferia is experimental and under active development. Configuration and APIs
-can change between revisions.
 
 ## Features
 

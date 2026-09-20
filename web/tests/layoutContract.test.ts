@@ -16,6 +16,14 @@ const styles =
   ) ?? "";
 
 describe("delivery layout contract", () => {
+  it("reserves the logo footprint before image loading without shrinking adjacent brand text", () => {
+    const mark = styles.split("\n.brand-mark {")[1]?.split("}")[0];
+    expect(mark).toContain("display: block;");
+    expect(mark).toContain("flex: 0 0 32px;");
+    expect(mark).toContain("width: 32px;");
+    expect(mark).toContain("height: 32px;");
+    expect(mark).toContain("object-fit: contain;");
+  });
   it("reserves adjacent Advanced and Performance headers independently of their expanded bodies", () => {
     const rule = (selector: string) => styles.split(`\n${selector} {`)[1]?.split("}")[0];
     expect(rule(".options-foldouts")).toContain("position: relative;");

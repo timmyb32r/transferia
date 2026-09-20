@@ -837,14 +837,12 @@ select {
   opacity: 0.78;
 }
 .brand-mark {
-  display: grid;
-  place-items: center;
+  display: block;
+  flex: 0 0 32px;
   width: 32px;
   height: 32px;
+  object-fit: contain;
   border-radius: 7px;
-  background: var(--blue);
-  color: var(--on-accent);
-  font-weight: 700;
 }
 .brand strong,
 .brand small {

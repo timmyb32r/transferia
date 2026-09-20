@@ -608,8 +608,18 @@ describe("editor chrome", () => {
       />,
     );
 
+    const home = view.getByRole("button", { name: "Open Transferia home" });
+    const logo = home.querySelector("img")!;
+    expect(logo.getAttribute("src")).toBe("/transferia-logo.png");
+    expect(logo.getAttribute("alt")).toBe("");
+    for (const event of ["load", "error"]) {
+      fireEvent(logo, new Event(event));
+      expect(logo.getAttribute("width")).toBe("32");
+      expect(logo.getAttribute("height")).toBe("32");
+      expect(home.querySelector("img")).toBe(logo);
+    }
     fireEvent.click(view.getByRole("button", { name: "+ New delivery" }));
-    fireEvent.click(view.getByRole("button", { name: "Open Transferia home" }));
+    fireEvent.click(home);
     const deliveryItem = view.getByRole("button", { name: /First/ });
     fireEvent.click(deliveryItem.querySelector(".delivery-item-name")!);
     fireEvent.click(deliveryItem.querySelector(".status")!);

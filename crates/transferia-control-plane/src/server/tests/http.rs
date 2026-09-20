@@ -840,10 +840,12 @@ async fn assets_and_missing_routes_have_correct_http_contracts() -> anyhow::Resu
     let index = String::from_utf8(to_bytes(response.into_body(), 64 * 1024).await?.to_vec())?;
     assert!(index.contains("/app.js?v="));
     assert!(index.contains("/style.css?v="));
+    assert!(index.contains("rel=\"icon\" type=\"image/png\" href=\"/transferia-logo.png\""));
     for (path, content_type) in [
         ("/", "text/html; charset=utf-8"),
         ("/app.js", "text/javascript; charset=utf-8"),
         ("/style.css", "text/css; charset=utf-8"),
+        ("/transferia-logo.png", "image/png"),
     ] {
         let response = app
             .clone()
@@ -852,6 +854,16 @@ async fn assets_and_missing_routes_have_correct_http_contracts() -> anyhow::Resu
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[CONTENT_TYPE], content_type);
     }
+    let response = app
+        .clone()
+        .oneshot(Request::get("/transferia-logo.png").body(Body::empty())?)
+        .await?;
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    assert!(LOGO_PNG.starts_with(b"\x89PNG\r\n\x1a\n"));
+    assert_eq!(
+        to_bytes(response.into_body(), LOGO_PNG.len()).await?.as_ref(),
+        LOGO_PNG,
+    );
     let response = app
         .clone()
         .oneshot(Request::get("/app.js").body(Body::empty())?)

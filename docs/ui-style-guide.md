@@ -14,6 +14,18 @@ table rules still use literals; their presence is not permission to introduce
 another local palette. When touching them, reuse an appropriate existing token,
 or define a shared semantic token if the role genuinely differs.
 
+## Brand assets
+
+The project identity is the blue ray with a red tail and the dark Transferia
+wordmark, supplied on 2026-09-20. The original
+[logo](../web/src/assets/transferia-logo.png) is the shared source for the
+application brand and browser icon; the [overview banner](assets/transferia.png)
+introduces the project in the README. Preserve these supplied images unchanged.
+
+The logo's blue and red are brand colors, not replacements for the UI's semantic
+theme tokens. Keep the existing light and dark palettes. Reserve the logo's
+dimensions before it loads so sidebar controls and their hit targets never move.
+
 ## Palette
 
 ### Segmented choices

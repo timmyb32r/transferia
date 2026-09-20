@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "esbuild";
 import { gzipSync } from "node:zlib";
@@ -27,6 +27,7 @@ const index = indexTemplate
   .replace("/app.js", `/app.js?v=${digest(javascript)}`)
   .replace("/style.css", `/style.css?v=${digest(stylesheet)}`);
 await Promise.all([
+  copyFile("src/assets/transferia-logo.png", join(outputDirectory, "transferia-logo.png")),
   writeFile(join(outputDirectory, "index.html"), index),
   writeFile(join(outputDirectory, "style.css"), stylesheet),
   ...[["app.js", javascript], ["style.css", stylesheet]].flatMap(([name, contents]) => [

@@ -295,7 +295,7 @@ export function DeliverySidebar({
         aria-label="Open Transferia home"
         onClick={onNew}
       >
-        <span class="brand-mark">T</span>
+        <img class="brand-mark" src="/transferia-logo.png" width={32} height={32} alt="" />
         <div>
           <strong>Transferia</strong>
           <small>Local control plane</small>

@@ -4,6 +4,7 @@
 //! edits from invalidating the TypeScript build.
 
 pub const INDEX_HTML: &str = include_str!(concat!(env!("OUT_DIR"), "/server-ui/index.html"));
+pub const LOGO_PNG: &[u8] = include_bytes!("../../../web/src/assets/transferia-logo.png");
 pub const APP_JS: &str = include_str!(concat!(env!("OUT_DIR"), "/server-ui/app.js"));
 pub const STYLE_CSS: &str = include_str!(concat!(env!("OUT_DIR"), "/server-ui/style.css"));
 pub const APP_JS_GZIP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/server-ui/app.js.gz"));
