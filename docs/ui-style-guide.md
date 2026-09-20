@@ -16,11 +16,12 @@ or define a shared semantic token if the role genuinely differs.
 
 ## Brand assets
 
-The project identity is the blue ray with a red tail and the dark Transferia
-wordmark, supplied on 2026-09-20. The original
-[logo](../web/src/assets/transferia-logo.png) is the shared source for the
-application brand and browser icon; the [overview banner](assets/transferia-overview.png)
-introduces the project in the README. Preserve these supplied images unchanged.
+The project identity is the blue ray with a red tail. The transparent
+[logo](../web/src/assets/transferia-logo.png), supplied on 2026-09-20, is the
+shared source for the application brand and browser icon. The
+[overview banner](assets/transferia-overview.png) includes the dark Transferia
+wordmark and introduces the project in the README. Preserve these supplied
+images unchanged.
 
 The logo's blue and red are brand colors, not replacements for the UI's semantic
 theme tokens. Keep the existing light and dark palettes. Reserve the logo's
