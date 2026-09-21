@@ -1,0 +1,70 @@
+{
+  "recorded": 80,
+  "verified": 78,
+  "failed": [
+    {
+      "name": "sail_jdbc_narrow10m_p4_r0_1790000266",
+      "error": "configured run deadline exceeded"
+    },
+    {
+      "name": "sail_jdbc_narrow10m_p4_r0_1790000870_ch",
+      "error": "configured run deadline exceeded"
+    }
+  ],
+  "primary_verified": 72,
+  "sail_verified": 50,
+  "fresh_controls_verified": 28,
+  "verified_by_product": {
+    "rust": 14,
+    "sail_jdbc": 24,
+    "sail_adbc": 26,
+    "spark": 14
+  },
+  "schema_tables": {
+    "pg": 39,
+    "ch": 39
+  },
+  "unique_cases": true,
+  "row_checks": true,
+  "resource_math": true,
+  "cpu_and_memory_budget": true,
+  "no_measurement_overlap": true,
+  "sail_committed_part_counts": true,
+  "adbc_single_batch_per_part": true,
+  "tls_wrong_hostname_rejected": true,
+  "background_affinities_restored": true,
+  "p4_observed_source_concurrency": {
+    "sail_adbc_wide_p4_r0_1789999630": 4,
+    "sail_jdbc_wide_p4_r0_1789999662_ch": 4,
+    "sail_adbc_narrow_p4_r0_1789999667_ch": 0,
+    "sail_jdbc_narrow_p4_r0_1789999670_ch": 0,
+    "sail_adbc_narrow_p4_r0_1789999696": 0,
+    "sail_jdbc_narrow_p4_r0_1789999701_ch": 0,
+    "sail_jdbc_narrow_p4_r0_1789999717_ch": 0,
+    "sail_adbc_wide_p4_r0_1789999754_ch": 4,
+    "sail_jdbc_wide_p4_r0_1789999759": 4,
+    "sail_adbc_wide_p4_r0_1789999878_ch": 4,
+    "sail_adbc_narrow_p4_r0_1789999897_ch": 0,
+    "sail_adbc_narrow_p4_r0_1789999900": 4,
+    "sail_jdbc_wide_p4_r0_1789999905_ch": 4,
+    "sail_adbc_narrow_p4_r0_1789999910": 4,
+    "sail_adbc_narrow_p4_r0_1789999959_ch": 0,
+    "sail_adbc_wide_p4_r0_1789999988_ch": 4,
+    "sail_jdbc_narrow_p4_r0_1790000037": 0,
+    "sail_jdbc_wide_p4_r0_1790000056": 4,
+    "sail_jdbc_narrow_p4_r0_1790000136": 0,
+    "sail_jdbc_wide_p4_r0_1790000172": 4,
+    "sail_adbc_wide_p4_r0_1790000185": 4,
+    "sail_jdbc_narrow_p4_r0_1790000210": 0,
+    "sail_adbc_wide_p4_r0_1790000231": 4,
+    "sail_jdbc_wide_p4_r0_1790000261_ch": 4,
+    "sail_adbc_narrow10m_p4_r0_1790001474": 4,
+    "sail_adbc_narrow10m_p4_r0_1790001503_ch": 4
+  },
+  "limitations": [
+    "CPU excludes database hosts.",
+    "100-ms RSS and 500-ms source-query sampling can miss short peaks.",
+    "10M results are single runs.",
+    "Verification covers immutable fixture values, not failure recovery."
+  ]
+}

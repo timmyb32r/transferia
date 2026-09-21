@@ -1,0 +1,418 @@
+[
+  {
+    "product": "sail_jdbc",
+    "route": "pg-pg",
+    "dataset": "smoke",
+    "parts": 1,
+    "followup_repetition": 0,
+    "result": {
+      "name": "sail_jdbc_smoke_p1_r0_1789998800",
+      "product": "sail_jdbc",
+      "dataset": "smoke",
+      "parts_requested": 1,
+      "variant": "sail-jdbc-benchmark-arrow-sink-shared-tls-proxy",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T13:53:20.644722+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 1.554168303962797,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 2.876790285,
+      "peak_rss_bytes": 253161472,
+      "cgroup_peak_bytes": 124723200,
+      "cpu_percent": 185.10159277246868,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 4.0,
+          "execution_ms": 4.833507999777794,
+          "rows": 10000.0,
+          "shared_blocks_hit": 204.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 7.0,
+          "execution_ms": 7.9313730001449585,
+          "rows": 12917.0,
+          "shared_blocks_hit": 1360.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 10000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 6434.309575418658,
+      "rows_per_cpu_second": 3476.096277209168
+    }
+  },
+  {
+    "product": "sail_jdbc",
+    "route": "pg-pg",
+    "dataset": "smoke",
+    "parts": 4,
+    "followup_repetition": 0,
+    "result": {
+      "name": "sail_jdbc_smoke_p4_r0_1789998802",
+      "product": "sail_jdbc",
+      "dataset": "smoke",
+      "parts_requested": 4,
+      "variant": "sail-jdbc-benchmark-arrow-sink-shared-tls-proxy",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T13:53:22.938833+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 1.551004792097956,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 3.257417649,
+      "peak_rss_bytes": 264081408,
+      "cgroup_peak_bytes": 138600448,
+      "cpu_percent": 210.01983137614144,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 7.0,
+          "execution_ms": 6.399576000869274,
+          "rows": 10000.0,
+          "shared_blocks_hit": 253.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 28.0,
+          "execution_ms": 32.87298600003123,
+          "rows": 51772.0,
+          "shared_blocks_hit": 4975.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 10000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 6447.433335440292,
+      "rows_per_cpu_second": 3069.9164422682843
+    }
+  },
+  {
+    "product": "sail_jdbc",
+    "route": "pg-ch",
+    "dataset": "smoke",
+    "parts": 1,
+    "followup_repetition": 0,
+    "result": {
+      "name": "sail_jdbc_smoke_p1_r0_1789998805_ch",
+      "product": "sail_jdbc",
+      "dataset": "smoke",
+      "parts_requested": 1,
+      "variant": "sail-jdbc-benchmark-arrow-sink-shared-tls-proxy",
+      "repetition": 0,
+      "route": "pg-ch",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T13:53:25.149316+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 1.4624175350181758,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 2.976100193,
+      "peak_rss_bytes": 243802112,
+      "cgroup_peak_bytes": 130883584,
+      "cpu_percent": 203.50550521558205,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 4.0,
+          "execution_ms": 4.147528003901243,
+          "rows": 10000.0,
+          "shared_blocks_hit": 204.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 0.0,
+          "execution_ms": 0.0,
+          "rows": 0.0,
+          "shared_blocks_hit": 0.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 10000,
+      "verification": "all five cells of every row, deterministic expression; count/uniqExact/min/max identity check",
+      "rows_per_second": 6837.9924067825905,
+      "rows_per_cpu_second": 3360.1019292027577
+    }
+  },
+  {
+    "product": "sail_jdbc",
+    "route": "pg-ch",
+    "dataset": "smoke",
+    "parts": 4,
+    "followup_repetition": 0,
+    "result": {
+      "name": "sail_jdbc_smoke_p4_r0_1789998807_ch",
+      "product": "sail_jdbc",
+      "dataset": "smoke",
+      "parts_requested": 4,
+      "variant": "sail-jdbc-benchmark-arrow-sink-shared-tls-proxy",
+      "repetition": 0,
+      "route": "pg-ch",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T13:53:27.215978+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 1.4370339447632432,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 3.157812671,
+      "peak_rss_bytes": 270901248,
+      "cgroup_peak_bytes": 157564928,
+      "cpu_percent": 219.74516903428201,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 7.0,
+          "execution_ms": 5.878179997205734,
+          "rows": 10000.0,
+          "shared_blocks_hit": 247.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 0.0,
+          "execution_ms": 0.0,
+          "rows": 0.0,
+          "shared_blocks_hit": 0.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 10000,
+      "verification": "all five cells of every row, deterministic expression; count/uniqExact/min/max identity check",
+      "rows_per_second": 6958.777860774568,
+      "rows_per_cpu_second": 3166.748962608112
+    }
+  },
+  {
+    "product": "sail_adbc",
+    "route": "pg-pg",
+    "dataset": "smoke",
+    "parts": 1,
+    "followup_repetition": 0,
+    "result": {
+      "name": "sail_adbc_smoke_p1_r0_1789998809",
+      "product": "sail_adbc",
+      "dataset": "smoke",
+      "parts_requested": 1,
+      "variant": "sail-adbc-benchmark-arrow-sink-shared-tls-proxy",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T13:53:29.358211+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 2.140380321070552,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 3.198810878,
+      "peak_rss_bytes": 242409472,
+      "cgroup_peak_bytes": 127479808,
+      "cpu_percent": 149.45058345518962,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 24.0,
+          "execution_ms": 23.074679002165794,
+          "rows": 33140.0,
+          "shared_blocks_hit": 2156.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 7.0,
+          "execution_ms": 7.570893000345677,
+          "rows": 12969.0,
+          "shared_blocks_hit": 896.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 10000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 4672.066875945818,
+      "rows_per_cpu_second": 3126.1616836354897
+    }
+  },
+  {
+    "product": "sail_adbc",
+    "route": "pg-pg",
+    "dataset": "smoke",
+    "parts": 4,
+    "followup_repetition": 0,
+    "result": {
+      "name": "sail_adbc_smoke_p4_r0_1789998812",
+      "product": "sail_adbc",
+      "dataset": "smoke",
+      "parts_requested": 4,
+      "variant": "sail-adbc-benchmark-arrow-sink-shared-tls-proxy",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T13:53:32.174096+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 2.1040592468343675,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 3.744977451,
+      "peak_rss_bytes": 262410240,
+      "cgroup_peak_bytes": 144510976,
+      "cpu_percent": 177.988212862088,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 42.0,
+          "execution_ms": 37.722535997629166,
+          "rows": 50495.0,
+          "shared_blocks_hit": 4243.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 28.0,
+          "execution_ms": 29.297777999658138,
+          "rows": 51980.0,
+          "shared_blocks_hit": 3584.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 10000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 4752.7178785698925,
+      "rows_per_cpu_second": 2670.243047078897
+    }
+  },
+  {
+    "product": "sail_adbc",
+    "route": "pg-ch",
+    "dataset": "smoke",
+    "parts": 1,
+    "followup_repetition": 0,
+    "result": {
+      "name": "sail_adbc_smoke_p1_r0_1789998814_ch",
+      "product": "sail_adbc",
+      "dataset": "smoke",
+      "parts_requested": 1,
+      "variant": "sail-adbc-benchmark-arrow-sink-shared-tls-proxy",
+      "repetition": 0,
+      "route": "pg-ch",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T13:53:34.943725+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 2.109646352007985,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 3.261062633,
+      "peak_rss_bytes": 251805696,
+      "cgroup_peak_bytes": 136781824,
+      "cpu_percent": 154.57863968034658,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 24.0,
+          "execution_ms": 21.181018002331257,
+          "rows": 33140.0,
+          "shared_blocks_hit": 1688.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 0.0,
+          "execution_ms": 0.0,
+          "rows": 0.0,
+          "shared_blocks_hit": 0.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 10000,
+      "verification": "all five cells of every row, deterministic expression; count/uniqExact/min/max identity check",
+      "rows_per_second": 4740.1309657810125,
+      "rows_per_cpu_second": 3066.485107892744
+    }
+  },
+  {
+    "product": "sail_adbc",
+    "route": "pg-ch",
+    "dataset": "smoke",
+    "parts": 4,
+    "followup_repetition": 0,
+    "result": {
+      "name": "sail_adbc_smoke_p4_r0_1789998817_ch",
+      "product": "sail_adbc",
+      "dataset": "smoke",
+      "parts_requested": 4,
+      "variant": "sail-adbc-benchmark-arrow-sink-shared-tls-proxy",
+      "repetition": 0,
+      "route": "pg-ch",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T13:53:37.662524+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 1.9862729390151799,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 3.579989772,
+      "peak_rss_bytes": 278880256,
+      "cgroup_peak_bytes": 167604224,
+      "cpu_percent": 180.2365476405778,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 42.0,
+          "execution_ms": 35.86667000129819,
+          "rows": 50495.0,
+          "shared_blocks_hit": 2839.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 0.0,
+          "execution_ms": 0.0,
+          "rows": 0.0,
+          "shared_blocks_hit": 0.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 10000,
+      "verification": "all five cells of every row, deterministic expression; count/uniqExact/min/max identity check",
+      "rows_per_second": 5034.554820526393,
+      "rows_per_cpu_second": 2793.3040698083873
+    }
+  }
+]

@@ -12,7 +12,7 @@ os.environ.setdefault('MPLCONFIGDIR',str(Path(tempfile.gettempdir())/'fair21-mpl
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-LABELS={'debezium_bulk':'Debezium bulk-tuned⁴','rust':'Transferia Rust Auto','rust_ranges':'Transferia Rust exact PK¹','go':'Transferia Go · typed path','seatunnel':'SeaTunnel','sling':'Sling²','datax':'DataX · default polling','airbyte':'Airbyte connector pair³','flink':'Flink CDC','debezium':'Debezium + Kafka + JDBC','inlong':'InLong Sort','meltano':'Meltano²','spark':'Spark','sqoop':'Sqoop import + export','estuary':'Estuary local preview² ³'}
+LABELS={'debezium_bulk':'Debezium bulk-tuned⁴','sail_jdbc':'Sail JDBC + sink⁷','sail_adbc':'Sail ADBC buffered + sink⁷','rust':'Transferia Rust Auto','rust_ranges':'Transferia Rust exact PK¹','go':'Transferia Go · typed path','seatunnel':'SeaTunnel','sling':'Sling²','datax':'DataX · default polling','airbyte':'Airbyte connector pair³','flink':'Flink CDC','debezium':'Debezium + Kafka + JDBC','inlong':'InLong Sort','meltano':'Meltano²','spark':'Spark','sqoop':'Sqoop import + export','estuary':'Estuary local preview² ³'}
 COLORS={1:'#8fa5be',4:'#087f8c'}
 FIELDS=['rows_per_second','rows_per_cpu_second','rows_per_allocated_cpu_second','cpu_seconds','elapsed_seconds','peak_rss_bytes','cgroup_peak_bytes','cpu_percent']
 def compact(x):
@@ -20,6 +20,13 @@ def compact(x):
 def main():
     p=argparse.ArgumentParser();p.add_argument('directory',type=Path);a=p.parse_args();root=a.directory
     runs=[json.loads(s) for s in (root/'runs.jsonl').read_text().splitlines() if s.strip()]
+    sail_manifest=root/'sail-followup.json'
+    if sail_manifest.exists():
+        for entry in json.loads(sail_manifest.read_text()):
+            # Fresh Rust/Spark controls have their own paired report, not new
+            # repeats silently pooled into the historical comparison.
+            if entry['product'] in ('sail_jdbc','sail_adbc'):
+                runs.append(dict(entry['result'],repetition=entry['followup_repetition']))
     groups=defaultdict(list)
     for r in runs:
         if r['repetition']>0 and r['status']=='verified' and not r.get('exclude_from_comparison'):
@@ -60,7 +67,7 @@ def main():
                 ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x,p:compact(x)))
             fig.suptitle(f'{title}  |  {"PostgreSQL → PostgreSQL" if route=="pg-pg" else "PostgreSQL → ClickHouse"}',x=.03,y=.97,ha='left',fontsize=21,fontweight='bold')
             fig.text(.03,.915,'1,000,000 rows · finite-job startup included · 16 logical CPUs / 24 GiB · median; whiskers = observed min–max',fontsize=11,color='#64748b')
-            axes[1].legend(frameon=False,loc='lower right');fig.text(.03,.035,'¹ Benchmark-only exact-PK override   ² External parallel pipelines   ³ Connector/local-preview path, not managed service\nClient CPU excludes database hosts. Verified runs only; actual repetition counts are in summary.csv. Physical CTID and PK ranges differ. ⁴ Separate Kafka buffering/compression variant.',fontsize=9,color='#64748b')
+            axes[1].legend(frameon=False,loc='lower right');fig.text(.03,.035,'¹ Benchmark-only exact-PK override   ² External parallel pipelines   ³ Connector/local-preview path, not managed service\nClient CPU excludes database hosts. Verified runs only; actual repetition counts are in summary.csv. Physical CTID and PK ranges differ. ⁴ Kafka buffering/compression variant.\n⁷ Sail + benchmark Arrow sink and shared TLS proxy; later block, see SAIL.md.',fontsize=9,color='#64748b')
             for ext in ('png','svg'):fig.savefig(charts/f'{route}-{stem}.{ext}',dpi=180)
             plt.close(fig)
         fig,axes=plt.subplots(1,2,figsize=(16,max(7,len(tools)*.45+2)),sharey=True);fig.subplots_adjust(left=.23,right=.96,top=.82,bottom=.14,wspace=.2)
@@ -82,7 +89,7 @@ def main():
             ax.set_title(title,loc='left');ax.grid(axis='x',alpha=.18);ax.set_axisbelow(True);ax.tick_params(axis='y',length=0);ax.set_yticks(range(len(tools)),[LABELS[t] for t in tools]);ax.set_ylim(len(tools)-.5,-.5);ax.set_xlim(0,ax.get_xlim()[1]*1.15)
         fig.suptitle(f'Client resources · 4 parts  |  {route.upper()}',x=.03,y=.97,ha='left',fontsize=21,fontweight='bold')
         fig.text(.03,.91,'1,000,000 rows · all engine/helper processes in one cgroup · median; whiskers = observed min–max',fontsize=11,color='#64748b')
-        axes[0].legend(frameon=False,fontsize=8,loc='upper right');axes[1].legend(frameon=False);fig.text(.03,.035,'RSS sampled every 100 ms; shared pages may be counted more than once. CPU includes user + system time.\nDatabase hosts are outside this measurement. ¹ Exact-PK experiment  ² External pipelines  ³ Local connector/preview path  ⁴ Kafka bulk configuration.',fontsize=9,color='#64748b')
+        axes[0].legend(frameon=False,fontsize=8,loc='upper right');axes[1].legend(frameon=False);fig.text(.03,.035,'RSS sampled every 100 ms; shared pages may be counted more than once. CPU includes user + system time.\nDatabase hosts are outside this measurement. ¹ Exact-PK experiment  ² External pipelines  ³ Local connector/preview path  ⁴ Kafka bulk configuration.\n⁷ Sail + benchmark Arrow sink and shared TLS proxy; later block, see SAIL.md.',fontsize=9,color='#64748b')
         for ext in ('png','svg'):fig.savefig(charts/f'{route}-resources.{ext}',dpi=180)
         plt.close(fig)
     for route in ('pg-pg','pg-ch'):
@@ -105,7 +112,7 @@ def main():
         ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x,p:compact(x)))
         fig.suptitle(f'Large-table follow-up · 4 parts  |  {route.upper()}',x=.03,y=.97,ha='left',fontsize=20,fontweight='bold')
         fig.text(.03,.905,'96 B payload · startup included · same 16-CPU / 24-GiB budget',fontsize=11,color='#64748b')
-        footer='10M follow-ups are exploratory single runs unless summary.csv records repeats. Missing/failed runs are not zeros.\n¹ Exact-PK experiment  ² External pipelines  ³ Local connector/preview  ⁴ Kafka bulk configuration'
+        footer='10M follow-ups are exploratory single runs unless summary.csv records repeats. Missing/failed runs are not zeros.\n¹ Exact-PK experiment  ² External pipelines  ³ Local connector/preview  ⁴ Kafka bulk configuration\n⁷ Sail + benchmark Arrow sink and TLS proxy; later block, see SAIL.md.'
         if route=='pg-pg':footer+='\n⁵ Flink 10M TaskManager: 18 GiB / managed fraction 0.1; 1M: 8 GiB. Same 24-GiB cgroup.'
         fig.text(.03,.035,footer,fontsize=8,color='#64748b')
         for ext in ('png','svg'):fig.savefig(charts/f'{route}-scale.{ext}',dpi=180)

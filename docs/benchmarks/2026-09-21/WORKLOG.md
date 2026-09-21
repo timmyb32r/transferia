@@ -141,3 +141,48 @@ Final schema audit: 241 PG and 98 CH tables, no issues, all 55 diagnostic run na
 No fair21 container remains. Removed only own inactive CDC state; original active managed slot remains. Restored all five prior containers to all 32 online CPUs. Docker ignores empty cpuset updates, so restoration is explicitly `0-31`, not identical empty persisted config; future CPU hotplug requires extending it. Successful staging pruned with journal; failed staging retained; 168 GiB free. Test DB settings and tables retained for audit.
 
 Final compile-only gate passed in 0.99 seconds; Python AST/JSON and local documentation links checked. No production change or Git commit made. Preexisting competitor-catalog modification retained untouched. Optional large P1 coverage is explicitly incomplete; required primary and prioritized P4 comparisons are complete.
+
+## Sail follow-up — completed
+
+User requested Sail on the same data and conditions, then explicitly requested
+both JDBC and ADBC and approved the same verifying TLS proxy for both variants.
+Pinned PySail 0.7.1, pyspark-client 4.2.0, ConnectorX 0.4.6, ADBC PostgreSQL 1.12.0.
+All distributions were fetched on the Mac and installed offline on the server.
+Native JDBC writer capability probe confirms NotImplemented; the separate
+benchmark Arrow sink is explicit and charged to the same client cgroup.
+Both PG klg hosts had become replicas; authorized manual failover restored the
+original primary placements. Fresh interleaved Rust/Spark controls added.
+
+Eight TLS-enabled smoke cases passed. A deliberately wrong remote hostname was
+rejected by stunnel; the negative probe is retained. Streaming ADBC wide/P1 timed
+out twice (original stream ingest and per-batch ingest). Source was blocked on
+ClientWrite; destination idle in transaction. Sail 0.7.1 source queue sends while
+holding the GIL. An explicit whole-partition ADBC buffer avoids that boundary;
+the previously failing 1M-wide/P1 now passes. Prior attempts retained separately;
+final common configuration restarted from the same shuffled schedule.
+
+Recorded all 80 planned outcomes: 48 Sail 1M + 4 Sail 10M + 24 control 1M +
+4 control 10M. All 72 primary cases passed. Stock JDBC/ConnectorX also stalled
+on both 10M/P4 routes and hit the unchanged 600-second timeout. Retained both
+failures; --resume ran only missing identities and did not retry failed cases.
+The other six large cases passed: 78 verified overall, 50 Sail and 28 controls.
+ADBC buffered reached 682.7k PG-PG and 1,547.5k PG-CH rows/s in single large
+runs; stronger throughput did not imply stronger CPU efficiency or lower RAM.
+
+Final export and independent local audit passed: 80 unique cases, 78 destination
+schemas, no overlapping measurements, resource arithmetic and budget checked,
+exact Sail commit part counts, one buffered ADBC batch per part, negative TLS
+hostname verification. All five background CPU affinities exactly restored;
+no fair21 container remains; 159 GiB server disk free. Original historical
+runs.jsonl left untouched; Sail evidence exported separately. Main plots import
+50 verified Sail runs, yielding 344 scored runs, without pooling 28 fresh
+controls into historical medians. Timeouts remain missing values, never zeros.
+
+Generated separate Sail/control throughput, CPU efficiency and RSS plots and
+full tables. Source/config/diagnostic evidence is linked from SAIL.md. No
+production code was changed; no Git commit or push was made.
+
+Final compile-only `just check-affected` passed in 0.96 seconds. Python AST, JSON,
+local document links, unchanged historical ledger and final plot layout checked.
+Generated Matplotlib SVG path whitespace and CSV CRLF retain generator formatting;
+source/document whitespace check is clean. Full release gate was not run.

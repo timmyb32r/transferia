@@ -1,0 +1,1337 @@
+{
+  "rust_narrow10m_p4_r0_1790001511": {
+    "log_evidence": [],
+    "source_query_samples": 31,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(51020,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(102041,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(153061,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(153061,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(51020,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(102041,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_narrow10m_p4_r0_1790001539_ch": {
+    "log_evidence": [],
+    "source_query_samples": 15,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(51020,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(102041,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(153061,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(153061,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(51020,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(102041,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_narrow_p4_r0_1789999790": {
+    "log_evidence": [],
+    "source_query_samples": 6,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "rust_narrow_p4_r0_1789999915_ch": {
+    "log_evidence": [],
+    "source_query_samples": 4,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "rust_narrow_p4_r0_1789999962": {
+    "log_evidence": [],
+    "source_query_samples": 6,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "rust_narrow_p4_r0_1790000080_ch": {
+    "log_evidence": [],
+    "source_query_samples": 4,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "rust_narrow_p4_r0_1790000083": {
+    "log_evidence": [],
+    "source_query_samples": 5,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "rust_narrow_p4_r0_1790000207_ch": {
+    "log_evidence": [],
+    "source_query_samples": 4,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "rust_wide_p4_r0_1789998968_ch": {
+    "log_evidence": [],
+    "source_query_samples": 7,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p4_r0_1789999404_ch": {
+    "log_evidence": [],
+    "source_query_samples": 7,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p4_r0_1789999619_ch": {
+    "log_evidence": [],
+    "source_query_samples": 7,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p4_r0_1789999704": {
+    "log_evidence": [],
+    "source_query_samples": 12,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p4_r0_1789999795_ch": {
+    "log_evidence": [],
+    "source_query_samples": 7,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p4_r0_1789999839": {
+    "log_evidence": [],
+    "source_query_samples": 10,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p4_r0_1789999934_ch": {
+    "log_evidence": [],
+    "source_query_samples": 7,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p4_r0_1789999966": {
+    "log_evidence": [],
+    "source_query_samples": 12,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "sail_adbc_narrow10m_p4_r0_1790001474": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=1 low=2500001 high=5000001",
+      "SAIL_ADBC_PARTITION index=2 low=5000001 high=7500001",
+      "SAIL_ADBC_PARTITION index=3 low=7500001 high=10000001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=2500001",
+      "SAIL_ADBC_BUFFERED rows=2500000 bytes=346388896 batches=1",
+      "SAIL_ADBC_BUFFERED rows=2500000 bytes=347500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=2500000 bytes=347500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=2500000 bytes=347500001 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500000",
+      "SAIL_SINK_ALL_COMMITTED rows=10000000 partitions=4"
+    ],
+    "source_query_samples": 29,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 1 AND id < 2500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 2500001 AND id < 5000001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 5000001 AND id < 7500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 7500001 AND id < 10000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_narrow10m_p4_r0_1790001503_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=3 low=7500001 high=10000001",
+      "SAIL_ADBC_PARTITION index=2 low=5000001 high=7500001",
+      "SAIL_ADBC_PARTITION index=1 low=2500001 high=5000001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=2500001",
+      "SAIL_ADBC_BUFFERED rows=2500000 bytes=347500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=2500000 bytes=347500001 batches=1",
+      "SAIL_ADBC_BUFFERED rows=2500000 bytes=346388896 batches=1",
+      "SAIL_ADBC_BUFFERED rows=2500000 bytes=347500000 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500000",
+      "SAIL_SINK_ALL_COMMITTED rows=10000000 partitions=4"
+    ],
+    "source_query_samples": 13,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 1 AND id < 2500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 2500001 AND id < 5000001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 5000001 AND id < 7500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 7500001 AND id < 10000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_narrow_p1_r0_1789999682": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=1000000 bytes=137888896 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 10,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_adbc_narrow_p1_r0_1789999689": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=1000000 bytes=137888896 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 11,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_narrow_p1_r0_1789999799_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=1000000 bytes=137888896 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 8,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_narrow_p1_r0_1789999993": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=1000000 bytes=137888896 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 11,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_narrow_p1_r0_1790000198_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=1000000 bytes=137888896 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 8,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_narrow_p1_r0_1790000202_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=1000000 bytes=137888896 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 8,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_narrow_p4_r0_1789999667_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34388895 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500001 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500000 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 5,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_adbc_narrow_p4_r0_1789999696": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500001 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34388895 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500000 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 7,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_adbc_narrow_p4_r0_1789999897_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34388895 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500001 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 5,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_adbc_narrow_p4_r0_1789999900": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34388895 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500001 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 7,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 250001 AND id < 500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 500001 AND id < 750001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 750001 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_narrow_p4_r0_1789999910": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34388895 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500001 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 7,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 250001 AND id < 500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 500001 AND id < 750001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 750001 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_narrow_p4_r0_1789999959_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34500001 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=34388895 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 6,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_adbc_smoke_p1_r0_1789998809": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=10001",
+      "SAIL_SINK_PARTITION_COMMITTED rows=10000",
+      "SAIL_SINK_ALL_COMMITTED rows=10000 partitions=1"
+    ],
+    "source_query_samples": 5,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_adbc_smoke_p1_r0_1789998814_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=10001",
+      "SAIL_SINK_PARTITION_COMMITTED rows=10000",
+      "SAIL_SINK_ALL_COMMITTED rows=10000 partitions=1"
+    ],
+    "source_query_samples": 5,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_adbc_smoke_p4_r0_1789998812": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=2501",
+      "SAIL_ADBC_PARTITION index=3 low=7501 high=10001",
+      "SAIL_ADBC_PARTITION index=1 low=2501 high=5001",
+      "SAIL_ADBC_PARTITION index=2 low=5001 high=7501",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_ALL_COMMITTED rows=10000 partitions=4"
+    ],
+    "source_query_samples": 5,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_adbc_smoke_p4_r0_1789998817_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=2 low=5001 high=7501",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=2501",
+      "SAIL_ADBC_PARTITION index=1 low=2501 high=5001",
+      "SAIL_ADBC_PARTITION index=3 low=7501 high=10001",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_ALL_COMMITTED rows=10000 partitions=4"
+    ],
+    "source_query_samples": 4,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_adbc_wide_p1_r0_1789998990": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001"
+    ],
+    "source_query_samples": 356,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p1_r0_1789999428": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001"
+    ],
+    "source_query_samples": 356,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p1_r0_1789999644": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=1000000 bytes=1065888896 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 24,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p1_r0_1789999803_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=1000000 bytes=1065888896 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 17,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p1_r0_1789999851": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=1000000 bytes=1065888896 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 22,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p1_r0_1789999869_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=1000000 bytes=1065888896 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 16,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p1_r0_1789999979_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=1000000 bytes=1065888896 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 17,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p1_r0_1790000118": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=1000000 bytes=1065888896 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 23,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p4_r0_1789998978": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 11,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p4_r0_1789999417": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 12,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p4_r0_1789999630": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500001 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266388895 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500000 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 14,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p4_r0_1789999754_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266388895 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500001 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500000 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 9,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p4_r0_1789999878_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266388895 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500001 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500000 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 8,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p4_r0_1789999988_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500001 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266388895 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 9,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p4_r0_1790000185": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500001 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266388895 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 13,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_adbc_wide_p4_r0_1790000231": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_ADBC_PARTITION index=3 low=750001 high=1000001",
+      "SAIL_ADBC_PARTITION index=1 low=250001 high=500001",
+      "SAIL_ADBC_PARTITION index=2 low=500001 high=750001",
+      "SAIL_ADBC_PARTITION index=0 low=1 high=250001",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500001 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266500000 batches=1",
+      "SAIL_ADBC_BUFFERED rows=250000 bytes=266388895 batches=1",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 15,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001) TO STDOUT (FORMAT binary)",
+      "COPY (SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001) TO STDOUT (FORMAT binary)"
+    ]
+  },
+  "sail_jdbc_narrow10m_p4_r0_1790000266": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net"
+    ],
+    "source_query_samples": 1184,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT * FROM fair21.narrow10m WHERE \"id\" >= 2500001 AND \"id\" < 5000001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.narrow10m WHERE \"id\" >= 5000001 AND \"id\" < 7500001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.narrow10m WHERE \"id\" >= 7500001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.narrow10m WHERE (\"id\" < 2500001 OR \"id\" IS NULL)) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_narrow10m_p4_r0_1790000870_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net"
+    ],
+    "source_query_samples": 1184,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT * FROM fair21.narrow10m WHERE \"id\" >= 2500001 AND \"id\" < 5000001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.narrow10m WHERE \"id\" >= 5000001 AND \"id\" < 7500001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.narrow10m WHERE \"id\" >= 7500001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.narrow10m WHERE (\"id\" < 2500001 OR \"id\" IS NULL)) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_narrow_p1_r0_1789998972": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 9,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT * FROM fair21.narrow) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_narrow_p1_r0_1789999408": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 13,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT * FROM fair21.narrow) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_narrow_p1_r0_1789999624": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 8,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT * FROM fair21.narrow) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_narrow_p1_r0_1789999773": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 8,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT * FROM fair21.narrow) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_narrow_p1_r0_1789999835_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 7,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT * FROM fair21.narrow) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_narrow_p1_r0_1789999954_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 7,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT * FROM fair21.narrow) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_narrow_p1_r0_1790000033_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 8,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT * FROM fair21.narrow) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_narrow_p1_r0_1790000088": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 9,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_jdbc_narrow_p4_r0_1789999670_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 5,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_jdbc_narrow_p4_r0_1789999701_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 4,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_jdbc_narrow_p4_r0_1789999717_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 4,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_jdbc_narrow_p4_r0_1790000037": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 6,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_jdbc_narrow_p4_r0_1790000136": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 6,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_jdbc_narrow_p4_r0_1790000210": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 6,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_jdbc_smoke_p1_r0_1789998800": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=10000",
+      "SAIL_SINK_ALL_COMMITTED rows=10000 partitions=1"
+    ],
+    "source_query_samples": 4,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_jdbc_smoke_p1_r0_1789998805_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=10000",
+      "SAIL_SINK_ALL_COMMITTED rows=10000 partitions=1"
+    ],
+    "source_query_samples": 3,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_jdbc_smoke_p4_r0_1789998802": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_ALL_COMMITTED rows=10000 partitions=4"
+    ],
+    "source_query_samples": 4,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_jdbc_smoke_p4_r0_1789998807_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_PARTITION_COMMITTED rows=2500",
+      "SAIL_SINK_ALL_COMMITTED rows=10000 partitions=4"
+    ],
+    "source_query_samples": 3,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_jdbc_wide_p1_r0_1789999673_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 15,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT * FROM fair21.wide) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_wide_p1_r0_1789999737": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 20,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT * FROM fair21.wide) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_wide_p1_r0_1790000093_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 14,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT * FROM fair21.wide) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_wide_p1_r0_1790000163_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 17,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT * FROM fair21.wide) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_wide_p1_r0_1790000214": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 20,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT * FROM fair21.wide) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_wide_p1_r0_1790000245": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=1000000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=1"
+    ],
+    "source_query_samples": 19,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "COPY (SELECT * FROM fair21.wide) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_wide_p4_r0_1789999662_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 7,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 250001 AND \"id\" < 500001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 500001 AND \"id\" < 750001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 750001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE (\"id\" < 250001 OR \"id\" IS NULL)) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_wide_p4_r0_1789999759": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 14,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 250001 AND \"id\" < 500001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 500001 AND \"id\" < 750001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 750001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE (\"id\" < 250001 OR \"id\" IS NULL)) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_wide_p4_r0_1789999905_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 8,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 250001 AND \"id\" < 500001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 500001 AND \"id\" < 750001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 750001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE (\"id\" < 250001 OR \"id\" IS NULL)) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_wide_p4_r0_1790000056": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 12,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 250001 AND \"id\" < 500001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 500001 AND \"id\" < 750001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 750001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE (\"id\" < 250001 OR \"id\" IS NULL)) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_wide_p4_r0_1790000172": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 12,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 250001 AND \"id\" < 500001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 500001 AND \"id\" < 750001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 750001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE (\"id\" < 250001 OR \"id\" IS NULL)) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_jdbc_wide_p4_r0_1790000261_ch": {
+    "log_evidence": [
+      "SAIL_TLS_PROXY verifyChain=yes checkHost=klg-phfn97gsvo5kem6l.db.yandex.net",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_PARTITION_COMMITTED rows=250000",
+      "SAIL_SINK_ALL_COMMITTED rows=1000000 partitions=4"
+    ],
+    "source_query_samples": 7,
+    "max_observed_active_queries": 4,
+    "queries": [
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 250001 AND \"id\" < 500001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 500001 AND \"id\" < 750001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE \"id\" >= 750001) TO STDOUT WITH BINARY",
+      "COPY (SELECT * FROM fair21.wide WHERE (\"id\" < 250001 OR \"id\" IS NULL)) TO STDOUT WITH BINARY"
+    ]
+  },
+  "sail_smoke_p1_r0_1789998472": {
+    "log_evidence": [
+      "pyspark.errors.exceptions.connect.SparkRuntimeException: Python error: [jdbc::writer] PySparkNotImplementedError: [NOT_IMPLEMENTED] writer is not implemented."
+    ],
+    "source_query_samples": 2,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "sail_smoke_p1_r0_1789998473_ch": {
+    "log_evidence": [
+      "pyspark.errors.exceptions.connect.SparkRuntimeException: Python error: [jdbc::writer] PySparkNotImplementedError: [NOT_IMPLEMENTED] writer is not implemented."
+    ],
+    "source_query_samples": 2,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "spark_narrow10m_p4_r0_1790001548": {
+    "log_evidence": [],
+    "source_query_samples": 91,
+    "max_observed_active_queries": 2,
+    "queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 1 AND id < 2500001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 2500001 AND id < 5000001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 7500001 AND id < 10000001    "
+    ]
+  },
+  "spark_narrow10m_p4_r0_1790001607_ch": {
+    "log_evidence": [],
+    "source_query_samples": 43,
+    "max_observed_active_queries": 2,
+    "queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 1 AND id < 2500001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 5000001 AND id < 7500001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 7500001 AND id < 10000001    "
+    ]
+  },
+  "spark_narrow_p4_r0_1789999779_ch": {
+    "log_evidence": [],
+    "source_query_samples": 21,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "spark_narrow_p4_r0_1789999883": {
+    "log_evidence": [],
+    "source_query_samples": 25,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 1 AND id < 250001    "
+    ]
+  },
+  "spark_narrow_p4_r0_1789999918": {
+    "log_evidence": [],
+    "source_query_samples": 25,
+    "max_observed_active_queries": 2,
+    "queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 250001 AND id < 500001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 500001 AND id < 750001    "
+    ]
+  },
+  "spark_narrow_p4_r0_1790000000_ch": {
+    "log_evidence": [],
+    "source_query_samples": 21,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "spark_narrow_p4_r0_1790000042": {
+    "log_evidence": [],
+    "source_query_samples": 25,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "spark_narrow_p4_r0_1790000069_ch": {
+    "log_evidence": [],
+    "source_query_samples": 22,
+    "max_observed_active_queries": 0,
+    "queries": []
+  },
+  "spark_wide_p4_r0_1789999720_ch": {
+    "log_evidence": [],
+    "source_query_samples": 32,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 250001 AND id < 500001    "
+    ]
+  },
+  "spark_wide_p4_r0_1789999813": {
+    "log_evidence": [],
+    "source_query_samples": 32,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 250001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 500001 AND id < 750001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 750001 AND id < 1000001    "
+    ]
+  },
+  "spark_wide_p4_r0_1789999938_ch": {
+    "log_evidence": [],
+    "source_query_samples": 31,
+    "max_observed_active_queries": 2,
+    "queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 250001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 250001 AND id < 500001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 500001 AND id < 750001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 750001 AND id < 1000001    "
+    ]
+  },
+  "spark_wide_p4_r0_1790000011": {
+    "log_evidence": [],
+    "source_query_samples": 31,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 250001    "
+    ]
+  },
+  "spark_wide_p4_r0_1790000101_ch": {
+    "log_evidence": [],
+    "source_query_samples": 32,
+    "max_observed_active_queries": 2,
+    "queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 250001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 500001 AND id < 750001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 750001 AND id < 1000001    "
+    ]
+  },
+  "spark_wide_p4_r0_1790000141": {
+    "log_evidence": [],
+    "source_query_samples": 31,
+    "max_observed_active_queries": 1,
+    "queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 500001 AND id < 750001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 750001 AND id < 1000001    "
+    ]
+  }
+}

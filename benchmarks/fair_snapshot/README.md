@@ -88,3 +88,46 @@ Stop scheduling with `pause-campaign`, wait for active jobs to finish, then run 
 Before the 10M phase, the campaign calls `prune_intermediates.py --apply` under the measurement lock. It records file sizes and removes only finished, verified runs' Kafka data, Sqoop staging and Flow fixture files. Logs, configs, samples, binaries and database tables remain. The removal journal is retained, and later size exports preserve the recorded measurements even after files are gone. Removing Docker-owned staging directories requires noninteractive sudo; removal targets pass exact run-name and private-directory checks first.
 
 The 10M Flink CDC follow-up uses a TaskManager process size of 18 GiB and managed-memory fraction 0.1 after a recorded 8-GiB-process heap failure. The total client cgroup remains 24 GiB. This exception is labeled separately in figures/CSV. `flink_backfill_probe.py` changes only the backfill-skip flag, retaining that same heap and four parts; it is valid here because the source is immutable and is not a production recommendation for changing sources.
+
+## Sail follow-up
+
+The separately labeled Sail 0.7.1 experiment is documented in
+[SAIL.md](../../docs/benchmarks/2026-09-21/SAIL.md). `sail_campaign.py --smoke`
+checks native ConnectorX and the benchmark ADBC source with a common Arrow sink;
+without `--smoke` it runs three 1M repeats, single 10M/P4 follow-ups and interleaved
+fresh Rust/Spark P4 controls. `sail_report.py` generates the separate control
+comparison. `analyze.py` imports only the two Sail series into the global plots;
+it never pools fresh Rust/Spark controls into their historical medians.
+
+This is not a built-in Sail SQL sink. ADBC's source buffers each entire part and
+consolidates it into one batch as an explicit workaround for a stock Sail 0.7.1
+GIL/backpressure deadlock. The original streaming and per-batch-ingest failures
+are retained. PG writes use ADBC COPY+commit; CH uses Arrow HTTPS with LZ4.
+
+Prepare the offline `images/sail.Dockerfile` context with Linux CPython 3.12 wheels
+for PySail 0.7.1, pyspark-client 4.2.0, ADBC PostgreSQL 1.12.0 and pinned transitive
+versions listed in sail-environment.json. The official pyspark-client sdist was
+built into a universal wheel on the Mac; Linux engine execution remains on the
+server. Include `stunnel4_5.72-1build2_amd64.deb` and
+`libwrap0_7.6.q-36build2_amd64.deb` from archive.ubuntu.com, renamed stunnel4.deb
+and libwrap0.deb in the build context. Native dependencies never download on the
+benchmark server.
+
+Both Sail variants share the same in-cgroup stunnel transport, with local TLS
+and upstream CA/hostname verification. Generate a short-lived localhost SAN
+certificate in the server's private directory before timing; file names are
+`sail-local-cert.pem` and `sail-local-key.pem`, both mode 0600. Keep the key outside
+Git. Channel binding is explicitly disabled between the driver and this proxy;
+upstream certificate/name validation remains mandatory. The TLS-negative probe
+must fail on an incorrect hostname. A nonexistent upstream native JDBC writer is
+a capability failure, never a zero-throughput performance result.
+
+Large-case timeouts remain failed observations, not zero throughput. If a prior
+process stopped, `sail_campaign.py --resume` retains every recorded outcome and
+runs only missing case identities; it does not retry or cherry-pick failures.
+After all 80 outcomes are recorded, run `schema_audit.py` then `export_sail.py`
+on the server. Copy only the named `sail-*.json` exports, preserving the original
+campaign ledger. Locally run `analyze.py`, `report_tables.py`, `sail_report.py` and
+`audit_sail.py` with the report directory argument. The audit checks exact commit
+part counts, ADBC buffering, data verification, resource arithmetic, non-overlap,
+destination constraints, negative TLS evidence and background CPU restoration.

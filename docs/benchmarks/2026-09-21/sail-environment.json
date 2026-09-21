@@ -1,0 +1,71 @@
+{
+  "captured_at": "2026-09-21T13:56:05.261555+00:00",
+  "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+  "destination_pg_host": "klg-h22uri0dropaeogi.db.yandex.net",
+  "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+  "note": "Both original klg hosts restored to primary after managed failover; new Rust/Spark controls interleaved with Sail.",
+  "source": {
+    "version": "PostgreSQL 17.11 (Ubuntu 17.11-201-yandex.60286.5a0f49380c) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0, 64-bit",
+    "in_recovery": false,
+    "synchronous_commit": "on",
+    "jit": "off"
+  },
+  "pg": {
+    "version": "PostgreSQL 17.11 (Ubuntu 17.11-201-yandex.60286.5a0f49380c) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0, 64-bit",
+    "in_recovery": false,
+    "synchronous_commit": "on",
+    "jit": "off"
+  },
+  "warmup": {
+    "narrow": [
+      1000000,
+      96000000,
+      "-97740500000"
+    ],
+    "wide": [
+      1000000,
+      1024000000,
+      "-97740500000"
+    ],
+    "narrow10m": [
+      10000000,
+      960000000,
+      "-59605000000"
+    ]
+  },
+  "image": {
+    "Id": "sha256:624872d39289a3743c0ae575b990976f0e0446d30fe9a59e1de04b6bc7292821",
+    "Architecture": "amd64",
+    "Os": "linux",
+    "Created": "2026-09-21T16:49:02.758718276+03:00"
+  },
+  "versions": [
+    "adbc-driver-manager==1.12.0",
+    "adbc-driver-postgresql==1.12.0",
+    "backports.zstd==1.7.0",
+    "certifi==2026.7.22",
+    "clickhouse-connect==1.8.0",
+    "connectorx==0.4.6",
+    "googleapis-common-protos==1.75.3",
+    "grpcio==1.84.0",
+    "grpcio-status==1.84.0",
+    "importlib_resources==7.1.0",
+    "lz4==4.4.5",
+    "numpy==2.5.3",
+    "pandas==2.3.3",
+    "protobuf==7.36.2",
+    "psycopg==3.3.6",
+    "psycopg-binary==3.3.6",
+    "pyarrow==25.0.1",
+    "pysail==0.7.1",
+    "pyspark-client==4.2.0",
+    "python-dateutil==2.9.0.post0",
+    "pytz==2026.3.post1",
+    "PyYAML==6.0.3",
+    "six==1.17.0",
+    "typing_extensions==4.16.0",
+    "tzdata==2026.4",
+    "urllib3==2.8.0",
+    "zstandard==0.25.0"
+  ]
+}

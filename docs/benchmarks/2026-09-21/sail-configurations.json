@@ -1,0 +1,2214 @@
+{
+  "rust_narrow10m_p4_r0_1790001511": {
+    "delivery_id": "rust_narrow10m_p4_r0_1790001511",
+    "delivery_name": "rust_narrow10m_p4_r0_1790001511",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.narrow10m"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-h22uri0dropaeogi.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "create_tables": false,
+        "copy_from_format": "binary"
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "fair21.rust_narrow10m_p4_r0_1790001511"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_narrow10m_p4_r0_1790001511"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_narrow10m_p4_r0_1790001539_ch": {
+    "delivery_id": "rust_narrow10m_p4_r0_1790001539_ch",
+    "delivery_name": "rust_narrow10m_p4_r0_1790001539_ch",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.narrow10m"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "clickhouse": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "shard_group": "",
+        "insert_target_rows": 65536,
+        "insert_concurrency": 1,
+        "compression": "zstd",
+        "installation": {
+          "type": "on_premise",
+          "hosts": [
+            "klg-nchisrq0ck0dofeb.db.yandex.net"
+          ],
+          "port": 9440,
+          "http_port": 8443,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt",
+          "data_host_count": 2
+        }
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "db1.rust_narrow10m_p4_r0_1790001539_ch"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_narrow10m_p4_r0_1790001539_ch"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_narrow_p4_r0_1789999790": {
+    "delivery_id": "rust_narrow_p4_r0_1789999790",
+    "delivery_name": "rust_narrow_p4_r0_1789999790",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.narrow"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-h22uri0dropaeogi.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "create_tables": false,
+        "copy_from_format": "binary"
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "fair21.rust_narrow_p4_r0_1789999790"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_narrow_p4_r0_1789999790"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_narrow_p4_r0_1789999915_ch": {
+    "delivery_id": "rust_narrow_p4_r0_1789999915_ch",
+    "delivery_name": "rust_narrow_p4_r0_1789999915_ch",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.narrow"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "clickhouse": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "shard_group": "",
+        "insert_target_rows": 65536,
+        "insert_concurrency": 1,
+        "compression": "zstd",
+        "installation": {
+          "type": "on_premise",
+          "hosts": [
+            "klg-nchisrq0ck0dofeb.db.yandex.net"
+          ],
+          "port": 9440,
+          "http_port": 8443,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt",
+          "data_host_count": 2
+        }
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "db1.rust_narrow_p4_r0_1789999915_ch"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_narrow_p4_r0_1789999915_ch"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_narrow_p4_r0_1789999962": {
+    "delivery_id": "rust_narrow_p4_r0_1789999962",
+    "delivery_name": "rust_narrow_p4_r0_1789999962",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.narrow"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-h22uri0dropaeogi.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "create_tables": false,
+        "copy_from_format": "binary"
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "fair21.rust_narrow_p4_r0_1789999962"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_narrow_p4_r0_1789999962"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_narrow_p4_r0_1790000080_ch": {
+    "delivery_id": "rust_narrow_p4_r0_1790000080_ch",
+    "delivery_name": "rust_narrow_p4_r0_1790000080_ch",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.narrow"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "clickhouse": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "shard_group": "",
+        "insert_target_rows": 65536,
+        "insert_concurrency": 1,
+        "compression": "zstd",
+        "installation": {
+          "type": "on_premise",
+          "hosts": [
+            "klg-nchisrq0ck0dofeb.db.yandex.net"
+          ],
+          "port": 9440,
+          "http_port": 8443,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt",
+          "data_host_count": 2
+        }
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "db1.rust_narrow_p4_r0_1790000080_ch"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_narrow_p4_r0_1790000080_ch"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_narrow_p4_r0_1790000083": {
+    "delivery_id": "rust_narrow_p4_r0_1790000083",
+    "delivery_name": "rust_narrow_p4_r0_1790000083",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.narrow"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-h22uri0dropaeogi.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "create_tables": false,
+        "copy_from_format": "binary"
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "fair21.rust_narrow_p4_r0_1790000083"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_narrow_p4_r0_1790000083"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_narrow_p4_r0_1790000207_ch": {
+    "delivery_id": "rust_narrow_p4_r0_1790000207_ch",
+    "delivery_name": "rust_narrow_p4_r0_1790000207_ch",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.narrow"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "clickhouse": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "shard_group": "",
+        "insert_target_rows": 65536,
+        "insert_concurrency": 1,
+        "compression": "zstd",
+        "installation": {
+          "type": "on_premise",
+          "hosts": [
+            "klg-nchisrq0ck0dofeb.db.yandex.net"
+          ],
+          "port": 9440,
+          "http_port": 8443,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt",
+          "data_host_count": 2
+        }
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "db1.rust_narrow_p4_r0_1790000207_ch"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_narrow_p4_r0_1790000207_ch"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_wide_p4_r0_1789998968_ch": {
+    "delivery_id": "rust_wide_p4_r0_1789998968_ch",
+    "delivery_name": "rust_wide_p4_r0_1789998968_ch",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.wide"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "clickhouse": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "shard_group": "",
+        "insert_target_rows": 65536,
+        "insert_concurrency": 1,
+        "compression": "zstd",
+        "installation": {
+          "type": "on_premise",
+          "hosts": [
+            "klg-nchisrq0ck0dofeb.db.yandex.net"
+          ],
+          "port": 9440,
+          "http_port": 8443,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt",
+          "data_host_count": 2
+        }
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "db1.rust_wide_p4_r0_1789998968_ch"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_wide_p4_r0_1789998968_ch"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_wide_p4_r0_1789999404_ch": {
+    "delivery_id": "rust_wide_p4_r0_1789999404_ch",
+    "delivery_name": "rust_wide_p4_r0_1789999404_ch",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.wide"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "clickhouse": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "shard_group": "",
+        "insert_target_rows": 65536,
+        "insert_concurrency": 1,
+        "compression": "zstd",
+        "installation": {
+          "type": "on_premise",
+          "hosts": [
+            "klg-nchisrq0ck0dofeb.db.yandex.net"
+          ],
+          "port": 9440,
+          "http_port": 8443,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt",
+          "data_host_count": 2
+        }
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "db1.rust_wide_p4_r0_1789999404_ch"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_wide_p4_r0_1789999404_ch"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_wide_p4_r0_1789999619_ch": {
+    "delivery_id": "rust_wide_p4_r0_1789999619_ch",
+    "delivery_name": "rust_wide_p4_r0_1789999619_ch",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.wide"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "clickhouse": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "shard_group": "",
+        "insert_target_rows": 65536,
+        "insert_concurrency": 1,
+        "compression": "zstd",
+        "installation": {
+          "type": "on_premise",
+          "hosts": [
+            "klg-nchisrq0ck0dofeb.db.yandex.net"
+          ],
+          "port": 9440,
+          "http_port": 8443,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt",
+          "data_host_count": 2
+        }
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "db1.rust_wide_p4_r0_1789999619_ch"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_wide_p4_r0_1789999619_ch"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_wide_p4_r0_1789999704": {
+    "delivery_id": "rust_wide_p4_r0_1789999704",
+    "delivery_name": "rust_wide_p4_r0_1789999704",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.wide"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-h22uri0dropaeogi.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "create_tables": false,
+        "copy_from_format": "binary"
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "fair21.rust_wide_p4_r0_1789999704"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_wide_p4_r0_1789999704"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_wide_p4_r0_1789999795_ch": {
+    "delivery_id": "rust_wide_p4_r0_1789999795_ch",
+    "delivery_name": "rust_wide_p4_r0_1789999795_ch",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.wide"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "clickhouse": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "shard_group": "",
+        "insert_target_rows": 65536,
+        "insert_concurrency": 1,
+        "compression": "zstd",
+        "installation": {
+          "type": "on_premise",
+          "hosts": [
+            "klg-nchisrq0ck0dofeb.db.yandex.net"
+          ],
+          "port": 9440,
+          "http_port": 8443,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt",
+          "data_host_count": 2
+        }
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "db1.rust_wide_p4_r0_1789999795_ch"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_wide_p4_r0_1789999795_ch"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_wide_p4_r0_1789999839": {
+    "delivery_id": "rust_wide_p4_r0_1789999839",
+    "delivery_name": "rust_wide_p4_r0_1789999839",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.wide"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-h22uri0dropaeogi.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "create_tables": false,
+        "copy_from_format": "binary"
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "fair21.rust_wide_p4_r0_1789999839"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_wide_p4_r0_1789999839"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_wide_p4_r0_1789999934_ch": {
+    "delivery_id": "rust_wide_p4_r0_1789999934_ch",
+    "delivery_name": "rust_wide_p4_r0_1789999934_ch",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.wide"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "clickhouse": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "shard_group": "",
+        "insert_target_rows": 65536,
+        "insert_concurrency": 1,
+        "compression": "zstd",
+        "installation": {
+          "type": "on_premise",
+          "hosts": [
+            "klg-nchisrq0ck0dofeb.db.yandex.net"
+          ],
+          "port": 9440,
+          "http_port": 8443,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt",
+          "data_host_count": 2
+        }
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "db1.rust_wide_p4_r0_1789999934_ch"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_wide_p4_r0_1789999934_ch"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "rust_wide_p4_r0_1789999966": {
+    "delivery_id": "rust_wide_p4_r0_1789999966",
+    "delivery_name": "rust_wide_p4_r0_1789999966",
+    "delivery_type": "batch",
+    "source": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "tables": {
+          "type": "selected",
+          "rules": [
+            {
+              "include": "fair21.wide"
+            }
+          ]
+        },
+        "batch_rows": 65536,
+        "copy_to_format": "binary",
+        "unsupported_types": "fail",
+        "max_snapshot_parts": 4
+      }
+    },
+    "sink": {
+      "postgres": {
+        "database": "db1",
+        "username": "user1",
+        "password": "[REDACTED]",
+        "installation": {
+          "type": "on_premise",
+          "host": "klg-h22uri0dropaeogi.db.yandex.net",
+          "port": 6432,
+          "trusted_plaintext": false,
+          "tls_ca_file": "/cert/RootCA.crt"
+        },
+        "create_tables": false,
+        "copy_from_format": "binary"
+      }
+    },
+    "middlewares": [
+      {
+        "rename_table": {
+          "mode": "exact",
+          "name": "fair21.rust_wide_p4_r0_1789999966"
+        }
+      }
+    ],
+    "durable_storage": {
+      "type": "local_file",
+      "path": "/work/private/state/rust_wide_p4_r0_1789999966"
+    },
+    "pipeline_memory_limit_bytes": 1073741824,
+    "metrics": {
+      "interval_ms": 1000
+    }
+  },
+  "sail_adbc_narrow10m_p4_r0_1790001474": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow10m",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow10m_p4_r0_1790001474",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 10000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_adbc_narrow10m_p4_r0_1790001503_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow10m",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow10m_p4_r0_1790001503_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 10000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_adbc_narrow_p1_r0_1789999682": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow_p1_r0_1789999682",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_adbc_narrow_p1_r0_1789999689": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow_p1_r0_1789999689",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_adbc_narrow_p1_r0_1789999799_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow_p1_r0_1789999799_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_adbc_narrow_p1_r0_1789999993": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow_p1_r0_1789999993",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_adbc_narrow_p1_r0_1790000198_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow_p1_r0_1790000198_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_adbc_narrow_p1_r0_1790000202_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow_p1_r0_1790000202_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_adbc_narrow_p4_r0_1789999667_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow_p4_r0_1789999667_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_adbc_narrow_p4_r0_1789999696": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow_p4_r0_1789999696",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_adbc_narrow_p4_r0_1789999897_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow_p4_r0_1789999897_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_adbc_narrow_p4_r0_1789999900": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow_p4_r0_1789999900",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_adbc_narrow_p4_r0_1789999910": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow_p4_r0_1789999910",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_adbc_narrow_p4_r0_1789999959_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_narrow_p4_r0_1789999959_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_adbc_smoke_p1_r0_1789998809": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.smoke",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_smoke_p1_r0_1789998809",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 10000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_adbc_smoke_p1_r0_1789998814_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.smoke",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_smoke_p1_r0_1789998814_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 10000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_adbc_smoke_p4_r0_1789998812": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.smoke",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_smoke_p4_r0_1789998812",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 10000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_adbc_smoke_p4_r0_1789998817_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.smoke",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_smoke_p4_r0_1789998817_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 10000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_adbc_wide_p1_r0_1789998990": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p1_r0_1789998990",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_adbc_wide_p1_r0_1789999428": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p1_r0_1789999428",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_adbc_wide_p1_r0_1789999644": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p1_r0_1789999644",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_adbc_wide_p1_r0_1789999803_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p1_r0_1789999803_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_adbc_wide_p1_r0_1789999851": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p1_r0_1789999851",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_adbc_wide_p1_r0_1789999869_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p1_r0_1789999869_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_adbc_wide_p1_r0_1789999979_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p1_r0_1789999979_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_adbc_wide_p1_r0_1790000118": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p1_r0_1790000118",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_adbc_wide_p4_r0_1789998978": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p4_r0_1789998978",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_adbc_wide_p4_r0_1789999417": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p4_r0_1789999417",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_adbc_wide_p4_r0_1789999630": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p4_r0_1789999630",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_adbc_wide_p4_r0_1789999754_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p4_r0_1789999754_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_adbc_wide_p4_r0_1789999878_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p4_r0_1789999878_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_adbc_wide_p4_r0_1789999988_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p4_r0_1789999988_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_adbc_wide_p4_r0_1790000185": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p4_r0_1790000185",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_adbc_wide_p4_r0_1790000231": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "adbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_adbc_wide_p4_r0_1790000231",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_narrow10m_p4_r0_1790000266": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow10m",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow10m_p4_r0_1790000266",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 10000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_narrow10m_p4_r0_1790000870_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow10m",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow10m_p4_r0_1790000870_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 10000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_narrow_p1_r0_1789998972": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p1_r0_1789998972",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_narrow_p1_r0_1789999408": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p1_r0_1789999408",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_narrow_p1_r0_1789999624": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p1_r0_1789999624",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_narrow_p1_r0_1789999773": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p1_r0_1789999773",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_narrow_p1_r0_1789999835_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p1_r0_1789999835_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_narrow_p1_r0_1789999954_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p1_r0_1789999954_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_narrow_p1_r0_1790000033_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p1_r0_1790000033_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_narrow_p1_r0_1790000088": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p1_r0_1790000088",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_narrow_p4_r0_1789999670_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p4_r0_1789999670_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_narrow_p4_r0_1789999701_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p4_r0_1789999701_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_narrow_p4_r0_1789999717_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p4_r0_1789999717_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_narrow_p4_r0_1790000037": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p4_r0_1790000037",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_narrow_p4_r0_1790000136": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p4_r0_1790000136",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_narrow_p4_r0_1790000210": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.narrow",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_narrow_p4_r0_1790000210",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_smoke_p1_r0_1789998800": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.smoke",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_smoke_p1_r0_1789998800",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 10000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_smoke_p1_r0_1789998805_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.smoke",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_smoke_p1_r0_1789998805_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 10000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_smoke_p4_r0_1789998802": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.smoke",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_smoke_p4_r0_1789998802",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 10000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_smoke_p4_r0_1789998807_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.smoke",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_smoke_p4_r0_1789998807_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 10000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_wide_p1_r0_1789999673_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_wide_p1_r0_1789999673_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_wide_p1_r0_1789999737": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_wide_p1_r0_1789999737",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_wide_p1_r0_1790000093_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_wide_p1_r0_1790000093_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_wide_p1_r0_1790000163_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_wide_p1_r0_1790000163_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_wide_p1_r0_1790000214": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_wide_p1_r0_1790000214",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_wide_p1_r0_1790000245": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_wide_p1_r0_1790000245",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_wide_p4_r0_1789999662_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_wide_p4_r0_1789999662_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_wide_p4_r0_1789999759": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_wide_p4_r0_1789999759",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_wide_p4_r0_1789999905_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_wide_p4_r0_1789999905_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_jdbc_wide_p4_r0_1790000056": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_wide_p4_r0_1790000056",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_wide_p4_r0_1790000172": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_wide_p4_r0_1790000172",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-pg"
+  },
+  "sail_jdbc_wide_p4_r0_1790000261_ch": {
+    "source_host": "klg-phfn97gsvo5kem6l.db.yandex.net",
+    "source_transport": "stunnel-5.72-TLS-CA-and-hostname-verified",
+    "source_kind": "jdbc",
+    "source_uri": "postgresql://user1:[REDACTED]@klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.wide",
+    "target_uri": "postgresql://user1:[REDACTED]@klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_name": "sail_jdbc_wide_p4_r0_1790000261_ch",
+    "ch_host": "klg-nchisrq0ck0dofeb.db.yandex.net",
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "route": "pg-ch"
+  },
+  "sail_smoke_p1_r0_1789998472": {
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_url": "jdbc:postgresql://klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "source_table": "fair21.smoke",
+    "target_table": "fair21.sail_smoke_p1_r0_1789998472",
+    "password": "[REDACTED]",
+    "rows": 10000,
+    "parts": 1,
+    "route": "pg-pg"
+  },
+  "sail_smoke_p1_r0_1789998473_ch": {
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt",
+    "target_url": "jdbc:clickhouse://klg-nchisrq0ck0dofeb.db.yandex.net:8443/db1?ssl=true",
+    "source_table": "fair21.smoke",
+    "target_table": "db1.sail_smoke_p1_r0_1789998473_ch",
+    "password": "[REDACTED]",
+    "rows": 10000,
+    "parts": 1,
+    "route": "pg-ch"
+  },
+  "spark_narrow10m_p4_r0_1790001548": {
+    "password": "[REDACTED]",
+    "rows": 10000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:postgresql://klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "source_table": "fair21.narrow10m",
+    "target_table": "fair21.spark_narrow10m_p4_r0_1790001548"
+  },
+  "spark_narrow10m_p4_r0_1790001607_ch": {
+    "password": "[REDACTED]",
+    "rows": 10000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:clickhouse:https://klg-nchisrq0ck0dofeb.db.yandex.net:8443/db1?ssl=true&sslmode=strict&sslrootcert=/cert/RootCA.crt&jdbc_ignore_unsupported_values=true",
+    "source_table": "fair21.narrow10m",
+    "target_table": "db1.spark_narrow10m_p4_r0_1790001607_ch",
+    "target_driver": "com.clickhouse.jdbc.DriverV1",
+    "batch_size": 65536
+  },
+  "spark_narrow_p4_r0_1789999779_ch": {
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:clickhouse:https://klg-nchisrq0ck0dofeb.db.yandex.net:8443/db1?ssl=true&sslmode=strict&sslrootcert=/cert/RootCA.crt&jdbc_ignore_unsupported_values=true",
+    "source_table": "fair21.narrow",
+    "target_table": "db1.spark_narrow_p4_r0_1789999779_ch",
+    "target_driver": "com.clickhouse.jdbc.DriverV1",
+    "batch_size": 65536
+  },
+  "spark_narrow_p4_r0_1789999883": {
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:postgresql://klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "source_table": "fair21.narrow",
+    "target_table": "fair21.spark_narrow_p4_r0_1789999883"
+  },
+  "spark_narrow_p4_r0_1789999918": {
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:postgresql://klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "source_table": "fair21.narrow",
+    "target_table": "fair21.spark_narrow_p4_r0_1789999918"
+  },
+  "spark_narrow_p4_r0_1790000000_ch": {
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:clickhouse:https://klg-nchisrq0ck0dofeb.db.yandex.net:8443/db1?ssl=true&sslmode=strict&sslrootcert=/cert/RootCA.crt&jdbc_ignore_unsupported_values=true",
+    "source_table": "fair21.narrow",
+    "target_table": "db1.spark_narrow_p4_r0_1790000000_ch",
+    "target_driver": "com.clickhouse.jdbc.DriverV1",
+    "batch_size": 65536
+  },
+  "spark_narrow_p4_r0_1790000042": {
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:postgresql://klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "source_table": "fair21.narrow",
+    "target_table": "fair21.spark_narrow_p4_r0_1790000042"
+  },
+  "spark_narrow_p4_r0_1790000069_ch": {
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:clickhouse:https://klg-nchisrq0ck0dofeb.db.yandex.net:8443/db1?ssl=true&sslmode=strict&sslrootcert=/cert/RootCA.crt&jdbc_ignore_unsupported_values=true",
+    "source_table": "fair21.narrow",
+    "target_table": "db1.spark_narrow_p4_r0_1790000069_ch",
+    "target_driver": "com.clickhouse.jdbc.DriverV1",
+    "batch_size": 65536
+  },
+  "spark_wide_p4_r0_1789999720_ch": {
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:clickhouse:https://klg-nchisrq0ck0dofeb.db.yandex.net:8443/db1?ssl=true&sslmode=strict&sslrootcert=/cert/RootCA.crt&jdbc_ignore_unsupported_values=true",
+    "source_table": "fair21.wide",
+    "target_table": "db1.spark_wide_p4_r0_1789999720_ch",
+    "target_driver": "com.clickhouse.jdbc.DriverV1",
+    "batch_size": 65536
+  },
+  "spark_wide_p4_r0_1789999813": {
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:postgresql://klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "source_table": "fair21.wide",
+    "target_table": "fair21.spark_wide_p4_r0_1789999813"
+  },
+  "spark_wide_p4_r0_1789999938_ch": {
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:clickhouse:https://klg-nchisrq0ck0dofeb.db.yandex.net:8443/db1?ssl=true&sslmode=strict&sslrootcert=/cert/RootCA.crt&jdbc_ignore_unsupported_values=true",
+    "source_table": "fair21.wide",
+    "target_table": "db1.spark_wide_p4_r0_1789999938_ch",
+    "target_driver": "com.clickhouse.jdbc.DriverV1",
+    "batch_size": 65536
+  },
+  "spark_wide_p4_r0_1790000011": {
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:postgresql://klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "source_table": "fair21.wide",
+    "target_table": "fair21.spark_wide_p4_r0_1790000011"
+  },
+  "spark_wide_p4_r0_1790000101_ch": {
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:clickhouse:https://klg-nchisrq0ck0dofeb.db.yandex.net:8443/db1?ssl=true&sslmode=strict&sslrootcert=/cert/RootCA.crt&jdbc_ignore_unsupported_values=true",
+    "source_table": "fair21.wide",
+    "target_table": "db1.spark_wide_p4_r0_1790000101_ch",
+    "target_driver": "com.clickhouse.jdbc.DriverV1",
+    "batch_size": 65536
+  },
+  "spark_wide_p4_r0_1790000141": {
+    "password": "[REDACTED]",
+    "rows": 1000000,
+    "parts": 4,
+    "source_url": "jdbc:postgresql://klg-phfn97gsvo5kem6l.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "target_url": "jdbc:postgresql://klg-h22uri0dropaeogi.db.yandex.net:6432/db1?sslmode=verify-full&sslrootcert=/cert/RootCA.crt&prepareThreshold=0&reWriteBatchedInserts=true",
+    "source_table": "fair21.wide",
+    "target_table": "fair21.spark_wide_p4_r0_1790000141"
+  }
+}

@@ -1,0 +1,27 @@
+[
+  {
+    "name": "transferia-bench-clickhouse-20260903",
+    "before": "0-31",
+    "after": "0-31"
+  },
+  {
+    "name": "transferia-bench-opensearch-20260903",
+    "before": "0-31",
+    "after": "0-31"
+  },
+  {
+    "name": "transferia-bench-mysql-20260903",
+    "before": "0-31",
+    "after": "0-31"
+  },
+  {
+    "name": "transferia-bench-pg-20260903",
+    "before": "0-31",
+    "after": "0-31"
+  },
+  {
+    "name": "transferia-snapshot-iceberg-rest",
+    "before": "0-31",
+    "after": "0-31"
+  }
+]

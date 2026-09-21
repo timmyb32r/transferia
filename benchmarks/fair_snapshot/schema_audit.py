@@ -9,7 +9,7 @@ with (ROOT/'measurement.lock').open('w') as lock:
     fcntl.flock(lock,fcntl.LOCK_EX)
     runs=[json.loads(p.read_text()) for p in (ROOT/'results/runs').glob('*.json')]
     diagnostic_names=set()
-    for filename in ('jdbc-prepare-probe.json','estuary-delta-probe.json','datax-poll-probe.json','go-homo-probe.json','jdbc-batch-probe.json','flink-backfill-probe.json'):
+    for filename in ('jdbc-prepare-probe.json','estuary-delta-probe.json','datax-poll-probe.json','go-homo-probe.json','jdbc-batch-probe.json','flink-backfill-probe.json','sail-followup.json'):
         path=ROOT/'results'/filename
         if path.exists():
             diagnostic_names.update(x['result']['name'] for x in json.loads(path.read_text()) if x['result']['status']=='verified')

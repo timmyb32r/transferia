@@ -1,0 +1,13 @@
+{
+  "wrong_hostname_rejected": true,
+  "expected_hostname": "invalid-hostname.benchmark.invalid",
+  "errors": [
+    "2026.09.21 13:54:42 LOG3[2]: SSL_connect: ../ssl/statem/statem_clnt.c:1889: error:0A000086:SSL routines::certificate verify failed",
+    "2026.09.21 13:54:42 LOG3[4]: SSL_connect: ../ssl/statem/statem_clnt.c:1889: error:0A000086:SSL routines::certificate verify failed",
+    "2026.09.21 13:54:43 LOG3[6]: SSL_connect: ../ssl/statem/statem_clnt.c:1889: error:0A000086:SSL routines::certificate verify failed",
+    "2026.09.21 13:54:45 LOG3[8]: SSL_connect: ../ssl/statem/statem_clnt.c:1889: error:0A000086:SSL routines::certificate verify failed",
+    "2026.09.21 13:54:48 LOG3[10]: SSL_connect: ../ssl/statem/statem_clnt.c:1889: error:0A000086:SSL routines::certificate verify failed",
+    "2026.09.21 13:54:54 LOG3[12]: SSL_connect: ../ssl/statem/statem_clnt.c:1889: error:0A000086:SSL routines::certificate verify failed",
+    "2026.09.21 13:55:07 LOG3[14]: SSL_connect: ../ssl/statem/statem_clnt.c:1889: error:0A000086:SSL routines::certificate verify failed"
+  ]
+}

@@ -8,6 +8,8 @@ Medians of verified runs. `n` = accepted repeats P1/P4. CPU efficiency counts th
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Transferia Rust Auto | 228 843 | 418 601 | 1.83× | 485 244 | 0.89 | 0.65 | 3/3 |
 | Transferia Rust exact PK¹ | 230 831 | 416 301 | 1.80× | 518 107 | 0.85 | 0.67 | 3/3 |
+| Sail JDBC + sink⁷ | 246 750 | 350 362 | 1.42× | 170 075 | 2.07 | 0.45 | 3/3 |
+| Sail ADBC buffered + sink⁷ | 196 396 | 303 179 | 1.54× | 162 936 | 1.77 | 0.61 | 3/3 |
 | Transferia Go · typed path | 108 924 | 168 555 | 1.55× | 74 783 | 2.25 | 3.55 | 3/3 |
 | Sling² | 131 917 | 119 547 | 0.91× | 106 291 | 1.12 | 0.53 | 3/3 |
 | Spark | 45 726 | 85 723 | 1.87× | 38 921 | 2.21 | 0.82 | 3/3 |
@@ -28,6 +30,8 @@ Medians of verified runs. `n` = accepted repeats P1/P4. CPU efficiency counts th
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Transferia Rust Auto | 114 008 | 187 639 | 1.65× | 146 110 | 1.29 | 2.19 | 3/3 |
 | Transferia Rust exact PK¹ | 104 489 | 179 595 | 1.72× | 90 040 | 1.91 | 2.22 | 3/3 |
+| Sail JDBC + sink⁷ | 102 304 | 166 999 | 1.63× | 60 506 | 2.88 | 1.57 | 3/3 |
+| Sail ADBC buffered + sink⁷ | 88 336 | 143 556 | 1.63× | 58 145 | 2.43 | 2.38 | 3/3 |
 | Transferia Go · typed path | 96 618 | 126 551 | 1.31× | 54 096 | 2.36 | 4.65 | 3/3 |
 | Sling² | 69 469 | 77 384 | 1.11× | 57 453 | 1.35 | 0.53 | 3/3 |
 | Spark | 33 601 | 67 861 | 2.02× | 31 340 | 2.20 | 1.46 | 3/3 |
@@ -46,6 +50,7 @@ Medians of verified runs. `n` = accepted repeats P1/P4. CPU efficiency counts th
 
 | Engine | P1 rows/s | P4 rows/s | P4/P1 | P4 rows/CPU-s | P4 mean CPUs | P4 peak RSS GiB | n |
 |---|---:|---:|---:|---:|---:|---:|---:|
+| Sail ADBC buffered + sink⁷ | — | 682 656 | — | 337 199 | 2.02 | 3.29 | 0/1 |
 | Transferia Rust Auto | — | 669 893 | — | 485 115 | 1.38 | 1.99 | 0/1 |
 | Transferia Rust exact PK¹ | — | 623 612 | — | 526 139 | 1.19 | 2.00 | 0/1 |
 | Transferia Go · typed path | — | 418 130 | — | 98 491 | 4.25 | 9.45 | 0/1 |
@@ -68,6 +73,8 @@ Medians of verified runs. `n` = accepted repeats P1/P4. CPU efficiency counts th
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Transferia Rust exact PK¹ | 438 164 | 530 230 | 1.21× | 530 194 | 1.00 | 0.51 | 3/3 |
 | Transferia Rust Auto | 429 608 | 525 028 | 1.22× | 511 454 | 1.03 | 0.45 | 3/3 |
+| Sail JDBC + sink⁷ | 292 182 | 498 488 | 1.71× | 192 460 | 2.53 | 0.43 | 3/3 |
+| Sail ADBC buffered + sink⁷ | 266 422 | 408 868 | 1.53× | 178 295 | 2.30 | 0.51 | 3/3 |
 | Transferia Go · typed path | 132 838 | 242 988 | 1.83× | 70 784 | 3.46 | 1.90 | 3/3 |
 | Sling² | 144 966 | 134 883 | 0.93× | 99 300 | 1.37 | 0.71 | 3/3 |
 | SeaTunnel | 65 685 | 107 743 | 1.64× | 29 193 | 3.80 | 1.68 | 3/3 |
@@ -80,6 +87,8 @@ Medians of verified runs. `n` = accepted repeats P1/P4. CPU efficiency counts th
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Transferia Rust Auto | 192 889 | 317 945 | 1.65× | 159 614 | 1.85 | 1.16 | 3/3 |
 | Transferia Rust exact PK¹ | 210 686 | 303 865 | 1.44× | 137 199 | 2.21 | 1.31 | 3/3 |
+| Sail JDBC + sink⁷ | 132 919 | 283 187 | 2.13× | 67 345 | 4.23 | 1.29 | 3/3 |
+| Sail ADBC buffered + sink⁷ | 122 751 | 239 857 | 1.95× | 68 396 | 3.61 | 1.56 | 3/3 |
 | Transferia Go · typed path | 102 038 | 196 125 | 1.92× | 49 991 | 3.92 | 4.48 | 3/3 |
 | Sling² | 70 116 | 106 139 | 1.51× | 49 223 | 2.16 | 2.10 | 3/3 |
 | DataX · default polling | 31 563 | 86 589 | 2.74× | 22 588 | 3.83 | 1.18 | 3/3 |
@@ -90,6 +99,7 @@ Medians of verified runs. `n` = accepted repeats P1/P4. CPU efficiency counts th
 
 | Engine | P1 rows/s | P4 rows/s | P4/P1 | P4 rows/CPU-s | P4 mean CPUs | P4 peak RSS GiB | n |
 |---|---:|---:|---:|---:|---:|---:|---:|
+| Sail ADBC buffered + sink⁷ | — | 1 547 492 | — | 400 888 | 3.86 | 2.16 | 0/1 |
 | Transferia Rust exact PK¹ | — | 1 376 332 | — | 528 834 | 2.60 | 1.41 | 0/1 |
 | Transferia Rust Auto | — | 1 278 093 | — | 535 274 | 2.39 | 1.34 | 0/1 |
 | Spark | — | 460 854 | — | 214 429 | 2.15 | 1.11 | 0/1 |
@@ -109,7 +119,7 @@ Separate scaling check; not ranked against competitors using four parts.
 
 ¹ Benchmark-only exact-PK override. ² External parallel pipelines. ³ Local connector/preview path, not the full managed platform. ⁴ Separate Kafka buffering/compression configuration. ⁵ Flink 10M uses TaskManager 18 GiB / managed fraction 0.1 instead of 8 GiB; total cgroup remains 24 GiB.
 
-See `summary.csv` for all medians/min/max, including P1 memory, CPU time, cgroup peak memory and wall time. Min/max are descriptive, not confidence intervals.
+⁷ Sail uses the explicit benchmark Arrow sink and common TLS proxy. It is a later comparison block; fresh interleaved Rust/Spark controls are in SAIL.md. See `summary.csv` for all medians/min/max, including P1 memory, CPU time, cgroup peak memory and wall time. Min/max are descriptive, not confidence intervals.
 
 ## Failed measured runs
 
@@ -123,6 +133,8 @@ See `summary.csv` for all medians/min/max, including P1 memory, CPU time, cgroup
 | go_narrow_p1_r1_1789959507_ch | engine exit code 125 | 513.51 | Superseded; reason below |
 | seatunnel_wide_p4_r1_1789960407_ch | engine exit code 1 | 18.95 | Superseded; reason below |
 | sqoop_narrow10m_p1_r1_1789971620 | configured run deadline exceeded | 600.09 | Current failed case |
+| sail_jdbc_narrow10m_p4_r0_1790000266 | configured run deadline exceeded | 600.10 | Current failed case |
+| sail_jdbc_narrow10m_p4_r0_1790000870_ch | configured run deadline exceeded | 600.10 | Current failed case |
 
 ## Superseded measured runs
 

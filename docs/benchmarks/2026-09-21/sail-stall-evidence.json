@@ -1,0 +1,24 @@
+{
+  "observed_utc": "2026-09-21T14:32:21.400486+00:00",
+  "container": "fair21_sail_jdbc_narrow10m_p4_r0_1790000870_ch",
+  "docker_stats": {
+    "BlockIO": "0B / 0B",
+    "CPUPerc": "1.90%",
+    "Container": "fair21_sail_jdbc_narrow10m_p4_r0_1790000870_ch",
+    "ID": "6a21d9912869",
+    "MemPerc": "5.85%",
+    "MemUsage": "1.404GiB / 24GiB",
+    "Name": "fair21_sail_jdbc_narrow10m_p4_r0_1790000870_ch",
+    "NetIO": "0B / 0B",
+    "PIDs": "98"
+  },
+  "source_session_states": [
+    [
+      "idle",
+      "Client",
+      "ClientRead",
+      1
+    ]
+  ],
+  "note": "Diagnostic sample during the subsequently retained timed-out run; no native stack was captured."
+}

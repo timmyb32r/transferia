@@ -1,0 +1,1489 @@
+{
+  "pg": {
+    "sail_jdbc_narrow_p1_r0_1789999624": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_adbc_wide_p4_r0_1789999630": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_adbc_wide_p1_r0_1789999644": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_adbc_narrow_p1_r0_1789999682": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_adbc_narrow_p1_r0_1789999689": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_adbc_narrow_p4_r0_1789999696": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "rust_wide_p4_r0_1789999704": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_jdbc_wide_p1_r0_1789999737": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_jdbc_wide_p4_r0_1789999759": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_jdbc_narrow_p1_r0_1789999773": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "rust_narrow_p4_r0_1789999790": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "spark_wide_p4_r0_1789999813": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "rust_wide_p4_r0_1789999839": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_adbc_wide_p1_r0_1789999851": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "spark_narrow_p4_r0_1789999883": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_adbc_narrow_p4_r0_1789999900": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_adbc_narrow_p4_r0_1789999910": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "spark_narrow_p4_r0_1789999918": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "rust_narrow_p4_r0_1789999962": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "rust_wide_p4_r0_1789999966": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_adbc_narrow_p1_r0_1789999993": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "spark_wide_p4_r0_1790000011": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_jdbc_narrow_p4_r0_1790000037": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "spark_narrow_p4_r0_1790000042": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_jdbc_wide_p4_r0_1790000056": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "rust_narrow_p4_r0_1790000083": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_jdbc_narrow_p1_r0_1790000088": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_adbc_wide_p1_r0_1790000118": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_jdbc_narrow_p4_r0_1790000136": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "spark_wide_p4_r0_1790000141": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_jdbc_wide_p4_r0_1790000172": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_adbc_wide_p4_r0_1790000185": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_jdbc_narrow_p4_r0_1790000210": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_jdbc_wide_p1_r0_1790000214": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_adbc_wide_p4_r0_1790000231": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_jdbc_wide_p1_r0_1790000245": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "sail_adbc_narrow10m_p4_r0_1790001474": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "rust_narrow10m_p4_r0_1790001511": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    },
+    "spark_narrow10m_p4_r0_1790001548": {
+      "id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": true
+      },
+      "group_id": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "amount": {
+        "type": "bigint",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "label": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      },
+      "payload": {
+        "type": "text",
+        "not_null": true,
+        "single_column_pk": false
+      }
+    }
+  },
+  "ch": {
+    "rust_wide_p4_r0_1789999619_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_jdbc_wide_p4_r0_1789999662_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_adbc_narrow_p4_r0_1789999667_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_jdbc_narrow_p4_r0_1789999670_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_jdbc_wide_p1_r0_1789999673_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_jdbc_narrow_p4_r0_1789999701_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_jdbc_narrow_p4_r0_1789999717_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "spark_wide_p4_r0_1789999720_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_adbc_wide_p4_r0_1789999754_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "spark_narrow_p4_r0_1789999779_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "rust_wide_p4_r0_1789999795_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_adbc_narrow_p1_r0_1789999799_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_adbc_wide_p1_r0_1789999803_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_jdbc_narrow_p1_r0_1789999835_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_adbc_wide_p1_r0_1789999869_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_adbc_wide_p4_r0_1789999878_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_adbc_narrow_p4_r0_1789999897_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_jdbc_wide_p4_r0_1789999905_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "rust_narrow_p4_r0_1789999915_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "rust_wide_p4_r0_1789999934_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "spark_wide_p4_r0_1789999938_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_jdbc_narrow_p1_r0_1789999954_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_adbc_narrow_p4_r0_1789999959_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_adbc_wide_p1_r0_1789999979_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_adbc_wide_p4_r0_1789999988_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "spark_narrow_p4_r0_1790000000_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_jdbc_narrow_p1_r0_1790000033_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "spark_narrow_p4_r0_1790000069_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "rust_narrow_p4_r0_1790000080_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_jdbc_wide_p1_r0_1790000093_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "spark_wide_p4_r0_1790000101_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_jdbc_wide_p1_r0_1790000163_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_adbc_narrow_p1_r0_1790000198_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_adbc_narrow_p1_r0_1790000202_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "rust_narrow_p4_r0_1790000207_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_jdbc_wide_p4_r0_1790000261_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "sail_adbc_narrow10m_p4_r0_1790001503_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "rust_narrow10m_p4_r0_1790001539_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    },
+    "spark_narrow10m_p4_r0_1790001607_ch": {
+      "engine": "MergeTree",
+      "sorting_key": "id",
+      "fields": {
+        "id": "Int64",
+        "group_id": "Int64",
+        "amount": "Int64",
+        "label": "String",
+        "payload": "String"
+      }
+    }
+  },
+  "issues": []
+}
