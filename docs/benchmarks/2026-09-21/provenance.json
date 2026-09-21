@@ -1,0 +1,289 @@
+{
+  "captured_at": "2026-09-21T06:44:32Z",
+  "images": {
+    "apache/seatunnel:2.3.12": {
+      "Id": "sha256:3e374594a820cd03696f34dbbeae24c24ec24787dbac2ccfd4fdd9aa342b76d3",
+      "RepoDigests": [
+        "apache/seatunnel@sha256:3e374594a820cd03696f34dbbeae24c24ec24787dbac2ccfd4fdd9aa342b76d3"
+      ],
+      "Created": "2025-09-05T14:03:13.052342603Z",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 2492807928,
+      "labels": null,
+      "published_versions": {
+        "JAVA_VERSION": "8u342"
+      }
+    },
+    "apache/spark:3.5.7": {
+      "Id": "sha256:3d864798d744013fe002188f513307dc4ba43896b7983e21ccd4e9ba6f7cf6b9",
+      "RepoDigests": [
+        "apache/spark@sha256:3d864798d744013fe002188f513307dc4ba43896b7983e21ccd4e9ba6f7cf6b9"
+      ],
+      "Created": "2025-09-24T21:05:17.870012809Z",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 543914775,
+      "labels": {
+        "org.opencontainers.image.ref.name": "ubuntu",
+        "org.opencontainers.image.version": "20.04"
+      },
+      "published_versions": {
+        "JAVA_VERSION": "jdk-11.0.27+6"
+      }
+    },
+    "eclipse-temurin:8-jdk": {
+      "Id": "sha256:1492c143e388e940251b6a1553a18b8a488f275c8b9098d3a84e4f3949dcd3eb",
+      "RepoDigests": [
+        "eclipse-temurin@sha256:1492c143e388e940251b6a1553a18b8a488f275c8b9098d3a84e4f3949dcd3eb"
+      ],
+      "Created": "2026-09-16T03:15:37.216485018Z",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 116876878,
+      "labels": {
+        "org.opencontainers.image.created": "2026-09-12T10:25:59.825539+00:00",
+        "org.opencontainers.image.description": "The Ubuntu container image maintained by Canonical\n\nUbuntu is a Debian-based Linux operating system that runs from the desktop to the cloud, to all your internet connected things.\nIt is the world's most popular operating system across public clouds and OpenStack clouds.\nIt is the number one platform for containers; from Docker to Kubernetes to LXD, Ubuntu can run your containers at scale.\nFast, secure and simple, Ubuntu powers millions of PCs worldwide.\n",
+        "org.opencontainers.image.title": "ubuntu",
+        "org.opencontainers.image.version": "26.04"
+      },
+      "published_versions": {
+        "JAVA_VERSION": "jdk8u502-b07"
+      }
+    },
+    "flink:1.18.1-scala_2.12-java11": {
+      "Id": "sha256:a7d8467acd9233b8acd73bb35d58c22518519c9e0de0bdcea6c811de6d8eb504",
+      "RepoDigests": [
+        "flink@sha256:a7d8467acd9233b8acd73bb35d58c22518519c9e0de0bdcea6c811de6d8eb504"
+      ],
+      "Created": "2024-05-24T10:52:42Z",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 576373542,
+      "labels": {
+        "org.opencontainers.image.ref.name": "ubuntu",
+        "org.opencontainers.image.version": "22.04"
+      },
+      "published_versions": {
+        "JAVA_VERSION": "jdk-11.0.26+4"
+      }
+    },
+    "flink:1.20.3-scala_2.12-java17": {
+      "Id": "sha256:1d9abf0e8338f0dbb8d5a41a6cddb152779d17b7568845e03ea576f571fd0c05",
+      "RepoDigests": [
+        "flink@sha256:1d9abf0e8338f0dbb8d5a41a6cddb152779d17b7568845e03ea576f571fd0c05"
+      ],
+      "Created": "2026-04-15T21:28:48.681573405Z",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 579807436,
+      "labels": {
+        "org.opencontainers.image.version": "22.04"
+      },
+      "published_versions": {
+        "JAVA_VERSION": "jdk-17.0.18+8"
+      }
+    },
+    "ghcr.io/estuary/materialize-postgres:dev": {
+      "Id": "sha256:5c76d5a33c7521fb32881dbf09b3d12d830567cb2fdf8ac30b3228351d43ecca",
+      "RepoDigests": [
+        "ghcr.io/estuary/materialize-postgres@sha256:5c76d5a33c7521fb32881dbf09b3d12d830567cb2fdf8ac30b3228351d43ecca"
+      ],
+      "Created": "2026-09-18T23:22:29.210603438Z",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 87500610,
+      "labels": {
+        "FLOW_RUNTIME_PROTOCOL": "materialize",
+        "org.opencontainers.image.revision": "262fcee1dab22b57a234e247f8b65b93a7bf0032"
+      },
+      "published_versions": {}
+    },
+    "ghcr.io/estuary/source-postgres-batch:dev": {
+      "Id": "sha256:268616a37a777ff8c858292a6846b1f856816f8384a31295ee1ca8209647d44f",
+      "RepoDigests": [
+        "ghcr.io/estuary/source-postgres-batch@sha256:268616a37a777ff8c858292a6846b1f856816f8384a31295ee1ca8209647d44f"
+      ],
+      "Created": "2026-09-18T23:22:40.55923865Z",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 80076443,
+      "labels": {
+        "CONNECTOR_PROTOCOL": "flow-capture",
+        "FLOW_RUNTIME_PROTOCOL": "capture",
+        "org.opencontainers.image.revision": "262fcee1dab22b57a234e247f8b65b93a7bf0032"
+      },
+      "published_versions": {}
+    },
+    "ghcr.io/estuary/source-postgres:dev": {
+      "Id": "sha256:3de41a3d7c1ad55f0474b4f4d9c5530996dcb6c2f5163f06aa7363ca82ffc027",
+      "RepoDigests": [
+        "ghcr.io/estuary/source-postgres@sha256:3de41a3d7c1ad55f0474b4f4d9c5530996dcb6c2f5163f06aa7363ca82ffc027"
+      ],
+      "Created": "2026-09-18T23:25:19.039911933Z",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 81088852,
+      "labels": {
+        "CONNECTOR_PROTOCOL": "flow-capture",
+        "FLOW_RUNTIME_PROTOCOL": "capture",
+        "org.opencontainers.image.revision": "262fcee1dab22b57a234e247f8b65b93a7bf0032"
+      },
+      "published_versions": {}
+    },
+    "quay.io/debezium/connect:3.6": {
+      "Id": "sha256:d0c7458ac158a2e63251b465e83eeaff6203653b053da190586a88d6e5e84f79",
+      "RepoDigests": [
+        "quay.io/debezium/connect@sha256:d0c7458ac158a2e63251b465e83eeaff6203653b053da190586a88d6e5e84f79"
+      ],
+      "Created": "2026-09-20T01:47:42.050550556Z",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 750103119,
+      "labels": {
+        "build-at": "1789868856",
+        "io.buildah.version": "1.41.5",
+        "license": "MIT",
+        "maintainer": "Debezium Community",
+        "name": "fedora-minimal",
+        "org.opencontainers.image.license": "MIT",
+        "org.opencontainers.image.name": "fedora-minimal",
+        "org.opencontainers.image.url": "https://fedoraproject.org/",
+        "org.opencontainers.image.vendor": "Fedora Project",
+        "org.opencontainers.image.version": "41",
+        "vendor": "Fedora Project",
+        "version": "41"
+      },
+      "published_versions": {
+        "KAFKA_VERSION": "4.3.0",
+        "SCALA_VERSION": "2.13",
+        "DEBEZIUM_VERSION": "3.6.3.Final"
+      }
+    },
+    "slingdata/sling:latest": {
+      "Id": "sha256:b1606dacefbbac726783966275e7eea65b3161ff509b61e143db294181015d09",
+      "RepoDigests": [
+        "slingdata/sling@sha256:b1606dacefbbac726783966275e7eea65b3161ff509b61e143db294181015d09"
+      ],
+      "Created": "2026-09-13T17:25:36.528898492Z",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 296542571,
+      "labels": {
+        "org.opencontainers.image.version": "22.04"
+      },
+      "published_versions": {}
+    },
+    "transferia/airbyte-pair:20260921": {
+      "Id": "sha256:4c0d0cdcb0fc88eb2a6be8376ba2661020d4e2b0ad112dc732de4704c977c330",
+      "RepoDigests": [
+        "transferia/airbyte-pair@sha256:4c0d0cdcb0fc88eb2a6be8376ba2661020d4e2b0ad112dc732de4704c977c330"
+      ],
+      "Created": "2026-09-21T01:06:56.241763624Z",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 490950284,
+      "labels": {
+        "io.airbyte.app": "source-postgres",
+        "io.airbyte.git-revision": "f5181d37",
+        "io.airbyte.version": "3.8.5"
+      },
+      "published_versions": {}
+    },
+    "transferia/benchmark-runtime:20260921": {
+      "Id": "sha256:2c48aaf187d49af691f23daae089e90a03b8cce76d574e7bb042eb7b0a73dedd",
+      "RepoDigests": [
+        "transferia/benchmark-runtime@sha256:2c48aaf187d49af691f23daae089e90a03b8cce76d574e7bb042eb7b0a73dedd"
+      ],
+      "Created": "2026-09-21T03:55:49.131711263+03:00",
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 141814088,
+      "labels": {
+        "org.opencontainers.image.version": "24.04"
+      },
+      "published_versions": {}
+    }
+  },
+  "kernel": "Linux-5.4.210-39.1.pagevecsize-x86_64-with-glibc2.39",
+  "cpu": "Architecture:                    x86_64\nCPU op-mode(s):                  32-bit, 64-bit\nAddress sizes:                   48 bits physical, 48 bits virtual\nByte Order:                      Little Endian\nCPU(s):                          32\nOn-line CPU(s) list:             0-31\nVendor ID:                       AuthenticAMD\nModel name:                      AMD EPYC 7713 64-Core Processor\nCPU family:                      25\nModel:                           1\nThread(s) per core:              1\nCore(s) per socket:              32\nSocket(s):                       1\nStepping:                        1\nBogoMIPS:                        3999.99\nFlags:                           fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good nopl nonstop_tsc cpuid extd_apicid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm cmp_legacy svm cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw perfctr_core invpcid_single ssbd ibrs ibpb stibp vmmcall fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid rdseed adx smap clflushopt clwb sha_ni xsaveopt xsavec xgetbv1 xsaves clzero xsaveerptr wbnoinvd arat npt nrip_save umip pku ospke vaes vpclmulqdq rdpid arch_capabilities\nVirtualization:                  AMD-V\nHypervisor vendor:               KVM\nVirtualization type:             full\nL1d cache:                       2 MiB (32 instances)\nL1i cache:                       2 MiB (32 instances)\nL2 cache:                        16 MiB (32 instances)\nL3 cache:                        512 MiB (32 instances)\nNUMA node(s):                    1\nNUMA node0 CPU(s):               0-31\nVulnerability Itlb multihit:     Not affected\nVulnerability L1tf:              Not affected\nVulnerability Mds:               Not affected\nVulnerability Meltdown:          Not affected\nVulnerability Mmio stale data:   Not affected\nVulnerability Spec store bypass: Mitigation; Speculative Store Bypass disabled via prctl and seccomp\nVulnerability Spectre v1:        Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:        Mitigation; Retpolines, IBPB conditional, IBRS_FW, STIBP disabled, RSB filling, PBRSB-eIBRS Not affected\nVulnerability Srbds:             Not affected\nVulnerability Tsx async abort:   Not affected\n",
+  "memory": "MemTotal:       49346348 kB\nMemFree:        25208368 kB\nMemAvailable:   41142804 kB\nMemKernel:       2075152 kB\nBuffers:         4519952 kB\nCached:         11179460 kB\nSwapCached:            0 kB\nActive:         12248256 kB\nInactive:        9750724 kB\nActive(anon):    6313992 kB\nInactive(anon):    46500 kB\nActive(file):    5934264 kB\nInactive(file):  9704224 kB\nUnevictable:       63848 kB\nMlocked:           63848 kB\nSwapTotal:             0 kB\nSwapFree:              0 kB\nDirty:              1632 kB\nWriteback:             0 kB\nAnonPages:       6363560 kB\nMapped:           512176 kB\nShmem:             54952 kB\nKReclaimable:     896620 kB\nSlab:            1066364 kB\nSReclaimable:     896620 kB\nSUnreclaim:       169744 kB\nKernelStack:       35808 kB\nPageTables:       494660 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    24673172 kB\nCommitted_AS:   22207684 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:       41552 kB\nVmallocChunk:          0 kB\nPercpu:            68992 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:         0 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:     5850984 kB\nDirectMap2M:    39237632 kB\nDirectMap1G:     7340032 kB\n",
+  "binaries": {
+    "transferctl": {
+      "bytes": 416525536,
+      "mtime_ns": 1789951619584151127
+    },
+    "estuary-source-postgres": {
+      "bytes": 34832904,
+      "mtime_ns": 1789773918000000000
+    },
+    "transferia-ranges": {
+      "bytes": 97187040,
+      "mtime_ns": 1789954909409598821
+    },
+    "estuary-source-postgres-batch": {
+      "bytes": 34094688,
+      "mtime_ns": 1789773760000000000
+    },
+    "estuary-capture": {
+      "bytes": 4430288,
+      "mtime_ns": 1789955051890594068
+    },
+    "estuary-materialize-postgres": {
+      "bytes": 58798958,
+      "mtime_ns": 1789773749000000000
+    },
+    "transferia-auto": {
+      "bytes": 97183904,
+      "mtime_ns": 1789954032792630568
+    },
+    "fair21-airbyte-bridge": {
+      "bytes": 603920,
+      "mtime_ns": 1789956587347400967
+    }
+  },
+  "source_rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+  "go_binary_build_info": "/home/timmyb32r/benchmark-20260921/bin/transferctl: go1.26.5",
+  "source": {
+    "user_connection_limit": 200,
+    "search_path": "\"$user\", public",
+    "version": "PostgreSQL 17.11 (Ubuntu 17.11-201-yandex.60286.5a0f49380c) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0, 64-bit",
+    "settings": {
+      "default_transaction_isolation": "read committed",
+      "effective_cache_size": "15728640",
+      "jit": "off",
+      "max_connections": "6400",
+      "max_parallel_workers_per_gather": "2",
+      "max_replication_slots": "20",
+      "max_wal_senders": "20",
+      "pg_stat_statements.track": "all",
+      "pg_stat_statements.track_utility": "off",
+      "shared_buffers": "1048576",
+      "synchronous_commit": "on",
+      "track_io_timing": "on",
+      "wal_level": "logical",
+      "work_mem": "16384"
+    }
+  },
+  "pg": {
+    "user_connection_limit": 200,
+    "search_path": "fair21, public",
+    "version": "PostgreSQL 17.11 (Ubuntu 17.11-201-yandex.60286.5a0f49380c) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0, 64-bit",
+    "settings": {
+      "default_transaction_isolation": "read committed",
+      "effective_cache_size": "15728640",
+      "jit": "off",
+      "max_connections": "6400",
+      "max_parallel_workers_per_gather": "2",
+      "max_replication_slots": "20",
+      "max_wal_senders": "20",
+      "pg_stat_statements.track": "all",
+      "pg_stat_statements.track_utility": "off",
+      "shared_buffers": "1048576",
+      "synchronous_commit": "on",
+      "track_io_timing": "on",
+      "wal_level": "logical",
+      "work_mem": "16384"
+    }
+  }
+}

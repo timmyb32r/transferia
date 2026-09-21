@@ -1,0 +1,614 @@
+[
+  {
+    "dataset": "narrow",
+    "parts": 1,
+    "diagnostic_repetition": 1,
+    "no_homo": false,
+    "result": {
+      "name": "go_narrow_p1_r0_1789964824",
+      "product": "go",
+      "dataset": "narrow",
+      "parts_requested": 1,
+      "variant": "native-diagnostic-homogeneous",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T04:27:04.431874+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 8.898487858008593,
+      "observed_max_active_source_queries": 1,
+      "observer_error": null,
+      "cpu_seconds": 13.044460291,
+      "peak_rss_bytes": 2234290176,
+      "cgroup_peak_bytes": 2237227008,
+      "cpu_percent": 146.59187604846878,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 54.0,
+          "execution_ms": 1839.8242739979178,
+          "rows": 1001208.0,
+          "shared_blocks_hit": 27344.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 3588.0
+        },
+        "pg": {
+          "calls": 61.0,
+          "execution_ms": 44.97323699994013,
+          "rows": 3515.0,
+          "shared_blocks_hit": 10658.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 4312.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 112378.64409737944,
+      "rows_per_cpu_second": 76660.8949463358
+    }
+  },
+  {
+    "dataset": "narrow",
+    "parts": 4,
+    "diagnostic_repetition": 3,
+    "no_homo": false,
+    "result": {
+      "name": "go_narrow_p4_r0_1789964835",
+      "product": "go",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "native-diagnostic-homogeneous",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T04:27:15.159796+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 5.286699327640235,
+      "observed_max_active_source_queries": 3,
+      "observer_error": null,
+      "cpu_seconds": 12.689926394,
+      "peak_rss_bytes": 3577372672,
+      "cgroup_peak_bytes": 3579244544,
+      "cpu_percent": 240.0349557928096,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 94.0,
+          "execution_ms": 672.9677950069308,
+          "rows": 1001856.0,
+          "shared_blocks_hit": 31123.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 1470.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 94.0,
+          "execution_ms": 69.42048499942757,
+          "rows": 4773.0,
+          "shared_blocks_hit": 18344.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 54.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 189153.93859676123,
+      "rows_per_cpu_second": 78802.66354206877
+    }
+  },
+  {
+    "dataset": "wide",
+    "parts": 4,
+    "diagnostic_repetition": 3,
+    "no_homo": false,
+    "result": {
+      "name": "go_wide_p4_r0_1789964842",
+      "product": "go",
+      "dataset": "wide",
+      "parts_requested": 4,
+      "variant": "native-diagnostic-homogeneous",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T04:27:22.205214+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 7.177503631915897,
+      "observed_max_active_source_queries": 4,
+      "observer_error": null,
+      "cpu_seconds": 16.47483912,
+      "peak_rss_bytes": 4872224768,
+      "cgroup_peak_bytes": 4875841536,
+      "cpu_percent": 229.534389181526,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 94.0,
+          "execution_ms": 4736.394687997177,
+          "rows": 1001856.0,
+          "shared_blocks_hit": 155454.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 1470.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 97.0,
+          "execution_ms": 66.83114499994554,
+          "rows": 4792.0,
+          "shared_blocks_hit": 18631.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 52.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 139324.2067553046,
+      "rows_per_cpu_second": 60698.62004212397
+    }
+  },
+  {
+    "dataset": "wide",
+    "parts": 4,
+    "diagnostic_repetition": 2,
+    "no_homo": false,
+    "result": {
+      "name": "go_wide_p4_r0_1789964855",
+      "product": "go",
+      "dataset": "wide",
+      "parts_requested": 4,
+      "variant": "native-diagnostic-homogeneous",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T04:27:36.021884+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 8.051388717722148,
+      "observed_max_active_source_queries": 4,
+      "observer_error": null,
+      "cpu_seconds": 19.288179741,
+      "peak_rss_bytes": 4492099584,
+      "cgroup_peak_bytes": 4494438400,
+      "cpu_percent": 239.5633898353985,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 94.0,
+          "execution_ms": 5702.730236997828,
+          "rows": 1001856.0,
+          "shared_blocks_hit": 155421.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 1470.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 97.0,
+          "execution_ms": 64.66116299992427,
+          "rows": 4805.0,
+          "shared_blocks_hit": 18565.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 124202.17617848591,
+      "rows_per_cpu_second": 51845.22404021079
+    }
+  },
+  {
+    "dataset": "wide",
+    "parts": 1,
+    "diagnostic_repetition": 1,
+    "no_homo": false,
+    "result": {
+      "name": "go_wide_p1_r0_1789964870",
+      "product": "go",
+      "dataset": "wide",
+      "parts_requested": 1,
+      "variant": "native-diagnostic-homogeneous",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T04:27:50.663435+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 10.43725613085553,
+      "observed_max_active_source_queries": 1,
+      "observer_error": null,
+      "cpu_seconds": 14.302963715,
+      "peak_rss_bytes": 2705207296,
+      "cgroup_peak_bytes": 2706079744,
+      "cpu_percent": 137.03758474141807,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 54.0,
+          "execution_ms": 5164.212727999315,
+          "rows": 1001208.0,
+          "shared_blocks_hit": 147666.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 64.0,
+          "execution_ms": 40.51583100040443,
+          "rows": 3561.0,
+          "shared_blocks_hit": 10973.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 95810.6218207784,
+      "rows_per_cpu_second": 69915.57973060271
+    }
+  },
+  {
+    "dataset": "narrow",
+    "parts": 1,
+    "diagnostic_repetition": 3,
+    "no_homo": false,
+    "result": {
+      "name": "go_narrow_p1_r0_1789964887",
+      "product": "go",
+      "dataset": "narrow",
+      "parts_requested": 1,
+      "variant": "native-diagnostic-homogeneous",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T04:28:07.708934+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 8.743696089833975,
+      "observed_max_active_source_queries": 1,
+      "observer_error": null,
+      "cpu_seconds": 13.599422954,
+      "peak_rss_bytes": 2219913216,
+      "cgroup_peak_bytes": 2220494848,
+      "cpu_percent": 155.53403062363554,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 54.0,
+          "execution_ms": 1673.2604940030724,
+          "rows": 1001208.0,
+          "shared_blocks_hit": 23271.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 61.0,
+          "execution_ms": 39.9973389999941,
+          "rows": 3565.0,
+          "shared_blocks_hit": 10741.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 114368.1104336036,
+      "rows_per_cpu_second": 73532.53173921397
+    }
+  },
+  {
+    "dataset": "narrow",
+    "parts": 4,
+    "diagnostic_repetition": 2,
+    "no_homo": false,
+    "result": {
+      "name": "go_narrow_p4_r0_1789964898",
+      "product": "go",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "native-diagnostic-homogeneous",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T04:28:18.242374+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 5.215348016936332,
+      "observed_max_active_source_queries": 3,
+      "observer_error": null,
+      "cpu_seconds": 13.464569877,
+      "peak_rss_bytes": 3805061120,
+      "cgroup_peak_bytes": 3806760960,
+      "cpu_percent": 258.17203057734844,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 94.0,
+          "execution_ms": 667.8939079958946,
+          "rows": 1001856.0,
+          "shared_blocks_hit": 31168.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 1470.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 85.0,
+          "execution_ms": 67.9777370004449,
+          "rows": 4820.0,
+          "shared_blocks_hit": 17729.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 191741.7585082717,
+      "rows_per_cpu_second": 74268.98958786546
+    }
+  },
+  {
+    "dataset": "narrow",
+    "parts": 4,
+    "diagnostic_repetition": 1,
+    "no_homo": false,
+    "result": {
+      "name": "go_narrow_p4_r0_1789964905",
+      "product": "go",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "native-diagnostic-homogeneous",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T04:28:25.237563+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 5.054551680572331,
+      "observed_max_active_source_queries": 1,
+      "observer_error": null,
+      "cpu_seconds": 12.554867809,
+      "peak_rss_bytes": 3253743616,
+      "cgroup_peak_bytes": 3255521280,
+      "cpu_percent": 248.3873665246292,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 94.0,
+          "execution_ms": 646.6219470016658,
+          "rows": 1001856.0,
+          "shared_blocks_hit": 34874.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 1470.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 85.0,
+          "execution_ms": 65.68098799977452,
+          "rows": 4833.0,
+          "shared_blocks_hit": 17718.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 197841.48292391567,
+      "rows_per_cpu_second": 79650.38065021654
+    }
+  },
+  {
+    "dataset": "narrow",
+    "parts": 1,
+    "diagnostic_repetition": 2,
+    "no_homo": false,
+    "result": {
+      "name": "go_narrow_p1_r0_1789964911",
+      "product": "go",
+      "dataset": "narrow",
+      "parts_requested": 1,
+      "variant": "native-diagnostic-homogeneous",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T04:28:32.083125+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 10.10598088009283,
+      "observed_max_active_source_queries": 1,
+      "observer_error": null,
+      "cpu_seconds": 15.544777138,
+      "peak_rss_bytes": 2377617408,
+      "cgroup_peak_bytes": 2379776000,
+      "cpu_percent": 153.81759892917205,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 54.0,
+          "execution_ms": 5126.839556999505,
+          "rows": 1001208.0,
+          "shared_blocks_hit": 23271.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 61.0,
+          "execution_ms": 38.58028900017962,
+          "rows": 3595.0,
+          "shared_blocks_hit": 10800.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 52.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 98951.30535719106,
+      "rows_per_cpu_second": 64330.28863150756
+    }
+  },
+  {
+    "dataset": "wide",
+    "parts": 1,
+    "diagnostic_repetition": 3,
+    "no_homo": false,
+    "result": {
+      "name": "go_wide_p1_r0_1789964923",
+      "product": "go",
+      "dataset": "wide",
+      "parts_requested": 1,
+      "variant": "native-diagnostic-homogeneous",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T04:28:43.975400+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 10.559328086208552,
+      "observed_max_active_source_queries": 1,
+      "observer_error": null,
+      "cpu_seconds": 14.657446221,
+      "peak_rss_bytes": 2600001536,
+      "cgroup_peak_bytes": 2599481344,
+      "cpu_percent": 138.81040631878807,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 54.0,
+          "execution_ms": 5421.753905998543,
+          "rows": 1001208.0,
+          "shared_blocks_hit": 145756.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 67.0,
+          "execution_ms": 41.06352199986577,
+          "rows": 3617.0,
+          "shared_blocks_hit": 11368.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 94702.99547810163,
+      "rows_per_cpu_second": 68224.70878776148
+    }
+  },
+  {
+    "dataset": "wide",
+    "parts": 4,
+    "diagnostic_repetition": 1,
+    "no_homo": false,
+    "result": {
+      "name": "go_wide_p4_r0_1789964941",
+      "product": "go",
+      "dataset": "wide",
+      "parts_requested": 4,
+      "variant": "native-diagnostic-homogeneous",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T04:29:01.102150+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 6.819267557002604,
+      "observed_max_active_source_queries": 4,
+      "observer_error": null,
+      "cpu_seconds": 15.606107487,
+      "peak_rss_bytes": 4559810560,
+      "cgroup_peak_bytes": 4560797696,
+      "cpu_percent": 228.85313351540697,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 94.0,
+          "execution_ms": 4797.378140999004,
+          "rows": 1001856.0,
+          "shared_blocks_hit": 153673.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 1470.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 97.0,
+          "execution_ms": 68.5342239998281,
+          "rows": 4896.0,
+          "shared_blocks_hit": 18997.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 146643.3149368241,
+      "rows_per_cpu_second": 64077.47741280183
+    }
+  },
+  {
+    "dataset": "wide",
+    "parts": 1,
+    "diagnostic_repetition": 2,
+    "no_homo": false,
+    "result": {
+      "name": "go_wide_p1_r0_1789964954",
+      "product": "go",
+      "dataset": "wide",
+      "parts_requested": 1,
+      "variant": "native-diagnostic-homogeneous",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T04:29:14.499375+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 10.432256426196545,
+      "observed_max_active_source_queries": 1,
+      "observer_error": null,
+      "cpu_seconds": 14.545834842,
+      "peak_rss_bytes": 2572640256,
+      "cgroup_peak_bytes": 2578640896,
+      "cpu_percent": 139.4313391825167,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 54.0,
+          "execution_ms": 5924.382871000096,
+          "rows": 1001208.0,
+          "shared_blocks_hit": 147696.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 64.0,
+          "execution_ms": 41.38146600034088,
+          "rows": 3631.0,
+          "shared_blocks_hit": 11141.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 95856.53948161108,
+      "rows_per_cpu_second": 68748.20255160436
+    }
+  }
+]

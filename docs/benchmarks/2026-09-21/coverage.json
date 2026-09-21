@@ -1,0 +1,3157 @@
+{
+  "counts": {
+    "primary": {
+      "verified": 264
+    },
+    "p16": {
+      "verified": 6
+    },
+    "scale": {
+      "verified": 24,
+      "not_run": 18,
+      "failed": 2
+    }
+  },
+  "cases": [
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_narrow_p1_r1_1789955791"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_narrow_p1_r2_1789964003"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_narrow_p1_r3_1789965552"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_narrow_p4_r1_1789956952"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_narrow_p4_r2_1789960509"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_narrow_p4_r3_1789968380"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_wide_p1_r1_1789958121"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_wide_p1_r2_1789961728"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_wide_p1_r3_1789966301"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_wide_p4_r1_1789957815"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_wide_p4_r2_1789964279"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_wide_p4_r3_1789965585"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_narrow10m_p4_r1_1789969912"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "rust",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_ranges_narrow_p1_r1_1789956916"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_ranges_narrow_p1_r2_1789964273"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_ranges_narrow_p1_r3_1789967205"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_ranges_narrow_p4_r1_1789955797"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_ranges_narrow_p4_r2_1789961743"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_ranges_narrow_p4_r3_1789964992"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_ranges_wide_p1_r1_1789958069"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_ranges_wide_p1_r2_1789963266"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_ranges_wide_p1_r3_1789965134"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_ranges_wide_p4_r1_1789958494"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_ranges_wide_p4_r2_1789964202"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_ranges_wide_p4_r3_1789968294"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_ranges_narrow10m_p4_r1_1789968423"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "go_narrow_p1_r1_1789956422"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "go_narrow_p1_r2_1789961432"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "go_narrow_p1_r3_1789965091"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "go_narrow_p4_r1_1789956859"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "go_narrow_p4_r2_1789963307"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "go_narrow_p4_r3_1789965470"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "go_wide_p1_r1_1789957179"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "go_wide_p1_r2_1789964179"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "go_wide_p1_r3_1789966269"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "go_wide_p4_r1_1789957164"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "go_wide_p4_r2_1789962805"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "go_wide_p4_r3_1789967191"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "go_narrow10m_p4_r1_1789968385"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "go",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "seatunnel_narrow_p1_r1_1789961044"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "seatunnel_narrow_p1_r2_1789961945"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "seatunnel_narrow_p1_r3_1789964714"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "seatunnel_narrow_p4_r1_1789961074"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "seatunnel_narrow_p4_r2_1789961228"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "seatunnel_narrow_p4_r3_1789965455"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "seatunnel_wide_p1_r1_1789961113"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "seatunnel_wide_p1_r2_1789961444"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "seatunnel_wide_p1_r3_1789966892"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "seatunnel_wide_p4_r1_1789961088"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "seatunnel_wide_p4_r2_1789961921"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "seatunnel_wide_p4_r3_1789965652"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "seatunnel_narrow10m_p4_r1_1789968589"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sling_narrow_p1_r1_1789955333"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "sling_narrow_p1_r2_1789963282"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "sling_narrow_p1_r3_1789966970"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sling_narrow_p4_r1_1789955801"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "sling_narrow_p4_r2_1789962897"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "sling_narrow_p4_r3_1789966316"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sling_wide_p1_r1_1789957144"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "sling_wide_p1_r2_1789961398"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "sling_wide_p1_r3_1789968328"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sling_wide_p4_r1_1789957603"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "sling_wide_p4_r2_1789963247"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "sling_wide_p4_r3_1789965102"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sling_narrow10m_p4_r1_1789969584"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "sling",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "datax_narrow_p1_r1_1789956698"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "datax_narrow_p1_r2_1789961780"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "datax_narrow_p1_r3_1789966983"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "datax_narrow_p4_r1_1789956822"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "datax_narrow_p4_r2_1789963608"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "datax_narrow_p4_r3_1789965121"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "datax_wide_p1_r1_1789957622"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "datax_wide_p1_r2_1789960561"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "datax_wide_p1_r3_1789964744"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "datax_wide_p4_r1_1789958532"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "datax_wide_p4_r2_1789961243"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "datax_wide_p4_r3_1789965558"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "datax_narrow10m_p4_r1_1789968475"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "datax",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "airbyte_narrow_p1_r1_1789956845"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "airbyte_narrow_p1_r2_1789963989"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "airbyte_narrow_p1_r3_1789964661"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "airbyte_narrow_p4_r1_1789956902"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "airbyte_narrow_p4_r2_1789960642"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "airbyte_narrow_p4_r3_1789966245"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "airbyte_wide_p1_r1_1789957004"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "airbyte_wide_p1_r2_1789964291"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "airbyte_wide_p1_r3_1789967542"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "airbyte_wide_p4_r1_1789957483"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "airbyte_wide_p4_r2_1789960528"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "airbyte_wide_p4_r3_1789966339"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "airbyte_narrow10m_p4_r1_1789969441"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "airbyte",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "flink_narrow_p1_r1_1789955728"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "flink_narrow_p1_r2_1789964061"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "flink_narrow_p1_r3_1789966372"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "flink_narrow_p4_r1_1789955342"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "flink_narrow_p4_r2_1789961699"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "flink_narrow_p4_r3_1789966938"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "flink_wide_p1_r1_1789957036"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "flink_wide_p1_r2_1789961489"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "flink_wide_p1_r3_1789967081"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "flink_wide_p4_r1_1789957103"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "flink_wide_p4_r2_1789964496"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "flink_wide_p4_r3_1789967700"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "flink_narrow10m_p4_r1_1789971037"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "flink",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "debezium_narrow_p1_r1_1789956111"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "debezium_narrow_p1_r2_1789962981"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "debezium_narrow_p1_r3_1789966626"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "debezium_narrow_p4_r1_1789956606"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "debezium_narrow_p4_r2_1789963622"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "debezium_narrow_p4_r3_1789967574"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "debezium_wide_p1_r1_1789958138"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "debezium_wide_p1_r2_1789960657"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "debezium_wide_p1_r3_1789967211"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "debezium_wide_p4_r1_1789957954"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "debezium_wide_p4_r2_1789963875"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "debezium_wide_p4_r3_1789968071"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "debezium_narrow10m_p4_r1_1789968760"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "debezium_bulk_narrow_p1_r1_1789959076"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "debezium_bulk_narrow_p1_r2_1789963471"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "debezium_bulk_narrow_p1_r3_1789965154"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "debezium_bulk_narrow_p4_r1_1789957515"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "debezium_bulk_narrow_p4_r2_1789964435"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "debezium_bulk_narrow_p4_r3_1789964996"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "debezium_bulk_wide_p1_r1_1789959283"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "debezium_bulk_wide_p1_r2_1789963314"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "debezium_bulk_wide_p1_r3_1789966480"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "debezium_bulk_wide_p4_r1_1789959212"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "debezium_bulk_wide_p4_r2_1789962593"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "debezium_bulk_wide_p4_r3_1789965677"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "debezium_bulk_narrow10m_p4_r1_1789970229"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "failed",
+      "run": "debezium_bulk_narrow10m_p1_r1_1789972467"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "inlong_narrow_p1_r1_1789960056"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "inlong_narrow_p1_r2_1789963838"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "inlong_narrow_p1_r3_1789965494"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "inlong_narrow_p4_r1_1789960036"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "inlong_narrow_p4_r2_1789961299"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "inlong_narrow_p4_r3_1789964971"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "inlong_wide_p1_r1_1789960092"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "inlong_wide_p1_r2_1789964112"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "inlong_wide_p1_r3_1789967855"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "inlong_wide_p4_r1_1789960147"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "inlong_wide_p4_r2_1789964010"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "inlong_wide_p4_r3_1789965059"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "inlong_narrow10m_p4_r1_1789968673"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "inlong",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "meltano_narrow_p1_r1_1789955374"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "meltano_narrow_p1_r2_1789964536"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "meltano_narrow_p1_r3_1789967760"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "meltano_narrow_p4_r1_1789956432"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "meltano_narrow_p4_r2_1789961857"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "meltano_narrow_p4_r3_1789964686"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "meltano_wide_p1_r1_1789957827"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "meltano_wide_p1_r2_1789962662"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "meltano_wide_p1_r3_1789965772"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "meltano_wide_p4_r1_1789959451"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "meltano_wide_p4_r2_1789964395"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "meltano_wide_p4_r3_1789968024"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "meltano_narrow10m_p4_r1_1789969628"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "meltano",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "spark_narrow_p1_r1_1789956377"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "spark_narrow_p1_r2_1789961823"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "spark_narrow_p1_r3_1789967026"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "spark_narrow_p4_r1_1789956593"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "spark_narrow_p4_r2_1789960628"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "spark_narrow_p4_r3_1789966326"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "spark_wide_p1_r1_1789958085"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "spark_wide_p1_r2_1789961885"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "spark_wide_p1_r3_1789967146"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "spark_wide_p4_r1_1789959431"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "spark_wide_p4_r2_1789962960"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "spark_wide_p4_r3_1789965530"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "spark_narrow10m_p4_r1_1789971160"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "spark",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "spark_narrow10m_p1_r1_1789972224"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sqoop_narrow_p1_r1_1789956741"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "sqoop_narrow_p1_r2_1789962818"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "sqoop_narrow_p1_r3_1789966165"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sqoop_narrow_p4_r1_1789956867"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "sqoop_narrow_p4_r2_1789964327"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "sqoop_narrow_p4_r3_1789966092"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sqoop_wide_p1_r1_1789957680"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "sqoop_wide_p1_r2_1789961975"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "sqoop_wide_p1_r3_1789968188"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sqoop_wide_p4_r1_1789957250"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "sqoop_wide_p4_r2_1789961352"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "sqoop_wide_p4_r3_1789966422"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sqoop_narrow10m_p4_r1_1789969940"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "sqoop",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "failed",
+      "run": "sqoop_narrow10m_p1_r1_1789971620"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "estuary_narrow_p1_r1_1789955162"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "estuary_narrow_p1_r2_1789963728"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "estuary_narrow_p1_r3_1789967916"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "estuary_narrow_p4_r1_1789956971"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "estuary_narrow_p4_r2_1789961747"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "estuary_narrow_p4_r3_1789967049"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "estuary_wide_p1_r1_1789957297"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "estuary_wide_p1_r2_1789961555"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "estuary_wide_p1_r3_1789965296"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "estuary_wide_p4_r1_1789958583"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "estuary_wide_p4_r2_1789962912"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "estuary_wide_p4_r3_1789965597"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "estuary_narrow10m_p4_r1_1789971219"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-pg",
+      "product": "estuary",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_narrow_p1_r1_1789960398_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_narrow_p1_r2_1789962801_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_narrow_p1_r3_1789965447_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_narrow_p4_r1_1789960395_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_narrow_p4_r2_1789963835_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_narrow_p4_r3_1789965293_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_wide_p1_r1_1789960235_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_wide_p1_r2_1789964196_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_wide_p1_r3_1789965764_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_wide_p4_r1_1789960269_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_wide_p4_r2_1789964323_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_wide_p4_r3_1789965150_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_narrow10m_p4_r1_1789969903_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "rust",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_ranges_narrow_p1_r1_1789960241_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_ranges_narrow_p1_r2_1789961424_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_ranges_narrow_p1_r3_1789965769_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_ranges_narrow_p4_r1_1789960273_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_ranges_narrow_p4_r2_1789961553_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_ranges_narrow_p4_r3_1789966980_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_ranges_wide_p1_r1_1789960401_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_ranges_wide_p1_r2_1789964267_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_ranges_wide_p1_r3_1789965450_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_ranges_wide_p4_r1_1789960486_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "rust_ranges_wide_p4_r2_1789962908_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "rust_ranges_wide_p4_r3_1789966160_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "rust_ranges_narrow10m_p4_r1_1789970220_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "go_narrow_p1_r1_1789960176_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "go_narrow_p1_r2_1789962793_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "go_narrow_p1_r3_1789967908_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "go_narrow_p4_r1_1789960481_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "go_narrow_p4_r2_1789961419_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "go_narrow_p4_r3_1789968363_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "go_wide_p1_r1_1789960331_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "go_wide_p1_r2_1789961847_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "go_wide_p1_r3_1789966469_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "go_wide_p4_r1_1789960490_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "go_wide_p4_r2_1789961426_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "go_wide_p4_r3_1789968322_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "go_narrow10m_p4_r1_1789969534_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "go",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "seatunnel_narrow_p1_r1_1789961189_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "seatunnel_narrow_p1_r2_1789962421_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "seatunnel_narrow_p1_r3_1789968306_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "seatunnel_narrow_p4_r1_1789961219_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "seatunnel_narrow_p4_r2_1789964169_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "seatunnel_narrow_p4_r3_1789966259_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "seatunnel_wide_p1_r1_1789961159_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "seatunnel_wide_p1_r2_1789964214_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "seatunnel_wide_p1_r3_1789964630_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "seatunnel_wide_p4_r1_1789961204_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "seatunnel_wide_p4_r2_1789963291_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "seatunnel_wide_p4_r3_1789965748_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "seatunnel_narrow10m_p4_r1_1789969869_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "seatunnel_narrow10m_p1_r1_1789972379_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sling_narrow_p1_r1_1789960387_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "sling_narrow_p1_r2_1789963464_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "sling_narrow_p1_r3_1789967753_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sling_narrow_p4_r1_1789960244_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "sling_narrow_p4_r2_1789964246_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "sling_narrow_p4_r3_1789967182_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sling_wide_p1_r1_1789960358_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "sling_wide_p1_r2_1789962249_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "sling_wide_p1_r3_1789966286_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sling_wide_p4_r1_1789960275_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "sling_wide_p4_r2_1789964051_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "sling_wide_p4_r3_1789965437_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "sling_narrow10m_p4_r1_1789969560_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "sling",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "spark_narrow_p1_r1_1789960373_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "spark_narrow_p1_r2_1789964254_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "spark_narrow_p1_r3_1789968349_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "spark_narrow_p4_r1_1789960286_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "spark_narrow_p4_r2_1789963717_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "spark_narrow_p4_r3_1789964675_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "spark_wide_p1_r1_1789960297_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "spark_wide_p1_r2_1789961319_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "spark_wide_p1_r3_1789966127_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "spark_wide_p4_r1_1789960342_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "spark_wide_p4_r2_1789961271_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "spark_wide_p4_r3_1789965478_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "spark_narrow10m_p4_r1_1789968452_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "spark",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "datax_narrow_p1_r1_1789959494_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "datax_narrow_p1_r2_1789964039_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "datax_narrow_p1_r3_1789968367_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "datax_narrow_p4_r1_1789960223_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "datax_narrow_p4_r2_1789960496_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "datax_narrow_p4_r3_1789967740_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 1,
+      "status": "verified",
+      "run": "datax_wide_p1_r1_1789960436_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 2,
+      "status": "verified",
+      "run": "datax_wide_p1_r2_1789964363_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "wide",
+      "parts": 1,
+      "repetition": 3,
+      "status": "verified",
+      "run": "datax_wide_p1_r3_1789967667_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "datax_wide_p4_r1_1789960469_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 2,
+      "status": "verified",
+      "run": "datax_wide_p4_r2_1789961287_ch"
+    },
+    {
+      "phase": "primary",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "wide",
+      "parts": 4,
+      "repetition": 3,
+      "status": "verified",
+      "run": "datax_wide_p4_r3_1789964811_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "repetition": 1,
+      "status": "verified",
+      "run": "datax_narrow10m_p4_r1_1789969408_ch"
+    },
+    {
+      "phase": "scale",
+      "route": "pg-ch",
+      "product": "datax",
+      "dataset": "narrow10m",
+      "parts": 1,
+      "repetition": 1,
+      "status": "not_run",
+      "run": null
+    },
+    {
+      "phase": "p16",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "narrow",
+      "parts": 16,
+      "repetition": 1,
+      "status": "verified",
+      "run": "debezium_narrow_p16_r1_1789958737"
+    },
+    {
+      "phase": "p16",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "narrow",
+      "parts": 16,
+      "repetition": 2,
+      "status": "verified",
+      "run": "debezium_narrow_p16_r2_1789958849"
+    },
+    {
+      "phase": "p16",
+      "route": "pg-pg",
+      "product": "debezium",
+      "dataset": "narrow",
+      "parts": 16,
+      "repetition": 3,
+      "status": "verified",
+      "run": "debezium_narrow_p16_r3_1789958963"
+    },
+    {
+      "phase": "p16",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "narrow",
+      "parts": 16,
+      "repetition": 1,
+      "status": "verified",
+      "run": "debezium_bulk_narrow_p16_r1_1789958792"
+    },
+    {
+      "phase": "p16",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "narrow",
+      "parts": 16,
+      "repetition": 2,
+      "status": "verified",
+      "run": "debezium_bulk_narrow_p16_r2_1789958906"
+    },
+    {
+      "phase": "p16",
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "dataset": "narrow",
+      "parts": 16,
+      "repetition": 3,
+      "status": "verified",
+      "run": "debezium_bulk_narrow_p16_r3_1789959019"
+    }
+  ]
+}

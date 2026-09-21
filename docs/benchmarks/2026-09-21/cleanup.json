@@ -1,0 +1,48 @@
+{
+  "restored_background_affinity": [
+    "transferia-bench-clickhouse-20260903",
+    "transferia-bench-opensearch-20260903",
+    "transferia-bench-mysql-20260903",
+    "transferia-bench-pg-20260903",
+    "transferia-snapshot-iceberg-rest"
+  ],
+  "affinity_details": [
+    {
+      "name": "transferia-bench-clickhouse-20260903",
+      "original": "",
+      "restored": "0-31",
+      "note": "Explicit online CPU set because Docker ignores empty updates"
+    },
+    {
+      "name": "transferia-bench-opensearch-20260903",
+      "original": "",
+      "restored": "0-31",
+      "note": "Explicit online CPU set because Docker ignores empty updates"
+    },
+    {
+      "name": "transferia-bench-mysql-20260903",
+      "original": "",
+      "restored": "0-31",
+      "note": "Explicit online CPU set because Docker ignores empty updates"
+    },
+    {
+      "name": "transferia-bench-pg-20260903",
+      "original": "",
+      "restored": "0-31",
+      "note": "Explicit online CPU set because Docker ignores empty updates"
+    },
+    {
+      "name": "transferia-snapshot-iceberg-rest",
+      "original": "",
+      "restored": "0-31",
+      "note": "Explicit online CPU set because Docker ignores empty updates"
+    }
+  ],
+  "removed_inactive_slots": [
+    "flink_smoke_p1_r0_1789953216"
+  ],
+  "removed_publications": [
+    "flink_smoke_p1_r0_1789952980",
+    "flink_smoke_p1_r0_1789953216"
+  ]
+}

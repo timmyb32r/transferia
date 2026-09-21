@@ -1,0 +1,3030 @@
+{
+  "airbyte_narrow10m_p4_r1_1789969441": {
+    "samples": 158,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow10m\" WHERE \"ctid\" > $1::tid",
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow10m\" WHERE (\"ctid\" > $1::tid) AND (\"ctid\" <= $2::tid)",
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow10m\" WHERE (\"ctid\" >= $1::tid) AND (\"ctid\" <= $2::tid)"
+    ]
+  },
+  "airbyte_narrow_p1_r1_1789956845": {
+    "samples": 25,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\" WHERE \"ctid\" >= $1::tid"
+    ]
+  },
+  "airbyte_narrow_p1_r2_1789963989": {
+    "samples": 24,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\" WHERE \"ctid\" >= $1::tid"
+    ]
+  },
+  "airbyte_narrow_p1_r3_1789964661": {
+    "samples": 24,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\" WHERE \"ctid\" >= $1::tid"
+    ]
+  },
+  "airbyte_narrow_p4_r1_1789955779": {
+    "samples": 21,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\""
+    ]
+  },
+  "airbyte_narrow_p4_r1_1789956902": {
+    "samples": 24,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "airbyte_narrow_p4_r2_1789960642": {
+    "samples": 26,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "airbyte_narrow_p4_r3_1789966245": {
+    "samples": 24,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\" WHERE \"ctid\" > $1::tid",
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\" WHERE (\"ctid\" > $1::tid) AND (\"ctid\" <= $2::tid)",
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\" WHERE (\"ctid\" >= $1::tid) AND (\"ctid\" <= $2::tid)"
+    ]
+  },
+  "airbyte_smoke_p1_r0_1789953151": {
+    "samples": 2,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "airbyte_smoke_p1_r0_1789953344": {
+    "samples": 7,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "airbyte_smoke_p1_r0_1789953502": {
+    "samples": 7,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "airbyte_smoke_p1_r0_1789956088": {
+    "samples": 10,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "airbyte_smoke_p4_r0_1789953963": {
+    "samples": 10,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "airbyte_smoke_p4_r0_1789955928": {
+    "samples": 9,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "airbyte_smoke_p4_r0_1789956094": {
+    "samples": 9,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "airbyte_smoke_p4_r0_1789956587": {
+    "samples": 10,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "airbyte_wide_p1_r1_1789957004": {
+    "samples": 51,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"ctid\" >= $1::tid"
+    ]
+  },
+  "airbyte_wide_p1_r2_1789964291": {
+    "samples": 50,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"ctid\" >= $1::tid"
+    ]
+  },
+  "airbyte_wide_p1_r3_1789967542": {
+    "samples": 50,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"ctid\" >= $1::tid"
+    ]
+  },
+  "airbyte_wide_p4_r1_1789957483": {
+    "samples": 51,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"ctid\" > $1::tid",
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE (\"ctid\" > $1::tid) AND (\"ctid\" <= $2::tid)",
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE (\"ctid\" >= $1::tid) AND (\"ctid\" <= $2::tid)"
+    ]
+  },
+  "airbyte_wide_p4_r2_1789960528": {
+    "samples": 51,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"ctid\" > $1::tid",
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE (\"ctid\" > $1::tid) AND (\"ctid\" <= $2::tid)",
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE (\"ctid\" >= $1::tid) AND (\"ctid\" <= $2::tid)"
+    ]
+  },
+  "airbyte_wide_p4_r3_1789966339": {
+    "samples": 52,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"ctid\" > $1::tid",
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE (\"ctid\" > $1::tid) AND (\"ctid\" <= $2::tid)",
+      "SELECT \"ctid\", \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE (\"ctid\" >= $1::tid) AND (\"ctid\" <= $2::tid)"
+    ]
+  },
+  "datax_narrow10m_p4_r1_1789968475": {
+    "samples": 201,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 1 AND id < 2500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 2500001 AND id < 5000001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 5000001 AND id < 7500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 7500001 AND id < 10000001"
+    ]
+  },
+  "datax_narrow10m_p4_r1_1789969408_ch": {
+    "samples": 63,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 1 AND id < 2500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 2500001 AND id < 5000001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 5000001 AND id < 7500001"
+    ]
+  },
+  "datax_narrow_p1_r1_1789956698": {
+    "samples": 83,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_narrow_p1_r1_1789959494_ch": {
+    "samples": 23,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "datax_narrow_p1_r2_1789961780": {
+    "samples": 83,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_narrow_p1_r2_1789964039_ch": {
+    "samples": 24,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "datax_narrow_p1_r3_1789966983": {
+    "samples": 83,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "datax_narrow_p1_r3_1789968367_ch": {
+    "samples": 23,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "datax_narrow_p4_r0_1789962080": {
+    "samples": 23,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 500001 AND id < 750001"
+    ]
+  },
+  "datax_narrow_p4_r0_1789962094": {
+    "samples": 23,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_narrow_p4_r0_1789962120": {
+    "samples": 23,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "datax_narrow_p4_r0_1789962146": {
+    "samples": 43,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001"
+    ]
+  },
+  "datax_narrow_p4_r0_1789962170": {
+    "samples": 23,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "datax_narrow_p4_r0_1789962222": {
+    "samples": 23,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 250001 AND id < 500001"
+    ]
+  },
+  "datax_narrow_p4_r0_1789962461": {
+    "samples": 23,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_narrow_p4_r0_1789962495_ch": {
+    "samples": 10,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001"
+    ]
+  },
+  "datax_narrow_p4_r0_1789962500": {
+    "samples": 23,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_narrow_p4_r0_1789962513_ch": {
+    "samples": 10,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 250001 AND id < 500001"
+    ]
+  },
+  "datax_narrow_p4_r0_1789962541": {
+    "samples": 23,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001"
+    ]
+  },
+  "datax_narrow_p4_r0_1789962587_ch": {
+    "samples": 10,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_narrow_p4_r0_1789965922": {
+    "samples": 17,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_narrow_p4_r0_1789965985": {
+    "samples": 17,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_narrow_p4_r0_1789966082": {
+    "samples": 16,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "datax_narrow_p4_r1_1789956822": {
+    "samples": 43,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001"
+    ]
+  },
+  "datax_narrow_p4_r1_1789960223_ch": {
+    "samples": 23,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_narrow_p4_r2_1789960496_ch": {
+    "samples": 24,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "datax_narrow_p4_r2_1789963608": {
+    "samples": 24,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "datax_narrow_p4_r3_1789965121": {
+    "samples": 23,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 250001 AND id < 500001"
+    ]
+  },
+  "datax_narrow_p4_r3_1789967740_ch": {
+    "samples": 23,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 500001 AND id < 750001"
+    ]
+  },
+  "datax_smoke_p1_r0_1789953304": {
+    "samples": 23,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_smoke_p4_r0_1789953969": {
+    "samples": 24,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_smoke_p4_r0_1789954293": {
+    "samples": 24,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_smoke_p4_r0_1789956099_ch": {
+    "samples": 23,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_wide_p1_r1_1789957622": {
+    "samples": 103,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p1_r1_1789960436_ch": {
+    "samples": 63,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p1_r2_1789960561": {
+    "samples": 122,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p1_r2_1789964363_ch": {
+    "samples": 63,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p1_r3_1789964744": {
+    "samples": 122,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p1_r3_1789967667_ch": {
+    "samples": 63,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p4_r0_1789962437": {
+    "samples": 34,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p4_r0_1789962474_ch": {
+    "samples": 19,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p4_r0_1789962484_ch": {
+    "samples": 20,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001"
+    ]
+  },
+  "datax_wide_p4_r0_1789962518": {
+    "samples": 34,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001"
+    ]
+  },
+  "datax_wide_p4_r0_1789962554_ch": {
+    "samples": 19,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p4_r0_1789962565": {
+    "samples": 33,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001"
+    ]
+  },
+  "datax_wide_p4_r0_1789965900": {
+    "samples": 32,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p4_r0_1789965952": {
+    "samples": 30,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_wide_p4_r0_1789966040": {
+    "samples": 31,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p4_r1_1789958532": {
+    "samples": 43,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p4_r1_1789960469_ch": {
+    "samples": 23,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p4_r2_1789961243": {
+    "samples": 43,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "datax_wide_p4_r2_1789961287_ch": {
+    "samples": 23,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "datax_wide_p4_r3_1789964811_ch": {
+    "samples": 23,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001"
+    ]
+  },
+  "datax_wide_p4_r3_1789965558": {
+    "samples": 43,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "debezium_bulk_narrow10m_p1_r1_1789972467": {
+    "samples": 1185,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow10m\""
+    ]
+  },
+  "debezium_bulk_narrow10m_p4_r1_1789970229": {
+    "samples": 609,
+    "max_active": 3,
+    "distinct_queries": [
+      "SELECT \"id\" FROM \"fair21\".\"narrow10m\" ORDER BY \"id\" OFFSET 2500000 ROWS FETCH NEXT 1 ROWS ONLY",
+      "SELECT \"id\" FROM \"fair21\".\"narrow10m\" ORDER BY \"id\" OFFSET 7500000 ROWS FETCH NEXT 1 ROWS ONLY",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow10m\" WHERE \"id\" < $1 ORDER BY \"id\"",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow10m\" WHERE \"id\" >= $1 AND \"id\" < $2 ORDER BY \"id\"",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow10m\" WHERE \"id\" >= $1 AND \"id\" <= $2 ORDER BY \"id\"",
+      "SELECT COUNT(1) FROM \"fair21\".\"narrow10m\""
+    ]
+  },
+  "debezium_bulk_narrow_p16_r1_1789958506": {
+    "samples": 45,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\" FROM \"fair21\".\"narrow\" ORDER BY \"id\" OFFSET 812500 ROWS FETCH NEXT 1 ROWS ONLY"
+    ]
+  },
+  "debezium_bulk_narrow_p16_r1_1789958792": {
+    "samples": 108,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\" FROM \"fair21\".\"narrow\" ORDER BY \"id\" OFFSET 562500 ROWS FETCH NEXT 1 ROWS ONLY"
+    ]
+  },
+  "debezium_bulk_narrow_p16_r2_1789958639": {
+    "samples": 104,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\" FROM \"fair21\".\"narrow\" ORDER BY \"id\" OFFSET 562500 ROWS FETCH NEXT 1 ROWS ONLY"
+    ]
+  },
+  "debezium_bulk_narrow_p16_r2_1789958906": {
+    "samples": 109,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\" FROM \"fair21\".\"narrow\" ORDER BY \"id\" OFFSET 562500 ROWS FETCH NEXT 1 ROWS ONLY"
+    ]
+  },
+  "debezium_bulk_narrow_p16_r3_1789959019": {
+    "samples": 107,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\" FROM \"fair21\".\"narrow\" ORDER BY \"id\" OFFSET 375000 ROWS FETCH NEXT 1 ROWS ONLY",
+      "SELECT \"id\" FROM \"fair21\".\"narrow\" ORDER BY \"id\" OFFSET 937500 ROWS FETCH NEXT 1 ROWS ONLY",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\" WHERE \"id\" >= $1 AND \"id\" < $2 ORDER BY \"id\""
+    ]
+  },
+  "debezium_bulk_narrow_p1_r1_1789959076": {
+    "samples": 265,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\""
+    ]
+  },
+  "debezium_bulk_narrow_p1_r2_1789963471": {
+    "samples": 267,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\""
+    ]
+  },
+  "debezium_bulk_narrow_p1_r3_1789965154": {
+    "samples": 271,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "debezium_bulk_narrow_p4_r1_1789957515": {
+    "samples": 117,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\" WHERE \"id\" < $1 ORDER BY \"id\""
+    ]
+  },
+  "debezium_bulk_narrow_p4_r2_1789964435": {
+    "samples": 116,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "debezium_bulk_narrow_p4_r3_1789964996": {
+    "samples": 122,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "debezium_bulk_wide_p1_r1_1789959283": {
+    "samples": 280,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\""
+    ]
+  },
+  "debezium_bulk_wide_p1_r2_1789963314": {
+    "samples": 283,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\""
+    ]
+  },
+  "debezium_bulk_wide_p1_r3_1789966480": {
+    "samples": 277,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\""
+    ]
+  },
+  "debezium_bulk_wide_p4_r1_1789959212": {
+    "samples": 126,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"id\" < $1 ORDER BY \"id\"",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"id\" >= $1 AND \"id\" < $2 ORDER BY \"id\"",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"id\" >= $1 AND \"id\" <= $2 ORDER BY \"id\""
+    ]
+  },
+  "debezium_bulk_wide_p4_r2_1789962593": {
+    "samples": 124,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"id\" < $1 ORDER BY \"id\"",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"id\" >= $1 AND \"id\" < $2 ORDER BY \"id\"",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"id\" >= $1 AND \"id\" <= $2 ORDER BY \"id\""
+    ]
+  },
+  "debezium_bulk_wide_p4_r3_1789965677": {
+    "samples": 129,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\" FROM \"fair21\".\"wide\" ORDER BY \"id\" OFFSET 500000 ROWS FETCH NEXT 1 ROWS ONLY",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"id\" >= $1 AND \"id\" < $2 ORDER BY \"id\""
+    ]
+  },
+  "debezium_narrow10m_p4_r1_1789968760": {
+    "samples": 1249,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\" FROM \"fair21\".\"narrow10m\" ORDER BY \"id\" OFFSET 2500000 ROWS FETCH NEXT 1 ROWS ONLY",
+      "SELECT \"id\" FROM \"fair21\".\"narrow10m\" ORDER BY \"id\" OFFSET 5000000 ROWS FETCH NEXT 1 ROWS ONLY",
+      "SELECT \"id\" FROM \"fair21\".\"narrow10m\" ORDER BY \"id\" OFFSET 7500000 ROWS FETCH NEXT 1 ROWS ONLY",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow10m\" WHERE \"id\" < $1 ORDER BY \"id\"",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow10m\" WHERE \"id\" >= $1 AND \"id\" < $2 ORDER BY \"id\"",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow10m\" WHERE \"id\" >= $1 AND \"id\" <= $2 ORDER BY \"id\""
+    ]
+  },
+  "debezium_narrow_p16_r1_1789958468": {
+    "samples": 43,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "debezium_narrow_p16_r1_1789958737": {
+    "samples": 106,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\" FROM \"fair21\".\"narrow\" ORDER BY \"id\" OFFSET 625000 ROWS FETCH NEXT 1 ROWS ONLY"
+    ]
+  },
+  "debezium_narrow_p16_r2_1789958560": {
+    "samples": 39,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\" FROM \"fair21\".\"narrow\" ORDER BY \"id\" OFFSET 937500 ROWS FETCH NEXT 1 ROWS ONLY"
+    ]
+  },
+  "debezium_narrow_p16_r2_1789958849": {
+    "samples": 109,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\" FROM \"fair21\".\"narrow\" ORDER BY \"id\" OFFSET 812500 ROWS FETCH NEXT 1 ROWS ONLY"
+    ]
+  },
+  "debezium_narrow_p16_r3_1789958963": {
+    "samples": 107,
+    "max_active": 3,
+    "distinct_queries": [
+      "SELECT COUNT(1) FROM \"fair21\".\"narrow\""
+    ]
+  },
+  "debezium_narrow_p1_r1_1789955468": {
+    "samples": 510,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\""
+    ]
+  },
+  "debezium_narrow_p1_r1_1789956111": {
+    "samples": 522,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "debezium_narrow_p1_r2_1789962981": {
+    "samples": 522,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "debezium_narrow_p1_r3_1789966626": {
+    "samples": 521,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\""
+    ]
+  },
+  "debezium_narrow_p4_r1_1789956606": {
+    "samples": 178,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\" WHERE \"id\" >= $1 AND \"id\" < $2 ORDER BY \"id\""
+    ]
+  },
+  "debezium_narrow_p4_r2_1789963622": {
+    "samples": 184,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\" FROM \"fair21\".\"narrow\" ORDER BY \"id\" OFFSET 500000 ROWS FETCH NEXT 1 ROWS ONLY"
+    ]
+  },
+  "debezium_narrow_p4_r3_1789967574": {
+    "samples": 180,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\" WHERE \"id\" >= $1 AND \"id\" < $2 ORDER BY \"id\"",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"narrow\" WHERE \"id\" >= $1 AND \"id\" <= $2 ORDER BY \"id\""
+    ]
+  },
+  "debezium_smoke_p1_r0_1789953536": {
+    "samples": 58,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "debezium_smoke_p4_r0_1789954039": {
+    "samples": 43,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "debezium_wide_p1_r1_1789958138": {
+    "samples": 641,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\""
+    ]
+  },
+  "debezium_wide_p1_r2_1789960657": {
+    "samples": 630,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\""
+    ]
+  },
+  "debezium_wide_p1_r3_1789967211": {
+    "samples": 641,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\""
+    ]
+  },
+  "debezium_wide_p4_r1_1789957954": {
+    "samples": 214,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"id\" < $1 ORDER BY \"id\"",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"id\" >= $1 AND \"id\" < $2 ORDER BY \"id\""
+    ]
+  },
+  "debezium_wide_p4_r2_1789963875": {
+    "samples": 214,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "debezium_wide_p4_r3_1789968071": {
+    "samples": 219,
+    "max_active": 3,
+    "distinct_queries": [
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"id\" < $1 ORDER BY \"id\"",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"id\" >= $1 AND \"id\" < $2 ORDER BY \"id\"",
+      "SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM \"fair21\".\"wide\" WHERE \"id\" >= $1 AND \"id\" <= $2 ORDER BY \"id\""
+    ]
+  },
+  "estuary_narrow10m_p4_r1_1789971219": {
+    "samples": 558,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 1 AND id < 2500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 2500001 AND id < 5000001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 5000001 AND id < 7500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 7500001 AND id < 10000001"
+    ]
+  },
+  "estuary_narrow_p1_r1_1789955162": {
+    "samples": 205,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "estuary_narrow_p1_r2_1789963728": {
+    "samples": 209,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "estuary_narrow_p1_r3_1789967916": {
+    "samples": 210,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "estuary_narrow_p4_r0_1789962265": {
+    "samples": 36,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_narrow_p4_r0_1789962349": {
+    "samples": 36,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_narrow_p4_r0_1789962369": {
+    "samples": 36,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_narrow_p4_r1_1789956971": {
+    "samples": 63,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_narrow_p4_r2_1789961747": {
+    "samples": 61,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_narrow_p4_r3_1789967049": {
+    "samples": 61,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_smoke_p1_r0_1789954169": {
+    "samples": 237,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_smoke_p1_r0_1789954318": {
+    "samples": 2,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_smoke_p1_r0_1789954541": {
+    "samples": 1,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_smoke_p1_r0_1789954795": {
+    "samples": 178,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_smoke_p1_r0_1789954971": {
+    "samples": 178,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_smoke_p1_r0_1789955065": {
+    "samples": 6,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_smoke_p4_r0_1789955128": {
+    "samples": 8,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_smoke_p4_r0_1789955316": {
+    "samples": 8,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "estuary_wide_p1_r1_1789957297": {
+    "samples": 266,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "estuary_wide_p1_r2_1789961555": {
+    "samples": 271,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "estuary_wide_p1_r3_1789965296": {
+    "samples": 266,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "estuary_wide_p4_r0_1789962284": {
+    "samples": 52,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "estuary_wide_p4_r0_1789962317": {
+    "samples": 53,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "estuary_wide_p4_r0_1789962389": {
+    "samples": 53,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "estuary_wide_p4_r1_1789958583": {
+    "samples": 97,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "estuary_wide_p4_r2_1789962912": {
+    "samples": 84,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "estuary_wide_p4_r3_1789965597": {
+    "samples": 97,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "flink_narrow10m_p4_r0_1789971515": {
+    "samples": 183,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT * FROM \"fair21\".\"narrow10m\" WHERE \"id\" <= $1 AND NOT (\"id\" = $2)",
+      "SELECT * FROM \"fair21\".\"narrow10m\" WHERE \"id\" >= $1",
+      "SELECT * FROM \"fair21\".\"narrow10m\" WHERE \"id\" >= $1 AND NOT (\"id\" = $2) AND \"id\" <= $3"
+    ]
+  },
+  "flink_narrow10m_p4_r1_1789970552": {
+    "samples": 822,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT * FROM \"fair21\".\"narrow10m\" WHERE \"id\" <= $1 AND NOT (\"id\" = $2)",
+      "SELECT * FROM \"fair21\".\"narrow10m\" WHERE \"id\" >= $1",
+      "SELECT * FROM \"fair21\".\"narrow10m\" WHERE \"id\" >= $1 AND NOT (\"id\" = $2) AND \"id\" <= $3"
+    ]
+  },
+  "flink_narrow10m_p4_r1_1789971037": {
+    "samples": 218,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT * FROM \"fair21\".\"narrow10m\" WHERE \"id\" <= $1 AND NOT (\"id\" = $2)",
+      "SELECT * FROM \"fair21\".\"narrow10m\" WHERE \"id\" >= $1",
+      "SELECT * FROM \"fair21\".\"narrow10m\" WHERE \"id\" >= $1 AND NOT (\"id\" = $2) AND \"id\" <= $3"
+    ]
+  },
+  "flink_narrow_p1_r1_1789955728": {
+    "samples": 97,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "flink_narrow_p1_r2_1789964061": {
+    "samples": 96,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "flink_narrow_p1_r3_1789966372": {
+    "samples": 95,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM \"fair21\".\"narrow\""
+    ]
+  },
+  "flink_narrow_p4_r1_1789955342": {
+    "samples": 60,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT * FROM \"fair21\".\"narrow\" WHERE \"id\" <= $1 AND NOT (\"id\" = $2)",
+      "SELECT * FROM \"fair21\".\"narrow\" WHERE \"id\" >= $1"
+    ]
+  },
+  "flink_narrow_p4_r2_1789961699": {
+    "samples": 55,
+    "max_active": 3,
+    "distinct_queries": [
+      "SELECT * FROM \"fair21\".\"narrow\" WHERE \"id\" <= $1 AND NOT (\"id\" = $2)",
+      "SELECT * FROM \"fair21\".\"narrow\" WHERE \"id\" >= $1 AND NOT (\"id\" = $2) AND \"id\" <= $3"
+    ]
+  },
+  "flink_narrow_p4_r3_1789966938": {
+    "samples": 61,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM \"fair21\".\"narrow\" WHERE \"id\" >= $1 AND NOT (\"id\" = $2) AND \"id\" <= $3"
+    ]
+  },
+  "flink_smoke_p1_r0_1789952980": {
+    "samples": 29,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "flink_smoke_p1_r0_1789953216": {
+    "samples": 42,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "flink_smoke_p4_r0_1789954002": {
+    "samples": 48,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "flink_wide_p1_r1_1789957036": {
+    "samples": 120,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM \"fair21\".\"wide\""
+    ]
+  },
+  "flink_wide_p1_r2_1789961489": {
+    "samples": 115,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM \"fair21\".\"wide\""
+    ]
+  },
+  "flink_wide_p1_r3_1789967081": {
+    "samples": 116,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM \"fair21\".\"wide\""
+    ]
+  },
+  "flink_wide_p4_r1_1789957103": {
+    "samples": 69,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT * FROM \"fair21\".\"wide\" WHERE \"id\" <= $1 AND NOT (\"id\" = $2)",
+      "SELECT * FROM \"fair21\".\"wide\" WHERE \"id\" >= $1",
+      "SELECT * FROM \"fair21\".\"wide\" WHERE \"id\" >= $1 AND NOT (\"id\" = $2) AND \"id\" <= $3"
+    ]
+  },
+  "flink_wide_p4_r2_1789964496": {
+    "samples": 67,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT * FROM \"fair21\".\"wide\" WHERE \"id\" <= $1 AND NOT (\"id\" = $2)",
+      "SELECT * FROM \"fair21\".\"wide\" WHERE \"id\" >= $1 AND NOT (\"id\" = $2) AND \"id\" <= $3"
+    ]
+  },
+  "flink_wide_p4_r3_1789967700": {
+    "samples": 68,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT        result.TABLE_CAT,        result.TABLE_SCHEM,        result.TABLE_NAME,        result.COLUMN_NAME,        result.KEY_SEQ,        result.PK_NAME FROM      (SELECT NULL AS TABLE_CAT, n.nspname AS TABLE_SCHEM,   ct.relname AS TABLE_NAME, a.attname AS COLUMN_NAME,   (information_schema._pg_expandarray(i.indkey)).n AS KEY_SEQ, ci.relname AS PK_NAME,   information_schema._pg_expandarray(i.indkey) AS KEYS, a.attnum AS A_ATTNUM FROM pg_catalog.pg_class ct   JOIN pg_catalog.pg_attribute a ON (ct.oid = a.attrelid)   JOIN pg_catalog.pg_namespace n ON (ct.relnamespace = n.oid)   JOIN pg_catalog.pg_index i ON ( a.attrelid = i.indrelid)   JOIN pg_catalog.pg_class ci ON (ci.oid = i.indexrelid) WHERE true  AND n.nspname = 'fair21' AND ct.relname = 'wide' AND i.indisprimary  ) result where  result.A_ATTNUM = (result.KEYS).x  ORDER BY result.table_name, result.pk_name, result.key_seq",
+      "SELECT * FROM \"fair21\".\"wide\" WHERE \"id\" <= $1 AND NOT (\"id\" = $2)",
+      "SELECT * FROM \"fair21\".\"wide\" WHERE \"id\" >= $1",
+      "SELECT * FROM \"fair21\".\"wide\" WHERE \"id\" >= $1 AND NOT (\"id\" = $2) AND \"id\" <= $3"
+    ]
+  },
+  "go_narrow10m_p4_r1_1789968385": {
+    "samples": 48,
+    "max_active": 4,
+    "distinct_queries": [
+      "\n\t\tselect percentile_disc(ARRAY[0.250000, 0.500000, 0.750000]) WITHIN GROUP (ORDER BY \"id\") from \"fair21\".\"narrow10m\";\n\t",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow10m\" where (\"id\" < '2500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow10m\" where (\"id\" >= '2500000' AND \"id\" < '5000000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow10m\" where (\"id\" >= '5000000' AND \"id\" < '7500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow10m\" where (\"id\" >= '7500000') and (1 = 1)"
+    ]
+  },
+  "go_narrow10m_p4_r1_1789969534_ch": {
+    "samples": 47,
+    "max_active": 4,
+    "distinct_queries": [
+      "\n\t\tselect percentile_disc(ARRAY[0.250000, 0.500000, 0.750000]) WITHIN GROUP (ORDER BY \"id\") from \"fair21\".\"narrow10m\";\n\t",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow10m\" where (\"id\" < '2500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow10m\" where (\"id\" >= '2500000' AND \"id\" < '5000000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow10m\" where (\"id\" >= '5000000' AND \"id\" < '7500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow10m\" where (\"id\" >= '7500000') and (1 = 1)"
+    ]
+  },
+  "go_narrow_p1_r0_1789964824": {
+    "samples": 18,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_narrow_p1_r0_1789964887": {
+    "samples": 18,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_narrow_p1_r0_1789964911": {
+    "samples": 20,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_narrow_p1_r1_1789956422": {
+    "samples": 17,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_narrow_p1_r1_1789959507_ch": {
+    "samples": 1013,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_narrow_p1_r1_1789960176_ch": {
+    "samples": 15,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_narrow_p1_r2_1789961432": {
+    "samples": 19,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_narrow_p1_r2_1789962793_ch": {
+    "samples": 16,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_narrow_p1_r3_1789965091": {
+    "samples": 19,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_narrow_p1_r3_1789967908_ch": {
+    "samples": 15,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_narrow_p4_r0_1789952667": {
+    "samples": 11,
+    "max_active": 1,
+    "distinct_queries": [
+      "\n\t\tselect percentile_disc(ARRAY[0.250000, 0.500000, 0.750000]) WITHIN GROUP (ORDER BY \"id\") from \"fair21\".\"narrow\";\n\t",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (\"id\" >= '500000' AND \"id\" < '750000') and (1 = 1)"
+    ]
+  },
+  "go_narrow_p4_r0_1789964835": {
+    "samples": 11,
+    "max_active": 3,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (\"id\" < '250000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (\"id\" >= '250000' AND \"id\" < '500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (\"id\" >= '500000' AND \"id\" < '750000') and (1 = 1)"
+    ]
+  },
+  "go_narrow_p4_r0_1789964898": {
+    "samples": 11,
+    "max_active": 3,
+    "distinct_queries": [
+      "\n\t\tselect percentile_disc(ARRAY[0.250000, 0.500000, 0.750000]) WITHIN GROUP (ORDER BY \"id\") from \"fair21\".\"narrow\";\n\t",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (\"id\" < '250000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (\"id\" >= '250000' AND \"id\" < '500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (\"id\" >= '750000') and (1 = 1)"
+    ]
+  },
+  "go_narrow_p4_r0_1789964905": {
+    "samples": 10,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (\"id\" >= '500000' AND \"id\" < '750000') and (1 = 1)"
+    ]
+  },
+  "go_narrow_p4_r1_1789956859": {
+    "samples": 12,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "go_narrow_p4_r1_1789960481_ch": {
+    "samples": 9,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "go_narrow_p4_r2_1789961419_ch": {
+    "samples": 9,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "go_narrow_p4_r2_1789963307": {
+    "samples": 12,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "go_narrow_p4_r3_1789965470": {
+    "samples": 12,
+    "max_active": 3,
+    "distinct_queries": [
+      "\n\t\tselect percentile_disc(ARRAY[0.250000, 0.500000, 0.750000]) WITHIN GROUP (ORDER BY \"id\") from \"fair21\".\"narrow\";\n\t",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (\"id\" >= '250000' AND \"id\" < '500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (\"id\" >= '500000' AND \"id\" < '750000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"narrow\" where (\"id\" >= '750000') and (1 = 1)"
+    ]
+  },
+  "go_narrow_p4_r3_1789968363_ch": {
+    "samples": 9,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "go_smoke_p1_r0_1789952315": {
+    "samples": 2,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "go_smoke_p1_r0_1789952366": {
+    "samples": 2,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "go_smoke_p1_r0_1789952573": {
+    "samples": 5,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "go_smoke_p4_r0_1789952578": {
+    "samples": 5,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "go_smoke_p4_r0_1789954522_ch": {
+    "samples": 3,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "go_smoke_p4_r0_1789954712_ch": {
+    "samples": 29,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "go_smoke_p4_r0_1789960220_ch": {
+    "samples": 4,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "go_wide_p1_r0_1789964870": {
+    "samples": 21,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_wide_p1_r0_1789964923": {
+    "samples": 21,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_wide_p1_r0_1789964954": {
+    "samples": 21,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_wide_p1_r1_1789957179": {
+    "samples": 20,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_wide_p1_r1_1789960331_ch": {
+    "samples": 21,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_wide_p1_r2_1789961847_ch": {
+    "samples": 19,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_wide_p1_r2_1789964179": {
+    "samples": 21,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_wide_p1_r3_1789966269": {
+    "samples": 21,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_wide_p1_r3_1789966469_ch": {
+    "samples": 20,
+    "max_active": 1,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (1 = 1) and (1 = 1)"
+    ]
+  },
+  "go_wide_p4_r0_1789964842": {
+    "samples": 15,
+    "max_active": 4,
+    "distinct_queries": [
+      "\n\t\tselect percentile_disc(ARRAY[0.250000, 0.500000, 0.750000]) WITHIN GROUP (ORDER BY \"id\") from \"fair21\".\"wide\";\n\t",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" < '250000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '250000' AND \"id\" < '500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '500000' AND \"id\" < '750000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '750000') and (1 = 1)"
+    ]
+  },
+  "go_wide_p4_r0_1789964855": {
+    "samples": 16,
+    "max_active": 4,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" < '250000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '250000' AND \"id\" < '500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '500000' AND \"id\" < '750000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '750000') and (1 = 1)"
+    ]
+  },
+  "go_wide_p4_r0_1789964941": {
+    "samples": 14,
+    "max_active": 4,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" < '250000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '250000' AND \"id\" < '500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '500000' AND \"id\" < '750000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '750000') and (1 = 1)"
+    ]
+  },
+  "go_wide_p4_r1_1789957164": {
+    "samples": 16,
+    "max_active": 4,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" < '250000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '250000' AND \"id\" < '500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '500000' AND \"id\" < '750000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '750000') and (1 = 1)"
+    ]
+  },
+  "go_wide_p4_r1_1789960490_ch": {
+    "samples": 10,
+    "max_active": 4,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" < '250000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '250000' AND \"id\" < '500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '500000' AND \"id\" < '750000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '750000') and (1 = 1)"
+    ]
+  },
+  "go_wide_p4_r2_1789961426_ch": {
+    "samples": 11,
+    "max_active": 4,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" < '250000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '250000' AND \"id\" < '500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '500000' AND \"id\" < '750000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '750000') and (1 = 1)"
+    ]
+  },
+  "go_wide_p4_r2_1789962805": {
+    "samples": 15,
+    "max_active": 4,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" < '250000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '250000' AND \"id\" < '500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '500000' AND \"id\" < '750000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '750000') and (1 = 1)"
+    ]
+  },
+  "go_wide_p4_r3_1789967191": {
+    "samples": 16,
+    "max_active": 4,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" < '250000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '250000' AND \"id\" < '500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '500000' AND \"id\" < '750000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '750000') and (1 = 1)"
+    ]
+  },
+  "go_wide_p4_r3_1789968322_ch": {
+    "samples": 11,
+    "max_active": 4,
+    "distinct_queries": [
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" < '250000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '250000' AND \"id\" < '500000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '500000' AND \"id\" < '750000') and (1 = 1)",
+      "select all \"id\",\"group_id\",\"amount\",\"label\",\"payload\" from \"fair21\".\"wide\" where (\"id\" >= '750000') and (1 = 1)"
+    ]
+  },
+  "inlong_narrow10m_p4_r1_1789968673": {
+    "samples": 148,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.narrow10m WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_narrow_p1_r1_1789955811": {
+    "samples": 68,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.narrow WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_narrow_p1_r1_1789960056": {
+    "samples": 69,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.narrow WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_narrow_p1_r2_1789963838": {
+    "samples": 69,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "inlong_narrow_p1_r3_1789965494": {
+    "samples": 69,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.narrow WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_narrow_p4_r1_1789956401": {
+    "samples": 38,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.narrow WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_narrow_p4_r1_1789960036": {
+    "samples": 37,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.narrow WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_narrow_p4_r2_1789961299": {
+    "samples": 37,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.narrow WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_narrow_p4_r3_1789964971": {
+    "samples": 37,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.narrow WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_smoke_p1_r0_1789953316": {
+    "samples": 13,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "inlong_smoke_p1_r0_1789953489": {
+    "samples": 23,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "inlong_smoke_p4_r0_1789954027": {
+    "samples": 23,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "inlong_smoke_p4_r0_1789960024": {
+    "samples": 22,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "inlong_wide_p1_r1_1789957195": {
+    "samples": 97,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.wide WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_wide_p1_r1_1789960092": {
+    "samples": 97,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.wide WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_wide_p1_r2_1789964112": {
+    "samples": 102,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.wide WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_wide_p1_r3_1789967855": {
+    "samples": 94,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.wide WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_wide_p4_r1_1789957784": {
+    "samples": 50,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.wide WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_wide_p4_r1_1789960147": {
+    "samples": 46,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.wide WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_wide_p4_r2_1789964010": {
+    "samples": 45,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.wide WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "inlong_wide_p4_r3_1789965059": {
+    "samples": 50,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id, group_id, amount, label, payload FROM fair21.wide WHERE (id BETWEEN $1 AND $2)"
+    ]
+  },
+  "meltano_narrow10m_p4_r1_1789969628": {
+    "samples": 451,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_narrow_p1_r1_1789955374": {
+    "samples": 182,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_narrow_p1_r2_1789964536": {
+    "samples": 183,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_narrow_p1_r3_1789967760": {
+    "samples": 183,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_narrow_p4_r1_1789956432": {
+    "samples": 51,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_narrow_p4_r2_1789961857": {
+    "samples": 51,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_narrow_p4_r3_1789964686": {
+    "samples": 51,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_smoke_p1_r0_1789952642": {
+    "samples": 5,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_smoke_p1_r0_1789952855": {
+    "samples": 9,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_smoke_p4_r0_1789953989": {
+    "samples": 9,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_wide_p1_r1_1789957827": {
+    "samples": 239,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_wide_p1_r2_1789962662": {
+    "samples": 247,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_wide_p1_r3_1789965772": {
+    "samples": 240,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_wide_p4_r1_1789959451": {
+    "samples": 73,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_wide_p4_r2_1789964395": {
+    "samples": 68,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "meltano_wide_p4_r3_1789968024": {
+    "samples": 72,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_narrow10m_p4_r1_1789969903_ch": {
+    "samples": 16,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(51020,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(102041,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(153061,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(153061,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(51020,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(102041,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_narrow10m_p4_r1_1789969912": {
+    "samples": 30,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(51020,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(102041,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(153061,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(153061,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(51020,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(102041,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_narrow_p1_r1_1789955791": {
+    "samples": 9,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_narrow_p1_r1_1789960398_ch": {
+    "samples": 5,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_narrow_p1_r2_1789962801_ch": {
+    "samples": 5,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_narrow_p1_r2_1789964003": {
+    "samples": 10,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_narrow_p1_r3_1789965447_ch": {
+    "samples": 5,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_narrow_p1_r3_1789965552": {
+    "samples": 9,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_narrow_p4_r0_1789952663": {
+    "samples": 5,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_narrow_p4_r1_1789956952": {
+    "samples": 5,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_narrow_p4_r1_1789960395_ch": {
+    "samples": 4,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_narrow_p4_r2_1789960509": {
+    "samples": 5,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_narrow_p4_r2_1789963835_ch": {
+    "samples": 5,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_narrow_p4_r3_1789965293_ch": {
+    "samples": 4,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_narrow_p4_r3_1789968380": {
+    "samples": 5,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_ranges_narrow10m_p4_r1_1789968423": {
+    "samples": 32,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.<) E'2500001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'2500001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'5000001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'5000001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'7500001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'7500001'::bigint)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_narrow10m_p4_r1_1789970220_ch": {
+    "samples": 15,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.<) E'2500001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'2500001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'5000001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'5000001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'7500001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow10m\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'7500001'::bigint)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_narrow_p1_r1_1789956916": {
+    "samples": 9,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_narrow_p1_r1_1789960241_ch": {
+    "samples": 5,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_narrow_p1_r2_1789961424_ch": {
+    "samples": 5,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_narrow_p1_r2_1789964273": {
+    "samples": 9,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_narrow_p1_r3_1789965769_ch": {
+    "samples": 5,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_ranges_narrow_p1_r3_1789967205": {
+    "samples": 8,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"narrow\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_narrow_p4_r1_1789955797": {
+    "samples": 5,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_ranges_narrow_p4_r1_1789960273_ch": {
+    "samples": 4,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_ranges_narrow_p4_r2_1789961553_ch": {
+    "samples": 4,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_ranges_narrow_p4_r2_1789961743": {
+    "samples": 5,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_ranges_narrow_p4_r3_1789964992": {
+    "samples": 5,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_ranges_narrow_p4_r3_1789966980_ch": {
+    "samples": 5,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_ranges_smoke_p4_r0_1789955077": {
+    "samples": 2,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_ranges_wide_p1_r1_1789958069": {
+    "samples": 20,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_wide_p1_r1_1789960401_ch": {
+    "samples": 10,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_wide_p1_r2_1789963266": {
+    "samples": 19,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_wide_p1_r2_1789964267_ch": {
+    "samples": 11,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_wide_p1_r3_1789965134": {
+    "samples": 18,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_wide_p1_r3_1789965450_ch": {
+    "samples": 10,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_wide_p4_r1_1789958494": {
+    "samples": 11,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.<) E'250001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'250001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'500001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'500001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'750001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'750001'::bigint)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_wide_p4_r1_1789960486_ch": {
+    "samples": 7,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.<) E'250001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'250001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'500001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'500001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'750001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'750001'::bigint)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_wide_p4_r2_1789962908_ch": {
+    "samples": 7,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.<) E'250001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'250001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'500001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'500001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'750001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'750001'::bigint)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_wide_p4_r2_1789964202": {
+    "samples": 12,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.<) E'250001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'250001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'500001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'500001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'750001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'750001'::bigint)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_wide_p4_r3_1789966160_ch": {
+    "samples": 7,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.<) E'250001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'250001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'500001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'500001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'750001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'750001'::bigint)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_ranges_wide_p4_r3_1789968294": {
+    "samples": 10,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.<) E'250001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'250001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'500001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'500001'::bigint AND \"id\" OPERATOR(pg_catalog.<) E'750001'::bigint)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (\"id\" OPERATOR(pg_catalog.>=) E'750001'::bigint)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_smoke_p1_r0_1789952389": {
+    "samples": 1,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_smoke_p1_r0_1789952451": {
+    "samples": 2,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_smoke_p1_r0_1789952576": {
+    "samples": 2,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_smoke_p4_r0_1789952580": {
+    "samples": 2,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_smoke_p4_r0_1789954521_ch": {
+    "samples": 1,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_smoke_p4_r0_1789954710_ch": {
+    "samples": 3,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "rust_wide_p1_r1_1789958121": {
+    "samples": 20,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p1_r1_1789960235_ch": {
+    "samples": 11,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p1_r2_1789961728": {
+    "samples": 18,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p1_r2_1789964196_ch": {
+    "samples": 11,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p1_r3_1789965764_ch": {
+    "samples": 10,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p1_r3_1789966301": {
+    "samples": 18,
+    "max_active": 1,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (TRUE)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p4_r1_1789957815": {
+    "samples": 11,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p4_r1_1789960269_ch": {
+    "samples": 7,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p4_r2_1789964279": {
+    "samples": 11,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p4_r2_1789964323_ch": {
+    "samples": 6,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p4_r3_1789965150_ch": {
+    "samples": 7,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "rust_wide_p4_r3_1789965585": {
+    "samples": 11,
+    "max_active": 4,
+    "distinct_queries": [
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.<) '(35714,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(35714,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(71429,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)",
+      "COPY (SELECT \"id\", \"group_id\", \"amount\", \"label\", \"payload\" FROM ONLY \"fair21\".\"wide\" WHERE (TRUE) AND (ctid OPERATOR(pg_catalog.>=) '(71429,0)'::pg_catalog.tid AND ctid OPERATOR(pg_catalog.<) '(107143,0)'::pg_catalog.tid)) TO STDOUT (FORMAT BINARY)"
+    ]
+  },
+  "seatunnel_narrow10m_p1_r1_1789972379_ch": {
+    "samples": 170,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow10m) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow10m_p4_r1_1789968589": {
+    "samples": 140,
+    "max_active": 3,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow10m) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow10m_p4_r1_1789969869_ch": {
+    "samples": 64,
+    "max_active": 3,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow10m) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow_p1_r1_1789956922": {
+    "samples": 56,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow_p1_r1_1789960252_ch": {
+    "samples": 31,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow_p1_r1_1789961044": {
+    "samples": 55,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow_p1_r1_1789961189_ch": {
+    "samples": 29,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "seatunnel_narrow_p1_r2_1789961945": {
+    "samples": 55,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow_p1_r2_1789962421_ch": {
+    "samples": 31,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "seatunnel_narrow_p1_r3_1789964714": {
+    "samples": 57,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow_p1_r3_1789968306_ch": {
+    "samples": 31,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow_p4_r1_1789956956": {
+    "samples": 27,
+    "max_active": 3,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow_p4_r1_1789960426_ch": {
+    "samples": 19,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow_p4_r1_1789961074": {
+    "samples": 26,
+    "max_active": 3,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow_p4_r1_1789961219_ch": {
+    "samples": 18,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow_p4_r2_1789960513": {
+    "samples": 27,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_narrow_p4_r2_1789961228": {
+    "samples": 26,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "seatunnel_narrow_p4_r2_1789964169_ch": {
+    "samples": 19,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "seatunnel_narrow_p4_r3_1789965455": {
+    "samples": 27,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "seatunnel_narrow_p4_r3_1789966259_ch": {
+    "samples": 19,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.narrow) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_smoke_p1_r0_1789953297": {
+    "samples": 12,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "seatunnel_smoke_p1_r0_1789953483": {
+    "samples": 12,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "seatunnel_smoke_p1_r0_1789953926": {
+    "samples": 15,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "seatunnel_smoke_p4_r0_1789954061": {
+    "samples": 14,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "seatunnel_smoke_p4_r0_1789954530_ch": {
+    "samples": 12,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "seatunnel_smoke_p4_r0_1789954734_ch": {
+    "samples": 15,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "seatunnel_wide_p1_r1_1789957437": {
+    "samples": 79,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p1_r1_1789960185_ch": {
+    "samples": 69,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p1_r1_1789961113": {
+    "samples": 79,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p1_r1_1789961159_ch": {
+    "samples": 59,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p1_r2_1789961444": {
+    "samples": 78,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p1_r2_1789964214_ch": {
+    "samples": 62,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p1_r3_1789964630_ch": {
+    "samples": 59,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p1_r3_1789966892": {
+    "samples": 79,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p4_r0_1789960982_ch": {
+    "samples": 30,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p4_r1_1789957577": {
+    "samples": 40,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p4_r1_1789960407_ch": {
+    "samples": 38,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "seatunnel_wide_p4_r1_1789961088": {
+    "samples": 36,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p4_r1_1789961204_ch": {
+    "samples": 27,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p4_r2_1789961921": {
+    "samples": 37,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p4_r2_1789963291_ch": {
+    "samples": 30,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p4_r3_1789965652": {
+    "samples": 37,
+    "max_active": 3,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "seatunnel_wide_p4_r3_1789965748_ch": {
+    "samples": 29,
+    "max_active": 3,
+    "distinct_queries": [
+      "SELECT * FROM (SELECT id,group_id,amount,label,payload FROM fair21.wide) st_jdbc_splitter WHERE \"id\" >= $1 AND \"id\" <= $2"
+    ]
+  },
+  "sling_narrow10m_p4_r1_1789969560_ch": {
+    "samples": 46,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 1 AND id < 2500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 2500001 AND id < 5000001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 5000001 AND id < 7500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 7500001 AND id < 10000001"
+    ]
+  },
+  "sling_narrow10m_p4_r1_1789969584": {
+    "samples": 61,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 1 AND id < 2500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 2500001 AND id < 5000001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 5000001 AND id < 7500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE id >= 7500001 AND id < 10000001"
+    ]
+  },
+  "sling_narrow_p1_r1_1789955333": {
+    "samples": 16,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "sling_narrow_p1_r1_1789960387_ch": {
+    "samples": 16,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "sling_narrow_p1_r2_1789963282": {
+    "samples": 15,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "sling_narrow_p1_r2_1789963464_ch": {
+    "samples": 14,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "sling_narrow_p1_r3_1789966970": {
+    "samples": 15,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "sling_narrow_p1_r3_1789967753_ch": {
+    "samples": 14,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "sling_narrow_p4_r1_1789955801": {
+    "samples": 17,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "sling_narrow_p4_r1_1789960244_ch": {
+    "samples": 15,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "sling_narrow_p4_r2_1789962897": {
+    "samples": 17,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "sling_narrow_p4_r2_1789964246_ch": {
+    "samples": 15,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "sling_narrow_p4_r3_1789966316": {
+    "samples": 17,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "sling_narrow_p4_r3_1789967182_ch": {
+    "samples": 16,
+    "max_active": 3,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "sling_smoke_p4_r0_1789954524_ch": {
+    "samples": 12,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "sling_smoke_p4_r0_1789954727_ch": {
+    "samples": 12,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "sling_wide_p1_r1_1789957144": {
+    "samples": 30,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "sling_wide_p1_r1_1789960358_ch": {
+    "samples": 29,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "sling_wide_p1_r2_1789961398": {
+    "samples": 29,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "sling_wide_p1_r2_1789962249_ch": {
+    "samples": 29,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "sling_wide_p1_r3_1789966286_ch": {
+    "samples": 27,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "sling_wide_p1_r3_1789968328": {
+    "samples": 29,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 1000001"
+    ]
+  },
+  "sling_wide_p4_r1_1789957603": {
+    "samples": 26,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "sling_wide_p4_r1_1789960275_ch": {
+    "samples": 20,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "sling_wide_p4_r2_1789963247": {
+    "samples": 26,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "sling_wide_p4_r2_1789964051_ch": {
+    "samples": 19,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "sling_wide_p4_r3_1789965102": {
+    "samples": 26,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "sling_wide_p4_r3_1789965437_ch": {
+    "samples": 19,
+    "max_active": 4,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 1 AND id < 250001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 250001 AND id < 500001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 500001 AND id < 750001",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE id >= 750001 AND id < 1000001"
+    ]
+  },
+  "spark_narrow10m_p1_r1_1789972224": {
+    "samples": 282,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 1 AND id < 10000001    "
+    ]
+  },
+  "spark_narrow10m_p4_r1_1789968452_ch": {
+    "samples": 43,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 1 AND id < 2500001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 2500001 AND id < 5000001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 5000001 AND id < 7500001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 7500001 AND id < 10000001    "
+    ]
+  },
+  "spark_narrow10m_p4_r1_1789971160": {
+    "samples": 90,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 1 AND id < 2500001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 2500001 AND id < 5000001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 5000001 AND id < 7500001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow10m  WHERE id >= 7500001 AND id < 10000001    "
+    ]
+  },
+  "spark_narrow_p1_r1_1789956377": {
+    "samples": 44,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 1 AND id < 1000001    "
+    ]
+  },
+  "spark_narrow_p1_r1_1789960373_ch": {
+    "samples": 28,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 1 AND id < 1000001    "
+    ]
+  },
+  "spark_narrow_p1_r2_1789961823": {
+    "samples": 44,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 1 AND id < 1000001    "
+    ]
+  },
+  "spark_narrow_p1_r2_1789964254_ch": {
+    "samples": 25,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "spark_narrow_p1_r3_1789967026": {
+    "samples": 42,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "spark_narrow_p1_r3_1789968349_ch": {
+    "samples": 26,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 1 AND id < 1000001    "
+    ]
+  },
+  "spark_narrow_p4_r0_1789962107": {
+    "samples": 24,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 250001 AND id < 500001    "
+    ]
+  },
+  "spark_narrow_p4_r0_1789962133": {
+    "samples": 23,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "spark_narrow_p4_r0_1789962183": {
+    "samples": 22,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 500001 AND id < 750001    "
+    ]
+  },
+  "spark_narrow_p4_r0_1789962196": {
+    "samples": 24,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 1 AND id < 250001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 500001 AND id < 750001    "
+    ]
+  },
+  "spark_narrow_p4_r0_1789962209": {
+    "samples": 23,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "spark_narrow_p4_r0_1789962235": {
+    "samples": 24,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "spark_narrow_p4_r0_1789965973": {
+    "samples": 22,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 500001 AND id < 750001    "
+    ]
+  },
+  "spark_narrow_p4_r0_1789965995": {
+    "samples": 21,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 750001 AND id < 1000001    "
+    ]
+  },
+  "spark_narrow_p4_r0_1789966008": {
+    "samples": 22,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "spark_narrow_p4_r1_1789956593": {
+    "samples": 24,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 750001 AND id < 1000001    "
+    ]
+  },
+  "spark_narrow_p4_r1_1789960286_ch": {
+    "samples": 21,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 750001 AND id < 1000001    "
+    ]
+  },
+  "spark_narrow_p4_r2_1789960628": {
+    "samples": 25,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 250001 AND id < 500001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 500001 AND id < 750001    "
+    ]
+  },
+  "spark_narrow_p4_r2_1789963717_ch": {
+    "samples": 20,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 1 AND id < 250001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 500001 AND id < 750001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 750001 AND id < 1000001    "
+    ]
+  },
+  "spark_narrow_p4_r3_1789964675_ch": {
+    "samples": 21,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "spark_narrow_p4_r3_1789966326": {
+    "samples": 23,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.narrow  WHERE id >= 750001 AND id < 1000001    "
+    ]
+  },
+  "spark_smoke_p1_r0_1789952860": {
+    "samples": 15,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "spark_smoke_p4_r0_1789953981": {
+    "samples": 15,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "spark_smoke_p4_r0_1789954536_ch": {
+    "samples": 10,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "spark_smoke_p4_r0_1789954742_ch": {
+    "samples": 11,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "spark_smoke_p4_r0_1789955068_ch": {
+    "samples": 18,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "spark_wide_p1_r1_1789958085": {
+    "samples": 59,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 1000001    "
+    ]
+  },
+  "spark_wide_p1_r1_1789960297_ch": {
+    "samples": 66,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 1000001    "
+    ]
+  },
+  "spark_wide_p1_r2_1789961319_ch": {
+    "samples": 63,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 1000001    "
+    ]
+  },
+  "spark_wide_p1_r2_1789961885": {
+    "samples": 59,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 1000001    "
+    ]
+  },
+  "spark_wide_p1_r3_1789966127_ch": {
+    "samples": 64,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 1000001    "
+    ]
+  },
+  "spark_wide_p1_r3_1789967146": {
+    "samples": 59,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 1000001    "
+    ]
+  },
+  "spark_wide_p4_r0_1789965932": {
+    "samples": 29,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 250001 AND id < 500001    "
+    ]
+  },
+  "spark_wide_p4_r0_1789966020": {
+    "samples": 28,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 250001    "
+    ]
+  },
+  "spark_wide_p4_r0_1789966062": {
+    "samples": 29,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 250001 AND id < 500001    "
+    ]
+  },
+  "spark_wide_p4_r1_1789959431": {
+    "samples": 30,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 250001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 500001 AND id < 750001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 750001 AND id < 1000001    "
+    ]
+  },
+  "spark_wide_p4_r1_1789960342_ch": {
+    "samples": 30,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 250001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 250001 AND id < 500001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 500001 AND id < 750001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 750001 AND id < 1000001    "
+    ]
+  },
+  "spark_wide_p4_r2_1789961271_ch": {
+    "samples": 30,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 250001 AND id < 500001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 500001 AND id < 750001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 750001 AND id < 1000001    "
+    ]
+  },
+  "spark_wide_p4_r2_1789962960": {
+    "samples": 28,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 250001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 500001 AND id < 750001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 750001 AND id < 1000001    "
+    ]
+  },
+  "spark_wide_p4_r3_1789965478_ch": {
+    "samples": 29,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 250001 AND id < 500001    ",
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 500001 AND id < 750001    "
+    ]
+  },
+  "spark_wide_p4_r3_1789965530": {
+    "samples": 30,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT \"id\",\"group_id\",\"amount\",\"label\",\"payload\" FROM fair21.wide  WHERE id >= 1 AND id < 250001    "
+    ]
+  },
+  "sqoop_narrow10m_p1_r1_1789971620": {
+    "samples": 1185,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE ( id >= 1 ) AND ( id <= 10000001 )"
+    ]
+  },
+  "sqoop_narrow10m_p4_r1_1789969940": {
+    "samples": 527,
+    "max_active": 3,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE ( id >= 1 ) AND ( id < 2500001 )",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE ( id >= 2500001 ) AND ( id < 5000001 )",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE ( id >= 5000001 ) AND ( id < 7500001 )",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow10m WHERE ( id >= 7500001 ) AND ( id <= 10000001 )"
+    ]
+  },
+  "sqoop_narrow_p1_r1_1789956741": {
+    "samples": 156,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE ( id >= 1 ) AND ( id <= 1000001 )"
+    ]
+  },
+  "sqoop_narrow_p1_r2_1789962818": {
+    "samples": 153,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE ( id >= 1 ) AND ( id <= 1000001 )"
+    ]
+  },
+  "sqoop_narrow_p1_r3_1789966165": {
+    "samples": 156,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE ( id >= 1 ) AND ( id <= 1000001 )"
+    ]
+  },
+  "sqoop_narrow_p4_r1_1789956867": {
+    "samples": 67,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE ( id >= 750001 ) AND ( id <= 1000001 )"
+    ]
+  },
+  "sqoop_narrow_p4_r2_1789964327": {
+    "samples": 67,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE ( id >= 750001 ) AND ( id <= 1000001 )"
+    ]
+  },
+  "sqoop_narrow_p4_r3_1789966092": {
+    "samples": 67,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE ( id >= 1 ) AND ( id < 250001 )",
+      "SELECT id,group_id,amount,label,payload FROM fair21.narrow WHERE ( id >= 750001 ) AND ( id <= 1000001 )"
+    ]
+  },
+  "sqoop_smoke_p1_r0_1789952995": {
+    "samples": 3,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "sqoop_smoke_p1_r0_1789953243": {
+    "samples": 17,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "sqoop_smoke_p4_r0_1789953994": {
+    "samples": 15,
+    "max_active": 0,
+    "distinct_queries": []
+  },
+  "sqoop_wide_p1_r1_1789957680": {
+    "samples": 195,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE ( id >= 1 ) AND ( id <= 1000001 )"
+    ]
+  },
+  "sqoop_wide_p1_r2_1789961975": {
+    "samples": 197,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE ( id >= 1 ) AND ( id <= 1000001 )"
+    ]
+  },
+  "sqoop_wide_p1_r3_1789968188": {
+    "samples": 197,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE ( id >= 1 ) AND ( id <= 1000001 )"
+    ]
+  },
+  "sqoop_wide_p4_r1_1789957250": {
+    "samples": 80,
+    "max_active": 1,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE ( id >= 1 ) AND ( id < 250001 )"
+    ]
+  },
+  "sqoop_wide_p4_r2_1789961352": {
+    "samples": 80,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE ( id >= 1 ) AND ( id < 250001 )",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE ( id >= 250001 ) AND ( id < 500001 )",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE ( id >= 500001 ) AND ( id < 750001 )",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE ( id >= 750001 ) AND ( id <= 1000001 )"
+    ]
+  },
+  "sqoop_wide_p4_r3_1789966422": {
+    "samples": 81,
+    "max_active": 2,
+    "distinct_queries": [
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE ( id >= 250001 ) AND ( id < 500001 )",
+      "SELECT id,group_id,amount,label,payload FROM fair21.wide WHERE ( id >= 750001 ) AND ( id <= 1000001 )"
+    ]
+  }
+}

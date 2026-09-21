@@ -1,0 +1,52 @@
+[
+  {
+    "dataset": "narrow10m",
+    "parts": 4,
+    "skip_snapshot_backfill": true,
+    "result": {
+      "name": "flink_narrow10m_p4_r0_1789971515",
+      "product": "flink",
+      "dataset": "narrow10m",
+      "parts_requested": 4,
+      "variant": "native-chunks-large-heap18g-diagnostic-skip-backfill",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T06:18:35.269123+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 92.504888064228,
+      "observed_max_active_source_queries": 2,
+      "observer_error": null,
+      "cpu_seconds": 151.142716931,
+      "peak_rss_bytes": 12457127936,
+      "cgroup_peak_bytes": 12535566336,
+      "cpu_percent": 163.38889770458246,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 307.0,
+          "execution_ms": 41.041832998394966,
+          "rows": 23283.0,
+          "shared_blocks_hit": 5412.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 100593.0,
+          "execution_ms": 61258.22883900395,
+          "rows": 10000000.0,
+          "shared_blocks_hit": 78413086.0,
+          "shared_blocks_read": 2.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 3129848371.0
+        }
+      },
+      "verified_rows": 10000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 108102.39555186316,
+      "rows_per_cpu_second": 66162.63226606692
+    }
+  }
+]

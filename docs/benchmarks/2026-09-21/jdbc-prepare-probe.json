@@ -1,0 +1,602 @@
+[
+  {
+    "tool": "datax",
+    "paired_repetition": 2,
+    "prepare_threshold": 0,
+    "result": {
+      "name": "datax_narrow_p4_r0_1789962080",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "explicit-ranges-diagnostic-prepareThreshold0",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:41:20.890143+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 11.506262489128858,
+      "observed_max_active_source_queries": 1,
+      "observer_error": null,
+      "cpu_seconds": 14.48941445,
+      "peak_rss_bytes": 516907008,
+      "cgroup_peak_bytes": 495276032,
+      "cpu_percent": 125.92633327885254,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 0.0,
+          "execution_ms": 0.0,
+          "rows": 0.0,
+          "shared_blocks_hit": 0.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 10011.0,
+          "execution_ms": 2794.372187999892,
+          "rows": 1000025.0,
+          "shared_blocks_hit": 3509328.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 263848902.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 86909.19409711035,
+      "rows_per_cpu_second": 69015.90146729497
+    }
+  },
+  {
+    "tool": "datax",
+    "paired_repetition": 2,
+    "prepare_threshold": 5,
+    "result": {
+      "name": "datax_narrow_p4_r0_1789962094",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "explicit-ranges-diagnostic-prepareThreshold5",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:41:34.160428+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 11.510036131832749,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 13.947996091,
+      "peak_rss_bytes": 500023296,
+      "cgroup_peak_bytes": 480104448,
+      "cpu_percent": 121.18116686380074,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 0.0,
+          "execution_ms": 0.0,
+          "rows": 0.0,
+          "shared_blocks_hit": 0.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 10011.0,
+          "execution_ms": 3713.4351370000513,
+          "rows": 1000025.0,
+          "shared_blocks_hit": 3529443.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 263833526.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 86880.70033371559,
+      "rows_per_cpu_second": 71694.88674041527
+    }
+  },
+  {
+    "tool": "spark",
+    "paired_repetition": 3,
+    "prepare_threshold": 0,
+    "result": {
+      "name": "spark_narrow_p4_r0_1789962107",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "explicit-ranges-diagnostic-prepareThreshold0",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:41:47.417397+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 11.668334844056517,
+      "observed_max_active_source_queries": 1,
+      "observer_error": null,
+      "cpu_seconds": 25.971712565,
+      "peak_rss_bytes": 835289088,
+      "cgroup_peak_bytes": 809934848,
+      "cpu_percent": 222.58285275579982,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 6.0,
+          "execution_ms": 537.828912999481,
+          "rows": 1000005.0,
+          "shared_blocks_hit": 23211.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 6009.0,
+          "execution_ms": 3111.296552999993,
+          "rows": 1000014.0,
+          "shared_blocks_hit": 3519600.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 263930478.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 85702.03146932903,
+      "rows_per_cpu_second": 38503.42935596862
+    }
+  },
+  {
+    "tool": "datax",
+    "paired_repetition": 3,
+    "prepare_threshold": 0,
+    "result": {
+      "name": "datax_narrow_p4_r0_1789962120",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "explicit-ranges-diagnostic-prepareThreshold0",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:42:00.861837+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 11.45974051579833,
+      "observed_max_active_source_queries": 1,
+      "observer_error": null,
+      "cpu_seconds": 14.505714911,
+      "peak_rss_bytes": 502665216,
+      "cgroup_peak_bytes": 481415168,
+      "cpu_percent": 126.57978503965694,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 0.0,
+          "execution_ms": 0.0,
+          "rows": 0.0,
+          "shared_blocks_hit": 0.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 10011.0,
+          "execution_ms": 2787.9036459999625,
+          "rows": 1000025.0,
+          "shared_blocks_hit": 3516246.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 263896070.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 87262.01074286157,
+      "rows_per_cpu_second": 68938.34644728046
+    }
+  },
+  {
+    "tool": "spark",
+    "paired_repetition": 3,
+    "prepare_threshold": 5,
+    "result": {
+      "name": "spark_narrow_p4_r0_1789962133",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "explicit-ranges-diagnostic-prepareThreshold5",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:42:14.073436+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 11.231809221208096,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 26.041495016,
+      "peak_rss_bytes": 916697088,
+      "cgroup_peak_bytes": 891215872,
+      "cpu_percent": 231.854855287499,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 6.0,
+          "execution_ms": 516.2551810014993,
+          "rows": 1000005.0,
+          "shared_blocks_hit": 23211.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 6009.0,
+          "execution_ms": 3380.498666000087,
+          "rows": 1000014.0,
+          "shared_blocks_hit": 3523392.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 263927878.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 89032.85128025348,
+      "rows_per_cpu_second": 38400.25311087539
+    }
+  },
+  {
+    "tool": "datax",
+    "paired_repetition": 1,
+    "prepare_threshold": 0,
+    "result": {
+      "name": "datax_narrow_p4_r0_1789962146",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "explicit-ranges-diagnostic-prepareThreshold0",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:42:27.010621+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 21.54197734594345,
+      "observed_max_active_source_queries": 1,
+      "observer_error": null,
+      "cpu_seconds": 14.599497113,
+      "peak_rss_bytes": 514117632,
+      "cgroup_peak_bytes": 493051904,
+      "cpu_percent": 67.77231671237097,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 0.0,
+          "execution_ms": 0.0,
+          "rows": 0.0,
+          "shared_blocks_hit": 0.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 10011.0,
+          "execution_ms": 2802.6956329999957,
+          "rows": 1000025.0,
+          "shared_blocks_hit": 3515776.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 263899464.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 46420.99394781459,
+      "rows_per_cpu_second": 68495.50996585755
+    }
+  },
+  {
+    "tool": "datax",
+    "paired_repetition": 3,
+    "prepare_threshold": 5,
+    "result": {
+      "name": "datax_narrow_p4_r0_1789962170",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "explicit-ranges-diagnostic-prepareThreshold5",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:42:50.233826+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 11.57050914131105,
+      "observed_max_active_source_queries": 2,
+      "observer_error": null,
+      "cpu_seconds": 14.238992464,
+      "peak_rss_bytes": 509575168,
+      "cgroup_peak_bytes": 487784448,
+      "cpu_percent": 123.06279948530066,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 0.0,
+          "execution_ms": 0.0,
+          "rows": 0.0,
+          "shared_blocks_hit": 0.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 10011.0,
+          "execution_ms": 4006.407081000041,
+          "rows": 1000025.0,
+          "shared_blocks_hit": 3539304.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 263878046.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 86426.62027979613,
+      "rows_per_cpu_second": 70229.68812774279
+    }
+  },
+  {
+    "tool": "spark",
+    "paired_repetition": 2,
+    "prepare_threshold": 5,
+    "result": {
+      "name": "spark_narrow_p4_r0_1789962183",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "explicit-ranges-diagnostic-prepareThreshold5",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:43:03.499530+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 11.126110433135182,
+      "observed_max_active_source_queries": 1,
+      "observer_error": null,
+      "cpu_seconds": 26.467800822,
+      "peak_rss_bytes": 895750144,
+      "cgroup_peak_bytes": 869740544,
+      "cpu_percent": 237.88907166672573,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 6.0,
+          "execution_ms": 515.7449869997799,
+          "rows": 1000005.0,
+          "shared_blocks_hit": 23211.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 6009.0,
+          "execution_ms": 3344.651699000038,
+          "rows": 1000014.0,
+          "shared_blocks_hit": 3521567.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 263927894.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 89878.66928067278,
+      "rows_per_cpu_second": 37781.75628285677
+    }
+  },
+  {
+    "tool": "spark",
+    "paired_repetition": 1,
+    "prepare_threshold": 0,
+    "result": {
+      "name": "spark_narrow_p4_r0_1789962196",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "explicit-ranges-diagnostic-prepareThreshold0",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:43:16.381873+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 11.657591145019978,
+      "observed_max_active_source_queries": 2,
+      "observer_error": null,
+      "cpu_seconds": 26.001788927,
+      "peak_rss_bytes": 870129664,
+      "cgroup_peak_bytes": 844132352,
+      "cpu_percent": 223.04598440225567,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 6.0,
+          "execution_ms": 519.5531899984926,
+          "rows": 1000005.0,
+          "shared_blocks_hit": 23199.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 6009.0,
+          "execution_ms": 2903.380188000039,
+          "rows": 1000014.0,
+          "shared_blocks_hit": 3518025.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 263933862.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 85781.01492495654,
+      "rows_per_cpu_second": 38458.892301891196
+    }
+  },
+  {
+    "tool": "spark",
+    "paired_repetition": 1,
+    "prepare_threshold": 5,
+    "result": {
+      "name": "spark_narrow_p4_r0_1789962209",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "explicit-ranges-diagnostic-prepareThreshold5",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:43:29.768963+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 11.207457545679063,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 25.960056517,
+      "peak_rss_bytes": 864886784,
+      "cgroup_peak_bytes": 839405568,
+      "cpu_percent": 231.63198621268634,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 6.0,
+          "execution_ms": 509.80244600214064,
+          "rows": 1000005.0,
+          "shared_blocks_hit": 23199.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 6009.0,
+          "execution_ms": 3417.2770339999115,
+          "rows": 1000014.0,
+          "shared_blocks_hit": 3527890.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 263930526.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 89226.30274745419,
+      "rows_per_cpu_second": 38520.717369977516
+    }
+  },
+  {
+    "tool": "datax",
+    "paired_repetition": 1,
+    "prepare_threshold": 5,
+    "result": {
+      "name": "datax_narrow_p4_r0_1789962222",
+      "product": "datax",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "explicit-ranges-diagnostic-prepareThreshold5",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:43:42.715078+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 11.48306888807565,
+      "observed_max_active_source_queries": 1,
+      "observer_error": null,
+      "cpu_seconds": 13.255770931,
+      "peak_rss_bytes": 503603200,
+      "cgroup_peak_bytes": 482222080,
+      "cpu_percent": 115.43752859277173,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 0.0,
+          "execution_ms": 0.0,
+          "rows": 0.0,
+          "shared_blocks_hit": 0.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 10011.0,
+          "execution_ms": 3830.9822540000314,
+          "rows": 1000025.0,
+          "shared_blocks_hit": 3537374.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 263872846.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 87084.73403294035,
+      "rows_per_cpu_second": 75438.84133222277
+    }
+  },
+  {
+    "tool": "spark",
+    "paired_repetition": 2,
+    "prepare_threshold": 0,
+    "result": {
+      "name": "spark_narrow_p4_r0_1789962235",
+      "product": "spark",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "explicit-ranges-diagnostic-prepareThreshold0",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:43:55.945858+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 12.056500290054828,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 26.192491861,
+      "peak_rss_bytes": 907014144,
+      "cgroup_peak_bytes": 881459200,
+      "cpu_percent": 217.24788479958545,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 6.0,
+          "execution_ms": 511.2407209966332,
+          "rows": 1000005.0,
+          "shared_blocks_hit": 23211.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 6009.0,
+          "execution_ms": 2918.185049999971,
+          "rows": 1000014.0,
+          "shared_blocks_hit": 3529561.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 263930526.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 82942.80893642748,
+      "rows_per_cpu_second": 38178.87986018529
+    }
+  }
+]

@@ -1,0 +1,221 @@
+[
+  {
+    "table": "narrow",
+    "rows": 1000000,
+    "heap_pages": 20409,
+    "heap_bytes": 167190528,
+    "variant": "full_scan",
+    "sql": "SELECT id,group_id,amount,label,payload FROM ONLY fair21.narrow",
+    "plan": [
+      {
+        "Plan": {
+          "Node Type": "Seq Scan",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Relation Name": "narrow",
+          "Alias": "narrow",
+          "Startup Cost": 0.0,
+          "Total Cost": 30409.0,
+          "Plan Rows": 1000000,
+          "Plan Width": 131
+        }
+      }
+    ]
+  },
+  {
+    "table": "narrow",
+    "rows": 1000000,
+    "heap_pages": 20409,
+    "heap_bytes": 167190528,
+    "variant": "first_pk_quarter",
+    "sql": "SELECT id,group_id,amount,label,payload FROM ONLY fair21.narrow WHERE id >= 1 AND id < 250001",
+    "plan": [
+      {
+        "Plan": {
+          "Node Type": "Index Scan",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Scan Direction": "Forward",
+          "Index Name": "narrow_pkey",
+          "Relation Name": "narrow",
+          "Alias": "narrow",
+          "Startup Cost": 0.42,
+          "Total Cost": 10980.24,
+          "Plan Rows": 250091,
+          "Plan Width": 131,
+          "Index Cond": "((id >= 1) AND (id < 250001))"
+        }
+      }
+    ]
+  },
+  {
+    "table": "narrow",
+    "rows": 1000000,
+    "heap_pages": 20409,
+    "heap_bytes": 167190528,
+    "variant": "first_ctid_quarter",
+    "sql": "SELECT id,group_id,amount,label,payload FROM ONLY fair21.narrow WHERE ctid >= '(0,0)'::tid AND ctid < '(5103,0)'::tid",
+    "plan": [
+      {
+        "Plan": {
+          "Node Type": "Tid Range Scan",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Relation Name": "narrow",
+          "Alias": "narrow",
+          "Startup Cost": 0.01,
+          "Total Cost": 7604.42,
+          "Plan Rows": 250042,
+          "Plan Width": 131,
+          "TID Cond": "((ctid >= '(0,0)'::tid) AND (ctid < '(5103,0)'::tid))"
+        }
+      }
+    ]
+  },
+  {
+    "table": "wide",
+    "rows": 1000000,
+    "heap_pages": 142858,
+    "heap_bytes": 1170292736,
+    "variant": "full_scan",
+    "sql": "SELECT id,group_id,amount,label,payload FROM ONLY fair21.wide",
+    "plan": [
+      {
+        "Plan": {
+          "Node Type": "Seq Scan",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Relation Name": "wide",
+          "Alias": "wide",
+          "Startup Cost": 0.0,
+          "Total Cost": 152858.0,
+          "Plan Rows": 1000000,
+          "Plan Width": 1062
+        }
+      }
+    ]
+  },
+  {
+    "table": "wide",
+    "rows": 1000000,
+    "heap_pages": 142858,
+    "heap_bytes": 1170292736,
+    "variant": "first_pk_quarter",
+    "sql": "SELECT id,group_id,amount,label,payload FROM ONLY fair21.wide WHERE id >= 1 AND id < 250001",
+    "plan": [
+      {
+        "Plan": {
+          "Node Type": "Index Scan",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Scan Direction": "Forward",
+          "Index Name": "wide_pkey",
+          "Relation Name": "wide",
+          "Alias": "wide",
+          "Startup Cost": 0.42,
+          "Total Cost": 41436.68,
+          "Plan Rows": 250213,
+          "Plan Width": 1062,
+          "Index Cond": "((id >= 1) AND (id < 250001))"
+        }
+      }
+    ]
+  },
+  {
+    "table": "wide",
+    "rows": 1000000,
+    "heap_pages": 142858,
+    "heap_bytes": 1170292736,
+    "variant": "first_ctid_quarter",
+    "sql": "SELECT id,group_id,amount,label,payload FROM ONLY fair21.wide WHERE ctid >= '(0,0)'::tid AND ctid < '(35715,0)'::tid",
+    "plan": [
+      {
+        "Plan": {
+          "Node Type": "Tid Range Scan",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Relation Name": "wide",
+          "Alias": "wide",
+          "Startup Cost": 0.01,
+          "Total Cost": 38215.04,
+          "Plan Rows": 250003,
+          "Plan Width": 1062,
+          "TID Cond": "((ctid >= '(0,0)'::tid) AND (ctid < '(35715,0)'::tid))"
+        }
+      }
+    ]
+  },
+  {
+    "table": "narrow10m",
+    "rows": 10000000,
+    "heap_pages": 204082,
+    "heap_bytes": 1671839744,
+    "variant": "full_scan",
+    "sql": "SELECT id,group_id,amount,label,payload FROM ONLY fair21.narrow10m",
+    "plan": [
+      {
+        "Plan": {
+          "Node Type": "Seq Scan",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Relation Name": "narrow10m",
+          "Alias": "narrow10m",
+          "Startup Cost": 0.0,
+          "Total Cost": 304082.0,
+          "Plan Rows": 10000000,
+          "Plan Width": 132
+        }
+      }
+    ]
+  },
+  {
+    "table": "narrow10m",
+    "rows": 10000000,
+    "heap_pages": 204082,
+    "heap_bytes": 1671839744,
+    "variant": "first_pk_quarter",
+    "sql": "SELECT id,group_id,amount,label,payload FROM ONLY fair21.narrow10m WHERE id >= 1 AND id < 2500001",
+    "plan": [
+      {
+        "Plan": {
+          "Node Type": "Index Scan",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Scan Direction": "Forward",
+          "Index Name": "narrow10m_pkey",
+          "Relation Name": "narrow10m",
+          "Alias": "narrow10m",
+          "Startup Cost": 0.43,
+          "Total Cost": 107572.46,
+          "Plan Rows": 2492951,
+          "Plan Width": 132,
+          "Index Cond": "((id >= 1) AND (id < 2500001))"
+        }
+      }
+    ]
+  },
+  {
+    "table": "narrow10m",
+    "rows": 10000000,
+    "heap_pages": 204082,
+    "heap_bytes": 1671839744,
+    "variant": "first_ctid_quarter",
+    "sql": "SELECT id,group_id,amount,label,payload FROM ONLY fair21.narrow10m WHERE ctid >= '(0,0)'::tid AND ctid < '(51021,0)'::tid",
+    "plan": [
+      {
+        "Plan": {
+          "Node Type": "Tid Range Scan",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Relation Name": "narrow10m",
+          "Alias": "narrow10m",
+          "Startup Cost": 0.01,
+          "Total Cost": 76022.3,
+          "Plan Rows": 2500030,
+          "Plan Width": 132,
+          "TID Cond": "((ctid >= '(0,0)'::tid) AND (ctid < '(51021,0)'::tid))"
+        }
+      }
+    ]
+  }
+]

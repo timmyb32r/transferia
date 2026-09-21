@@ -1,0 +1,871 @@
+{
+  "rankings": [
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "parts": 4,
+      "products": [
+        "rust",
+        "go",
+        "sling",
+        "spark",
+        "datax",
+        "airbyte",
+        "seatunnel",
+        "inlong",
+        "meltano",
+        "flink",
+        "estuary",
+        "sqoop",
+        "debezium"
+      ],
+      "top_rows_per_second": 418601.1616455672,
+      "top_over_second": 2.4834648123331275
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "parts": 4,
+      "products": [
+        "rust",
+        "go",
+        "sling",
+        "spark",
+        "seatunnel",
+        "datax",
+        "inlong",
+        "airbyte",
+        "flink",
+        "meltano",
+        "sqoop",
+        "estuary",
+        "debezium"
+      ],
+      "top_rows_per_second": 187639.35460063152,
+      "top_over_second": 1.4827146565512779
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "products": [
+        "rust",
+        "go",
+        "sling",
+        "spark",
+        "seatunnel",
+        "inlong",
+        "airbyte",
+        "datax",
+        "flink",
+        "meltano",
+        "sqoop",
+        "estuary",
+        "debezium"
+      ],
+      "top_rows_per_second": 669892.5550282467,
+      "top_over_second": 1.6021158880951596
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "narrow",
+      "parts": 4,
+      "products": [
+        "rust",
+        "go",
+        "sling",
+        "seatunnel",
+        "spark",
+        "datax"
+      ],
+      "top_rows_per_second": 525028.3153043658,
+      "top_over_second": 2.1607201331667167
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "wide",
+      "parts": 4,
+      "products": [
+        "rust",
+        "go",
+        "sling",
+        "datax",
+        "seatunnel",
+        "spark"
+      ],
+      "top_rows_per_second": 317944.5484069098,
+      "top_over_second": 1.621134555611086
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "narrow10m",
+      "parts": 4,
+      "products": [
+        "rust",
+        "spark",
+        "sling",
+        "go",
+        "datax",
+        "seatunnel"
+      ],
+      "top_rows_per_second": 1278092.8673585053,
+      "top_over_second": 2.773316730754182
+    }
+  ],
+  "parallel_speedups": [
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "debezium",
+      "p4_over_p1": 2.905290039808816,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "airbyte",
+      "p4_over_p1": 0.9959454461400329,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "spark",
+      "p4_over_p1": 1.8747311826619515,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "flink",
+      "p4_over_p1": 1.6165887697844545,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "rust_ranges",
+      "p4_over_p1": 1.8034934721512226,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "rust",
+      "p4_over_p1": 1.8292058523797863,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "inlong",
+      "p4_over_p1": 1.8809575649187535,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "meltano",
+      "p4_over_p1": 3.5857704698456585,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "seatunnel",
+      "p4_over_p1": 2.117271139142354,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "datax",
+      "p4_over_p1": 3.5354442546526785,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "go",
+      "p4_over_p1": 1.5474578262920577,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "debezium_bulk",
+      "p4_over_p1": 2.2805313944963146,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "sling",
+      "p4_over_p1": 0.906229492144922,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "sqoop",
+      "p4_over_p1": 2.337702195102155,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "product": "estuary",
+      "p4_over_p1": 3.462866970495894,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "debezium",
+      "p4_over_p1": 3.0001665620282836,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "airbyte",
+      "p4_over_p1": 0.984132586862438,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "spark",
+      "p4_over_p1": 2.0196014852929483,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "flink",
+      "p4_over_p1": 1.703890051163596,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "rust_ranges",
+      "p4_over_p1": 1.7187986928662087,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "rust",
+      "p4_over_p1": 1.6458505205282594,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "inlong",
+      "p4_over_p1": 2.1228510214947502,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "meltano",
+      "p4_over_p1": 3.3618766673454594,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "seatunnel",
+      "p4_over_p1": 2.1801834361622503,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "datax",
+      "p4_over_p1": 2.84012995360969,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "go",
+      "p4_over_p1": 1.3098135243686129,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "debezium_bulk",
+      "p4_over_p1": 2.219324119584492,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "sling",
+      "p4_over_p1": 1.1139354422522927,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "sqoop",
+      "p4_over_p1": 2.459338387560418,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "product": "estuary",
+      "p4_over_p1": 2.7673803464981597,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow10m",
+      "product": "spark",
+      "p4_over_p1": 3.1368253319234785,
+      "repeats": [
+        1,
+        1
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "narrow",
+      "product": "sling",
+      "p4_over_p1": 0.9304469290514826,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "narrow",
+      "product": "rust_ranges",
+      "p4_over_p1": 1.2101187065890713,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "narrow",
+      "product": "seatunnel",
+      "p4_over_p1": 1.6403062379300477,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "narrow",
+      "product": "datax",
+      "p4_over_p1": 1.000536868077797,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "narrow",
+      "product": "go",
+      "p4_over_p1": 1.8292032529942102,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "narrow",
+      "product": "rust",
+      "p4_over_p1": 1.2221099435696932,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "narrow",
+      "product": "spark",
+      "p4_over_p1": 1.2370766491100662,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "wide",
+      "product": "sling",
+      "p4_over_p1": 1.5137537369797238,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "wide",
+      "product": "rust_ranges",
+      "p4_over_p1": 1.4422691237747123,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "wide",
+      "product": "seatunnel",
+      "p4_over_p1": 2.027792836925362,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "wide",
+      "product": "datax",
+      "p4_over_p1": 2.7433896813934036,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "wide",
+      "product": "go",
+      "p4_over_p1": 1.922066572136411,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "wide",
+      "product": "rust",
+      "p4_over_p1": 1.6483275122699044,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "wide",
+      "product": "spark",
+      "p4_over_p1": 2.1821667753334117,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "narrow10m",
+      "product": "seatunnel",
+      "p4_over_p1": 2.6743479047212015,
+      "repeats": [
+        1,
+        1
+      ]
+    }
+  ],
+  "rust_auto_vs_exact": [
+    {
+      "route": "pg-pg",
+      "dataset": "narrow",
+      "auto_over_exact": 1.0055243092170028
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "wide",
+      "auto_over_exact": 1.0447926561921035
+    },
+    {
+      "route": "pg-pg",
+      "dataset": "narrow10m",
+      "auto_over_exact": 1.074214282430526
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "narrow",
+      "auto_over_exact": 0.9901892007225944
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "wide",
+      "auto_over_exact": 1.0463337168820528
+    },
+    {
+      "route": "pg-ch",
+      "dataset": "narrow10m",
+      "auto_over_exact": 0.9286225418902843
+    }
+  ],
+  "debezium_bulk_vs_baseline": [
+    {
+      "dataset": "narrow",
+      "parts": 1,
+      "bulk_over_baseline": 1.9539098890541846,
+      "cpu_efficiency_ratio": 1.4525588666056686,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "dataset": "narrow",
+      "parts": 4,
+      "bulk_over_baseline": 1.533737693293474,
+      "cpu_efficiency_ratio": 1.2415225040939928,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "dataset": "narrow",
+      "parts": 16,
+      "bulk_over_baseline": 0.994455080420317,
+      "cpu_efficiency_ratio": 1.0433078281276982,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "dataset": "wide",
+      "parts": 1,
+      "bulk_over_baseline": 2.2919365128983373,
+      "cpu_efficiency_ratio": 1.5412823698718074,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "dataset": "wide",
+      "parts": 4,
+      "bulk_over_baseline": 1.695422530205408,
+      "cpu_efficiency_ratio": 1.3383132381110783,
+      "repeats": [
+        3,
+        3
+      ]
+    },
+    {
+      "dataset": "narrow10m",
+      "parts": 4,
+      "bulk_over_baseline": 2.0513916493136293,
+      "cpu_efficiency_ratio": 1.398777199820697,
+      "repeats": [
+        1,
+        1
+      ]
+    }
+  ],
+  "scale_changes": [
+    {
+      "route": "pg-pg",
+      "product": "debezium",
+      "throughput_10m_over_1m": 1.4371093872198462,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "airbyte",
+      "throughput_10m_over_1m": 1.5202862012002474,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "flink",
+      "throughput_10m_over_1m": 2.719999315157776,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "rust_ranges",
+      "throughput_10m_over_1m": 1.4979812386084328,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "spark",
+      "throughput_10m_over_1m": 2.5684885103281334,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "rust",
+      "throughput_10m_over_1m": 1.6003122217693457,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "inlong",
+      "throughput_10m_over_1m": 2.469545889610192,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "meltano",
+      "throughput_10m_over_1m": 1.13087713608227,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "go",
+      "throughput_10m_over_1m": 2.480668921045466,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "seatunnel",
+      "throughput_10m_over_1m": 1.855735440476905,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "debezium_bulk",
+      "throughput_10m_over_1m": 1.9221501883822567,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "datax",
+      "throughput_10m_over_1m": 1.158951924688299,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "sling",
+      "throughput_10m_over_1m": 2.7243489811412545,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "sqoop",
+      "throughput_10m_over_1m": 1.2612125830277512,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-pg",
+      "product": "estuary",
+      "throughput_10m_over_1m": 1.0825322792905554,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "product": "rust_ranges",
+      "throughput_10m_over_1m": 2.5957248148432335,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "product": "spark",
+      "throughput_10m_over_1m": 4.780404473368652,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "product": "rust",
+      "throughput_10m_over_1m": 2.4343313114790353,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "product": "seatunnel",
+      "throughput_10m_over_1m": 2.894878543465941,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "product": "datax",
+      "throughput_10m_over_1m": 3.6743586326309794,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "product": "go",
+      "throughput_10m_over_1m": 1.733468591655115,
+      "repeats": [
+        3,
+        1
+      ]
+    },
+    {
+      "route": "pg-ch",
+      "product": "sling",
+      "throughput_10m_over_1m": 3.1927614389542622,
+      "repeats": [
+        3,
+        1
+      ]
+    }
+  ]
+}

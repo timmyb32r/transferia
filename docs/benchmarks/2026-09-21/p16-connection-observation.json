@@ -1,0 +1,23 @@
+{
+  "captured_at": "2026-09-21T02:46:37.631824+00:00",
+  "containers": "fair21_debezium_bulk_narrow_p16_r1_1789958792",
+  "source": [
+    [
+      "",
+      "idle",
+      16
+    ],
+    [
+      "unknown - [2a02:6b8:c2d:74e:0:525d:ffbe:0]:50780",
+      "idle",
+      1
+    ]
+  ],
+  "pg": [
+    [
+      "",
+      "idle",
+      80
+    ]
+  ]
+}

@@ -1,0 +1,582 @@
+[
+  {
+    "name": "debezium_bulk_narrow_p16_r1_1789958792",
+    "product": "debezium_bulk",
+    "dataset": "narrow",
+    "parts": 16,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 67,
+    "logical_file_bytes": 191920227,
+    "allocated_file_bytes": 191963136
+  },
+  {
+    "name": "debezium_bulk_narrow_p16_r2_1789958906",
+    "product": "debezium_bulk",
+    "dataset": "narrow",
+    "parts": 16,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 67,
+    "logical_file_bytes": 190505811,
+    "allocated_file_bytes": 190541824
+  },
+  {
+    "name": "debezium_bulk_narrow_p4_r1_1789957515",
+    "product": "debezium_bulk",
+    "dataset": "narrow",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 55,
+    "logical_file_bytes": 162718473,
+    "allocated_file_bytes": 162729984
+  },
+  {
+    "name": "debezium_narrow_p16_r1_1789958737",
+    "product": "debezium",
+    "dataset": "narrow",
+    "parts": 16,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 67,
+    "logical_file_bytes": 3594015995,
+    "allocated_file_bytes": 3594129408
+  },
+  {
+    "name": "debezium_narrow_p16_r2_1789958849",
+    "product": "debezium",
+    "dataset": "narrow",
+    "parts": 16,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 67,
+    "logical_file_bytes": 3594957855,
+    "allocated_file_bytes": 3595055104
+  },
+  {
+    "name": "debezium_narrow_p16_r3_1789958963",
+    "product": "debezium",
+    "dataset": "narrow",
+    "parts": 16,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 67,
+    "logical_file_bytes": 3594647093,
+    "allocated_file_bytes": 3594747904
+  },
+  {
+    "name": "debezium_narrow_p1_r1_1789956111",
+    "product": "debezium",
+    "dataset": "narrow",
+    "parts": 1,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 55,
+    "logical_file_bytes": 3580180962,
+    "allocated_file_bytes": 3580219392
+  },
+  {
+    "name": "debezium_narrow_p4_r1_1789956606",
+    "product": "debezium",
+    "dataset": "narrow",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 55,
+    "logical_file_bytes": 3583409728,
+    "allocated_file_bytes": 3583442944
+  },
+  {
+    "name": "debezium_wide_p1_r1_1789958138",
+    "product": "debezium",
+    "dataset": "wide",
+    "parts": 1,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 56,
+    "logical_file_bytes": 4491283329,
+    "allocated_file_bytes": 4491321344
+  },
+  {
+    "name": "debezium_wide_p4_r1_1789957954",
+    "product": "debezium",
+    "dataset": "wide",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 59,
+    "logical_file_bytes": 4493392627,
+    "allocated_file_bytes": 4493430784
+  },
+  {
+    "name": "estuary_narrow_p1_r1_1789955162",
+    "product": "estuary",
+    "dataset": "narrow",
+    "parts": 1,
+    "kind": "Flow local-preview JSONL staging fixtures",
+    "files": 1,
+    "logical_file_bytes": 445741090,
+    "allocated_file_bytes": 445743104
+  },
+  {
+    "name": "estuary_narrow_p4_r1_1789956971",
+    "product": "estuary",
+    "dataset": "narrow",
+    "parts": 4,
+    "kind": "Flow local-preview JSONL staging fixtures",
+    "files": 4,
+    "logical_file_bytes": 445074430,
+    "allocated_file_bytes": 445091840
+  },
+  {
+    "name": "estuary_wide_p1_r1_1789957297",
+    "product": "estuary",
+    "dataset": "wide",
+    "parts": 1,
+    "kind": "Flow local-preview JSONL staging fixtures",
+    "files": 1,
+    "logical_file_bytes": 1367741090,
+    "allocated_file_bytes": 1367748608
+  },
+  {
+    "name": "estuary_wide_p4_r1_1789958583",
+    "product": "estuary",
+    "dataset": "wide",
+    "parts": 4,
+    "kind": "Flow local-preview JSONL staging fixtures",
+    "files": 4,
+    "logical_file_bytes": 1366824430,
+    "allocated_file_bytes": 1366847488
+  },
+  {
+    "name": "sqoop_narrow_p1_r1_1789956741",
+    "product": "sqoop",
+    "dataset": "narrow",
+    "parts": 1,
+    "kind": "Sqoop local import output",
+    "files": 1,
+    "logical_file_bytes": 127947310,
+    "allocated_file_bytes": 127954944
+  },
+  {
+    "name": "sqoop_narrow_p4_r1_1789956867",
+    "product": "sqoop",
+    "dataset": "narrow",
+    "parts": 4,
+    "kind": "Sqoop local import output",
+    "files": 4,
+    "logical_file_bytes": 127947310,
+    "allocated_file_bytes": 127954944
+  },
+  {
+    "name": "sqoop_wide_p1_r1_1789957680",
+    "product": "sqoop",
+    "dataset": "wide",
+    "parts": 1,
+    "kind": "Sqoop local import output",
+    "files": 1,
+    "logical_file_bytes": 1055947310,
+    "allocated_file_bytes": 1055952896
+  },
+  {
+    "name": "sqoop_wide_p4_r1_1789957250",
+    "product": "sqoop",
+    "dataset": "wide",
+    "parts": 4,
+    "kind": "Sqoop local import output",
+    "files": 4,
+    "logical_file_bytes": 1055947310,
+    "allocated_file_bytes": 1055969280
+  },
+  {
+    "name": "debezium_bulk_narrow_p16_r3_1789959019",
+    "product": "debezium_bulk",
+    "dataset": "narrow",
+    "parts": 16,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 67,
+    "logical_file_bytes": 192823522,
+    "allocated_file_bytes": 192856064
+  },
+  {
+    "name": "debezium_bulk_narrow_p1_r1_1789959076",
+    "product": "debezium_bulk",
+    "dataset": "narrow",
+    "parts": 1,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 52,
+    "logical_file_bytes": 139814815,
+    "allocated_file_bytes": 139829248
+  },
+  {
+    "name": "debezium_bulk_narrow_p1_r2_1789963471",
+    "product": "debezium_bulk",
+    "dataset": "narrow",
+    "parts": 1,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 52,
+    "logical_file_bytes": 139864830,
+    "allocated_file_bytes": 139878400
+  },
+  {
+    "name": "debezium_bulk_narrow_p1_r3_1789965154",
+    "product": "debezium_bulk",
+    "dataset": "narrow",
+    "parts": 1,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 52,
+    "logical_file_bytes": 139805235,
+    "allocated_file_bytes": 139816960
+  },
+  {
+    "name": "debezium_bulk_narrow_p4_r2_1789964435",
+    "product": "debezium_bulk",
+    "dataset": "narrow",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 55,
+    "logical_file_bytes": 162665826,
+    "allocated_file_bytes": 162693120
+  },
+  {
+    "name": "debezium_bulk_narrow_p4_r3_1789964996",
+    "product": "debezium_bulk",
+    "dataset": "narrow",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 55,
+    "logical_file_bytes": 163332344,
+    "allocated_file_bytes": 163348480
+  },
+  {
+    "name": "debezium_bulk_wide_p1_r1_1789959283",
+    "product": "debezium_bulk",
+    "dataset": "wide",
+    "parts": 1,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 52,
+    "logical_file_bytes": 160178775,
+    "allocated_file_bytes": 160194560
+  },
+  {
+    "name": "debezium_bulk_wide_p1_r2_1789963314",
+    "product": "debezium_bulk",
+    "dataset": "wide",
+    "parts": 1,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 52,
+    "logical_file_bytes": 160035369,
+    "allocated_file_bytes": 160047104
+  },
+  {
+    "name": "debezium_bulk_wide_p1_r3_1789966480",
+    "product": "debezium_bulk",
+    "dataset": "wide",
+    "parts": 1,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 52,
+    "logical_file_bytes": 160151490,
+    "allocated_file_bytes": 160161792
+  },
+  {
+    "name": "debezium_bulk_wide_p4_r1_1789959212",
+    "product": "debezium_bulk",
+    "dataset": "wide",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 55,
+    "logical_file_bytes": 184939303,
+    "allocated_file_bytes": 184963072
+  },
+  {
+    "name": "debezium_bulk_wide_p4_r2_1789962593",
+    "product": "debezium_bulk",
+    "dataset": "wide",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 55,
+    "logical_file_bytes": 185678478,
+    "allocated_file_bytes": 185700352
+  },
+  {
+    "name": "debezium_bulk_wide_p4_r3_1789965677",
+    "product": "debezium_bulk",
+    "dataset": "wide",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 55,
+    "logical_file_bytes": 183974691,
+    "allocated_file_bytes": 184008704
+  },
+  {
+    "name": "debezium_narrow_p1_r2_1789962981",
+    "product": "debezium",
+    "dataset": "narrow",
+    "parts": 1,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 55,
+    "logical_file_bytes": 3580181322,
+    "allocated_file_bytes": 3580223488
+  },
+  {
+    "name": "debezium_narrow_p1_r3_1789966626",
+    "product": "debezium",
+    "dataset": "narrow",
+    "parts": 1,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 55,
+    "logical_file_bytes": 3580180887,
+    "allocated_file_bytes": 3580219392
+  },
+  {
+    "name": "debezium_narrow_p4_r2_1789963622",
+    "product": "debezium",
+    "dataset": "narrow",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 55,
+    "logical_file_bytes": 3583028883,
+    "allocated_file_bytes": 3583070208
+  },
+  {
+    "name": "debezium_narrow_p4_r3_1789967574",
+    "product": "debezium",
+    "dataset": "narrow",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 55,
+    "logical_file_bytes": 3583056445,
+    "allocated_file_bytes": 3583090688
+  },
+  {
+    "name": "debezium_wide_p1_r2_1789960657",
+    "product": "debezium",
+    "dataset": "wide",
+    "parts": 1,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 56,
+    "logical_file_bytes": 4491281706,
+    "allocated_file_bytes": 4491321344
+  },
+  {
+    "name": "debezium_wide_p1_r3_1789967211",
+    "product": "debezium",
+    "dataset": "wide",
+    "parts": 1,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 56,
+    "logical_file_bytes": 4491283740,
+    "allocated_file_bytes": 4491321344
+  },
+  {
+    "name": "debezium_wide_p4_r2_1789963875",
+    "product": "debezium",
+    "dataset": "wide",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 59,
+    "logical_file_bytes": 4492653954,
+    "allocated_file_bytes": 4492697600
+  },
+  {
+    "name": "estuary_narrow_p1_r2_1789963728",
+    "product": "estuary",
+    "dataset": "narrow",
+    "parts": 1,
+    "kind": "Flow local-preview JSONL staging fixtures",
+    "files": 1,
+    "logical_file_bytes": 445741090,
+    "allocated_file_bytes": 445747200
+  },
+  {
+    "name": "estuary_narrow_p1_r3_1789967916",
+    "product": "estuary",
+    "dataset": "narrow",
+    "parts": 1,
+    "kind": "Flow local-preview JSONL staging fixtures",
+    "files": 1,
+    "logical_file_bytes": 445741090,
+    "allocated_file_bytes": 445747200
+  },
+  {
+    "name": "estuary_narrow_p4_r2_1789961747",
+    "product": "estuary",
+    "dataset": "narrow",
+    "parts": 4,
+    "kind": "Flow local-preview JSONL staging fixtures",
+    "files": 4,
+    "logical_file_bytes": 445074430,
+    "allocated_file_bytes": 445100032
+  },
+  {
+    "name": "estuary_narrow_p4_r3_1789967049",
+    "product": "estuary",
+    "dataset": "narrow",
+    "parts": 4,
+    "kind": "Flow local-preview JSONL staging fixtures",
+    "files": 4,
+    "logical_file_bytes": 444824430,
+    "allocated_file_bytes": 444846080
+  },
+  {
+    "name": "estuary_wide_p1_r2_1789961555",
+    "product": "estuary",
+    "dataset": "wide",
+    "parts": 1,
+    "kind": "Flow local-preview JSONL staging fixtures",
+    "files": 1,
+    "logical_file_bytes": 1367741090,
+    "allocated_file_bytes": 1367748608
+  },
+  {
+    "name": "estuary_wide_p1_r3_1789965296",
+    "product": "estuary",
+    "dataset": "wide",
+    "parts": 1,
+    "kind": "Flow local-preview JSONL staging fixtures",
+    "files": 1,
+    "logical_file_bytes": 1367741090,
+    "allocated_file_bytes": 1367748608
+  },
+  {
+    "name": "estuary_wide_p4_r2_1789962912",
+    "product": "estuary",
+    "dataset": "wide",
+    "parts": 4,
+    "kind": "Flow local-preview JSONL staging fixtures",
+    "files": 4,
+    "logical_file_bytes": 1367074430,
+    "allocated_file_bytes": 1367097344
+  },
+  {
+    "name": "estuary_wide_p4_r3_1789965597",
+    "product": "estuary",
+    "dataset": "wide",
+    "parts": 4,
+    "kind": "Flow local-preview JSONL staging fixtures",
+    "files": 4,
+    "logical_file_bytes": 1366824430,
+    "allocated_file_bytes": 1366847488
+  },
+  {
+    "name": "sqoop_narrow_p1_r2_1789962818",
+    "product": "sqoop",
+    "dataset": "narrow",
+    "parts": 1,
+    "kind": "Sqoop local import output",
+    "files": 1,
+    "logical_file_bytes": 127947310,
+    "allocated_file_bytes": 127950848
+  },
+  {
+    "name": "sqoop_narrow_p1_r3_1789966165",
+    "product": "sqoop",
+    "dataset": "narrow",
+    "parts": 1,
+    "kind": "Sqoop local import output",
+    "files": 1,
+    "logical_file_bytes": 127947310,
+    "allocated_file_bytes": 127954944
+  },
+  {
+    "name": "sqoop_narrow_p4_r2_1789964327",
+    "product": "sqoop",
+    "dataset": "narrow",
+    "parts": 4,
+    "kind": "Sqoop local import output",
+    "files": 4,
+    "logical_file_bytes": 127947310,
+    "allocated_file_bytes": 127954944
+  },
+  {
+    "name": "sqoop_narrow_p4_r3_1789966092",
+    "product": "sqoop",
+    "dataset": "narrow",
+    "parts": 4,
+    "kind": "Sqoop local import output",
+    "files": 4,
+    "logical_file_bytes": 127947310,
+    "allocated_file_bytes": 127954944
+  },
+  {
+    "name": "sqoop_wide_p1_r2_1789961975",
+    "product": "sqoop",
+    "dataset": "wide",
+    "parts": 1,
+    "kind": "Sqoop local import output",
+    "files": 1,
+    "logical_file_bytes": 1055947310,
+    "allocated_file_bytes": 1055952896
+  },
+  {
+    "name": "sqoop_wide_p4_r2_1789961352",
+    "product": "sqoop",
+    "dataset": "wide",
+    "parts": 4,
+    "kind": "Sqoop local import output",
+    "files": 4,
+    "logical_file_bytes": 1055947310,
+    "allocated_file_bytes": 1055969280
+  },
+  {
+    "name": "sqoop_wide_p4_r3_1789966422",
+    "product": "sqoop",
+    "dataset": "wide",
+    "parts": 4,
+    "kind": "Sqoop local import output",
+    "files": 4,
+    "logical_file_bytes": 1055947310,
+    "allocated_file_bytes": 1055969280
+  },
+  {
+    "name": "debezium_wide_p4_r3_1789968071",
+    "product": "debezium",
+    "dataset": "wide",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 59,
+    "logical_file_bytes": 4493389233,
+    "allocated_file_bytes": 4493426688
+  },
+  {
+    "name": "sqoop_wide_p1_r3_1789968188",
+    "product": "sqoop",
+    "dataset": "wide",
+    "parts": 1,
+    "kind": "Sqoop local import output",
+    "files": 1,
+    "logical_file_bytes": 1055947310,
+    "allocated_file_bytes": 1055952896
+  },
+  {
+    "name": "debezium_bulk_narrow10m_p4_r1_1789970229",
+    "product": "debezium_bulk",
+    "dataset": "narrow10m",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 55,
+    "logical_file_bytes": 1635695726,
+    "allocated_file_bytes": 1635733504
+  },
+  {
+    "name": "debezium_narrow10m_p4_r1_1789968760",
+    "product": "debezium",
+    "dataset": "narrow10m",
+    "parts": 4,
+    "kind": "Kafka record log files, including metadata log",
+    "files": 87,
+    "logical_file_bytes": 36199871381,
+    "allocated_file_bytes": 36200108032
+  },
+  {
+    "name": "sqoop_narrow10m_p4_r1_1789969940",
+    "product": "sqoop",
+    "dataset": "narrow10m",
+    "parts": 4,
+    "kind": "Sqoop local import output",
+    "files": 4,
+    "logical_file_bytes": 1299455978,
+    "allocated_file_bytes": 1299484672
+  },
+  {
+    "name": "estuary_narrow10m_p4_r1_1789971219",
+    "product": "estuary",
+    "dataset": "narrow10m",
+    "parts": 4,
+    "kind": "Flow local-preview JSONL staging fixtures",
+    "files": 4,
+    "logical_file_bytes": 4580727098,
+    "allocated_file_bytes": 4580757504
+  }
+]

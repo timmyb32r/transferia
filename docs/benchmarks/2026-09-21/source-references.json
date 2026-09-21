@@ -1,0 +1,114 @@
+{
+  "transferia-go": {
+    "commit": "d32b451f3579688a5cebd88032a266565bc96c35",
+    "remote": "https://github.com/transferia/transferia.git",
+    "local_path": "target/research/table-splitting/sources/transferia-go"
+  },
+  "seatunnel": {
+    "commit": "ea3df1667719520c51d40546d04f50912ba24313",
+    "remote": "https://github.com/apache/seatunnel.git",
+    "local_path": "target/research/table-splitting/sources/seatunnel",
+    "inspected_release_tag": "2.3.12",
+    "inspected_release_commit": "1fce0a77c7af34884d4776bbb8c3f728a433f2e0"
+  },
+  "sling": {
+    "commit": "9db0426f81e45f8c8cf841e2883f50b38a3fb740",
+    "remote": "https://github.com/slingdata-io/sling-cli.git",
+    "local_path": "target/research/table-splitting/sources/sling"
+  },
+  "datax": {
+    "commit": "80ec23d5c5328eb90ca364d2749e92dfaf44541e",
+    "remote": "https://github.com/alibaba/DataX.git",
+    "local_path": "target/research/table-splitting/sources/datax"
+  },
+  "debezium": {
+    "commit": "93cd1a45e7e0344fdb6024014130b2fdbc88e7ef",
+    "remote": "https://github.com/debezium/debezium.git",
+    "local_path": "target/research/table-splitting/sources/debezium",
+    "measured_version": "3.6.3.Final",
+    "version_matched_commit": "8ee69a6972ae1ab50b90550a0b5bef082ff8bdd3"
+  },
+  "flink-cdc": {
+    "commit": "a1ec262c5f1564ba009681832c77e685478f84a8",
+    "remote": "https://github.com/apache/flink-cdc.git",
+    "local_path": "target/research/table-splitting/sources/flink-cdc",
+    "inspected_release_tag": "release-3.4.0",
+    "inspected_release_commit": "06581fc73b84b1da45fccf93441d96a118d9bfc1"
+  },
+  "flink-jdbc": {
+    "commit": "73a3f34f455d43aa252106b109ea02d27fc3fadb",
+    "remote": "https://github.com/apache/flink-connector-jdbc.git",
+    "local_path": "target/research/table-splitting/sources/flink-jdbc"
+  },
+  "inlong": {
+    "commit": "13c437946fcf503aa5d9c5cb7d9e3ae135e1911b",
+    "remote": "https://github.com/apache/inlong.git",
+    "local_path": "target/research/table-splitting/sources/inlong",
+    "inspected_release_tag": "2.4.0-RC0",
+    "inspected_release_commit": "d348b01bda8e64a8743799bff52d9293aad18753",
+    "release_tag_note": "Repository exposes the release-candidate tag; binary identity remains pinned separately by distribution/image metadata."
+  },
+  "meltano": {
+    "commit": "f91d2e4f0d93065d7ca50ff775124382f4db2d0e",
+    "remote": "https://github.com/meltano/meltano.git",
+    "local_path": "target/research/table-splitting/sources/meltano"
+  },
+  "singer-postgres": {
+    "commit": "821f1cfdc0942f3ca839d4cf5abacb18858ac64a",
+    "remote": "https://github.com/singer-io/tap-postgres.git",
+    "local_path": "target/research/table-splitting/sources/singer-postgres"
+  },
+  "singer-sdk": {
+    "commit": "ce2e8f2b7fc145fd610965c713794839d137fe1d",
+    "remote": "https://github.com/meltano/sdk.git",
+    "local_path": "target/research/table-splitting/sources/singer-sdk"
+  },
+  "spark": {
+    "commit": "e151681a240a419f3921ecb337c6090572f0fbe9",
+    "remote": "https://github.com/apache/spark.git",
+    "local_path": "target/research/table-splitting/sources/spark",
+    "inspected_release_tag": "v3.5.7",
+    "inspected_release_commit": "ed00d046951a7ecda6429accd3b9c5b2dc792b65"
+  },
+  "sqoop": {
+    "commit": "f8beae32a067d72bf9ed6e903b041ad347ca5491",
+    "remote": "https://github.com/apache/sqoop.git",
+    "local_path": "target/research/table-splitting/sources/sqoop",
+    "inspected_release_tag": "release-1.4.7-rc0",
+    "inspected_release_commit": "2328971411f57f0cb683dfb79d19d4d19d185dd8",
+    "release_tag_note": "Repository exposes the release-candidate tag; binary identity remains pinned separately by distribution/image metadata."
+  },
+  "estuary-connectors": {
+    "commit": "262fcee1dab22b57a234e247f8b65b93a7bf0032",
+    "remote": "https://github.com/estuary/connectors.git",
+    "local_path": "target/research/table-splitting/sources/estuary-connectors"
+  },
+  "transferia-rust": {
+    "commit": "27b0f4e1629d32d7c969140a4c1cb081e9d8f83a",
+    "note": "isolated server source snapshot; Auto original and separate exact-range evaluator patch"
+  },
+  "airbyte": {
+    "commit": "156d6d32937c546b048c010dcb7cfbe52201341e",
+    "remote": "https://github.com/airbytehq/airbyte.git",
+    "local_path": "target/research/table-splitting/sources/airbyte"
+  },
+  "meltanolabs-tap-postgres": {
+    "commit": "78332a27922e121eef32b78d5c5cdf3141e9eca2",
+    "remote": "https://github.com/MeltanoLabs/tap-postgres.git",
+    "local_path": "target/research/table-splitting/sources/meltanolabs-tap-postgres"
+  },
+  "meltanolabs-target-postgres": {
+    "commit": "0e6eb1f50e26aa075622008920424445b867b9e5",
+    "remote": "https://github.com/MeltanoLabs/target-postgres.git",
+    "local_path": "target/research/table-splitting/sources/meltanolabs-target-postgres"
+  },
+  "pgjdbc-42.3.3": {
+    "artifact_url": "https://repo.maven.apache.org/maven2/org/postgresql/postgresql/42.3.3/postgresql-42.3.3-sources.jar",
+    "inspected_class": "org/postgresql/jdbc/PgPreparedStatement.java",
+    "local_path": "target/benchmarks/fair-20260921/postgresql-42.3.3-sources.jar"
+  },
+  "pgjdbc-42.7.13": {
+    "source_url": "https://github.com/pgjdbc/pgjdbc/blob/REL42.7.13/pgjdbc/src/main/java/org/postgresql/jdbc/PgPreparedStatement.java",
+    "note": "Version-matched upstream source; batch rewrite geometry inspected."
+  }
+}

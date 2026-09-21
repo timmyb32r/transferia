@@ -1,0 +1,39 @@
+{
+  "captured_at": "2026-09-21T05:10:00.664247+00:00",
+  "clusters": [
+    {
+      "id": "mdbf9cs75hqtqsvdah9t",
+      "type": "managed-postgresql",
+      "status": "RUNNING",
+      "resources": {
+        "resource_preset_id": "s4-c32-m128",
+        "disk_size": "2147483648000",
+        "disk_type_id": "local-ssd"
+      },
+      "version": "17"
+    },
+    {
+      "id": "mdb2mf6h3fqnotfghglb",
+      "type": "managed-postgresql",
+      "status": "RUNNING",
+      "resources": {
+        "resource_preset_id": "s4-c32-m128",
+        "disk_size": "2147483648000",
+        "disk_type_id": "local-ssd"
+      },
+      "version": "17"
+    },
+    {
+      "id": "mdbppa6uaripnodn0034",
+      "type": "managed-clickhouse",
+      "status": "RUNNING",
+      "resources": null,
+      "version": "26.3",
+      "clickhouse_resources": {
+        "resource_preset_id": "s4-c32-m128",
+        "disk_size": "2147483648000",
+        "disk_type_id": "local-ssd"
+      }
+    }
+  ]
+}

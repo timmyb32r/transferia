@@ -1,0 +1,302 @@
+[
+  {
+    "dataset": "narrow",
+    "diagnostic_repetition": 3,
+    "delta_updates": true,
+    "result": {
+      "name": "estuary_narrow_p4_r0_1789962265",
+      "product": "estuary",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "local-preview-external-ranges-staged-diagnostic-delta-updates",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:44:25.171191+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 17.956493839155883,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 65.658321873,
+      "peak_rss_bytes": 398368768,
+      "cgroup_peak_bytes": 674066432,
+      "cpu_percent": 365.6522395804555,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 236.0,
+          "execution_ms": 428.7130439989269,
+          "rows": 1000732.0,
+          "shared_blocks_hit": 24247.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 1001076.0,
+          "execution_ms": 3727.7255679999944,
+          "rows": 1018252.0,
+          "shared_blocks_hit": 3740701.0,
+          "shared_blocks_read": 6.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 264112889.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 55690.15916789962,
+      "rows_per_cpu_second": 15230.361841020791
+    }
+  },
+  {
+    "dataset": "wide",
+    "diagnostic_repetition": 3,
+    "delta_updates": true,
+    "result": {
+      "name": "estuary_wide_p4_r0_1789962284",
+      "product": "estuary",
+      "dataset": "wide",
+      "parts_requested": 4,
+      "variant": "local-preview-external-ranges-staged-diagnostic-delta-updates",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:44:44.938600+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 26.11065406911075,
+      "observed_max_active_source_queries": 4,
+      "observer_error": null,
+      "cpu_seconds": 104.788200873,
+      "peak_rss_bytes": 459767808,
+      "cgroup_peak_bytes": 1652383744,
+      "cpu_percent": 401.3235386430469,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 236.0,
+          "execution_ms": 10608.737268999219,
+          "rows": 1000732.0,
+          "shared_blocks_hit": 146541.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 1001076.0,
+          "execution_ms": 7219.054814000265,
+          "rows": 1018370.0,
+          "shared_blocks_hit": 4269425.0,
+          "shared_blocks_read": 1.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 1196237931.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 38298.54270801332,
+      "rows_per_cpu_second": 9543.05915808182
+    }
+  },
+  {
+    "dataset": "wide",
+    "diagnostic_repetition": 1,
+    "delta_updates": true,
+    "result": {
+      "name": "estuary_wide_p4_r0_1789962317",
+      "product": "estuary",
+      "dataset": "wide",
+      "parts_requested": 4,
+      "variant": "local-preview-external-ranges-staged-diagnostic-delta-updates",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:45:17.219661+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 26.34029572410509,
+      "observed_max_active_source_queries": 4,
+      "observer_error": null,
+      "cpu_seconds": 100.084164438,
+      "peak_rss_bytes": 471375872,
+      "cgroup_peak_bytes": 1651265536,
+      "cpu_percent": 379.9659862831717,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 236.0,
+          "execution_ms": 10836.762593001127,
+          "rows": 1000732.0,
+          "shared_blocks_hit": 146753.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 1001076.0,
+          "execution_ms": 8187.839371999609,
+          "rows": 1018487.0,
+          "shared_blocks_hit": 4413864.0,
+          "shared_blocks_read": 3.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 1196216122.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 37964.64589745888,
+      "rows_per_cpu_second": 9991.590633895721
+    }
+  },
+  {
+    "dataset": "narrow",
+    "diagnostic_repetition": 2,
+    "delta_updates": true,
+    "result": {
+      "name": "estuary_narrow_p4_r0_1789962349",
+      "product": "estuary",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "local-preview-external-ranges-staged-diagnostic-delta-updates",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:45:49.719653+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 18.029370992910117,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 63.782005255,
+      "peak_rss_bytes": 426983424,
+      "cgroup_peak_bytes": 672509952,
+      "cpu_percent": 353.767223937439,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 236.0,
+          "execution_ms": 454.48388800024986,
+          "rows": 1000732.0,
+          "shared_blocks_hit": 24303.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 1001076.0,
+          "execution_ms": 4113.36935900012,
+          "rows": 1018595.0,
+          "shared_blocks_hit": 3808626.0,
+          "shared_blocks_read": 1.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 264111100.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 55465.05201946539,
+      "rows_per_cpu_second": 15678.403273807513
+    }
+  },
+  {
+    "dataset": "narrow",
+    "diagnostic_repetition": 1,
+    "delta_updates": true,
+    "result": {
+      "name": "estuary_narrow_p4_r0_1789962369",
+      "product": "estuary",
+      "dataset": "narrow",
+      "parts_requested": 4,
+      "variant": "local-preview-external-ranges-staged-diagnostic-delta-updates",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:46:09.560730+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 17.854223243892193,
+      "observed_max_active_source_queries": 0,
+      "observer_error": null,
+      "cpu_seconds": 63.584205461,
+      "peak_rss_bytes": 402579456,
+      "cgroup_peak_bytes": 671531008,
+      "cpu_percent": 356.1297772097239,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 236.0,
+          "execution_ms": 443.294846996665,
+          "rows": 1000732.0,
+          "shared_blocks_hit": 24091.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 1001076.0,
+          "execution_ms": 4034.19357400015,
+          "rows": 1018714.0,
+          "shared_blocks_hit": 3813404.0,
+          "shared_blocks_read": 1.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 264106390.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 56009.15740437451,
+      "rows_per_cpu_second": 15727.176155615562
+    }
+  },
+  {
+    "dataset": "wide",
+    "diagnostic_repetition": 2,
+    "delta_updates": true,
+    "result": {
+      "name": "estuary_wide_p4_r0_1789962389",
+      "product": "estuary",
+      "dataset": "wide",
+      "parts_requested": 4,
+      "variant": "local-preview-external-ranges-staged-diagnostic-delta-updates",
+      "repetition": 0,
+      "route": "pg-pg",
+      "cpu_affinity": "0-15",
+      "memory_limit_bytes": 25769803776,
+      "started_utc": "2026-09-21T03:46:29.333256+00:00",
+      "status": "verified",
+      "returncode": 0,
+      "elapsed_seconds": 26.495809842366725,
+      "observed_max_active_source_queries": 4,
+      "observer_error": null,
+      "cpu_seconds": 100.141098718,
+      "peak_rss_bytes": 459825152,
+      "cgroup_peak_bytes": 1658208256,
+      "cpu_percent": 377.95069980414286,
+      "database_sql_work_delta": {
+        "source": {
+          "calls": 236.0,
+          "execution_ms": 10546.946531005204,
+          "rows": 1000732.0,
+          "shared_blocks_hit": 146541.0,
+          "shared_blocks_read": 0.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 0.0
+        },
+        "pg": {
+          "calls": 1001076.0,
+          "execution_ms": 8229.131103000022,
+          "rows": 1018828.0,
+          "shared_blocks_hit": 4425435.0,
+          "shared_blocks_read": 3.0,
+          "temp_blocks_written": 0.0,
+          "wal_bytes": 1196202184.0
+        }
+      },
+      "verified_rows": 1000000,
+      "verification": "all five cells of every row, deterministic expression; count/distinct/min/max identity check",
+      "rows_per_second": 37741.816760814865,
+      "rows_per_cpu_second": 9985.910008996672
+    }
+  }
+]

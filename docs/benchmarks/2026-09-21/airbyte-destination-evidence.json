@@ -1,0 +1,22 @@
+{
+  "runtime_destination_version": "3.0.18",
+  "dataset": "narrow10m",
+  "parts": 4,
+  "log_classes": [
+    "DirectLoadTableAppendStreamLoader",
+    "PostgresInsertBuffer"
+  ],
+  "matching_log_lines": 201,
+  "observed_completed_buffer_rows": 100000,
+  "persistent_tables_in_fair21_raw": [],
+  "final_table_airbyte_metadata_columns": [],
+  "examined_source_commit": "156d6d32937c546b048c010dcb7cfbe52201341e",
+  "examined_source_destination_version": "3.0.21",
+  "note": "Class names and completed-buffer sizes observed in runtime logs; inspected source version is not claimed binary-identical.",
+  "recorded_at": "2026-09-21T06:03:25.623579+00:00",
+  "run": "airbyte_narrow10m_p4_r1_1789969441",
+  "observed_messages": [
+    "AppendStreamLoader starting for stream fair21.narrow10m (generationId=1, minimumGenerationId=0)",
+    "Finished insert of 100000 row(s) into fair21.narrow10m"
+  ]
+}

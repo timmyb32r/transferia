@@ -1,5 +1,9 @@
 # Single-partition benchmarks
 
+For the cross-tool PostgreSQL snapshot comparison (one/four parts, CPU, memory,
+and ClickHouse/PostgreSQL destinations), see the
+[2026-09-21 report](benchmarks/2026-09-21/REPORT.md).
+
 The five configurations in `benchmarks/` form a measurement ladder:
 
 1. PQv1 network and read loop, discarding before decompression;

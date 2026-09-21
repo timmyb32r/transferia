@@ -1,0 +1,11 @@
+{
+  "accepted_comparison_runs": 294,
+  "accepted_diagnostic_runs": 55,
+  "resource_scope_validated_runs": 349,
+  "timing_overlaps": [],
+  "negative_sql_counter_deltas": [],
+  "destination_schema_issues": [],
+  "python_syntax": "passed",
+  "json_parse": "passed",
+  "note": "CPU/elapsed accounting and nonoverlap are checked from recorded summaries, not independently remeasured."
+}
