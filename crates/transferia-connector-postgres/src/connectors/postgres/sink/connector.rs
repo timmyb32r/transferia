@@ -197,6 +197,7 @@ impl SinkLimits for PostgresSinkConfig {
                 ArrowTypeFamily::UnsignedInteger,
                 ArrowTypeFamily::FloatingPoint,
                 ArrowTypeFamily::Boolean,
+                ArrowTypeFamily::Decimal,
                 ArrowTypeFamily::Date32,
                 ArrowTypeFamily::Timestamp,
             ],
@@ -277,18 +278,26 @@ impl SinkConnector for PostgresSinkConnector {
             if let Some(scope) = &self.speedtest_scope {
                 return self.prepare_speedtest(&mut client, request, scope).await;
             }
+            let transaction = observe_external_request(
+                "postgresql", "begin_sink_preparation", client.transaction(),
+            ).await?;
             for dataset in request.datasets {
                 if self.config.create_tables {
-                    client
-                        .batch_execute(&format!(
+                    observe_external_request(
+                        "postgresql", "prepare_sink_table",
+                        transaction.batch_execute(&format!(
                             "CREATE TABLE IF NOT EXISTS {} ({})",
                             quote_identifier(&dataset.table),
                             postgres_table_definitions(&dataset)?
-                        ))
-                        .await?;
+                        )),
+                    ).await?;
                 }
-                validate_changelog_primary_key(&client, &dataset).await?;
+                super::schema::validate_destination(&transaction, &dataset.table, &dataset.schema).await?;
+                validate_changelog_primary_key(&transaction, &dataset).await?;
             }
+            observe_external_request(
+                "postgresql", "commit_sink_preparation", transaction.commit(),
+            ).await?;
             Ok(())
         })
     }
@@ -790,10 +799,10 @@ where
     ))
 }
 
-fn postgres_catalog_type(data_type: &DataType) -> anyhow::Result<&'static str> {
+fn postgres_catalog_type(data_type: &DataType) -> anyhow::Result<String> {
     Ok(match data_type {
-        DataType::Timestamp(_, None) => "timestamp without time zone",
-        DataType::Timestamp(_, Some(_)) => "timestamp with time zone",
+        DataType::Timestamp(_, None) => "timestamp without time zone".to_owned(),
+        DataType::Timestamp(_, Some(_)) => "timestamp with time zone".to_owned(),
         _ => postgres_sql_type(data_type)?,
     })
 }
@@ -920,7 +929,7 @@ async fn drop_owned_postgres_table(
 }
 
 async fn validate_changelog_primary_key(
-    client: &tokio_postgres::Client,
+    client: &impl tokio_postgres::GenericClient,
     dataset: &transferia_registry::DatasetPrepare,
 ) -> anyhow::Result<()> {
     if !dataset.changelog {
@@ -962,8 +971,11 @@ async fn validate_changelog_primary_key(
     clippy::unreachable,
     reason = "arrow_to_postgres rejects every type outside this exhaustive supported subset"
 )]
-pub(super) fn postgres_sql_type(data_type: &DataType) -> anyhow::Result<&'static str> {
+pub(super) fn postgres_sql_type(data_type: &DataType) -> anyhow::Result<String> {
     arrow_to_postgres(data_type)?;
+    if let DataType::Decimal128(precision, scale) = data_type {
+        return Ok(format!("numeric({precision},{scale})"));
+    }
     Ok(match data_type {
         DataType::Boolean => "boolean",
         DataType::Int8 => "\"char\"",
@@ -980,5 +992,5 @@ pub(super) fn postgres_sql_type(data_type: &DataType) -> anyhow::Result<&'static
         DataType::Timestamp(_, None) => "timestamp",
         DataType::Timestamp(_, Some(_)) => "timestamp with time zone",
         _ => unreachable!(),
-    })
+    }.to_owned())
 }

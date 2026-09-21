@@ -1034,3 +1034,61 @@ fn wal2json_toasted_transaction() -> String {
     }"#
     .to_owned()
 }
+
+#[test]
+fn cdc_numeric_preserves_exact_coefficients_nulls_and_rejects_rounding() {
+    use arrow::array::{Array as _, Decimal128Array};
+    let table = DiscoveredTable {
+        config: TableConfig { schema: "public".into(), name: "decimal_values".into() },
+        schema: DatasetSchema::new(vec![SchemaColumn::new("amount".into(), DataType::Decimal128(24, 4), true)]),
+        type_oids: vec![1700], replica_identity_full: false, replica_identity: "d".into(), relation_oid: 16400,
+    };
+    let event = |value| ChangeEvent {
+        schema: Arc::from("public"), table: Arc::from("decimal_values"), operation: ChangeOperation::Create,
+        values: vec![value], old_values: None, old_values_kind: None,
+        lsn: END_LSN, transaction_id: TRANSACTION_ID, commit_timestamp_micros: COMMIT_MICROS,
+    };
+    let values = [event(LogicalValue::Text(Bytes::from_static(b"18446744073709551615.0123"))), event(LogicalValue::Null)];
+    let data = events_to_table_data(&table, "postgres", &values).unwrap();
+    let array = data.batch.column(0).as_any().downcast_ref::<Decimal128Array>().unwrap();
+    assert_eq!(array.value(0), 184467440737095516150123_i128);
+    assert!(array.is_null(1));
+    for value in ["NaN", "Infinity", "1.00001", "100000000000000000000.0000"] {
+        assert!(events_to_table_data(&table, "postgres", &[event(LogicalValue::Text(Bytes::copy_from_slice(value.as_bytes())))]).is_err());
+    }
+}
+
+#[test]
+fn wal2json_preserves_numeric_lexemes_beyond_f64_and_u64() {
+    let input = br#"{"xid":7,"nextlsn":"0/65","timestamp":"2024-01-01 00:00:00+00","change":[{"kind":"insert","schema":"public","table":"amounts","columnnames":["large","fraction","document"],"columntypeoids":[1700,1700,3802],"columnvalues":[184467440737095516150123,-12345678901234567890.0123456789,{"exact":12345678901234567890.0123456789}]}]}"#;
+    let transaction = wal2json::decode(input).unwrap();
+    assert_eq!(transaction.events[0].event.values, vec![
+        LogicalValue::Text(Bytes::from_static(b"184467440737095516150123")),
+        LogicalValue::Text(Bytes::from_static(b"-12345678901234567890.0123456789")),
+        LogicalValue::Text(Bytes::from_static(br#"{"exact":12345678901234567890.0123456789}"#)),
+    ]);
+}
+
+#[test]
+fn pgoutput_numeric_modifier_is_checked_before_decoding_values() {
+    let copy_event = |event: &super::pgoutput::PgOutputEvent| super::pgoutput::PgOutputEvent {
+        event: event.event.clone(), relation: Arc::clone(&event.relation),
+    };
+    let mut table = discovered_table();
+    table.schema.columns[2].data_type = DataType::Decimal128(20,4);
+    table.type_oids[2] = 1700;
+    let mut decoder = PgOutputDecoder::default();
+    decoder.decode(&relation_message()).unwrap();
+    decoder.decode(&begin_message()).unwrap();
+    decoder.decode(&insert_message()).unwrap();
+    let mut event = decoder.decode(&commit_message()).unwrap().remove(0);
+    let relation = Arc::make_mut(&mut event.relation);
+    let columns = Arc::make_mut(&mut relation.columns);
+    columns[2].type_oid = 1700;
+    columns[2].type_modifier = (20 << 16) + 4 + 4;
+    assert!(normalize_pgoutput_event(&table, copy_event(&event)).is_ok());
+    for modifier in [-1, (20 << 16) + 2 + 4, (21 << 16) + 4 + 4] {
+        Arc::make_mut(&mut Arc::make_mut(&mut event.relation).columns)[2].type_modifier = modifier;
+        assert!(normalize_pgoutput_event(&table, copy_event(&event)).is_err());
+    }
+}

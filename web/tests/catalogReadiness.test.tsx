@@ -110,6 +110,29 @@ describe("connector catalog readiness", () => {
       } } }, productionWidgetRegistry)).toThrow();
     }
   });
+  it("accepts typed parallel snapshots only on sources with a snapshot mode", () => {
+    for (const mode of ["batch", "batch_and_stream"]) {
+      for (const enabled of [false, true]) {
+        const schema = compileSchema({ type: "object", "x-ui": { capabilities: {
+          component: "source", key: "arbitrary", delivery_modes: [mode],
+          record_semantics: ["append_only"], parallel_table_snapshot: enabled,
+        } } }, productionWidgetRegistry);
+        expect(schema.xUi.capabilities?.parallel_table_snapshot).toBe(enabled);
+      }
+    }
+    for (const capabilities of [
+      { component: "source", delivery_modes: ["stream"], parallel_table_snapshot: true },
+      { component: "destination", delivery_modes: ["batch"], parallel_table_snapshot: true },
+      { component: "parser", delivery_modes: ["batch"], parallel_table_snapshot: false },
+      { component: "source", delivery_modes: ["batch"], parallel_table_snapshot: "true" },
+      { component: "source", delivery_modes: ["batch"], parallel_table_snapshot: null },
+      { component: "source", delivery_modes: ["batch"], properties: ["parallel_table_snapshot"] },
+    ]) {
+      expect(() => compileSchema({ type: "object", "x-ui": { capabilities: {
+        key: "arbitrary", record_semantics: ["append_only"], ...capabilities,
+      } } }, productionWidgetRegistry)).toThrow();
+    }
+  });
   it("advertises YDB overlap batch-and-stream without a strategy selector", () => {
     const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
     const endpoint = catalog.connectors.find((connector) => connector.key === "ydb")!.source!;

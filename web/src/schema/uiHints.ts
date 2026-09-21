@@ -19,6 +19,7 @@ export interface UiCapabilityHints {
   record_semantics?: readonly ("append_only" | "changelog")[];
   properties?: readonly string[];
   batch_stream_handoff?: "exact_switchover" | "overlapping";
+  parallel_table_snapshot?: boolean;
 }
 
 export interface UiHints {
@@ -298,6 +299,7 @@ function decodeCapabilities(
         "record_semantics",
         "properties",
         "batch_stream_handoff",
+        "parallel_table_snapshot",
       ].includes(key),
   );
   if (unknown.length > 0)
@@ -308,6 +310,7 @@ function decodeCapabilities(
   const recordSemantics = object.record_semantics;
   const properties = object.properties;
   const handoff = object.batch_stream_handoff;
+  const parallelSnapshot = object.parallel_table_snapshot;
   if (
     component !== "source" &&
     component !== "destination" &&
@@ -368,6 +371,10 @@ function decodeCapabilities(
     (handoff !== "exact_switchover" && handoff !== "overlapping") ||
     component !== "source" || !deliveryModes?.includes("batch_and_stream")
   )) fail(`${path}: batch_stream_handoff requires a supported handoff on a batch_and_stream source`);
+  if (parallelSnapshot !== undefined && (
+    typeof parallelSnapshot !== "boolean" || component !== "source"
+      || !deliveryModes?.some((mode) => mode === "batch" || mode === "batch_and_stream")
+  )) fail(`${path}: parallel_table_snapshot requires a boolean on a source with a snapshot delivery mode`);
   return {
     component,
     key,
@@ -385,6 +392,7 @@ function decodeCapabilities(
       : { record_semantics: recordSemantics as ("append_only" | "changelog")[] }),
     ...(properties === undefined ? {} : { properties: properties as string[] }),
     ...(handoff === undefined ? {} : { batch_stream_handoff: handoff as "exact_switchover" | "overlapping" }),
+    ...(parallelSnapshot === undefined ? {} : { parallel_table_snapshot: parallelSnapshot as boolean }),
   };
 }
 

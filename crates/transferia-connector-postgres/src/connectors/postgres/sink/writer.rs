@@ -50,6 +50,17 @@ impl PostgresSink {
             .collect::<anyhow::Result<Vec<_>>>()?;
         let started = std::time::Instant::now();
         let transaction = self.client.transaction().await?;
+        // Validate all destinations before the first COPY. The relation locks
+        // remain held through commit, so concurrent DDL cannot invalidate the
+        // checked wire types or introduce a rounding typmod during this write.
+        let tables = delivery.outputs.iter().map(|batch| batch.table.as_ref())
+            .collect::<std::collections::BTreeSet<_>>();
+        for table in tables {
+            let dataset = self.discovery.datasets.iter().find(|dataset| dataset.name.as_ref() == table)
+                .ok_or_else(|| DataPlaneFailure::fatal(anyhow::anyhow!("PostgreSQL delivery contains undiscovered table '{table}'")))?;
+            super::schema::validate_destination(&transaction, table, &dataset.stored_schema)
+                .await?;
+        }
         let mut flushes = 0;
         for (batch_index, (batch, projected)) in delivery.outputs.iter().zip(projected).enumerate()
         {

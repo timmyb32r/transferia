@@ -84,6 +84,7 @@ enum CanonicalArrowType {
     Binary,
     Utf8,
     Date32,
+    Decimal128 { precision: u8, scale: i8 },
     TimestampMicrosecond { timezone: Option<String> },
 }
 
@@ -151,6 +152,7 @@ impl CanonicalArrowType {
             DataType::Binary => Self::Binary,
             DataType::Utf8 => Self::Utf8,
             DataType::Date32 => Self::Date32,
+            DataType::Decimal128(precision, scale) => Self::Decimal128 { precision: *precision, scale: *scale },
             DataType::Timestamp(TimeUnit::Microsecond, timezone) => Self::TimestampMicrosecond {
                 timezone: timezone.as_ref().map(ToString::to_string),
             },

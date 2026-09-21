@@ -451,7 +451,16 @@ async fn read_snapshot(host: &str, port: u16, format: &str) -> anyhow::Result<Ve
 }
 
 async fn write_sink_batch(host: &str, port: u16, table: &str, format: &str) -> anyhow::Result<()> {
-    let schema = sink_schema();
+    write_record_batch(host, port, table, format, sink_batch()?).await
+}
+
+async fn write_record_batch(host: &str, port: u16, table: &str, format: &str, batch: RecordBatch) -> anyhow::Result<()> {
+    write_record_batch_after_change(host, port, table, format, batch, None, None).await
+}
+
+async fn write_record_batch_after_change(host: &str, port: u16, table: &str, format: &str, batch: RecordBatch, source_schema: Option<DatasetSchema>, after_prepare_sql: Option<&str>) -> anyhow::Result<()> {
+    let schema = source_schema.unwrap_or_else(|| DatasetSchema::new(batch.schema().fields().iter().map(|field|
+        SchemaColumn::new(field.name().clone(), field.data_type().clone(), field.is_nullable())).collect()));
     let discovery = Arc::new(DeliveryDiscovery {
         source_name: Arc::from("copy-format-e2e"),
         source_topology: SourceTopology::StaticPartitions(vec![0]),
@@ -491,7 +500,9 @@ async fn write_sink_batch(host: &str, port: u16, table: &str, format: &str) -> a
             durable: transferia_test_support::durable_context(),
         })
         .await?;
-    let batch = sink_batch()?;
+    if let Some(sql) = after_prepare_sql {
+        connect_with_retry(&format!("host={host} port={port} user=postgres password=test dbname=transferia")).await?.batch_execute(sql).await?;
+    }
     let bytes = batch.get_array_memory_size();
     let (deliveries, delivery_rx) = mpsc::channel(1);
     let (events, mut event_rx) = mpsc::channel(1);
@@ -516,36 +527,12 @@ async fn write_sink_batch(host: &str, port: u16, table: &str, format: &str) -> a
         })
         .await?;
     drop(deliveries);
-    assert_eq!(
-        tokio::time::timeout(Duration::from_secs(30), event_rx.recv())
-            .await?
-            .expect("sink commit event"),
-        SinkEvent::CommittedThrough(DeliveryId::new(1))
-    );
-    task.await??;
+    let event = tokio::time::timeout(Duration::from_secs(30), event_rx.recv()).await?;
+    let result = task.await?;
+    if result.is_err() { assert!(event.is_none(), "failed delivery must never acknowledge commit"); }
+    result?;
+    assert_eq!(event, Some(SinkEvent::CommittedThrough(DeliveryId::new(1))));
     Ok(())
-}
-
-fn sink_schema() -> DatasetSchema {
-    DatasetSchema::new(vec![
-        SchemaColumn::new("char_value".to_owned(), DataType::Int8, false),
-        SchemaColumn::new("oid_value".to_owned(), DataType::UInt32, false),
-        SchemaColumn::new("payload".to_owned(), DataType::Binary, false),
-        SchemaColumn::new("name".to_owned(), DataType::Utf8, true),
-        SchemaColumn::new("day".to_owned(), DataType::Date32, false),
-        SchemaColumn::new(
-            "created_at".to_owned(),
-            DataType::Timestamp(TimeUnit::Microsecond, None),
-            false,
-        ),
-        SchemaColumn::new(
-            "observed_at".to_owned(),
-            DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
-            false,
-        ),
-        SchemaColumn::new("ratio".to_owned(), DataType::Float64, false),
-        SchemaColumn::new("flag".to_owned(), DataType::Boolean, false),
-    ])
 }
 
 fn sink_batch() -> anyhow::Result<RecordBatch> {
@@ -661,4 +648,127 @@ async fn connect_with_retry(connection: &str) -> anyhow::Result<tokio_postgres::
     })
     .await
     .map_err(|_| anyhow::anyhow!("PostgreSQL testcontainer did not become ready"))
+}
+
+#[tokio::test]
+async fn numeric_snapshot_roundtrips_through_real_binary_and_text_sinks() -> anyhow::Result<()> {
+    use arrow::array::Decimal128Array;
+    use transferia_delivery_contracts::DeliveryType;
+    let postgres = GenericImage::new(POSTGRES_IMAGE, POSTGRES_TAG)
+        .with_exposed_port(5_432.tcp())
+        .with_wait_for(WaitFor::message_on_stderr("database system is ready to accept connections"))
+        .with_env_var("POSTGRES_PASSWORD", "test").with_env_var("POSTGRES_DB", "transferia")
+        .start().await?;
+    let host = reachable_host(&postgres.get_host().await?);
+    let port = postgres.get_host_port_ipv4(5_432.tcp()).await?;
+    let client = connect_with_retry(&format!("host={host} port={port} user=postgres password=test dbname=transferia")).await?;
+    client.batch_execute("CREATE DOMAIN exact_amount AS numeric(24,4); CREATE DOMAIN nested_amount AS exact_amount; \
+        CREATE TABLE numeric_source (id bigint, unsigned_value numeric(20,0), fraction nested_amount, rounded numeric(4,-3)); \
+        INSERT INTO numeric_source VALUES \
+        (1,18446744073709551615,-12345678901234567890.0123,12000), \
+        (2,NULL,0.0001,-9999000), (3,0,NULL,NULL); \
+        CREATE TABLE numeric_unbounded (value numeric); \
+        CREATE TABLE numeric_wide (value numeric(60,10)); \
+        CREATE TABLE numeric_special (value numeric(20,0)); INSERT INTO numeric_special VALUES ('NaN');").await?;
+    let config = |table: &str, format: &str, policy: &str| format!(
+        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  type: selected\n  rules:\n    - include: public.{table}\nbatch_rows: 100\nmax_snapshot_parts: 1\ncopy_to_format: {format}\nunsupported_types: {policy}\n");
+    for source_format in ["binary", "text"] {
+        let connector = PostgresSourceConnector::from_config(serde_yaml::from_str(&config("numeric_source", source_format, "fail"))?, Arc::new(MetricsRegistry::new()))?;
+        let discovery = connector.delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest { keep_system_columns: false }, cancellation: CancellationToken::new(), delivery_type: DeliveryType::Batch,
+        }).await?;
+        assert_eq!(discovery.datasets[0].stored_schema.columns[1].data_type, DataType::Decimal128(20,0));
+        assert_eq!(discovery.datasets[0].stored_schema.columns[2].data_type, DataType::Decimal128(24,4));
+        assert_eq!(discovery.datasets[0].stored_schema.columns[3].data_type, DataType::Decimal128(4,-3));
+        // The separately batched metadata path must agree with runtime discovery,
+        // including a domain over a NUMERIC domain.
+        let metadata = connector.metadata_reader(DeliveryType::Batch)?.unwrap();
+        let identities = vec![transferia_registry::TableIdentity { namespace: "public".into(), name: "numeric_source".into() }];
+        let loaded = metadata.load_tables(identities.clone(), CancellationToken::new()).await?;
+        assert!(loaded.values().all(Result::is_ok));
+        let cached = metadata.discovery(identities, DeliveryDiscoveryRequest { keep_system_columns: false }, CancellationToken::new()).await?;
+        assert_eq!(cached.datasets[0].stored_schema, discovery.datasets[0].stored_schema);
+        let preview = metadata.sample_table(transferia_registry::TableIdentity { namespace: "public".into(), name: "numeric_source".into() },
+            transferia_registry::TableSampleLimits { row_limit: 3, max_bytes: 1024 * 1024, timeout_ms: 30_000 }, CancellationToken::new()).await?;
+        assert_eq!(preview.batch.schema().field(1).data_type(), &DataType::Decimal128(20,0));
+        assert_eq!(preview.batch.schema().field(2).data_type(), &DataType::Decimal128(24,4));
+        let mut source = connector.build_source(SourceBuildContext {
+            partition_id: 0, delivery_type: DeliveryType::Batch, phase: transferia_registry::SourcePhase::Snapshot,
+            replay_identity: None, cancellation: CancellationToken::new(), memory: PipelineMemory::new(16 * 1024 * 1024),
+            durable: transferia_test_support::durable_context(),
+        }).await?;
+        let mut output = Vec::new();
+        loop {
+            match source.read_batch().await? {
+                SourceBatch::Typed { tables, commit_marker, .. } => {
+                    for table in tables { output.push(table.batch.project(&[0,1,2,3])?); }
+                    if let Some(marker) = commit_marker { source.commit_offsets(&[marker]).await?; }
+                }
+                SourceBatch::Finished => break,
+                _ => panic!("expected typed NUMERIC snapshot"),
+            }
+        }
+        source.shutdown().await?;
+        let batch = arrow::compute::concat_batches(&output[0].schema(), &output)?;
+        assert_eq!(batch.num_rows(), 3);
+        assert!(batch.column(1).as_any().downcast_ref::<Decimal128Array>().is_some());
+        for sink_format in ["binary", "text"] {
+            let table = format!("numeric_{source_format}_{sink_format}");
+            write_record_batch_after_change(&host, port, &table, sink_format, batch.clone(),
+                Some(discovery.datasets[0].stored_schema.clone()), None).await?;
+            let difference: i64 = client.query_one(&format!(
+                "SELECT count(*) FROM ((SELECT * FROM numeric_source EXCEPT ALL SELECT * FROM {table}) UNION ALL \
+                 (SELECT * FROM {table} EXCEPT ALL SELECT * FROM numeric_source)) differences"), &[]).await?.get(0);
+            assert_eq!(difference, 0, "{source_format} -> {sink_format} must preserve exact NUMERIC values and NULLs");
+        }
+    }
+    verify_numeric_destination_guards(&host, port, &client).await?;
+    for table in ["numeric_unbounded", "numeric_wide"] {
+        let connector = PostgresSourceConnector::from_config(serde_yaml::from_str(&config(table,"binary","fail"))?, Arc::new(MetricsRegistry::new()))?;
+        assert!(connector.delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest { keep_system_columns: false }, cancellation: CancellationToken::new(), delivery_type: DeliveryType::Batch,
+        }).await.is_err());
+        let connector = PostgresSourceConnector::from_config(serde_yaml::from_str(&config(table,"binary","to_string"))?, Arc::new(MetricsRegistry::new()))?;
+        let discovery = connector.delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest { keep_system_columns: false }, cancellation: CancellationToken::new(), delivery_type: DeliveryType::Batch,
+        }).await?;
+        assert_eq!(discovery.datasets[0].stored_schema.columns[0].data_type, DataType::Utf8);
+    }
+    let connector = PostgresSourceConnector::from_config(serde_yaml::from_str(&config("numeric_special","binary","fail"))?, Arc::new(MetricsRegistry::new()))?;
+    connector.delivery_discovery(SourceDiscoveryContext {
+        request: DeliveryDiscoveryRequest { keep_system_columns: false }, cancellation: CancellationToken::new(), delivery_type: DeliveryType::Batch,
+    }).await?;
+    let mut source = connector.build_source(SourceBuildContext {
+        partition_id: 0, delivery_type: DeliveryType::Batch, phase: transferia_registry::SourcePhase::Snapshot,
+        replay_identity: None, cancellation: CancellationToken::new(), memory: PipelineMemory::new(16 * 1024 * 1024),
+        durable: transferia_test_support::durable_context(),
+    }).await?;
+    assert!(source.read_batch().await.is_err(), "NaN cannot silently become a finite decimal");
+    source.shutdown().await?;
+    Ok(())
+}
+
+async fn verify_numeric_destination_guards(host: &str, port: u16, client: &tokio_postgres::Client) -> anyhow::Result<()> {
+    use arrow::array::Decimal128Array;
+    client.batch_execute("CREATE TABLE wrong_numeric_target (amount numeric(20,0)); CREATE TABLE narrow_numeric_target (amount numeric(20,2)); \
+        CREATE TABLE drift_numeric_target (amount numeric(20,4)); CREATE TABLE exact_numeric_target (amount numeric(20,0));").await?;
+    let text = RecordBatch::try_new(Arc::new(Schema::new(vec![Field::new("amount", DataType::Utf8, true)])),
+        vec![Arc::new(StringArray::from(vec![Some("18446744073709551615")]))])?;
+    let decimal = |precision, scale, value| -> anyhow::Result<RecordBatch> {
+        Ok(RecordBatch::try_new(Arc::new(Schema::new(vec![Field::new("amount", DataType::Decimal128(precision, scale), true)])),
+            vec![Arc::new(Decimal128Array::from(vec![Some(value)]).with_precision_and_scale(precision, scale)?)])?)
+    };
+    for format in ["binary", "text"] {
+        let error = write_record_batch(host, port, "wrong_numeric_target", format, text.clone()).await.unwrap_err();
+        assert!(!format!("{error:#}").contains("invalid sign"), "incompatible schema must fail before COPY");
+        assert!(write_record_batch(host, port, "narrow_numeric_target", format, decimal(20,4,12345)?).await.is_err());
+    }
+    assert!(write_record_batch_after_change(host, port, "drift_numeric_target", "binary", decimal(20,4,12345)?, None,
+        Some("ALTER TABLE drift_numeric_target ALTER COLUMN amount TYPE numeric(20,2)")).await.is_err());
+    for table in ["wrong_numeric_target", "narrow_numeric_target", "drift_numeric_target"] {
+        assert_eq!(client.query_one(&format!("SELECT count(*) FROM {table}"), &[]).await?.get::<_, i64>(0), 0);
+    }
+    write_record_batch(host, port, "exact_numeric_target", "binary", decimal(20,0,18_446_744_073_709_551_615)?).await?;
+    assert_eq!(client.query_one("SELECT amount::text FROM exact_numeric_target", &[]).await?.get::<_, String>(0), "18446744073709551615");
+    Ok(())
 }

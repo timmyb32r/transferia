@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::Cursor;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -20,7 +19,7 @@ use crate::connectors::postgres::src_batch_and_stream::{
 use crate::connectors::postgres::src_stream::{
     is_replication_contract_violation, is_replication_safety_violation,
     replication_safety_violation, validate_pgoutput_publication, LogicalDecoder,
-    PostgresReplicationSource, PostgresSourceIdentity,
+    PostgresReplicationSource, PostgresSourceIdentity, ReplicationLease,
 };
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
@@ -160,7 +159,9 @@ struct HeldReplicationOwnership {
 
     source_identity: PostgresSourceIdentity,
 
-    postgres_lease: Arc<tokio::sync::Mutex<tokio_postgres::Client>>,
+    client: Arc<tokio::sync::Mutex<tokio_postgres::Client>>,
+
+    postgres_lease: Arc<ReplicationLease>,
 
     decoder: LogicalDecoder,
 
@@ -267,7 +268,7 @@ impl PostgresSourceConnector {
             .get_or_try_init(|| async {
                 let mut identity_client = connect(&self.config.connection).await?;
                 let preflight_tables =
-                    discover_replication_tables(&identity_client, self.resolved_tables().await?).await?;
+                    discover_replication_validation_tables(&identity_client, self.resolved_tables().await?).await?;
                 if let super::super::src_stream::ReplicationPlugin::Pgoutput { publication } = &replication.plugin {
                     validate_pgoutput_publication(&identity_client, publication, &preflight_tables, false).await?;
                 }
@@ -279,7 +280,9 @@ impl PostgresSourceConnector {
                 )
                 .await?;
                 let resource_key = replication_resource_key(&source_identity, slot);
-                acquire_postgres_replication_lease(&identity_client, &resource_key).await?;
+                let postgres_lease = Arc::new(ReplicationLease::acquire(
+                    &self.config.connection, &resource_key, Duration::from_millis(replication.bootstrap_timeout_ms),
+                ).await?);
                 let lease = durable
                     .resource_storage
                     .acquire_execution_lease(&resource_key)
@@ -306,7 +309,8 @@ impl PostgresSourceConnector {
                     delivery_storage: Arc::clone(&durable.storage),
                     resource_storage: Arc::clone(&durable.resource_storage),
                     source_identity,
-                    postgres_lease: Arc::new(tokio::sync::Mutex::new(identity_client)),
+                    client: Arc::new(tokio::sync::Mutex::new(identity_client)),
+                    postgres_lease,
                     _lease: lease,
                 })
             })
@@ -317,6 +321,7 @@ impl PostgresSourceConnector {
                 && Arc::ptr_eq(&held.resource_storage, &durable.resource_storage),
             "PostgreSQL source connector cannot be reused with a different durable execution context"
         );
+        held.postgres_lease.ensure_held().await?;
         Ok(held)
     }
 
@@ -350,7 +355,7 @@ impl PostgresSourceConnector {
                 } else {
                     let client = connect(&self.config.connection).await?;
                     let tables =
-                        discover_replication_tables(&client, self.resolved_tables().await?).await?;
+                        discover_replication_validation_tables(&client, self.resolved_tables().await?).await?;
                     if let super::super::src_stream::ReplicationPlugin::Pgoutput { publication } =
                         &self.config.replication.plugin
                     {
@@ -445,7 +450,7 @@ impl PostgresSourceConnector {
             .get_or_try_init(|| async move {
                 let identity_client = connect(&self.config.connection).await?;
                 let preflight_tables =
-                    discover_replication_tables(&identity_client, self.resolved_tables().await?).await?;
+                    discover_replication_validation_tables(&identity_client, self.resolved_tables().await?).await?;
                 if let LogicalDecoder::Pgoutput { publication } = decoder {
                     validate_pgoutput_publication(
                         &identity_client,
@@ -568,7 +573,8 @@ impl PostgresSourceConnector {
         let slot = super::super::src_stream::replication_slot(&ownership.delivery_id)?;
         self.stream_start_lsn
             .get_or_try_init(|| async {
-                let connection = ownership.postgres_lease.lock().await;
+                ownership.postgres_lease.ensure_held().await?;
+                let connection = ownership.client.lock().await;
                 let slot_exists =
                     replication_slot_exists(&connection, slot).await?;
                 drop(connection);
@@ -610,34 +616,6 @@ fn replication_resource_key(source: &PostgresSourceIdentity, slot: &str) -> Stri
         "postgres-replication-{}-{}-{slot}",
         source.system_identifier, source.database_oid
     )
-}
-
-async fn acquire_postgres_replication_lease(
-    client: &tokio_postgres::Client,
-    resource_key: &str,
-) -> anyhow::Result<()> {
-    // A collision can only reject two unrelated executions; it can never let
-    // two owners through. Use the project-standard non-cryptographic digest
-    // and both 64-bit halves to keep that false-contention risk negligible.
-    let digest = murmur3::murmur3_x64_128(&mut Cursor::new(resource_key.as_bytes()), 0)?;
-    let bytes = digest.to_le_bytes();
-    let first = i64::from_le_bytes(bytes[..8].try_into()?);
-    let second = i64::from_le_bytes(bytes[8..].try_into()?);
-    let row = observe_external_request(
-        "postgres",
-        "acquire_replication_execution_lease",
-        client.query_one(
-            "SELECT pg_catalog.pg_try_advisory_lock($1) AND pg_catalog.pg_try_advisory_lock($2)",
-            &[&first, &second],
-        ),
-    )
-    .await?;
-    let acquired: bool = row.try_get(0)?;
-    anyhow::ensure!(
-        acquired,
-        "PostgreSQL replication slot execution is already active on the exact source"
-    );
-    Ok(())
 }
 
 async fn persist_replication_resource_owner(
@@ -700,7 +678,7 @@ async fn database_oid(client: &tokio_postgres::Client) -> anyhow::Result<u32> {
     let row = observe_external_request(
         "postgres",
         "identify_database",
-        client.query_one(
+        client.query_typed_one(
             "SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database()",
             &[],
         ),
@@ -718,9 +696,9 @@ async fn replication_slot_exists(
     let row = observe_external_request(
         "postgres",
         "inspect_replication_slot",
-        client.query_one(
+        client.query_typed_one(
             "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots WHERE slot_name = $1)",
-            &[&slot],
+            &[(&slot, tokio_postgres::types::Type::TEXT)],
         ),
     )
     .await?;
@@ -821,6 +799,17 @@ async fn discover_tables(
                 })?,
         );
     }
+    Ok(tables)
+}
+
+// Called only on an idle connection. Snapshot discovery uses the existing
+// exported transaction and must never commit/replace that snapshot.
+async fn discover_replication_validation_tables(
+    client: &tokio_postgres::Client,
+    configured: &[TableConfig],
+) -> anyhow::Result<Vec<DiscoveredTable>> {
+    let tables = discover_validation_tables(client, configured, UnsupportedTypePolicy::Fail).await?;
+    validate_replication_table_identities(&tables)?;
     Ok(tables)
 }
 
@@ -1524,7 +1513,7 @@ impl SourceConnector for PostgresSourceConnector {
                             .map_err(classify_replication_connector_error)?,
                     };
                     let client = replication_ownership
-                        .map(|ownership| Arc::clone(&ownership.postgres_lease))
+                        .map(|ownership| Arc::clone(&ownership.client))
                         .ok_or_else(|| {
                             replication_safety_violation(anyhow::anyhow!(
                                 "PostgreSQL replication execution lease is missing"
@@ -1533,6 +1522,7 @@ impl SourceConnector for PostgresSourceConnector {
                         .map_err(classify_replication_connector_error)?;
                     let source = PostgresReplicationSource::new(
                         client,
+                        Arc::clone(&replication_ownership.ok_or_else(|| anyhow::anyhow!("PostgreSQL replication ownership is missing"))?.postgres_lease),
                         replication.clone(),
                         replication_ownership
                             .ok_or_else(|| {
@@ -1685,7 +1675,12 @@ pub async fn discover_table(
             "SELECT a.attname, a.atttypid, EXISTS (\
                  SELECT 1 FROM pg_catalog.pg_index AS i \
                  WHERE i.indrelid OPERATOR(pg_catalog.=) c.oid AND i.indisprimary AND a.attnum OPERATOR(pg_catalog.=) ANY(i.indkey)\
-             ) AS primary_key, a.attlen, pg_catalog.format_type(a.atttypid, a.atttypmod) AS source_type \
+             ) AS primary_key, a.attlen, pg_catalog.format_type(a.atttypid, a.atttypmod) AS source_type, \
+             (WITH RECURSIVE resolved(oid, modifier) AS ( \
+                 SELECT a.atttypid, a.atttypmod UNION ALL \
+                 SELECT t.typbasetype, CASE WHEN r.modifier OPERATOR(pg_catalog.>=) 0 THEN r.modifier ELSE t.typtypmod END \
+                 FROM resolved r JOIN pg_catalog.pg_type t ON t.oid OPERATOR(pg_catalog.=) r.oid WHERE t.typbasetype OPERATOR(pg_catalog.<>) 0 \
+              ) SELECT r.modifier FROM resolved r JOIN pg_catalog.pg_type t ON t.oid OPERATOR(pg_catalog.=) r.oid WHERE t.typbasetype OPERATOR(pg_catalog.=) 0) AS effective_typmod \
              FROM pg_catalog.pg_attribute AS a \
              JOIN pg_catalog.pg_class AS c ON c.oid OPERATOR(pg_catalog.=) a.attrelid \
              JOIN pg_catalog.pg_namespace AS n ON n.oid OPERATOR(pg_catalog.=) c.relnamespace \
@@ -1732,7 +1727,7 @@ pub async fn discover_table(
             })?;
             let mut schema_column = SchemaColumn::new(
                 column.name().to_owned(),
-                policy.arrow_type(column.type_()).with_context(|| {
+                policy.arrow_type_with_modifier(column.type_(), physical.try_get("effective_typmod")?).with_context(|| {
                     format!("column '{}' type '{}'", column.name(), column.type_())
                 })?,
                 nullable,

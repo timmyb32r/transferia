@@ -40,6 +40,20 @@ fn destination_type_preserves_decimal_precision_and_scale() -> anyhow::Result<()
 }
 
 #[test]
+fn destination_decimal_precision_is_the_declared_domain_not_storage_width() -> anyhow::Result<()> {
+    let expected = schema(vec![SchemaColumn::new("amount".into(), DataType::Decimal128(24, 4), true)]);
+    let narrow = HashMap::from([("amount".into(), target_column("Nullable(Decimal(20, 4))")?)]);
+    assert!(validate_target_schema("events", &expected, &narrow, &[]).is_err());
+    for declaration in ["Nullable(Decimal(24, 4))", "Nullable(Decimal(38, 4))", "Nullable(Decimal128(4))"] {
+        let compatible = HashMap::from([("amount".into(), target_column(declaration)?)]);
+        validate_target_schema("events", &expected, &compatible, &[])?;
+    }
+    let wrong_scale = HashMap::from([("amount".into(), target_column("Nullable(Decimal(38, 2))")?)]);
+    assert!(validate_target_schema("events", &expected, &wrong_scale, &[]).is_err());
+    Ok(())
+}
+
+#[test]
 fn ddl_preserves_timestamp_timezone_and_quotes_it() -> anyhow::Result<()> {
     let schema = schema(vec![SchemaColumn::new(
         "created_at".into(),
@@ -196,19 +210,57 @@ fn target_schema_checks_datetime_precision_and_timezone() -> anyhow::Result<()> 
 fn seconds_use_signed_datetime64_and_reject_lossy_datetime() -> anyhow::Result<()> {
     let expected = schema(vec![SchemaColumn::new(
         "ts".into(),
-        DataType::Timestamp(TimeUnit::Second, None),
+        DataType::Timestamp(TimeUnit::Second, Some(Arc::from("UTC"))),
         false,
     )]);
     assert_eq!(
         merge_tree_ddl("events", &expected, &[])?,
-        "CREATE TABLE IF NOT EXISTS `events` (`ts` DateTime64(0)) ENGINE = MergeTree ORDER BY (tuple())"
+        "CREATE TABLE IF NOT EXISTS `events` (`ts` DateTime64(0, 'UTC')) ENGINE = MergeTree ORDER BY (tuple())"
     );
 
-    let signed = HashMap::from([("ts".into(), target_column("DateTime64(0)")?)]);
+    let signed = HashMap::from([("ts".into(), target_column("DateTime64(0, 'UTC')")?)]);
     validate_target_schema("events", &expected, &signed, &[])?;
     let unsigned = HashMap::from([("ts".into(), target_column("DateTime")?)]);
     assert!(validate_target_schema("events", &expected, &unsigned, &[]).is_err());
     Ok(())
+}
+
+#[test]
+fn timezone_naive_timestamps_require_an_explicit_upstream_conversion() {
+    for unit in [TimeUnit::Second, TimeUnit::Millisecond, TimeUnit::Microsecond, TimeUnit::Nanosecond] {
+        let column = SchemaColumn::new("at".into(), DataType::Timestamp(unit, None), true);
+        let error = destination_type(&column).unwrap_err();
+        assert!(error.to_string().contains("explicit upstream timezone conversion"));
+        assert!(merge_tree_ddl("events", &schema(vec![column]), &[]).is_err());
+    }
+}
+
+#[test]
+fn implicit_destination_timezone_is_never_mistaken_for_utc() -> anyhow::Result<()> {
+    for nullable in [false, true] {
+        let expected = schema(vec![SchemaColumn::new(
+            "ts".into(),
+            DataType::Timestamp(TimeUnit::Microsecond, Some(Arc::from("UTC"))),
+            nullable,
+        )]);
+        let implicit = if nullable { "Nullable(DateTime64(6))" } else { "DateTime64(6)" };
+        let target = HashMap::from([("ts".into(), target_column(implicit)?)]);
+        assert!(validate_target_schema("events", &expected, &target, &[]).is_err());
+        let explicit = if nullable { "Nullable(DateTime64(6, 'UTC'))" } else { "DateTime64(6, 'UTC')" };
+        let target = HashMap::from([("ts".into(), target_column(explicit)?)]);
+        validate_target_schema("events", &expected, &target, &[])?;
+    }
+    Ok(())
+}
+
+#[test]
+fn unsupported_timestamp_timezone_is_rejected_during_ddl_validation() {
+    let column = SchemaColumn::new(
+        "at".into(),
+        DataType::Timestamp(TimeUnit::Microsecond, Some(Arc::from("invented/timezone"))),
+        false,
+    );
+    assert!(destination_type(&column).unwrap_err().to_string().contains("timezone"));
 }
 
 #[test]
@@ -236,7 +288,9 @@ fn date64_requires_an_explicit_parser_conversion() {
         false,
     )]);
     let error = merge_tree_ddl("events", &date64, &[]).unwrap_err();
-    assert!(error.to_string().contains("explicit configured conversion"));
+    let diagnostic = format!("{error:#}");
+    assert!(diagnostic.contains("ClickHouse column 'date'"));
+    assert!(diagnostic.contains("explicit configured conversion"));
 }
 
 #[test]

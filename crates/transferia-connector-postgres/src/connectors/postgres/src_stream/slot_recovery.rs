@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tokio_postgres::Client;
+use tokio_postgres::{Client, types::Type};
+use transferia_connector_support::external_request::observe_external_request;
 use transferia_registry::durable::{CompareExchangeResult, DurableContext, DurableStorage};
 
 use super::config::LogicalDecoder;
@@ -279,9 +280,10 @@ async fn existing_slot(
     slot: &str,
     expected_source: &PostgresSourceIdentity,
 ) -> anyhow::Result<Option<ExistingSlot>> {
-    client
-        .query_opt(EXISTING_SLOT_QUERY, &[&slot])
-        .await?
+    observe_external_request(
+        "postgres", "inspect_existing_replication_slot",
+        client.query_typed_opt(EXISTING_SLOT_QUERY, &[(&slot, Type::TEXT)]),
+    ).await?
         .map(|row| {
             let database = row
                 .try_get::<_, Option<String>>(2)
@@ -333,8 +335,9 @@ fn validate_slot_database(
 }
 
 async fn pg_tm_aux_schema(client: &Client) -> anyhow::Result<Option<String>> {
-    let row = client
-        .query_one(
+    let row = observe_external_request(
+        "postgres", "discover_replication_slot_recovery_extension",
+        client.query_typed_one(
             "SELECT min(n.nspname) \
              FROM pg_catalog.pg_extension AS e \
              JOIN pg_catalog.pg_depend AS d \
@@ -346,8 +349,8 @@ async fn pg_tm_aux_schema(client: &Client) -> anyhow::Result<Option<String>> {
              WHERE e.extname = 'pg_tm_aux' \
                AND p.proname = 'pg_create_logical_replication_slot_lsn'",
             &[],
-        )
-        .await?;
+        ),
+    ).await?;
     Ok(row.get(0))
 }
 
@@ -360,9 +363,10 @@ async fn recreate_slot(
 ) -> anyhow::Result<u64> {
     let query = recreate_slot_query(schema);
     let requested_lsn = format_lsn(committed_lsn);
-    let row = client
-        .query_one(&query, &[&slot, &plugin, &requested_lsn])
-        .await?;
+    let row = observe_external_request(
+        "postgres", "recreate_replication_slot_at_lsn",
+        client.query_typed_one(&query, &[(&slot, Type::NAME), (&plugin, Type::NAME), (&requested_lsn, Type::TEXT)]),
+    ).await?;
     let created_slot: String = row
         .try_get(0)
         .map_err(|error| replication_safety_violation(error.into()))?;
@@ -428,7 +432,7 @@ async fn verify_slot_exact(
 
 fn recreate_slot_query(schema: &str) -> String {
     format!(
-        "SELECT slot_name, lsn::text FROM {}.{}($1, $2, false, $3::pg_lsn)",
+        "SELECT slot_name, lsn::text FROM {}.{}($1, $2, false, $3::text::pg_lsn)",
         quote_identifier(schema),
         quote_identifier("pg_create_logical_replication_slot_lsn"),
     )
@@ -440,12 +444,13 @@ pub(super) async fn advance_slot(
     committed_lsn: u64,
 ) -> anyhow::Result<()> {
     let requested_lsn = format_lsn(committed_lsn);
-    let row = client
-        .query_one(
+    let row = observe_external_request(
+        "postgres", "advance_replication_slot",
+        client.query_typed_one(
             "SELECT slot_name::text, end_lsn::text FROM pg_catalog.pg_replication_slot_advance($1, $2::text::pg_lsn)",
-            &[&slot, &requested_lsn],
-        )
-        .await?;
+            &[(&slot, Type::NAME), (&requested_lsn, Type::TEXT)],
+        ),
+    ).await?;
     let advanced_slot: String = row
         .try_get(0)
         .map_err(|error| replication_safety_violation(error.into()))?;

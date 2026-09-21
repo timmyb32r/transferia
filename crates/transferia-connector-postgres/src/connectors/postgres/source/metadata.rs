@@ -22,14 +22,15 @@ WITH RECURSIVE requested AS (
     LEFT JOIN pg_catalog.pg_class c ON c.relnamespace OPERATOR(pg_catalog.=) n.oid AND c.relname OPERATOR(pg_catalog.=) r.name
     LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid OPERATOR(pg_catalog.=) c.oid AND a.attnum OPERATOR(pg_catalog.>) 0 AND NOT a.attisdropped
 ), resolved_types AS (
-    SELECT DISTINCT t.oid AS physical_oid, t.oid AS effective_oid, t.typbasetype, t.typname, t.typtype, t.typnamespace
+    SELECT DISTINCT t.oid AS physical_oid, t.oid AS effective_oid, t.typbasetype, t.typname, t.typtype, t.typnamespace, t.typtypmod
     FROM attributes a JOIN pg_catalog.pg_type t ON t.oid OPERATOR(pg_catalog.=) a.atttypid
     UNION
-    SELECT r.physical_oid, t.oid, t.typbasetype, t.typname, t.typtype, t.typnamespace
+    SELECT r.physical_oid, t.oid, t.typbasetype, t.typname, t.typtype, t.typnamespace, CASE WHEN r.typtypmod OPERATOR(pg_catalog.>=) 0 THEN r.typtypmod ELSE t.typtypmod END
     FROM resolved_types r JOIN pg_catalog.pg_type t ON t.oid OPERATOR(pg_catalog.=) r.typbasetype WHERE r.typbasetype OPERATOR(pg_catalog.<>) 0
 )
 SELECT a.request_ordinal, a.relation_oid, a.relreplident::pg_catalog.text AS replica_identity,
     a.attnum, a.attname::pg_catalog.text AS column_name, a.atttypid AS physical_oid, a.attlen,
+    CASE WHEN a.atttypmod OPERATOR(pg_catalog.>=) 0 THEN a.atttypmod ELSE t.typtypmod END AS effective_typmod,
     pg_catalog.format_type(a.atttypid, a.atttypmod) AS source_type,
     t.effective_oid, t.typname::pg_catalog.text AS type_name, t.typtype::pg_catalog.text AS type_kind, tn.nspname::pg_catalog.text AS type_namespace,
     ic.is_nullable OPERATOR(pg_catalog.=) 'YES' AS nullable,
@@ -243,7 +244,7 @@ fn decode_table(
             row.try_get("type_namespace")?,
         )?;
         let arrow_type = policy
-            .arrow_type(&data_type)
+            .arrow_type_with_modifier(&data_type, row.try_get("effective_typmod")?)
             .map_err(|error| anyhow::anyhow!("column '{name}' type '{data_type}': {error:#}"))?;
         expressions.push(
             crate::connectors::postgres::src_batch::source_column_expression(

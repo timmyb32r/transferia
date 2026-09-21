@@ -289,7 +289,16 @@ impl SinkLimits for ClickHouseSinkConfig {
         discovery: &DeliveryDiscovery,
         batch: &transferia_core::sink::SinkBatch,
     ) -> anyhow::Result<()> {
-        validate_batch_against_discovery(discovery, batch)?;
+        let dataset = validate_batch_against_discovery(discovery, batch)?;
+        for column in &dataset.stored_schema.columns {
+            super::table::validate_timestamp_semantics(&column.data_type).map_err(|error| {
+                error.context(format!(
+                    "ClickHouse dataset '{}' column '{}' is incompatible with the destination",
+                    batch.table,
+                    column.name,
+                ))
+            })?;
+        }
         for (field, array) in batch
             .batch
             .schema()
@@ -297,6 +306,19 @@ impl SinkLimits for ClickHouseSinkConfig {
             .iter()
             .zip(batch.batch.columns())
         {
+            if let arrow::datatypes::DataType::Decimal128(precision, scale) = field.data_type() {
+                anyhow::ensure!(
+                    (1..=38).contains(precision) && *scale >= 0 && scale.unsigned_abs() <= *precision,
+                    "ClickHouse dataset '{}' column '{}' has unsupported Decimal128 precision/scale {precision}/{scale}",
+                    batch.table, field.name(),
+                );
+                let values = array.as_any().downcast_ref::<arrow::array::Decimal128Array>()
+                    .ok_or_else(|| anyhow::anyhow!("ClickHouse Decimal128 Arrow type mismatch"))?;
+                anyhow::ensure!(values.validate_decimal_precision(*precision).is_ok(),
+                    "ClickHouse dataset '{}' column '{}' contains a value outside declared decimal precision {precision}",
+                    batch.table, field.name(),
+                );
+            }
             if field.data_type() != &arrow::datatypes::DataType::Date32 {
                 continue;
             }

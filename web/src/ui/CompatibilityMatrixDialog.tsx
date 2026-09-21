@@ -156,11 +156,10 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
       const capabilities = ui && typeof ui === "object" && !Array.isArray(ui)
         ? ui.capabilities
         : undefined;
-      if (capabilities && typeof capabilities === "object" && !Array.isArray(capabilities)
-          && capabilities.component === kind && Array.isArray(capabilities.properties)) {
-        for (const property of capabilities.properties) {
-          if (typeof property === "string") add(property, kind, connector.title);
-        }
+      if (kind === "source" && capabilities && typeof capabilities === "object"
+          && !Array.isArray(capabilities) && capabilities.component === "source"
+          && capabilities.parallel_table_snapshot === true) {
+        add("parallel_table_snapshot", kind, connector.title);
       }
       collectSchemaCapabilities(
         endpoint.schema,

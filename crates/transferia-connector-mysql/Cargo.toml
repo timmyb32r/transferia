@@ -24,6 +24,7 @@ transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
 transferia-registry = { path = "../transferia-registry" }
 
 [dev-dependencies]
+rustls = { workspace = true, features = ["ring"] }
 serde_yaml.workspace = true
 testcontainers.workspace = true
 

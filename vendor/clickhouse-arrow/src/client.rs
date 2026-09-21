@@ -445,6 +445,7 @@ impl<T: ClientFormat> Client<T> {
 
         // Create metadata channel
         let (tx, rx) = oneshot::channel();
+        let (header_tx, header_rx) = oneshot::channel();
         let connection = self.conn().await?;
 
         // Send query
@@ -456,7 +457,7 @@ impl<T: ClientFormat> Client<T> {
                     settings: self.settings.clone(),
                     params: None,
                     response: tx,
-                    header: None,
+                    header: Some(header_tx),
                 },
                 qid,
                 false,
@@ -464,10 +465,14 @@ impl<T: ClientFormat> Client<T> {
             .await?;
 
         trace!({ ATT_CID } = self.client_id, { ATT_QID } = %qid, "sent query, awaiting response");
-        let responses = rx
+        let mut responses = rx
             .await
             .map_err(|_| Error::Protocol(format!("Failed to receive response for query {qid}")))?
             .inspect_err(|error| error!(?error, { ATT_QID } = %qid, "Error receiving header"))?;
+
+        // Query dispatch does not mean the server has supplied its column types.
+        // Encoding before this barrier races into Arrow fallback types.
+        receive_insert_header(header_rx, &mut responses).await?;
 
         // Send data
         let (tx, rx) = oneshot::channel();
@@ -551,6 +556,7 @@ impl<T: ClientFormat> Client<T> {
 
         // Create metadata channel
         let (tx, rx) = oneshot::channel();
+        let (header_tx, header_rx) = oneshot::channel();
         let connection = self.conn().await?;
 
         #[cfg_attr(not(feature = "inner_pool"), expect(unused_variables))]
@@ -561,7 +567,7 @@ impl<T: ClientFormat> Client<T> {
                     settings: self.settings.clone(),
                     params: None,
                     response: tx,
-                    header: None,
+                    header: Some(header_tx),
                 },
                 qid,
                 false,
@@ -569,10 +575,14 @@ impl<T: ClientFormat> Client<T> {
             .await?;
 
         trace!({ ATT_CID } = self.client_id, { ATT_QID } = %qid, "sent query, awaiting response");
-        let responses = rx
+        let mut responses = rx
             .await
             .map_err(|_| Error::Protocol(format!("Failed to receive response for query {qid}")))?
             .inspect_err(|error| error!(?error, { ATT_QID } = %qid, "Error receiving header"))?;
+
+        // Query dispatch does not mean the server has supplied its column types.
+        // Encoding before this barrier races into Arrow fallback types.
+        receive_insert_header(header_rx, &mut responses).await?;
 
         // Send data
         let (tx, rx) = oneshot::channel();
@@ -2182,6 +2192,20 @@ fn record_query(qid: Option<Qid>, query: ParsedQuery, cid: u16) -> (String, Qid)
     let query = query.0;
     trace!(query, { ATT_CID } = cid, "Querying clickhouse");
     (query, qid)
+}
+
+/// Preserve a server rejection that arrives instead of an INSERT header.
+async fn receive_insert_header<D>(
+    header: oneshot::Receiver<Vec<(String, Type)>>,
+    responses: &mut mpsc::Receiver<Result<D>>,
+) -> Result<()> {
+    if header.await.is_ok() {
+        return Ok(());
+    }
+    match responses.recv().await {
+        Some(Err(error)) => Err(error),
+        _ => Err(Error::Protocol("INSERT ended before its column header arrived".into())),
+    }
 }
 
 #[cfg(test)]

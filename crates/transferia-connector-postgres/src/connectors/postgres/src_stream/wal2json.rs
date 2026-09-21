@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::value::RawValue;
 use transferia_core::ChangeOperation;
 
 use super::event::{ChangeEvent, LogicalValue};
@@ -22,7 +22,7 @@ struct Wal2JsonChange {
     table: String,
     columnnames: Option<Vec<String>>,
     columntypeoids: Option<Vec<u32>>,
-    columnvalues: Option<Vec<Value>>,
+    columnvalues: Option<Vec<Box<RawValue>>>,
     oldkeys: Option<OldKeys>,
 }
 
@@ -30,7 +30,7 @@ struct Wal2JsonChange {
 struct OldKeys {
     keynames: Vec<String>,
     keytypeoids: Vec<u32>,
-    keyvalues: Vec<Value>,
+    keyvalues: Vec<Box<RawValue>>,
 }
 
 pub(super) struct Wal2JsonEvent {
@@ -116,14 +116,12 @@ pub(super) fn decode(data: &[u8]) -> anyhow::Result<Wal2JsonTransaction> {
     Ok(Wal2JsonTransaction { events, end_lsn })
 }
 
-fn json_value(value: Value) -> anyhow::Result<LogicalValue> {
-    Ok(match value {
-        Value::Null => LogicalValue::Null,
-        Value::String(value) => LogicalValue::Text(Bytes::from(value)),
-        Value::Bool(value) => LogicalValue::Text(Bytes::from(value.to_string())),
-        Value::Number(value) => LogicalValue::Text(Bytes::from(value.to_string())),
-        Value::Array(_) | Value::Object(_) => {
-            LogicalValue::Text(Bytes::from(serde_json::to_vec(&value)?))
-        }
-    })
+fn json_value(value: Box<RawValue>) -> anyhow::Result<LogicalValue> {
+    // A serde_json::Number without arbitrary_precision can round PostgreSQL
+    // NUMERIC through f64. RawValue validates JSON while retaining every digit,
+    // including numbers nested in PostgreSQL JSON/JSONB values.
+    let raw = value.get();
+    Ok(if raw == "null" { LogicalValue::Null }
+    else if raw.starts_with('"') { LogicalValue::Text(Bytes::from(serde_json::from_str::<String>(raw)?)) }
+    else { LogicalValue::Text(Bytes::copy_from_slice(raw.as_bytes())) })
 }

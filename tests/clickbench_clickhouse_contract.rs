@@ -11,7 +11,7 @@ use transferia::metrics::MetricsRegistry;
 use transferia::registry::{SinkConnector, SourceConnector, SourceDiscoveryContext};
 
 #[tokio::test]
-async fn clickbench_schema_passes_clickhouse_limits_without_network() -> anyhow::Result<()> {
+async fn clickbench_naive_timestamps_require_conversion_before_clickhouse() -> anyhow::Result<()> {
     let source = DataGeneratorSourceConnector::from_config(
         DataGeneratorConfig {
             table_name: "hits".to_owned(),
@@ -51,12 +51,13 @@ async fn clickbench_schema_passes_clickhouse_limits_without_network() -> anyhow:
     )?;
     let sink = ClickHouseSinkConnector::from_config(sink_config)?;
 
-    validate_discovered_pipeline(
+    let error = validate_discovered_pipeline(
         &source.compatibility(transferia::delivery::config::yaml::DeliveryType::Batch),
         &sink.compatibility(),
         sink.limits(),
         &discovery,
         false,
-    )?;
+    ).expect_err("ClickBench wall-clock timestamps need an explicit timezone conversion");
+    assert!(format!("{error:#}").contains("explicit upstream timezone conversion"));
     Ok(())
 }

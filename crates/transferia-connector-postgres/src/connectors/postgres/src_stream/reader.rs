@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use arrow::array::{
-    ArrayRef, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array,
+    ArrayRef, BinaryArray, BooleanArray, Date32Array, Decimal128Array, Float32Array, Float64Array, Int16Array,
     Int32Array, Int64Array, Int8Array, StringArray, TimestampMicrosecondArray, UInt32Array,
     UInt64Array,
 };
@@ -24,7 +24,7 @@ use super::publication::{
 use super::relation_identity::{
     lock_and_validate_relation_identities, validate_relation_identities,
 };
-use super::slot_recovery::{advance_slot, is_replication_safety_violation, ReplicationSlotTracker};
+use super::slot_recovery::{is_replication_safety_violation, ReplicationSlotTracker};
 use super::wal2json;
 use crate::connectors::postgres::source::{
     old_key_column_name, old_value_column_name, DiscoveredTable,
@@ -51,6 +51,7 @@ use transferia_registry::durable::DurableContext;
 
 pub struct PostgresReplicationSource {
     client: Arc<tokio::sync::Mutex<Client>>,
+    lease: Arc<super::lease::ReplicationLease>,
     config: PostgresReplicationConfig,
     decoder: LogicalDecoder,
     slot: String,
@@ -80,6 +81,7 @@ struct ReplicationMarker {
 impl PostgresReplicationSource {
     pub(crate) async fn new(
         client: Arc<tokio::sync::Mutex<Client>>,
+        lease: Arc<super::lease::ReplicationLease>,
         config: PostgresReplicationConfig,
         decoder: LogicalDecoder,
         source_identity: PostgresSourceIdentity,
@@ -91,6 +93,7 @@ impl PostgresReplicationSource {
         exact_start_lsn: Option<u64>,
         replay_identity: Arc<str>,
     ) -> anyhow::Result<Self> {
+        lease.ensure_held().await?;
         let slot = super::config::replication_slot(&durable.delivery_id)?.to_owned();
         let connection = client.lock().await;
         if let LogicalDecoder::Pgoutput { publication } = &decoder {
@@ -130,6 +133,7 @@ impl PostgresReplicationSource {
             .collect();
         Ok(Self {
             client,
+            lease,
             config,
             decoder,
             slot,
@@ -147,6 +151,7 @@ impl PostgresReplicationSource {
     }
 
     async fn refill(&mut self) -> anyhow::Result<()> {
+        self.lease.ensure_held().await?;
         if self.last_peek_lsn > self.committed_lsn {
             return Ok(());
         }
@@ -189,7 +194,7 @@ impl PostgresReplicationSource {
                     .await?;
                 let rows = transaction
                     .query(
-                        "SELECT lsn::text, xid::text, data FROM pg_logical_slot_peek_binary_changes($1, NULL, $2, 'include-lsn', '1', 'include-timestamp', '1', 'include-types', '1', 'include-xids', '1', 'include-type-oids', '1')",
+                        "SELECT lsn::text, xid::text, data FROM pg_logical_slot_peek_binary_changes($1, NULL, $2, 'include-lsn', '1', 'include-timestamp', '1', 'include-types', '1', 'include-xids', '1', 'include-type-oids', '1', 'numeric-data-types-as-string', '1')",
                         &[&self.slot, &limit],
                     )
                     .await?;
@@ -341,6 +346,12 @@ pub(super) fn normalize_pgoutput_event(
         .zip(&table.type_oids)
         .enumerate()
     {
+        // Domain OIDs carry the domain's own (-1) modifier in pgoutput; their
+        // effective typmods are checked by the locked catalog identity guard.
+        if actual.type_oid == 1700 && matches!(expected.data_type, DataType::Decimal128(..)) {
+            anyhow::ensure!(crate::connectors::postgres::numeric::data_type(actual.type_modifier)? == expected.data_type,
+                "pgoutput NUMERIC precision/scale changed at column '{}'", expected.name);
+        }
         let expected_key = table.replica_identity_full || expected.primary_key;
         anyhow::ensure!(
             actual.name.as_ref() == expected.name
@@ -505,6 +516,7 @@ impl Source for PostgresReplicationSource {
         Box::pin(async move {
             loop {
                 if let Some(batch) = self.pending.pop_front() {
+                    self.lease.ensure_held().await.map_err(DataPlaneFailure::fatal)?;
                     self.counters.add_records(batch.rows);
                     self.counters.add_network_decoded_bytes(
                         batch
@@ -523,7 +535,7 @@ impl Source for PostgresReplicationSource {
                     });
                 }
                 self.refill().await.map_err(|error| {
-                    if is_replication_contract_violation(&error) {
+                    if is_replication_contract_violation(&error) || is_replication_safety_violation(&error) {
                         DataPlaneFailure::fatal(error)
                     } else {
                         DataPlaneFailure::retryable(error)
@@ -565,20 +577,14 @@ impl Source for PostgresReplicationSource {
                     "PostgreSQL replication commit LSN moved backwards"
                 )));
             }
+            self.lease.ensure_held().await.map_err(DataPlaneFailure::fatal)?;
             self.slot_tracker
                 .store(lsn)
                 .await
                 .map_err(DataPlaneFailure::fatal)?;
-            let connection = self.client.lock().await;
-            advance_slot(&connection, &self.slot, lsn)
+            self.lease.advance_slot(&self.slot, lsn)
                 .await
-                .map_err(|error| {
-                    if is_replication_safety_violation(&error) {
-                        DataPlaneFailure::fatal(error)
-                    } else {
-                        DataPlaneFailure::retryable(error)
-                    }
-                })?;
+                .map_err(DataPlaneFailure::fatal)?;
             self.committed_lsn = lsn;
             Ok::<(), DataPlaneFailure>(())
         })
@@ -937,6 +943,12 @@ fn logical_array(
                 .map(|event| parse_text(event_value(event, index, projection)))
                 .collect::<anyhow::Result<Vec<_>>>()?,
         )) as ArrayRef,
+        DataType::Decimal128(precision, scale) => {
+            let values = events.iter().map(|event| parse_text(event_value(event, index, projection))?
+                .map(|value| crate::connectors::postgres::numeric::parse(value, *precision, *scale)).transpose())
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            Arc::new(Decimal128Array::from(values).with_precision_and_scale(*precision, *scale)?) as ArrayRef
+        }
         DataType::Date32 => Arc::new(Date32Array::from(
             events
                 .iter()

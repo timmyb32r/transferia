@@ -221,7 +221,8 @@ fn snapshot_part_ceiling_is_optional_positive_and_not_a_reader_setting() -> anyh
     capped.validate()?;
     let schema = serde_json::to_value(schemars::schema_for!(PostgresSourceConfig))?;
     let field = &schema["properties"]["max_snapshot_parts"];
-    assert_eq!(schema["x-ui"]["capabilities"]["properties"], serde_json::json!(["parallel_table_snapshot"]));
+    assert_eq!(schema["x-ui"]["capabilities"]["parallel_table_snapshot"], true);
+    assert!(schema["x-ui"]["capabilities"].get("properties").is_none());
     assert_eq!(field["minimum"], 1);
     assert_eq!(field["x-ui"]["section"], "performance");
     assert_eq!(field["x-ui"]["delivery_types"], serde_json::json!(["batch", "batch_and_stream"]));
@@ -509,6 +510,7 @@ fn source_schema_inlines_replication_plugin_only_for_replication_modes() {
         Some(&serde_json::json!({
             "component": "source", "key": "postgres",
             "batch_stream_handoff": "exact_switchover",
+            "parallel_table_snapshot": true,
             "delivery_modes": ["batch", "stream", "batch_and_stream"],
             "record_semantics": ["append_only", "changelog"]
         }))

@@ -8,7 +8,7 @@ use transferia_registry::table_selection::TableSelection;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "postgres", "delivery_modes": ["batch", "stream", "batch_and_stream"], "record_semantics": ["append_only", "changelog"], "batch_stream_handoff": "exact_switchover", "properties": ["parallel_table_snapshot"] } }))]
+#[schemars(extend("x-ui" = { "capabilities": { "component": "source", "key": "postgres", "delivery_modes": ["batch", "stream", "batch_and_stream"], "record_semantics": ["append_only", "changelog"], "batch_stream_handoff": "exact_switchover", "parallel_table_snapshot": true } }))]
 pub struct PostgresSourceConfig {
     #[serde(flatten)]
     pub connection: PostgresConnectionConfig,
@@ -70,6 +70,19 @@ pub enum UnsupportedTypePolicy {
 }
 
 impl UnsupportedTypePolicy {
+    pub(crate) fn arrow_type_with_modifier(
+        self,
+        data_type: &tokio_postgres::types::Type,
+        typmod: i32,
+    ) -> anyhow::Result<arrow::datatypes::DataType> {
+        if *data_type != tokio_postgres::types::Type::NUMERIC { return self.arrow_type(data_type); }
+        match crate::connectors::postgres::numeric::data_type(typmod) {
+            Ok(data_type) => Ok(data_type),
+            Err(_) if self == Self::ToString => Ok(arrow::datatypes::DataType::Utf8),
+            Err(error) => Err(error),
+        }
+    }
+
     pub(crate) fn arrow_type(
         self,
         data_type: &tokio_postgres::types::Type,

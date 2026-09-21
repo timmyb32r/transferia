@@ -461,6 +461,10 @@ pub fn arrow_to_postgres(data_type: &DataType) -> anyhow::Result<Type> {
         DataType::Int64 => Type::INT8,
         DataType::UInt32 => Type::OID,
         DataType::UInt64 => Type::NUMERIC,
+        DataType::Decimal128(precision, scale) => {
+            super::numeric::validate_type(*precision, *scale)?;
+            Type::NUMERIC
+        }
         DataType::Float32 => Type::FLOAT4,
         DataType::Float64 => Type::FLOAT8,
         DataType::Binary => Type::BYTEA,

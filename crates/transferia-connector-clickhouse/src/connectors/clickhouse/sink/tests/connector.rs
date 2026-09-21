@@ -488,3 +488,64 @@ fn date32_runtime_validation_enforces_clickhouse_lossless_range() -> anyhow::Res
     }
     Ok(())
 }
+
+#[test]
+fn naive_timestamps_fail_before_destination_preparation_and_runtime_buffering() -> anyhow::Result<()> {
+    use arrow::array::TimestampMicrosecondArray;
+    use arrow::datatypes::TimeUnit;
+
+    let connector = ClickHouseSinkConnector::from_config(serde_yaml::from_str(
+        "hosts: [127.0.0.1]\nport: 1\ntrusted_plaintext: true\ndatabase: default\nusername: default\n",
+    )?)?;
+    let discovery = discovery("events", DataType::Timestamp(TimeUnit::Microsecond, None));
+    let error = connector.limits().validate_discovery(&discovery).unwrap_err();
+    assert!(format!("{error:#}").contains("explicit upstream timezone conversion"));
+
+    // Exercise the runtime guard independently of discovery, as an adapter or
+    // schema drift must not resurrect the formerly accepted ambiguous value.
+    let column = &discovery.datasets[0].incoming_schema.columns[0];
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(&column.name, column.data_type.clone(), false)
+            .with_metadata(column.arrow_metadata())])),
+        vec![Arc::new(TimestampMicrosecondArray::from(vec![31_536_000_123_456]))],
+    )?;
+    let bytes = batch.get_array_memory_size();
+    let batch = transferia_core::sink::SinkBatch {
+        table: Arc::from("events"),
+        is_dlq: false,
+        batch,
+        byte_size: bytes,
+        memory: transferia_core::memory::PipelineMemory::new(bytes).reserve_transform(bytes),
+        system_columns: transferia_core::SystemColumns::default(),
+    };
+    let error = connector.limits().validate_batch(&discovery, &batch).unwrap_err();
+    assert!(format!("{error:#}").contains("explicit upstream timezone conversion"));
+    Ok(())
+}
+
+#[test]
+fn decimals_validate_schema_at_startup_and_coefficients_before_buffering() -> anyhow::Result<()> {
+    let connector = ClickHouseSinkConnector::from_config(serde_yaml::from_str(
+        "hosts: [127.0.0.1]\nport: 1\ntrusted_plaintext: true\ndatabase: default\nusername: default\n",
+    )?)?;
+    for data_type in [DataType::Decimal128(0, 0), DataType::Decimal128(39, 0), DataType::Decimal128(20, -1)] {
+        assert!(connector.limits().validate_discovery(&discovery("events", data_type)).is_err());
+    }
+    let discovery = discovery("events", DataType::Decimal128(4, 2));
+    connector.limits().validate_discovery(&discovery)?;
+    for (value, accepted) in [(9999_i128, true), (-9999, true), (10000, false), (-10000, false)] {
+        let column = &discovery.datasets[0].incoming_schema.columns[0];
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(&column.name, column.data_type.clone(), false).with_metadata(column.arrow_metadata())])),
+            vec![Arc::new(arrow::array::Decimal128Array::from(vec![value]).with_precision_and_scale(4, 2)?)],
+        )?;
+        let bytes = batch.get_array_memory_size();
+        let batch = transferia_core::sink::SinkBatch {
+            table: Arc::from("events"), is_dlq: false, batch, byte_size: bytes,
+            memory: transferia_core::memory::PipelineMemory::new(bytes).reserve_transform(bytes),
+            system_columns: transferia_core::SystemColumns::default(),
+        };
+        assert_eq!(connector.limits().validate_batch(&discovery, &batch).is_ok(), accepted);
+    }
+    Ok(())
+}

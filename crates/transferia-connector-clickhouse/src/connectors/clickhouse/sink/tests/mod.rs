@@ -1321,6 +1321,34 @@ async fn schema_mismatch_is_fatal_before_insert() {
 }
 
 #[tokio::test]
+async fn naive_timestamp_never_reaches_insert_or_commit() {
+    let memory = PipelineMemory::new(1_000_000);
+    let (transport, state) = FakeTransport::new(false, []);
+    let mut discovered = (*discovery()).clone();
+    for dataset in &mut discovered.datasets {
+        for column in dataset.incoming_schema.columns.iter_mut()
+            .chain(dataset.stored_schema.columns.iter_mut())
+        {
+            column.data_type = DataType::Timestamp(TimeUnit::Second, None);
+        }
+    }
+    let (tx, mut events, _cancellation, task) = spawn_sink_with_discovery(
+        config(), transport, memory.clone(), Arc::new(SinkCounters::new()), Arc::new(discovered),
+    );
+    let mut incoming = delivery(&memory, 1, &["events"]);
+    incoming.outputs[0].batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new("value", DataType::Timestamp(TimeUnit::Second, None), false)])),
+        vec![Arc::new(TimestampSecondArray::from(vec![31_536_000]))],
+    ).unwrap();
+    tx.send(incoming).await.unwrap();
+    let error = task.await.unwrap().unwrap_err();
+    assert!(!error.is_retryable());
+    assert!(format!("{error:#}").contains("explicit upstream timezone conversion"));
+    assert_eq!(state.calls.load(Ordering::Acquire), 0);
+    assert!(events.try_recv().is_err());
+}
+
+#[tokio::test]
 async fn empty_delivery_commits_without_insert() {
     let memory = PipelineMemory::new(1_000_000);
     let (transport, state) = FakeTransport::new(false, []);

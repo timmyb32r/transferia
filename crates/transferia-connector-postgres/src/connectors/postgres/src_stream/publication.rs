@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use tokio_postgres::GenericClient;
+use tokio_postgres::{GenericClient, types::Type};
 use transferia_connector_support::external_request::observe_external_request;
 
 use crate::connectors::postgres::source::DiscoveredTable;
@@ -124,7 +124,7 @@ where
     let rows = observe_external_request(
         "postgres",
         "validate_pgoutput_publication",
-        client.query(PUBLICATION_CONTRACT_SQL, &[&publication, &schemas, &names]),
+        client.query_typed(PUBLICATION_CONTRACT_SQL, &[(&publication, Type::TEXT), (&schemas, Type::TEXT_ARRAY), (&names, Type::TEXT_ARRAY)]),
     )
     .await?;
     decode_and_validate_publication(publication, tables, &rows, automatic)

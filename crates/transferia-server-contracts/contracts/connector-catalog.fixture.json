@@ -6751,7 +6751,7 @@
       "title": "PostgreSQL",
       "source": {
         "type_mapping": {
-          "context": "Evaluated by PostgreSQL discovery. Non-native types use canonical text. Pseudo types require the explicit batch-only unsupported_types=to_string policy. Examples do not replace value, timezone or COPY validation.",
+          "context": "Evaluated by PostgreSQL discovery. Constrained NUMERIC uses exact Decimal128 when its precision and scale fit. Other NUMERIC and pseudo types require batch unsupported_types=to_string; unsupported non-finite decimal values fail before publication. Other non-native types use canonical text. Examples do not replace value, timezone or COPY validation.",
           "rows": [
             {
               "input": "bool",
@@ -6834,11 +6834,6 @@
               "error": null
             },
             {
-              "input": "numeric",
-              "output": "Utf8",
-              "error": null
-            },
-            {
               "input": "uuid",
               "output": "Utf8",
               "error": null
@@ -6877,6 +6872,26 @@
               "input": "record",
               "output": null,
               "error": "PostgreSQL source type 'record' has no supported Arrow representation; select unsupported_types=to_string for an explicit batch text conversion"
+            },
+            {
+              "input": "numeric(20,0)",
+              "output": "Decimal128(20, 0)",
+              "error": null
+            },
+            {
+              "input": "numeric(24,4)",
+              "output": "Decimal128(24, 4)",
+              "error": null
+            },
+            {
+              "input": "numeric(4,-3)",
+              "output": "Decimal128(4, -3)",
+              "error": null
+            },
+            {
+              "input": "numeric",
+              "output": null,
+              "error": "unbounded PostgreSQL NUMERIC requires unsupported_types=to_string"
             }
           ]
         },
@@ -7054,9 +7069,7 @@
                 "changelog"
               ],
               "batch_stream_handoff": "exact_switchover",
-              "properties": [
-                "parallel_table_snapshot"
-              ]
+              "parallel_table_snapshot": true
             }
           },
           "$defs": {
@@ -7182,7 +7195,7 @@
                 },
                 "bootstrap_timeout_ms": {
                   "title": "Replication bootstrap timeout",
-                  "description": "Maximum time in milliseconds for opening the replication session and exporting the exact slot snapshot; also bounds snapshot cancellation and cleanup in both snapshot modes",
+                  "description": "Maximum time in milliseconds for replication bootstrap, execution-lease operations, and slot acknowledgements; also bounds snapshot cancellation and cleanup in both snapshot modes",
                   "type": "integer",
                   "format": "uint64",
                   "minimum": 0,
@@ -7435,8 +7448,8 @@
             },
             {
               "input": "Decimal128(38, 2)",
-              "output": null,
-              "error": "unsupported Arrow type Decimal128(38, 2) for PostgreSQL COPY"
+              "output": "numeric(38,2)",
+              "error": null
             },
             {
               "input": "Decimal256(76, 2)",
@@ -8459,8 +8472,8 @@
             },
             {
               "input": "Timestamp(Second, None)",
-              "output": "DateTime64(0)",
-              "error": null
+              "output": null,
+              "error": "ClickHouse cannot preserve a timezone-naive timestamp without an explicit upstream timezone conversion; convert the column to a timezone-aware timestamp before delivery. Neither UTC nor the server timezone is assumed"
             },
             {
               "input": "Timestamp(Second, Some(\"UTC\"))",
@@ -8474,8 +8487,8 @@
             },
             {
               "input": "Timestamp(Millisecond, None)",
-              "output": "DateTime64(3)",
-              "error": null
+              "output": null,
+              "error": "ClickHouse cannot preserve a timezone-naive timestamp without an explicit upstream timezone conversion; convert the column to a timezone-aware timestamp before delivery. Neither UTC nor the server timezone is assumed"
             },
             {
               "input": "Timestamp(Millisecond, Some(\"UTC\"))",
@@ -8489,8 +8502,8 @@
             },
             {
               "input": "Timestamp(Microsecond, None)",
-              "output": "DateTime64(6)",
-              "error": null
+              "output": null,
+              "error": "ClickHouse cannot preserve a timezone-naive timestamp without an explicit upstream timezone conversion; convert the column to a timezone-aware timestamp before delivery. Neither UTC nor the server timezone is assumed"
             },
             {
               "input": "Timestamp(Microsecond, Some(\"UTC\"))",
@@ -8504,8 +8517,8 @@
             },
             {
               "input": "Timestamp(Nanosecond, None)",
-              "output": "DateTime64(9)",
-              "error": null
+              "output": null,
+              "error": "ClickHouse cannot preserve a timezone-naive timestamp without an explicit upstream timezone conversion; convert the column to a timezone-aware timestamp before delivery. Neither UTC nor the server timezone is assumed"
             },
             {
               "input": "Timestamp(Nanosecond, Some(\"UTC\"))",

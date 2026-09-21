@@ -727,3 +727,19 @@ fn postgres_foreign_unmarked_or_wrong_schema_collision_is_preserved() {
     );
     assert_eq!(scope.attempted_tables(), BTreeSet::from([table]));
 }
+
+#[test]
+fn decimal_copy_validates_declared_precision_before_emitting_bytes() {
+    use arrow::array::Decimal128Array;
+    for format in [super::copy_binary::encode, super::copy_text::encode] {
+        let valid = RecordBatch::try_new(Arc::new(Schema::new(vec![Field::new("amount", DataType::Decimal128(20, 0), true)])),
+            vec![Arc::new(Decimal128Array::from(vec![Some(18_446_744_073_709_551_615_i128), None]).with_precision_and_scale(20, 0).unwrap())]).unwrap();
+        assert!(format(&valid).is_ok());
+        let invalid = RecordBatch::try_new(Arc::new(Schema::new(vec![Field::new("amount", DataType::Decimal128(3, 0), false)])),
+            vec![Arc::new(Decimal128Array::from(vec![1000_i128]).with_precision_and_scale(3, 0).unwrap())]).unwrap();
+        assert!(format(&invalid).is_err());
+    }
+    assert_eq!(postgres_sql_type(&DataType::Decimal128(20, 0)).unwrap(), "numeric(20,0)");
+    assert_eq!(postgres_sql_type(&DataType::Decimal128(4, -3)).unwrap(), "numeric(4,-3)");
+    assert!(postgres_sql_type(&DataType::Decimal128(39, 0)).is_err());
+}

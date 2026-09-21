@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use tokio_postgres::error::SqlState;
-use tokio_postgres::GenericClient;
+use tokio_postgres::{GenericClient, types::Type};
 use transferia_connector_support::external_request::observe_external_request;
 
 use super::publication::replication_contract_violation;
@@ -11,55 +11,65 @@ use crate::connectors::postgres::source::DiscoveredTable;
 const RELATION_IDENTITY_SQL: &str = "\
 WITH expected AS (\
     SELECT configured_schema, configured_table, ordinality \
-    FROM ROWS FROM (pg_catalog.unnest($1::text[]), pg_catalog.unnest($2::text[])) \
+    FROM ROWS FROM (pg_catalog.unnest($1::pg_catalog.text[]), pg_catalog.unnest($2::pg_catalog.text[])) \
          WITH ORDINALITY \
          AS configured(configured_schema, configured_table, ordinality)\
 ) \
 SELECT expected.configured_schema, expected.configured_table, current_table.oid, \
-       current_table.relreplident::text, \
+       current_table.relreplident::pg_catalog.text, \
        ARRAY( \
-           SELECT attribute.attname::text \
+           SELECT attribute.attname::pg_catalog.text \
            FROM pg_catalog.pg_attribute AS attribute \
-           WHERE attribute.attrelid = current_table.oid \
-             AND attribute.attnum > 0 \
+           WHERE attribute.attrelid OPERATOR(pg_catalog.=) current_table.oid \
+             AND attribute.attnum OPERATOR(pg_catalog.>) 0 \
              AND NOT attribute.attisdropped \
            ORDER BY attribute.attnum \
        ), \
        ARRAY( \
            SELECT attribute.atttypid \
            FROM pg_catalog.pg_attribute AS attribute \
-           WHERE attribute.attrelid = current_table.oid \
-             AND attribute.attnum > 0 \
+           WHERE attribute.attrelid OPERATOR(pg_catalog.=) current_table.oid \
+             AND attribute.attnum OPERATOR(pg_catalog.>) 0 \
              AND NOT attribute.attisdropped \
            ORDER BY attribute.attnum \
        ), \
        ARRAY( \
-           SELECT column_metadata.is_nullable = 'YES' \
+           SELECT column_metadata.is_nullable OPERATOR(pg_catalog.=) 'YES' \
            FROM information_schema.columns AS column_metadata \
-           WHERE column_metadata.table_schema = expected.configured_schema \
-             AND column_metadata.table_name = expected.configured_table \
+           WHERE column_metadata.table_schema OPERATOR(pg_catalog.=) expected.configured_schema \
+             AND column_metadata.table_name OPERATOR(pg_catalog.=) expected.configured_table \
            ORDER BY column_metadata.ordinal_position \
        ), \
        ARRAY( \
            SELECT EXISTS ( \
                SELECT 1 \
                FROM pg_catalog.pg_index AS index_metadata \
-               WHERE index_metadata.indrelid = current_table.oid \
+               WHERE index_metadata.indrelid OPERATOR(pg_catalog.=) current_table.oid \
                  AND index_metadata.indisprimary \
-                 AND attribute.attnum = ANY(index_metadata.indkey) \
+                 AND attribute.attnum OPERATOR(pg_catalog.=) ANY(index_metadata.indkey) \
            ) \
            FROM pg_catalog.pg_attribute AS attribute \
-           WHERE attribute.attrelid = current_table.oid \
-             AND attribute.attnum > 0 \
+           WHERE attribute.attrelid OPERATOR(pg_catalog.=) current_table.oid \
+             AND attribute.attnum OPERATOR(pg_catalog.>) 0 \
              AND NOT attribute.attisdropped \
+           ORDER BY attribute.attnum \
+       ), \
+       ARRAY( \
+           SELECT (WITH RECURSIVE resolved(oid, modifier) AS ( \
+               SELECT attribute.atttypid, attribute.atttypmod UNION ALL \
+               SELECT t.typbasetype, CASE WHEN r.modifier OPERATOR(pg_catalog.>=) 0 THEN r.modifier ELSE t.typtypmod END \
+               FROM resolved r JOIN pg_catalog.pg_type t ON t.oid OPERATOR(pg_catalog.=) r.oid WHERE t.typbasetype OPERATOR(pg_catalog.<>) 0 \
+           ) SELECT modifier FROM resolved r JOIN pg_catalog.pg_type t ON t.oid OPERATOR(pg_catalog.=) r.oid WHERE t.typbasetype OPERATOR(pg_catalog.=) 0) \
+           FROM pg_catalog.pg_attribute attribute \
+           WHERE attribute.attrelid OPERATOR(pg_catalog.=) current_table.oid AND attribute.attnum OPERATOR(pg_catalog.>) 0 AND NOT attribute.attisdropped \
            ORDER BY attribute.attnum \
        ) \
 FROM expected \
 LEFT JOIN pg_catalog.pg_namespace AS current_namespace \
-       ON current_namespace.nspname = expected.configured_schema \
+       ON current_namespace.nspname OPERATOR(pg_catalog.=) expected.configured_schema \
 LEFT JOIN pg_catalog.pg_class AS current_table \
-       ON current_table.relnamespace = current_namespace.oid \
-      AND current_table.relname = expected.configured_table \
+       ON current_table.relnamespace OPERATOR(pg_catalog.=) current_namespace.oid \
+      AND current_table.relname OPERATOR(pg_catalog.=) expected.configured_table \
 ORDER BY expected.ordinality";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -79,6 +89,8 @@ struct CurrentRelationIdentity {
     nullable: Vec<bool>,
 
     primary_key: Vec<bool>,
+
+    type_modifiers: Vec<i32>,
 }
 
 pub async fn validate_relation_identities<C>(
@@ -99,7 +111,7 @@ where
     let rows = observe_external_request(
         "postgres",
         "validate_relation_identities",
-        client.query(RELATION_IDENTITY_SQL, &[&schemas, &names]),
+        client.query_typed(RELATION_IDENTITY_SQL, &[(&schemas, Type::TEXT_ARRAY), (&names, Type::TEXT_ARRAY)]),
     )
     .await?;
     let current = rows
@@ -114,6 +126,7 @@ where
                 type_oids: row.try_get(5)?,
                 nullable: row.try_get(6)?,
                 primary_key: row.try_get(7)?,
+                type_modifiers: row.try_get(8)?,
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()
@@ -242,7 +255,8 @@ fn validate_relation_identity_contract(
             current.column_names.len() == expected_columns
                 && current.type_oids.len() == expected_columns
                 && current.nullable.len() == expected_columns
-                && current.primary_key.len() == expected_columns,
+                && current.primary_key.len() == expected_columns
+                && current.type_modifiers.len() == expected_columns,
             "PostgreSQL configured table '{}.{}' schema changed after discovery (expected {expected_columns} columns; found {} names, {} type OIDs, {} nullability values, and {} primary-key values)",
             table.config.schema,
             table.config.name,
@@ -275,6 +289,11 @@ fn validate_relation_identity_contract(
                 expected_oid,
                 current.type_oids[index]
             );
+            if matches!(column.data_type, arrow::datatypes::DataType::Decimal128(..)) {
+                anyhow::ensure!(crate::connectors::postgres::numeric::data_type(current.type_modifiers[index])? == column.data_type,
+                    "PostgreSQL configured table '{}.{}' column '{}' NUMERIC precision/scale changed after discovery",
+                    table.config.schema, table.config.name, column.name);
+            }
             anyhow::ensure!(
                 current.nullable[index] == column.nullable,
                 "PostgreSQL configured table '{}.{}' column '{}' nullability changed after discovery (expected {}, found {})",

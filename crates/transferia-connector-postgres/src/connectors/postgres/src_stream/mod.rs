@@ -1,6 +1,7 @@
 mod config;
 mod event;
 mod identity;
+mod lease;
 mod pgoutput;
 mod plugin;
 mod publication;
@@ -16,6 +17,7 @@ pub(crate) use identity::{
     PostgresSystemIdentity,
 };
 pub(crate) use plugin::resolve_plugin;
+pub(crate) use lease::ReplicationLease;
 pub(crate) use publication::{is_replication_contract_violation, validate_pgoutput_publication};
 pub(crate) use reader::PostgresReplicationSource;
 pub(crate) use slot_recovery::{is_replication_safety_violation, replication_safety_violation};

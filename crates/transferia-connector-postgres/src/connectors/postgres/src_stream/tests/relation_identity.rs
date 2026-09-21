@@ -39,6 +39,7 @@ fn current(schema: &str, name: &str, relation_oid: Option<u32>) -> CurrentRelati
         type_oids: relation_oid.map_or_else(Vec::new, |_| vec![20]),
         nullable: relation_oid.map_or_else(Vec::new, |_| vec![false]),
         primary_key: relation_oid.map_or_else(Vec::new, |_| vec![true]),
+        type_modifiers: relation_oid.map_or_else(Vec::new, |_| vec![-1]),
     }
 }
 
@@ -149,7 +150,7 @@ fn replica_identity_and_every_authoritative_column_attribute_are_exact() {
 #[test]
 fn relation_identity_query_is_parameterized_and_reads_full_authoritative_schema() {
     assert!(RELATION_IDENTITY_SQL
-        .contains("ROWS FROM (pg_catalog.unnest($1::text[]), pg_catalog.unnest($2::text[]))"));
+        .contains("ROWS FROM (pg_catalog.unnest($1::pg_catalog.text[]), pg_catalog.unnest($2::pg_catalog.text[]))"));
     assert!(RELATION_IDENTITY_SQL.contains("current_table.oid"));
     assert!(RELATION_IDENTITY_SQL.contains("current_table.relreplident"));
     assert!(RELATION_IDENTITY_SQL.contains("attribute.atttypid"));
@@ -171,4 +172,19 @@ fn relation_lock_covers_every_authoritative_table_and_quotes_identifiers() {
         "LOCK TABLE \"public\".\"accounts\", \"odd\"\"schema\".\"odd\"\"table\" IN ACCESS SHARE MODE"
     );
     assert!(relation_lock_sql(&[]).is_err());
+}
+
+#[test]
+fn numeric_typmod_changes_are_rejected_even_when_oid_is_unchanged() {
+    let mut expected = discovered("public", "amounts", 42);
+    expected.schema.columns[0].data_type = DataType::Decimal128(20, 4);
+    expected.type_oids[0] = 1700;
+    let mut actual = current("public", "amounts", Some(42));
+    actual.type_oids[0] = 1700;
+    actual.type_modifiers[0] = (20 << 16) + 4 + 4;
+    validate_relation_identity_contract(&[expected.clone()], &[actual.clone()]).unwrap();
+    for modifier in [(20 << 16) + 2 + 4, (21 << 16) + 4 + 4, -1] {
+        actual.type_modifiers[0] = modifier;
+        assert!(validate_relation_identity_contract(&[expected.clone()], &[actual.clone()]).is_err());
+    }
 }

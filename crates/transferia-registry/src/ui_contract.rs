@@ -49,6 +49,14 @@ struct UiCapabilities {
     record_semantics: Option<Vec<UiRecordSemantics>>,
     properties: Option<Vec<String>>,
     batch_stream_handoff: Option<UiBatchStreamHandoff>,
+    #[serde(default, deserialize_with = "deserialize_present_bool")]
+    parallel_table_snapshot: Option<bool>,
+}
+
+fn deserialize_present_bool<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<bool>, D::Error> {
+    bool::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Deserialize)]
@@ -144,6 +152,7 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
                     );
                 }
                 if let Some(capabilities) = &hints.capabilities {
+                    validate_parallel_table_snapshot(path, capabilities)?;
                     if capabilities.batch_stream_handoff.is_some() {
                         anyhow::ensure!(
                             capabilities.component == UiCapabilityComponent::Source
@@ -289,6 +298,7 @@ fn validate_one_endpoint_capability(
     delivery_modes: &[DeliveryMode],
     record_semantics: &[RecordSemantics],
 ) -> anyhow::Result<()> {
+    validate_parallel_table_snapshot(path, capabilities)?;
     let expected_component = match role {
         EndpointRole::Source => UiCapabilityComponent::Source,
         EndpointRole::Sink => UiCapabilityComponent::Destination,
@@ -360,6 +370,20 @@ fn validate_one_endpoint_capability(
         | UiCapabilityComponent::Transformer => {
             anyhow::bail!("{path}: non-endpoint capabilities reached endpoint validation")
         }
+    }
+    Ok(())
+}
+
+fn validate_parallel_table_snapshot(path: &str, capabilities: &UiCapabilities) -> anyhow::Result<()> {
+    if capabilities.parallel_table_snapshot.is_some() {
+        anyhow::ensure!(
+            capabilities.component == UiCapabilityComponent::Source
+                && capabilities.delivery_modes.as_ref().is_some_and(|modes| {
+                    modes.contains(&UiDeliveryType::Batch)
+                        || modes.contains(&UiDeliveryType::BatchAndStream)
+                }),
+            "{path}: parallel_table_snapshot requires a source with a snapshot delivery mode"
+        );
     }
     Ok(())
 }

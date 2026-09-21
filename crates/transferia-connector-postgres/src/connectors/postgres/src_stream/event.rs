@@ -35,6 +35,7 @@ pub(super) struct ChangeEvent {
 pub(super) struct RelationColumn {
     pub name: Arc<str>,
     pub type_oid: u32,
+    pub type_modifier: i32,
     pub key: bool,
 }
 

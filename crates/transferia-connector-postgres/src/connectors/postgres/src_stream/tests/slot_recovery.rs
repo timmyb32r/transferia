@@ -214,11 +214,11 @@ fn durable_offset_rejects_cluster_database_oid_and_schema_drift_before_slot_io()
 fn pg_tm_aux_schema_is_always_quoted_as_one_identifier() {
     assert_eq!(
         recreate_slot_query("tm_aux"),
-        "SELECT slot_name, lsn::text FROM \"tm_aux\".\"pg_create_logical_replication_slot_lsn\"($1, $2, false, $3::pg_lsn)"
+        "SELECT slot_name, lsn::text FROM \"tm_aux\".\"pg_create_logical_replication_slot_lsn\"($1, $2, false, $3::text::pg_lsn)"
     );
     assert_eq!(
         recreate_slot_query("evil\".public; DROP SCHEMA public; --"),
-        "SELECT slot_name, lsn::text FROM \"evil\"\".public; DROP SCHEMA public; --\".\"pg_create_logical_replication_slot_lsn\"($1, $2, false, $3::pg_lsn)"
+        "SELECT slot_name, lsn::text FROM \"evil\"\".public; DROP SCHEMA public; --\".\"pg_create_logical_replication_slot_lsn\"($1, $2, false, $3::text::pg_lsn)"
     );
 }
 

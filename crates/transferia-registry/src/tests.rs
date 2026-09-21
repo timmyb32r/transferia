@@ -402,6 +402,49 @@ fn handoff_metadata_is_typed_and_restricted_to_combined_sources() {
     }
 }
 
+#[test]
+fn parallel_table_snapshot_metadata_is_typed_and_requires_a_snapshot_source() {
+    for mode in ["batch", "batch_and_stream"] {
+        for enabled in [false, true] {
+            let schema = serde_json::json!({"type": "object", "x-ui": {"capabilities": {
+                "component": "source", "key": "arbitrary", "delivery_modes": [mode],
+                "record_semantics": ["append_only"], "parallel_table_snapshot": enabled
+            }}});
+            crate::ui_contract::validate_ui_dialect(&schema).unwrap();
+            crate::ui_contract::validate_endpoint_capabilities(
+                &schema, crate::EndpointRole::Source,
+                &[DeliveryMode::Batch, DeliveryMode::BatchAndStream],
+                &[RecordSemantics::AppendOnly],
+            ).unwrap();
+        }
+    }
+    for (component, modes, value) in [
+        ("source", vec!["stream"], serde_json::json!(true)),
+        ("destination", vec!["batch"], serde_json::json!(true)),
+        ("parser", vec!["batch"], serde_json::json!(false)),
+        ("source", vec!["batch"], serde_json::json!("true")),
+        ("source", vec!["batch"], serde_json::Value::Null),
+    ] {
+        let schema = serde_json::json!({"type": "object", "x-ui": {"capabilities": {
+            "component": component, "key": "arbitrary", "delivery_modes": modes,
+            "record_semantics": ["append_only"], "parallel_table_snapshot": value
+        }}});
+        assert!(crate::ui_contract::validate_ui_dialect(&schema).is_err());
+        assert!(crate::ui_contract::validate_endpoint_capabilities(
+            &schema, crate::EndpointRole::Source, &[DeliveryMode::Batch],
+            &[RecordSemantics::AppendOnly],
+        ).is_err());
+    }
+    let invalid = serde_json::json!({"type": "object", "x-ui": {"capabilities": {
+        "component": "source", "key": "arbitrary", "delivery_modes": ["batch"],
+        "record_semantics": ["append_only"], "properties": ["parallel_table_snapshot"]
+    }}});
+    assert!(crate::ui_contract::validate_endpoint_capabilities(
+        &invalid, crate::EndpointRole::Source, &[DeliveryMode::Batch],
+        &[RecordSemantics::AppendOnly],
+    ).unwrap_err().to_string().contains("endpoint capabilities cannot declare component properties"));
+}
+
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct TestSourceConfig {

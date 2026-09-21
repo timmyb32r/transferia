@@ -619,11 +619,40 @@ fn target_column_with_metadata(
     let clickhouse_type = Type::from_str(type_name)?;
     let nullable = clickhouse_type.is_nullable();
     let low_cardinality = contains_low_cardinality(&clickhouse_type);
-    let data_type = target_data_type(&clickhouse_type);
+    let mut data_type = target_data_type(&clickhouse_type);
+    if let Some(DataType::Decimal128(_, scale)) = data_type {
+        // The native parser retains storage width (9/18/38 digits), not the
+        // declared Decimal(P,S) precision. Comparing that width would approve
+        // a destination whose declared domain is narrower than the source.
+        let mut declaration = type_name.trim();
+        while let Some(inner) = declaration
+            .strip_prefix("Nullable(")
+            .or_else(|| declaration.strip_prefix("LowCardinality("))
+            .and_then(|inner| inner.strip_suffix(')'))
+        {
+            declaration = inner.trim();
+        }
+        if let Some(arguments) = declaration.strip_prefix("Decimal(").and_then(|body| body.strip_suffix(')')) {
+            let (precision, _) = arguments.split_once(',').ok_or_else(|| anyhow::anyhow!("invalid ClickHouse Decimal declaration"))?;
+            data_type = Some(DataType::Decimal128(precision.trim().parse()?, scale));
+        }
+    }
+    // The native type parser substitutes UTC for an omitted timezone, whereas
+    // ClickHouse uses the server timezone. Only a quoted timezone in the parsed
+    // temporal declaration is an explicit, verifiable destination contract.
+    let explicit_timezone = type_name.contains('\'');
     let (datetime_precision, datetime64, timezone) = match clickhouse_type.strip_null() {
-        Type::DateTime(timezone) => (Some(0), false, Some(timezone.name().to_string())),
+        Type::DateTime(timezone) => (
+            Some(0),
+            false,
+            explicit_timezone.then(|| timezone.name().to_string()),
+        ),
         Type::DateTime64(precision, timezone) => {
-            (Some(*precision), true, Some(timezone.name().to_string()))
+            (
+                Some(*precision),
+                true,
+                explicit_timezone.then(|| timezone.name().to_string()),
+            )
         }
         _ => (None, false, None),
     };
@@ -700,6 +729,13 @@ fn validate_target_schema(
                 column.name
             )
         })?;
+        if let DataType::Timestamp(_, Some(timezone)) = &column.data_type {
+            anyhow::ensure!(
+                actual.datetime_precision.is_none() || actual.timezone.is_some(),
+                "ClickHouse table '{table}' column '{}' omits its timezone; declare the destination timezone explicitly as {timezone:?}. The server timezone is not inferred",
+                column.name,
+            );
+        }
         anyhow::ensure!(
             data_types_compatible(&column.data_type, actual),
             "ClickHouse table '{table}' column '{}' has incompatible type {:?}; expected {:?}",
@@ -767,7 +803,7 @@ fn data_types_compatible(expected: &DataType, target: &TargetColumn) -> bool {
                 && target.datetime_precision == Some(expected_precision)
                 && expected_timezone
                     .as_deref()
-                    .is_none_or(|expected| target.timezone.as_deref() == Some(expected))
+                    .is_some_and(|expected| target.timezone.as_deref() == Some(expected))
         }
         _ => expected == target_data_type,
     }
@@ -777,7 +813,9 @@ fn column_definition(column: &SchemaColumn) -> anyhow::Result<String> {
     validate_identifier(&column.name).map_err(|error| {
         error.context(format!("invalid ClickHouse column name {:?}", column.name))
     })?;
-    let data_type = clickhouse_type(&column.data_type)?;
+    let data_type = clickhouse_type(&column.data_type).map_err(|error| {
+        error.context(format!("ClickHouse column '{}' has an unsupported type", column.name))
+    })?;
     let data_type = if column.low_cardinality {
         anyhow::ensure!(
             matches!(column.data_type, DataType::Utf8 | DataType::LargeUtf8),
@@ -815,10 +853,6 @@ pub(super) fn destination_type(column: &SchemaColumn) -> anyhow::Result<String> 
     })
 }
 
-#[expect(
-    clippy::unreachable,
-    reason = "every Arrow TimeUnit variant maps to a fixed ClickHouse precision"
-)]
 fn clickhouse_type(data_type: &DataType) -> anyhow::Result<String> {
     Ok(match data_type {
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Binary | DataType::LargeBinary => {
@@ -836,8 +870,8 @@ fn clickhouse_type(data_type: &DataType) -> anyhow::Result<String> {
         DataType::Float64 => "Float64".into(),
         DataType::Decimal128(precision, scale) => {
             anyhow::ensure!(
-                *scale >= 0 && scale.unsigned_abs() <= *precision,
-                "ClickHouse Decimal scale must be between 0 and precision {precision}, got {scale}"
+                (1..=38).contains(precision) && *scale >= 0 && scale.unsigned_abs() <= *precision,
+                "ClickHouse Decimal128 requires precision 1..=38 and scale 0..=precision, got {precision}/{scale}"
             );
             format!("Decimal({precision}, {scale})")
         }
@@ -847,23 +881,39 @@ fn clickhouse_type(data_type: &DataType) -> anyhow::Result<String> {
             "Arrow Date64 is unavailable for ClickHouse without an explicit configured conversion to Timestamp(Millisecond)"
         ),
         DataType::Timestamp(unit, timezone) => {
-            let timezone = timezone.as_deref().map(quote_string_literal);
+            validate_timestamp_semantics(data_type)?;
+            let timezone = timezone.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("ClickHouse timestamp timezone is missing")
+            })?;
             let precision = match unit {
-                TimeUnit::Second => Some(0),
-                TimeUnit::Millisecond => Some(3),
-                TimeUnit::Microsecond => Some(6),
-                TimeUnit::Nanosecond => Some(9),
+                TimeUnit::Second => 0,
+                TimeUnit::Millisecond => 3,
+                TimeUnit::Microsecond => 6,
+                TimeUnit::Nanosecond => 9,
             };
-            match (precision, timezone) {
-                (Some(precision), None) => format!("DateTime64({precision})"),
-                (Some(precision), Some(timezone)) => {
-                    format!("DateTime64({precision}, {timezone})")
-                }
-                (None, _) => unreachable!("every Arrow timestamp unit has a precision"),
-            }
+            let declaration = format!(
+                "DateTime64({precision}, {})",
+                quote_string_literal(timezone),
+            );
+            Type::from_str(&declaration).map_err(|error| {
+                anyhow::anyhow!("ClickHouse timestamp timezone {timezone:?} is unsupported: {error}")
+            })?;
+            declaration
         }
         other => anyhow::bail!("No ClickHouse type mapping for Arrow type {other:?}"),
     })
+}
+
+/// ClickHouse stores instants, while an Arrow timestamp without a timezone is
+/// a wall-clock value. Interpreting that value in UTC or the server timezone is
+/// a transformation and must be explicitly performed upstream. Keep this check
+/// shared by discovery/DDL and the runtime boundary before buffering or INSERT.
+pub(super) fn validate_timestamp_semantics(data_type: &DataType) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !matches!(data_type, DataType::Timestamp(_, None)),
+        "ClickHouse cannot preserve a timezone-naive timestamp without an explicit upstream timezone conversion; convert the column to a timezone-aware timestamp before delivery. Neither UTC nor the server timezone is assumed",
+    );
+    Ok(())
 }
 
 pub fn quote_string_literal(value: &str) -> String {

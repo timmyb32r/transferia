@@ -1,4 +1,4 @@
-use tokio_postgres::{error::SqlState, Client};
+use tokio_postgres::{error::SqlState, types::Type, Client};
 use transferia_connector_support::external_request::observe_external_request;
 
 use super::config::{LogicalDecoder, ReplicationPlugin};
@@ -17,9 +17,9 @@ pub async fn resolve_plugin(
     let existing = observe_external_request(
         "postgres",
         "inspect_replication_plugin",
-        client.query_opt(
+        client.query_typed_opt(
             "SELECT plugin, database = pg_catalog.current_database() FROM pg_catalog.pg_replication_slots WHERE slot_name = $1",
-            &[&transfer_id],
+            &[(&transfer_id, Type::TEXT)],
         ),
     )
     .await?;
@@ -94,7 +94,16 @@ fn select_auto_plugin(
     }
 }
 
-async fn probe_plugin(client: &Client, plugin: &str) -> anyhow::Result<bool> {
+async fn probe_plugin(client: &mut Client, plugin: &str) -> anyhow::Result<bool> {
+    // Temporary slots are backend-local. Keep creation and cleanup on one
+    // backend even when a transaction pooler releases every idle session.
+    let transaction = observe_external_request("postgres", "begin_replication_probe", client.transaction()).await?;
+    let result = probe_plugin_in_transaction(&transaction, plugin).await;
+    observe_external_request("postgres", "finish_replication_probe", transaction.rollback()).await?;
+    result
+}
+
+async fn probe_plugin_in_transaction(client: &tokio_postgres::Transaction<'_>, plugin: &str) -> anyhow::Result<bool> {
     // Loading an output plugin through a temporary slot checks the actual server
     // library, unlike pg_available_extensions (output plugins need not be extensions).
     // The backend PID makes concurrent probes independent; temporary slots also

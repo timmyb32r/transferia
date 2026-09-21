@@ -43,7 +43,23 @@ impl SslOpts {
             root_store.add(cert)?;
         }
 
-        let config_builder = ClientConfig::builder().with_root_certificates(root_store.clone());
+        // Select the backend enabled by mysql_async itself. Cargo may unify both
+        // rustls backends through unrelated connectors, in which case rustls's
+        // implicit provider selection panics. Do not mutate the process default:
+        // the first connector used must not determine another connector's TLS.
+        #[cfg(feature = "aws-lc-rs")]
+        let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+        #[cfg(all(not(feature = "aws-lc-rs"), feature = "ring"))]
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        #[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
+        let provider = rustls::crypto::CryptoProvider::get_default()
+            .cloned()
+            .ok_or_else(|| rustls::Error::General(
+                "mysql_async requires an installed rustls provider when built without a crypto backend".into(),
+            ))?;
+        let config_builder = ClientConfig::builder_with_provider(Arc::clone(&provider))
+            .with_safe_default_protocol_versions()?
+            .with_root_certificates(root_store.clone());
 
         let mut config = if let Some(identity) = self.client_identity() {
             let (cert_chain, priv_key) = identity.load().await?;
@@ -53,7 +69,7 @@ impl SslOpts {
         };
 
         let mut dangerous = config.dangerous();
-        let web_pki_verifier = WebPkiServerVerifier::builder(Arc::new(root_store))
+        let web_pki_verifier = WebPkiServerVerifier::builder_with_provider(Arc::new(root_store), provider)
             .build()
             .map_err(TlsError::from)?;
         let dangerous_verifier = DangerousVerifier::new(

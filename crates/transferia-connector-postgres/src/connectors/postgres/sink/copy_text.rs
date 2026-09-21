@@ -1,5 +1,5 @@
 use arrow::array::{
-    Array, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array,
+    Array, BinaryArray, BooleanArray, Date32Array, Decimal128Array, Float32Array, Float64Array, Int16Array,
     Int32Array, Int64Array, Int8Array, StringArray, UInt16Array, UInt32Array, UInt64Array,
     UInt8Array,
 };
@@ -46,6 +46,10 @@ fn encode_value(output: &mut BytesMut, column: &dyn Array, row: usize) -> anyhow
         DataType::UInt16 => write_integer(output, downcast::<UInt16Array>(column)?.value(row)),
         DataType::UInt32 => write_integer(output, downcast::<UInt32Array>(column)?.value(row)),
         DataType::UInt64 => write_integer(output, downcast::<UInt64Array>(column)?.value(row)),
+        DataType::Decimal128(precision, scale) => {
+            let value = crate::connectors::postgres::numeric::format(downcast::<Decimal128Array>(column)?.value(row), *precision, *scale)?;
+            output.extend_from_slice(value.as_bytes());
+        }
         DataType::Float32 => write_f32(output, downcast::<Float32Array>(column)?.value(row)),
         DataType::Float64 => write_f64(output, downcast::<Float64Array>(column)?.value(row)),
         DataType::Utf8 => {

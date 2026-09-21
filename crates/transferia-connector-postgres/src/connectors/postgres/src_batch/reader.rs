@@ -3,11 +3,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use arrow::array::{
-    new_null_array, ArrayRef, BinaryArray, BooleanArray, Date32Array, Float32Array, Float64Array,
+    new_null_array, ArrayRef, BinaryArray, BooleanArray, Date32Array, Decimal128Array, Float32Array, Float64Array,
     Int16Array, Int32Array, Int64Array, Int8Array, StringArray, TimestampMicrosecondArray,
     UInt32Array, UInt64Array,
 };
-use arrow::datatypes::{Field, Schema};
+use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use tokio_postgres::{Column, Statement};
@@ -460,16 +460,8 @@ fn rows_to_batch(
         .zip(&discovered_schema.columns)
         .enumerate()
     {
-        let data_type = postgres_to_arrow(column.type_())?;
-        anyhow::ensure!(
-            column.name() == discovered.name && data_type == discovered.data_type,
-            "PostgreSQL query schema drifted at column '{}': discovered {:?}, query returned {:?}",
-            column.name(),
-            discovered.data_type,
-            data_type
-        );
         fields.push(source_user_field(discovered, changelog_snapshot));
-        arrays.push(column_array(rows, index, column.type_(), copy_format)?);
+        arrays.push(discovered_column_array(rows, index, column, discovered, copy_format)?);
     }
     let len = rows.len();
     let len_i64 = i64::try_from(len)?;
@@ -598,6 +590,26 @@ fn snapshot_metadata_arrays(snapshot: SnapshotMetadata<'_>, len: usize) -> Vec<A
         Arc::new(Int64Array::from(vec![timestamp_us; len])) as ArrayRef,
         Arc::new(Int64Array::from(vec![snapshot.timestamp_ns; len])) as ArrayRef,
     ]
+}
+
+/// The query uses text only for types deliberately projected as text. Its wire
+/// descriptor cannot carry NUMERIC typmods; authoritative discovery owns them.
+pub(super) fn discovered_column_array(
+    rows: &[RawCopyRow], index: usize, column: &Column, discovered: &SchemaColumn,
+    copy_format: PostgresCopyFormat,
+) -> anyhow::Result<ArrayRef> {
+    let wire_type = postgres_to_arrow(column.type_())?;
+    let decimal = matches!(discovered.data_type, DataType::Decimal128(..));
+    anyhow::ensure!(column.name() == discovered.name && (wire_type == discovered.data_type
+        || (decimal && *column.type_() == tokio_postgres::types::Type::TEXT)),
+        "PostgreSQL query schema drifted at column '{}': discovered {:?}, query returned {:?}",
+        column.name(), discovered.data_type, wire_type);
+    if let DataType::Decimal128(precision, scale) = discovered.data_type {
+        let values = rows.iter().map(|row| row.fields[index].as_deref()
+            .map(|value| crate::connectors::postgres::numeric::parse(decode_string(value)?, precision, scale))
+            .transpose()).collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(Arc::new(Decimal128Array::from(values).with_precision_and_scale(precision, scale)?))
+    } else { column_array(rows, index, column.type_(), copy_format) }
 }
 
 pub(super) fn column_array(

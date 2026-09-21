@@ -309,10 +309,12 @@ impl<T: ClientFormat> InternalConn<T> {
         // Return result to caller
         if let Err(error) = result {
             error!(?error, { ATT_CON } = self.cid, { ATT_QID } = %qid, "Insert failed");
-            if let Some(exec) = self.executing.as_ref() {
-                let _ = exec.response.send(Err(Error::Client(error.to_string()))).await.ok();
-            }
-            return Err(error);
+            // The insert caller is waiting on this acknowledgement, not the
+            // query stream. Dropping it disguises permanent encoding errors as
+            // retryable connection failures. Preserve the original typed error
+            // and discard the connection because a partial block may be written.
+            drop(response.send(Err(error)));
+            return Err(Error::Protocol("INSERT block failed; native connection discarded".into()));
         }
 
         // Insert successful

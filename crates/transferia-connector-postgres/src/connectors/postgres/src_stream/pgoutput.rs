@@ -118,8 +118,8 @@ impl PgOutputDecoder {
                 key: take_u8(input)? & 1 == 1,
                 name: Arc::from(take_cstring(input)?),
                 type_oid: take_u32(input)?,
+                type_modifier: take_i32(input)?,
             });
-            let _type_modifier = take_i32(input)?;
         }
         self.relations.insert(
             relation_id,

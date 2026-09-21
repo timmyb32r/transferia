@@ -12,9 +12,9 @@ use transferia_delivery_contracts::DeliveryType;
 use transferia_registry::{TableIdentity, TableSampleLimits};
 
 use super::copy_out::CopyOutReader;
-use super::reader::{column_array, source_select_projection, source_user_field};
+use super::reader::{discovered_column_array, source_select_projection, source_user_field};
 use crate::connectors::postgres::common::{
-    connect_owned, postgres_to_arrow, quote_identifier, PostgresCopyFormat, MAX_IDENTIFIER_BYTES,
+    connect_owned, quote_identifier, PostgresCopyFormat, MAX_IDENTIFIER_BYTES,
 };
 use crate::connectors::postgres::source::{discover_table, PostgresSourceConfig, TableConfig};
 use crate::metrics::SourceCounters;
@@ -110,10 +110,8 @@ pub(in crate::connectors::postgres) async fn sample_with_metadata(
             let mut retained_bytes = reader.received_bytes().checked_add(descriptor_bytes)
                 .ok_or_else(|| anyhow::anyhow!("sample byte accounting overflow"))?;
             for (index, (column, expected)) in statement.columns().iter().zip(&discovered.schema.columns).enumerate() {
-                anyhow::ensure!(column.name() == expected.name && postgres_to_arrow(column.type_())? == expected.data_type,
-                    "PostgreSQL sample schema changed at column '{}'", expected.name);
                 fields.push(source_user_field(expected, false));
-                let array = column_array(&rows, index, column.type_(), config.copy_to_format)?;
+                let array = discovered_column_array(&rows, index, column, expected, config.copy_to_format)?;
                 retained_bytes = retained_bytes.checked_add(array.get_array_memory_size())
                     .ok_or_else(|| anyhow::anyhow!("sample byte accounting overflow"))?;
                 limits.check_bytes(retained_bytes)?;
