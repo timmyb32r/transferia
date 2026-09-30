@@ -2,6 +2,12 @@
 
 Дата исследования: **20 сентября 2026 года**.
 
+Дополнение от **30 сентября 2026 года**: добавлены 22 пропущенные позиции,
+3 ранних/смежных проекта и 2 исторических аналога. Они распределены по
+существующим категориям; связанные OSS/managed-поставки и переезды
+репозиториев не считаются независимыми компаниями. Новые описания основаны
+на документации и README, а не на собственных бенчмарках.
+
 Каталог охватывает batch, CDC, очереди, streaming, ETL/ELT, lakehouse ingestion,
 интеграции приложений и reverse ETL. Ограничения на количество позиций нет.
 Это карта конкурентного поля, а не рейтинг популярности или доли рынка.
@@ -148,6 +154,8 @@ Select overrides могут отключать встроенное разбие
 - [TimeXtender](https://www.timextender.com/) — **К**. Автоматизация data pipelines на основе метаданных.
 - [WhereScape](https://www.wherescape.com/) — **К**. Автоматизация построения и загрузки хранилищ.
 - [K2view](https://www.k2view.com/) — **К**. Интеграция и формирование операционных data products.
+- [Gathr](https://www.gathr.ai/data-pipelining) — **К**. Ingestion, batch/streaming ETL, преобразования и оркестрация; корпоративная визуальная платформа.
+- [Prophecy](https://www.prophecy.ai/) — **К**. Визуальные data workflows и генерируемый код для Databricks, Snowflake и BigQuery; косвенный конкурент в подготовке данных и создании ETL-pipelines, а не отдельный CDC-runtime.
 
 <a id="open-ingestion"></a>
 ## 3. Открытые коннекторные движки и инструменты ingestion
@@ -166,6 +174,7 @@ Select overrides могут отключать встроенное разбие
 - [Embulk](https://www.embulk.org/) — **O**. Подключаемые плагины для bulk loading; темп обновлений следует оценивать отдельно.
 - [Singer](https://www.singer.io/) — **O**. Экосистема taps/targets и протокол обмена; строительный блок, а не полноценная управляемая платформа.
 - [Apache Gobblin](https://github.com/apache/gobblin) — **O**. Distributed ingestion и репликация; актуальность конкретных коннекторов требует отдельной проверки.
+- [Conduit](https://github.com/ConduitIO/conduit) — **O/К**. Go-движок source → processors → sinks, CDC-коннекторы, observability и подтверждения после обработки приёмниками. Текущие [документация и changelog](https://conduitdata.io/); связанная управляемая [Meroxa Conduit Platform](https://docs.meroxa.com/) учитывается в том же семействе.
 
 <a id="cdc-replication"></a>
 ## 4. Специализированный CDC и гетерогенная репликация
@@ -190,6 +199,13 @@ Select overrides могут отключать встроенное разбие
 - [pgstream, Xata](https://github.com/xataio/pgstream) — **O**. Репликация PostgreSQL, snapshots и обработка изменений схем.
 - [Alibaba Canal](https://github.com/alibaba/canal) — **O**. Извлечение и доставка изменений MySQL binlog.
 - [Maxwell’s daemon](https://github.com/zendesk/maxwell) — **O**. MySQL binlog → JSON-события; специализированный компонент.
+- [Dozer](https://github.com/getdozer/dozer) — **O**. Rust CDC и преобразования при переносе в ClickHouse, PostgreSQL, MySQL и другие приёмники. Возможности resume различаются по коннекторам; часть коннекторов в README отнесена к Enterprise. Актуальность коммерческого предложения отдельно не подтверждена.
+- [Supabase ETL](https://github.com/supabase/etl) — **O/К**. Rust-библиотека или отдельный процесс: первоначальная копия PostgreSQL и дальнейшая логическая репликация, сохранение состояния и расширяемые приёмники. Проект до первого стабильного релиза. Связанный hosted-продукт — [Supabase Pipelines](https://supabase.com/docs/guides/database/replication/pipelines); возможности поставок не считать идентичными.
+- [TapData](https://docs.tapdata.io/data-replication/create-task/) — **O/К**. Полная и инкрементальная репликация разнородных БД, log-based CDC и отдельные двунаправленные маршруты; Community и Enterprise различаются.
+- [BladePipe](https://www.bladepipe.com/docs/intro/product_intro/) — **К**. Миграция, real-time CDC, изменения схем, фильтрация, проверка и коррекция данных; семантику автоматических преобразований сравнивать отдельно.
+- [CloudCanal, Clougence](https://www.clougence.com/) — **К**. Полная миграция, инкрементальная синхронизация, преобразования и перенос схем между БД и очередями. Самостоятельный продукт, не другое название Alibaba Canal.
+- [NineData](https://docs.ninedata.cloud/en/replication/data_replication/) — **К**. Schema/full/incremental replication, сравнение данных, одно- и двунаправленные сценарии; поддержка зависит от пары источника и приёмника.
+- [cdcflow](https://github.com/manfredcml/cdcflow) — **O**, **ранний проект**. Rust CDC из PostgreSQL/MySQL/MongoDB в Kafka/PostgreSQL/Iceberg; раздельные режимы changelog и materialized replication. README отмечает неполную реализацию admin API; production-зрелость и гарантии не проверены.
 
 <a id="cloud-cdc"></a>
 ## 5. Управляемые облачные CDC и миграции БД
@@ -220,6 +236,8 @@ Yandex Data Transfer включён вместе с открытым Transferia 
 - [OCI Data Integration](https://www.oracle.com/integration/data-integration/) — **К**. Интеграция в Oracle Cloud.
 - [Huawei Cloud CDM](https://www.huaweicloud.com/intl/en-us/product/cdm.html) — **К**. Массовый перенос гетерогенных данных.
 - [Qlik Open Lakehouse](https://www.qlik.com/us/products/qlik-open-lakehouse) — **К**. Ingestion и управление Iceberg; сюда относится направление Upsolver.
+- [Onehouse / OneFlow](https://docs.onehouse.ai/category/ingest-data/) — **К**. Managed ingestion из БД, потоков и файлов, преобразования и CDC-сценарии. [Flows создают Hudi-таблицы](https://docs.onehouse.ai/product/ingest-data/flows/create-flow/); совместимость чтения с Iceberg/Delta настраивается через OneTable.
+- [LakeSoul](https://github.com/lakesoul-io/LakeSoul) — **O**. Lakehouse-платформа с ingestion, concurrent updates и incremental processing, включая whole-database sync через Flink CDC. Содержит собственный storage/table-management слой; Rust NativeIO не означает полностью Rust-реализацию всего CDC-пути.
 
 <a id="sink-ingestion"></a>
 ## 7. Специализированные ingestion-компоненты конкретных приёмников
@@ -237,6 +255,8 @@ Yandex Data Transfer включён вместе с открытым Transferia 
 - [Apache Hudi Streamer](https://hudi.apache.org/docs/hoodie_streaming_ingestion/) — **O**. Инкрементальная загрузка в Hudi.
 - [Apache Paimon](https://paimon.apache.org/) — **O**. Streaming lakehouse и интеграция изменений; инфраструктурная альтернатива.
 - [Apache Fluss](https://fluss.apache.org/) — **O**. Потоковое хранилище и интеграция с lakehouse; инфраструктурная альтернатива.
+- [Moonlink, Mooncake Labs](https://github.com/Mooncake-Labs/moonlink) — **S**. Rust ingestion для PostgreSQL CDC → Iceberg, вставок/upserts и подготовки файлов. Preview; Kafka/OTEL и часть catalog integrations в README находятся в roadmap. [Лицензия BSL 1.1](https://github.com/Mooncake-Labs/moonlink/blob/main/LICENSE), не open source на дату проверки; независимое коммерческое предложение не подтверждено.
+- [BemiDB](https://github.com/pgstack-io/BemiDB) — **O**. Коннекторы синхронизируют БД/SaaS в columnar-данные на S3, аналитический query engine предоставляет Postgres-совместимый интерфейс. Специализированный ingestion + analytics, а не произвольный source/sink-перенос; текущий репозиторий в `pgstack-io`.
 
 <a id="native-cdc"></a>
 ## 8. Нативная репликация и CDC отдельных СУБД
@@ -270,6 +290,8 @@ Yandex Data Transfer включён вместе с открытым Transferia 
 - [Kafka MirrorMaker](https://kafka.apache.org/documentation/#georeplication) — **O**. Репликация между Kafka-кластерами.
 - [RabbitMQ Shovel](https://www.rabbitmq.com/docs/shovel) — **O**. Перенос сообщений между брокерами.
 - [NATS JetStream mirrors/sources](https://docs.nats.io/learn/jetstream/mirrors-and-sources) — **O**. Репликация и агрегация потоков NATS.
+- [Apache Iggy Connectors](https://iggy.apache.org/docs/connectors/introduction/) — **O**. Rust-runtime source/sink-плагинов и transforms для внешних систем и Iggy streams. Конкурентное пересечение обеспечивает connector runtime; наличие Postgres-коннектора само по себе не доказывает нативный CDC.
+- [Apache RocketMQ Connect](https://github.com/apache/rocketmq-connect) — **O**. Коннекторная платформа вокруг RocketMQ для pipelines, ETL и CDC; [документация 4.x](https://rocketmq.apache.org/docs/4.x/connect/01RocketMQ%20Connect%20Overview/). Требует инфраструктуру RocketMQ и проверки конкретных коннекторов.
 
 <a id="managed-streaming"></a>
 ## 10. Управляемые платформы потоковой интеграции
@@ -286,6 +308,7 @@ Yandex Data Transfer включён вместе с открытым Transferia 
 - [Fabric Eventstreams](https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview) — **К**. Приём, преобразование и маршрутизация событий.
 - [Alibaba Realtime Compute for Apache Flink](https://www.alibabacloud.com/en/product/realtime-compute) — **К**. Управляемый Flink.
 - [IBM Event Automation](https://www.ibm.com/products/event-automation) — **К**. Enterprise-платформа событийной интеграции.
+- [Cloudflare Pipelines](https://developers.cloudflare.com/pipelines/) — **К**, open beta. HTTP/Workers ingestion, SQL-преобразования и запись Iceberg/Parquet/JSON в R2. Связанный с [Arroyo](#processing-engines) managed-продукт; не считать независимым движком и не переносить сюда весь набор коннекторов Arroyo.
 
 <a id="processing-engines"></a>
 ## 11. Движки batch/stream processing и непрерывных вычислений
@@ -305,6 +328,10 @@ Yandex Data Transfer включён вместе с открытым Transferia 
 - [Pathway](https://github.com/pathwaycom/pathway) — **М**. Python ETL и инкрементальная потоковая обработка.
 - [Hazelcast](https://hazelcast.com/) — **М**. Распределённая обработка данных в реальном времени.
 - [Apache Storm](https://storm.apache.org/) — **O**. Распределённая обработка событий.
+- [Arroyo](https://github.com/ArroyoSystems/arroyo) — **O/К**. Rust SQL stream processing: stateful windows/joins, checkpointing, Kafka и Iceberg, real-time ingestion. [PostgreSQL source](https://doc.arroyo.dev/connectors/postgres/) работает через Debezium/Kafka; нативный PG source обозначен как план. Связанный managed-продукт — [Cloudflare Pipelines](#managed-streaming).
+- [Fluvio / Stateful DataFlow](https://github.com/fluvio-community/fluvio) — **O**. Rust streaming, коннекторы и программируемая обработка потоков. Репозиторий переехал из InfinyOn в `fluvio-community`; README описывает переход инфраструктуры сборок. Доступность прежних облачных предложений InfinyOn отдельно не подтверждена.
+- [Numaflow](https://github.com/numaproj/numaflow) — **O**. Kubernetes-платформа непрерывных pipelines с sources, processing, sinks, autoscaling и backpressure. Сценарная альтернатива для streaming; требует Kubernetes и не означает универсальный нативный CDC.
+- [clink](https://github.com/orhaugh/clink) — **O**, **ранний проект**. C++/Arrow stream processing с SQL, checkpointing и source/sink-коннекторами. README характеризует его как молодой pre-1.0 проект одного maintainer; заявления о гарантиях и производительности требуют независимой проверки.
 
 <a id="iot-edge"></a>
 ## 12. IoT, MQTT и edge-интеграция
@@ -349,6 +376,7 @@ Yandex Data Transfer включён вместе с открытым Transferia 
 - [Tealium](https://tealium.com/) — **К**. Сбор и маршрутизация клиентских данных.
 - [Treasure AI, ранее Treasure Data](https://www.treasure.ai/) — **К**. Customer-data ingestion и активация.
 - [Adobe Real-Time CDP](https://business.adobe.com/products/real-time-customer-data-platform/rtcdp.html) — **К**. Сбор, объединение и активация customer data.
+- [Jitsu](https://github.com/jitsucom/jitsu) — **O/К**. Customer-event ingestion, batch/streaming delivery в DWH, JavaScript-преобразования и SaaS connector syncs; сценарный конкурент рядом с Segment и RudderStack, не универсальный DB CDC.
 
 <a id="reverse-etl"></a>
 ## 15. Reverse ETL и активация данных
@@ -440,6 +468,7 @@ Yandex/Transferia уже включены в [основную группу](#un
 - [Azure Storage Mover](https://azure.microsoft.com/en-us/products/storage-mover) — **К**. Миграция storage в Azure.
 - [IBM Aspera](https://www.ibm.com/products/aspera) — **К**. Передача больших файлов и наборов данных.
 - [Progress MOVEit](https://www.progress.com/moveit) — **К**. Managed file transfer.
+- [dbcrossbar](https://github.com/dbcrossbar/dbcrossbar) — **O**. Rust CLI для больших табличных переносов между БД, CSV и cloud storage, schema conversion и upsert; альтернатива для batch-копирования, непрерывный CDC не подтверждён.
 
 <a id="orchestration"></a>
 ## 20. Оркестрация собственных pipelines
@@ -478,6 +507,7 @@ Yandex/Transferia уже включены в [основную группу](#un
 - [dbt](https://www.getdbt.com/) — **O/К**. Преобразования уже загруженных данных.
 - [SQLMesh](https://sqlmesh.readthedocs.io/en/stable/) — **O**. Управление SQL-моделями и инкрементальными преобразованиями.
 - [Coalesce](https://coalesce.io/) — **К**. Автоматизация преобразований в аналитических хранилищах.
+- [CocoIndex](https://github.com/cocoindex-io/cocoindex) — **O**, **смежный проект**. Инкрементальная обработка и обновление производных индексов/AI-контекста при изменении источников. Rust-ядро и Python API; пересекается с подготовкой данных для AI/RAG, не заменяет универсальный гетерогенный CDC-перенос.
 
 <a id="federation"></a>
 ## 22. Федерация и комплексные data platforms
@@ -509,6 +539,8 @@ Yandex/Transferia уже включены в [основную группу](#un
 | **FlinkX** | [ChunJun](https://github.com/DTStack/chunjun) |
 | **Treasure Data** | Текущее позиционирование — [Treasure AI](https://www.treasure.ai/) |
 | **Data Virtuality / CData Virtuality** | [Прежняя продуктовая страница](https://www.cdata.com/virtuality/) перенаправляет на CData Connect AI; условия отдельного предложения нужно уточнять |
+| **infinyon/fluvio** | Текущий репозиторий — [fluvio-community/fluvio](https://github.com/fluvio-community/fluvio); это тот же проект |
+| **BemiHQ/BemiDB** | Текущий репозиторий — [pgstack-io/BemiDB](https://github.com/pgstack-io/BemiDB); не отдельный конкурент |
 
 <a id="legacy-and-unconfirmed"></a>
 ## 24. Архивные решения и проекты с неподтверждённой жизнеспособностью
@@ -528,6 +560,9 @@ Yandex/Transferia уже включены в [основную группу](#un
 - [pg_flo](https://github.com/pgflo/pg_flo) — специализированный PostgreSQL CDC; текущий статус первичного репозитория не удалось надёжно подтвердить.
 - [Equalum](https://www.equalum.io/) — известная CDC-платформа; актуальное самостоятельное предложение не удалось подтвердить.
 - [Arcion](https://www.arcion.io/) — известное направление CDC; актуальный самостоятельный продукт и условия доступности требуют уточнения.
+- [Tremor](https://github.com/tremor-rs/tremor-runtime) — **O**. Rust event-processing/ETL, routing и коннекторы Kafka/S3/HTTP; README ограничивает применение для тяжёлых joins больших потоков. [Блог](https://www.tremor.rs/blog/) заканчивается сентябрём 2022 года, в релизах есть RC; текущая production-поддержка не установлена.
+- [Streamdal](https://github.com/streamdal/streamdal) — **O**. Исторический аналог обработки данных; репозиторий архивирован 22 февраля 2026 года.
+- [DoubleCloud Transfer](https://double.cloud/services/doublecloud-transfer/) — **К**, исторический конкурент по переносу данных. [Официальное сообщение 1 октября 2024 года](https://double.cloud/blog/posts/2024/10/doublecloud-final-update/index.html) объявило сворачивание деятельности; старую документацию не считать подтверждением действующего сервиса.
 
 ## Как использовать каталог
 
