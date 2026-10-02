@@ -8,6 +8,14 @@
 репозиториев не считаются независимыми компаниями. Новые описания основаны
 на документации и README, а не на собственных бенчмарках.
 
+Дополнение от **2 октября 2026 года**: добавлены **42 позиции** в сегменте
+customer data: CleverData Join, российские и международные CDP, движки с
+доступным исходным кодом, маршрутизация событий и смежные commerce-интеграции.
+Причина прежнего пропуска — неполное покрытие сегмента: в разделе CDP уже
+были международные платформы, но российские аналоги и соседние продуктовые
+семейства не прошли систематическую проверку. Это пробел исследования,
+а не обоснованное исключение CleverData из конкурентного поля.
+
 Каталог охватывает batch, CDC, очереди, streaming, ETL/ELT, lakehouse ingestion,
 интеграции приложений и reverse ETL. Ограничения на количество позиций нет.
 Это карта конкурентного поля, а не рейтинг популярности или доли рынка.
@@ -369,6 +377,17 @@ Yandex Data Transfer включён вместе с открытым Transferia 
 ## 14. Customer events и CDP
 
 Специализированные конкуренты для сбора, обогащения и доставки событий приложений.
+Проверка дополнения: **2 октября 2026 года**, по официальным продуктовым страницам,
+документации и репозиториям. Это продукты, а не число независимых компаний.
+
+**Граница сравнения:** CDP пересекаются с Transferia в ingestion, маршрутизации,
+выгрузках в аналитику и активации данных. Identity resolution, объединение
+профилей и маркетинговая нормализация имеют собственную семантику; они не
+доказывают lossless replication, сохранение исходных PK/типов или поддержку
+универсального CDC. В описаниях отмечены более узкие и недостаточно
+документированные случаи.
+
+### Ранее учтённые event pipelines и CDP
 
 - [RudderStack](https://www.rudderstack.com/) — **М**. Event pipelines и warehouse-интеграции.
 - [Snowplow](https://snowplow.io/) — **М**. Сбор, валидация и обогащение поведенческих событий.
@@ -377,6 +396,63 @@ Yandex Data Transfer включён вместе с открытым Transferia 
 - [Treasure AI, ранее Treasure Data](https://www.treasure.ai/) — **К**. Customer-data ingestion и активация.
 - [Adobe Real-Time CDP](https://business.adobe.com/products/real-time-customer-data-platform/rtcdp.html) — **К**. Сбор, объединение и активация customer data.
 - [Jitsu](https://github.com/jitsucom/jitsu) — **O/К**. Customer-event ingestion, batch/streaming delivery в DWH, JavaScript-преобразования и SaaS connector syncs; сценарный конкурент рядом с Segment и RudderStack, не универсальный DB CDC.
+
+### Российские CDP и платформы клиентских данных
+
+- [CleverData Join (CleverDATA, LANSOFT)](https://cleverdata.ru/solutions/istochniki_i_priemniki_dannih) — **К**. Приём событий через REST API, объединение онлайн/офлайн-профилей, экспорт сегментов CSV/FTP, доставка в Kafka и выгрузка в ClickHouse. Сценарный конкурент по customer-data ingestion и delivery; универсальный CDC БД этим не подтверждён.
+- [Mindbox](https://mindbox.ru/products/cdp/) — **К**. Сбор клиентских событий из сайтов, приложений и офлайн-систем, единые профили и активация; [API-экспорты](https://developers.mindbox.ru/docs/exports-overview) и [Delta Sharing для аналитики](https://developers.mindbox.ru/docs/external-customer-id-in-analytics-exports).
+- [Altcraft Platform](https://use.altcraft.com/user-guide/) — **К**. CDP и автоматизация коммуникаций; импорт через API, файлы и SQL, экспорт профилей и аудиторий, включая синхронизацию с SQL-БД. Возможности описаны в [функциональных характеристиках](https://altcraft.com/ru/Altcraft_%D0%A4%D1%83%D0%BD%D0%BA%D1%86%D0%B8%D0%BE%D0%BD%D0%B0%D0%BB%D1%8C%D0%BD%D1%8B%D0%B5_%D1%85%D0%B0%D1%80%D0%B0%D0%BA%D1%82%D0%B5%D1%80%D0%B8%D1%81%D1%82%D0%B8%D0%BA%D0%B8.pdf).
+- [enKod](https://enkod.io/cdp/) — **К**. Сбор контактов, заказов и поведенческих событий, объединение клиентских данных и запуск персональных коммуникаций; пересечение в прикладном event ingestion и интеграциях.
+- [Retail Rocket Group — Live CDP / Sailplay](https://retailrocket.ru/cdp) — **К**. Клиентские данные из online/offline-каналов, профили и активация. [Sailplay CDP](https://docs.retailrocket.ru/docs/sailplay/lk_guides/lk_guides_clients/) учтён в одной продуктовой семье, без повторного подсчёта поставщика.
+- [REES46 CDP](https://rees46.ru/products/cdp/) — **К**. Сбор данных сайта, приложения, CRM и офлайн-магазинов, объединение профилей, сегментация и персонализация; [API обогащения профиля](https://rees46.ru/help/integration/cdp/profile/set.html).
+- [Konnektu](https://konnektu.ai/) — **К**. CDP и Data Services для объединения клиентских данных, профилей и активации. Доступно [руководство 2023 года](https://konnektu.ai/wp-content/uploads/2023/05/Руководство-пользователя.pdf); актуальная матрица коннекторов и условия поставки требуют отдельного подтверждения.
+- [Loymax Smart Communications](https://loymax.io/) — **К**. CDP и Campaign Manager в платформе лояльности: клиентские профили, сегментация и триггерные коммуникации; отраслевое пересечение по интеграции данных ритейла.
+- [Manzana CDP&BI](https://docs.manzanagroup.ru/xwiki/wiki/rrs/download/bi/WebHome/4.pdf?rev=1.1) — **К**. Клиентские данные, чеки, бонусы и купоны как источник для аналитики Manzana BI. Смежная отраслевая платформа; документация 2024 года подтверждает продукт, но не универсальность его внешних коннекторов.
+- [Sendsay CDP](https://sendsay.ru/solutions/cdp) — **К**. Сведение данных CRM, сайта, приложения и других систем, сегментация и активация; [API интеграций](https://docs.sendsay.ru/sendsay-api/sendsay-api-guide/).
+- [MAXMA CDP](https://maxma.com/cdp) — **К**. Сбор данных касс, сайтов, приложений и анкет в клиентский профиль; готовые интеграции и API. Отраслевой конкурент по online/offline-ingestion для ритейла.
+- [CXDP](https://cxdp.ru/api/) — **К**. Клиентские профили и маркетинговая активация; документированы поштучный и массовый API-импорт профилей. Конкуренция ограничена customer-data сценариями.
+- [RightWay CDP](https://rightway-tech.ru/cifrovye-resheniya/cdp-platforma/) — **К**. Объединение данных PMS, POS, CRM, сайта и приложения; клиентская база и коммуникации для гостиниц и ритейла. Есть SaaS и on-premise-поставки.
+
+### Международные CDP и активация клиентских данных
+
+- [Rokt mParticle](https://docs.rokt.com/products/mparticle/) — **К**. Сбор и объединение событий и профилей, маршрутизация и активация клиентских данных; учитывать mParticle как продукт Rokt, а не дополнительного независимого поставщика.
+- [ActionIQ by Uniphore](https://www.uniphore.com/actioniq/) — **К**. Composable CDP: работа с клиентскими данными, аудиториями и активацией поверх корпоративной data-инфраструктуры.
+- [Amperity](https://docs.amperity.com/reference/bridge.html) — **К**. Customer-data ingestion, identity resolution и обмен с хранилищами; [destinations](https://docs.amperity.com/reference/page_destinations.html) доставляют аудитории во внешние системы.
+- [BlueConic](https://www.blueconic.com/resources/cdp-integrations) — **К**. Двусторонние интеграции клиентских данных с CRM, e-commerce, рекламой, аналитикой и хранилищами; единые профили и активация.
+- [Zeotap CDP](https://zeotap.com/integrations/) — **К**. Интеграции с CRM, cloud storage, data lakes/warehouses и маркетинговыми системами; объединение и доставка customer data.
+- [Optimove](https://www.optimove.com/resources/learning-center/customer-data-platform) — **К**. CDP с объединением клиентских данных, аналитикой и оркестрацией коммуникаций; сценарный конкурент по ingestion и activation.
+- [Microsoft Dynamics 365 Customer Insights — Data](https://learn.microsoft.com/en-us/dynamics365/customer-insights/data/data-sources) — **К**. Загрузка из корпоративных источников, унификация профилей и подготовка данных для активации. Отдельный продукт Microsoft, не второе название Fabric Data Factory.
+- [Salesforce Data 360 (Data Cloud)](https://developer.salesforce.com/docs/data/data-cloud-int/references/data-cloud-ingestionapi-ref/c360-a-api-get-started.html) — **К**. Ingestion API, объединение клиентских данных, сегментация и активация в экосистеме Salesforce; оба названия относятся к одной продуктовой линии.
+- [SAP Customer Data Platform](https://help.sap.com/docs/customer-data-platform/user-guide/cdp-monitoring-dashboard) — **К**. Customer-data ingestion и activation с мониторингом обоих направлений; отдельный продукт от SAP Integration Suite и Datasphere.
+- [Oracle Unity Data Platform / Unity CDP](https://docs.oracle.com/en/cloud/saas/cx-unity/cx-unity-user/Help/GetStarted/Overview_CXUnity.htm) — **К**. Ingest/export jobs, доставка сегментов и identity resolution. Не смешивать с универсальными Oracle GoldenGate и Oracle Integration.
+- [Bloomreach Engagement / Customer Data Engine](https://www.bloomreach.com/en/products/data-engine?spz=learn_orig) — **К**. CDP и автоматизация маркетинга: клиентские события, единые профили и активация; пересечение по прикладным customer-data pipelines.
+- [Acquia CDP](https://docs.acquia.com/customer-data-platform/native-and-standard-connectors) — **К**. Входные и выходные коннекторы API, SFTP и S3, профили и маркетинговые назначения; [API-передача и извлечение данных](https://docs.acquia.com/customer-data-platform/api-integration).
+- [Redpoint CDP](https://docs.redpointglobal.com/bpd/redpoint-reference-architectures) — **К**. Интеграция customer-data инфраструктуры с BigQuery, Snowflake, Databricks и системами активации; конкуренция по сборке клиентских data pipelines.
+- [Simon Data](https://www.simondata.com/integrations?a28476fb_page=2) — **К**. Источники и назначения для клиентских данных, соединение хранилищ с маркетинговыми системами и оркестрация активации.
+- [Lytics](https://docs.lytics.com/docs/lytics-integration-options) — **К**. SDK, webhooks, файловые и warehouse-интеграции; [Cloud Connect](https://www.lytics.com/cloud-connect/) закрывает reverse ETL из хранилища в прикладные инструменты.
+- [Meiro](https://meiro.io/integrations/) — **К**. Двусторонние интеграции CRM, программ лояльности, хранилищ и маркетинговых систем; в каталоге есть Kafka, PostgreSQL, MySQL, SFTP и REST API.
+- [NGDATA Intelligent Engagement Platform](https://ngdata.com/intelligent-engagement-platform) — **К**. Готовые и заказные коннекторы для объединения источников в клиентские профили и передачи результатов в системы маркетинговой автоматизации.
+- [Blueshift](https://help.blueshift.com/hc/en-us/articles/8514734693267-Export-customer-data) — **К**. Customer-data activation и экспорт через API, S3, SFTP и интеграции с внешними приложениями; поддерживается выгрузка сегментов по расписанию.
+- [Lexer](https://www.lexer.io/platform/connectors) — **К**. Customer-data ingestion из API, БД и файлов; отправка профилей и аудиторий в email, рекламу и loyalty-системы. Часть коннекторов предоставляется через Fivetran.
+- [Insider One](https://insiderone.com/customer-data-integration-unified-profiles-guide/) — **К**. SDK, серверные API, batch-источники и коннекторы для клиентских профилей и межканальной активации; маркетинговая платформа с интеграционным слоем.
+- [Sensors Data — 神策 CDP](https://www.sensorsdata.cn/product/cdp.html) — **К**. Китайская enterprise CDP: SDK и batch-ingestion, отображение таблиц хранилища, моделирование и потоковая подписка на выходные данные.
+- [GrowingIO CDP](https://www.growingio.com/en/products/cdp) — **К**. Китайская CDP: SDK, прямой импорт БД и файлов, OneID, экспорт через OpenAPI, offline-выгрузки и real-time subscriptions.
+
+### Движки с доступным исходным кодом
+
+- [Apache Unomi](https://unomi.apache.org/) — **O**. Customer-data/context server для профилей, событий и сегментации; строительный блок собственной CDP. Готовность конкретных интеграций проверять по [руководству](https://unomi.apache.org/manual/latest/).
+- [Tracardi](https://github.com/Tracardi/tracardi) — **S/К**. API-first CDP: приём событий, объединение профилей, workflows и доставка в другие системы. В репозитории указана MIT with Commons Clause; несмотря на маркетинговое «open source», здесь не классифицируется как open source по определению OSI. Возможности очередей и масштабирования зависят от редакции.
+
+### Дополнительные платформы маршрутизации customer events
+
+- [MetaRouter](https://docs.metarouter.io/docs/getting-started-with-metarouter) — **К**. Сбор событий приложений через SDK и серверная доставка в аналитику, рекламу и data-инструменты; [преобразования](https://docs.metarouter.io/docs/integration-transformations) задаются для каждого назначения.
+- [Customer.io — Data & integrations](https://customer.io/platform/data-integrations) — **К**. API-first интеграция, объединение и активация клиентских данных; [каталог интеграций](https://customer.io/integrations). Пересечение по событиям и синхронизации прикладных систем.
+
+### Смежные инструменты: более узкое пересечение
+
+- [Carrot quest](https://www.carrotquest.io/blog/cdp-customer-experience-personalization/) — **К**. Клиентские события и профили для персонализации и коммуникаций. Смежный слой engagement; универсальный перенос таблиц и CDC не подтверждены.
+- [DashaMail CDP](https://dashamail.ru/features/cdp/) — **К**. Веб-трекинг, товарные данные и события для триггерных рассылок; узкий конкурент по сбору и активации событий e-commerce.
+- [Flocktory](https://www.flocktory.com/) — **К**. Персонализация и маркетинговые сценарии с [API заказов и купонов](https://cabinet.flocktory.com/help/client-api). Смежная интеграция commerce-данных; наличие статьи о CDP само по себе не доказывает универсальный CDP/ETL-продукт.
 
 <a id="reverse-etl"></a>
 ## 15. Reverse ETL и активация данных
@@ -442,6 +518,8 @@ DataChannel, RudderStack и Fivetran**. Census учтён в
 ## 18. Российские платформы интеграции и ETL
 
 Yandex/Transferia уже включены в [основную группу](#universal-ingestion).
+Российские CDP, включая **CleverData Join, Mindbox и Altcraft**, перечислены
+в [разделе customer data](#customer-events); повторно здесь не считаются.
 
 - [Arenadata Streaming](https://arenadata.tech/ru/products/ads) — **К, на OSS-компонентах**. Kafka, NiFi и корпоративная потоковая интеграция.
 - [Loginom](https://loginom.ru/) — **К**. Визуальная подготовка данных и ETL.
@@ -574,6 +652,14 @@ Yandex/Transferia уже включены в [основную группу](#un
 переноса, CDC и коннекторные движки. Специализированные приёмники, нативная
 репликация БД, оркестраторы, вычислительные библиотеки и федерация решают
 отдельные части задачи и не являются автоматически полной заменой.
+
+При расширении каталога проверять матрицу **сценарий × рынок × модель поставки**:
+универсальная интеграция, customer events/CDP, reverse ETL и отраслевые
+платформы; международный, российский и китайский рынки; managed, self-hosted
+и OSS/source-available. Для каждого кандидата сохранять официальный источник,
+конкретный входной/выходной маршрут и границу пересечения. Переименования и
+семейства продуктов сверять до подсчёта. Один список «лучших CDP» не доказывает
+полноту, а статья поставщика с определением CDP не доказывает наличие продукта.
 
 Каталог не доказывает равенство гарантий доставки. Snapshot consistency,
 порядок изменений, exactly-once, сохранение типов и схем, replay, backpressure,
