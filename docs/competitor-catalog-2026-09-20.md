@@ -16,6 +16,26 @@ customer data: CleverData Join, российские и международны
 семейства не прошли систематическую проверку. Это пробел исследования,
 а не обоснованное исключение CleverData из конкурентного поля.
 
+Дополнение по Sesam от **2 октября 2026 года**: добавлены **39 продуктовых
+позиций** — 15 data hub/MDM, 9 платформ операционной синхронизации,
+12 дополнительных iPaaS/ESB/B2B-продуктов и 3 российских решения.
+Это число продуктов/семейств, а не новых независимых компаний.
+
+**Разбор пропуска Sesam:** каталог уже допускал сценарных конкурентов, но
+раздел iPaaS описывал преимущественно workflows и известные коннекторные
+платформы. Систематическая проверка semantic data hubs, master-data synchronization
+и stateful multi-directional sync не отражена в прежнем результате.
+Дополнение CDP закрыло клиентские данные, но не многодоменные операционные
+сущности. Это наблюдаемый пробел классификации и проверки покрытия;
+точная история прежних поисковых запросов не восстановлена. Sesam не был
+исключён на основании проверенного технического ограничения.
+
+Для исправления проверены три соседние группы в
+[новых подразделах интеграции](#semantic-data-hubs), а также российские
+аналоги. Сходство отмечено по конкретному сценарию, источники — официальные
+страницы и документация. Это расширение подтверждённого покрытия, не
+доказательство исчерпания всех мировых MDM/iPaaS-вендоров.
+
 Каталог охватывает batch, CDC, очереди, streaming, ETL/ELT, lakehouse ingestion,
 интеграции приложений и reverse ETL. Ограничения на количество позиций нет.
 Это карта конкурентного поля, а не рейтинг популярности или доли рынка.
@@ -484,7 +504,8 @@ DataChannel, RudderStack и Fivetran**. Census учтён в
 ## 17. iPaaS, API и интеграция бизнес-приложений
 
 Конкуренция преимущественно в синхронизации приложений, обработке webhooks и
-интеграционных workflows.
+интеграционных workflows. Дополнительно выделены [semantic data hubs](#semantic-data-hubs)
+и [операционная синхронизация](#operational-sync).
 
 - [Boomi Enterprise Platform](https://boomi.com/) — **К**. Enterprise iPaaS; продукт Data Integration отдельно указан выше.
 - [MuleSoft Anypoint Platform](https://www.mulesoft.com/) — **К**. API и enterprise-интеграции.
@@ -514,6 +535,74 @@ DataChannel, RudderStack и Fivetran**. Census учтён в
 - [Cyclr](https://cyclr.com/) — **К**. Embedded iPaaS и коннекторы.
 - [Albato](https://albato.com/) — **К**. Автоматизация и встраиваемые интеграции.
 
+<a id="semantic-data-hubs"></a>
+### 17.1. Semantic data hubs и синхронизация мастер-данных
+
+Дополнение проверено **2 октября 2026 года**. Ближайшая к Sesam группа —
+платформы, которые принимают данные нескольких систем, поддерживают общую
+модель сущностей и предоставляют обработанные данные другим приложениям.
+MDM-продукты в этой группе — сценарные альтернативы, а не автоматически
+эквивалентные движки переноса. Matching, merge, golden records и правила
+приоритета источников меняют семантику данных; поддержку произвольного CDC,
+сохранение исходных ключей и гарантии доставки нужно проверять отдельно.
+
+- [Sesam Hub](https://docs.sesam.io/hub/data-architecture.html) — **К**. Semantic data hub для master-data synchronization: входные pipes, datasets, общая модель и обратная доставка в бизнес-системы. [Datasets](https://docs.sesam.io/hub/documentation/building-blocks/datasets.html) используют журнал с continuation; [GitHub-организация](https://github.com/sesam-io) содержит коннекторы и примеры, что не доказывает открытость всего ядра.
+- [Syncari](https://syncari.com/integration-platform/) — **К**. Stateful multi-directional sync между CRM, ERP, warehouse и другими приложениями; отслеживание изменений, преобразование и объединение данных с обновлением подключённых систем.
+- [Cinchy Data Collaboration Platform](https://docs.cinchy.com/data-syncs/building-data-syncs/) — **К**. Общий слой данных и batch/event sync с источниками и приёмниками SQL, Kafka, REST и SaaS. Документация показывает маршрут Salesforce → Cinchy → HubSpot.
+- [CluedIn](https://documentation.cluedin.net/integration/introduction) — **К**. Ingestion из приложений, БД и файлов, обработка мастер-данных; [streams и export targets](https://documentation.cluedin.net/getting-started/data-streaming) доставляют записи, например в SQL Server, в режимах синхронизации состояния или журнала событий.
+- [Reltio](https://www.reltio.com/) — **К**. Multidomain MDM и унификация сущностей с коннекторами для приёма, обогащения и распространения данных; пересечение по сборке операционного data hub.
+- [Semarchy Data Platform](https://docs.semarchy.com/self-hosted/1.0.0/guides/design/certification/integration) — **К**. Интеграционные jobs для движения и преобразования данных в/из master-data hub, публикация сертифицированных данных через запросы и представления.
+- [Profisee](https://profisee.com/platform/integration/) — **К**. MDM с интеграционным слоем и публикацией согласованных данных через открытые стандарты и подключённые инструменты. Сценарный конкурент по доставке master data, а не универсальный CDC.
+- [Ataccama ONE MDM](https://docs.ataccama.com/mdm/latest/overview.html) — **К**. Модели сущностей, входные/выходные интерфейсы, matching и master records; [load/export operations](https://docs.ataccama.com/mdm/latest/mdm-integration/mdm-integration.html) для интеграции с окружающими системами.
+- [Stibo Systems STEP](https://doc.stibosystems.com/doc/version/2025.2/web/content/resmat/javascript/gateway_integration_endpoint_bind.html) — **К**. MDM/PIM с интеграционными endpoints; gateway-интерфейсы обеспечивают входной и выходной обмен с внешними системами. Пересечение по распространению согласованных справочников и сущностей.
+- [Pimcore Datahub](https://docs.pimcore.com/platform/Datahub/Basic_Principle/) — **S/К**. Приём и выдача данных Pimcore через настраиваемые endpoints; GraphQL и дополнительные REST/file/webhook-адаптеры. [Редакции 2026.1](https://docs.pimcore.com/platform/2026.1/Pimcore_Platform/Pimcore_Editions/) используют POCL; доступность исходников не приравнивается к OSI open source.
+- [MarkLogic Data Hub](https://docs.marklogic.com/datahub/6.2/flows/about-flows.html) — **М**. Data-hub приложение поверх коммерческого MarkLogic: ingestion, mapping, matching и merging в flows; сценарный конкурент по консолидации и подготовке данных. [Исходники Data Hub](https://github.com/marklogic/marklogic-data-hub) не означают открытость всей серверной платформы.
+- [Syndigo MDM / Integration Studio](https://syndigo.com/integration-studio/) — **К**. Многодоменная платформа мастер-данных и интеграционный слой для синхронизации и распространения данных в бизнес-системы и каналы.
+- [Boomi Data Hub](https://help.boomi.com/docs/Atomsphere/Master%20Data%20Hub/Boomi_DataHub_Overview/) — **К**. Master-data synchronization service, связанный с Boomi Integration; общий домен данных и согласование подключённых источников. Отдельный продукт уже учтённого вендора Boomi, не новая компания.
+- [TIBCO EBX](https://www.tibco.com/products/ebx) — **К**. Управление и распространение master/reference data, моделей и иерархий; сценарный конкурент в MDM-интеграции. Отдельный продукт TIBCO, а не переименование BusinessWorks.
+- [Informatica Multidomain MDM SaaS](https://www.informatica.com/content/dam/informatica-com/en/collateral/data-sheet/multidomain-mdm-saas-on-google-cloud-platform_data-sheet_4560en.pdf) — **К**. Входной и выходной обмен master data через интеграционные сервисы IDMC: batch/bulk, API и очереди. Отдельный MDM-продукт уже учтённого вендора Informatica.
+
+Уже включённые **K2view, Nexla и Skyvia** также пересекаются с этой группой;
+**CDP** отдельно перечислены в [разделе клиентских данных](#customer-events).
+Наличие общего вендора не означает идентичность его ETL, iPaaS и MDM-продуктов.
+
+<a id="operational-sync"></a>
+### 17.2. Двусторонняя и отраслевая синхронизация приложений
+
+Эти продукты ближе к Sesam по задаче поддержания согласованного состояния
+приложений, но не обязательно используют semantic hub или общую MDM-модель.
+Поддержка двух направлений проверяется для конкретной пары коннекторов;
+рекламное «real-time» не является измерением задержки или доказательством SLA.
+
+- [Stacksync](https://www.stacksync.com/) — **К**. Двусторонняя синхронизация операционных данных между бизнес-приложениями и базами данных; пересечение по постоянному переносу изменений.
+- [Unito](https://unito.io/) — **К**. Two-way sync между SaaS-инструментами; согласование записей и полей в подключённых приложениях. Более узкая прикладная альтернатива универсальному переносу БД.
+- [HubSpot Data Sync / Data Hub](https://knowledge.hubspot.com/integrations/connect-and-use-hubspot-data-sync?from=HN) — **К**. Одно- и двустороннее обновление объектов между HubSpot и поддерживаемыми приложениями, mapping и контроль синхронизации. Конкуренция в HubSpot-центричных сценариях.
+- [DBSync Cloud Workflow](https://docs.mydbsync.com/cloud-workflow) — **К**. No-code/low-code iPaaS для SaaS, облачных и локальных приложений; коннекторы и workflows для переноса операционных записей.
+- [Rapidi](https://www.rapidionline.com/en/) — **К**. Интеграция и синхронизация ERP и CRM; сценарная альтернатива для согласования бизнес-данных между прикладными системами.
+- [Commercient SYNC](https://www.commercient.com/) — **К**. Интеграции ERP, CRM и e-commerce; перенос бизнес-объектов в готовых отраслевых маршрутах. Направления и состав объектов зависят от интеграции.
+- [Exalate](https://docs.exalate.com/docs/overview-what-is-exalate) — **К**. Синхронизация tickets, issues, work items и cases между Jira, ServiceNow, Salesforce, Azure DevOps и другими системами; независимые правила и mapping на каждой стороне.
+- [ZigiOps (ZigiWave)](https://www.zigiwave.com/zigiops-integration-platform) — **К**. Двусторонние интеграции ITSM/ITOM/CRM, поля и связи объектов, правила преобразования и разрешения конфликтов; SaaS и локальные поставки.
+- [ONEiO](https://www.oneio.cloud/) — **К**. Управляемый сервис интеграции для enterprise IT и сервис-провайдеров; поставщик проектирует и эксплуатирует интеграции. Альтернатива по результату обмена данными, с другой моделью эксплуатации.
+
+### 17.3. Дополнительные iPaaS, ESB и B2B-интеграция
+
+Смежные с Sesam альтернативы по соединению приложений. Общая модель сущностей,
+MDM и двустороннее согласование состояния не следуют автоматически из наличия
+коннекторов или workflow-редактора.
+
+- [Alumio](https://www.alumio.com/) — **К**. iPaaS для business-critical интеграций, соединения приложений и организации потоков операционных данных.
+- [APPSeCONNECT](https://www.appseconnect.com/) — **К**. Low-code интеграция ERP, CRM, e-commerce и маркетплейсов через готовые пакеты и маршруты.
+- [Patchworks](https://doc.wearepatchworks.com/product-documentation/welcome/what-is-patchworks) — **К**. iPaaS для соединения приложений; отраслевой акцент на commerce-интеграциях и операционных потоках.
+- [Magic xpi](https://www.magicsoftware.com/integration-platform/xpi-lp/) — **К**. Интеграционная платформа Magic Software для соединения приложений и автоматизации процессов; конкуренция по enterprise application integration.
+- [Adeptia](https://www.adeptia.com/) — **К**. Приём данных партнёров, преобразования, бизнес-правила и оркестрация операционных потоков; локальная, облачная и гибридная эксплуатация.
+- [Lobster Data Platform](https://www.lobstersoftware.com/fr/) — **К**. No-code интеграция ERP, поставщиков и логистики через API, EDI и облачные системы; синхронизация операционных данных supply chain.
+- [Cleo Integration Cloud](https://support.cleo.com/hc/en-us/articles/360044671294-Overview-of-CIC-Cloud-Edition) — **К**. B2B, application и data integration; API, EDI и файловый обмен для связанных бизнес-процессов.
+- [SEEBURGER BIS](https://www.seeburger.com/) — **К**. Business Integration Suite для EAI/A2A, API, B2B/EDI и managed file transfer; облачная, локальная и гибридная интеграция.
+- [InterSystems IRIS Interoperability](https://www.intersystems.com/products/intersystems-iris/interoperability/) — **К**. Интеграционный движок в data platform: соединение приложений, протоколов и форматов сообщений. Сравнивать именно interoperability-сценарии, а не только СУБД IRIS.
+- [IBM App Connect](https://www.ibm.com/products/app-connect/connectors) — **К**. Коннекторы и integration flows для cloud, SaaS и on-premises приложений и БД. Отдельная продуктовая линия от IBM webMethods, DataStage и StreamSets.
+- [Google Cloud Application Integration](https://docs.cloud.google.com/application-integration/docs/overview) — **К**. Управляемая iPaaS: SaaS/БД/Pub/Sub-коннекторы, событийные и плановые запуски, mapping. Не смешивать с уже учтёнными Dataflow и Datastream.
+- [Azure Logic Apps](https://learn.microsoft.com/en-us/azure/logic-apps/logic-apps-what-are-logic-apps) — **К**. Workflows с коннекторами и триггерами для приложений и сервисов; сценарный конкурент по автоматизации обмена. Отдельная линия от Azure/Fabric Data Factory.
+
 <a id="regional-platforms"></a>
 ## 18. Российские платформы интеграции и ETL
 
@@ -526,6 +615,10 @@ Yandex/Transferia уже включены в [основную группу](#un
 - [DATAREON Platform](https://datareon.ru/solution/datareon-platform/) — **К**. Интеграционная платформа, обмен данными и ETL.
 - [Digital Q.DataFlows](https://q.diasoft.ru/mediacenter/news/v-platforme-digital-q-dataflows-dobavlena-vozmozhnost-ispolzovaniya-naborov-dannykh-v-etl-protsessakh/) — **К**. Проектирование и выполнение ETL-процессов.
 - [Neoflex Datagram](https://www.neoflex.ru/publications/neoflex-datagram-etl-platform) — **К**. Платформа ETL и параллельной обработки данных.
+
+- [Юнидата / Unidata MDM](https://unidata-platform.ru/images/UD%20Integration%20guide%205.6.pdf) — **К**. Приём, консолидация и предоставление мастер-данных через интеграционные интерфейсы. Руководство относится к версии 5.6; текущую матрицу коннекторов нужно уточнять. Ближе к semantic data hub, чем к универсальному CDC.
+- [Entaxy / Entaxy ION](https://entaxy.ru/) — **К, на OSS-компонентах**. Российская low-code интеграционная платформа/ESB, маршруты обмена между информационными системами. Наличие OSS-компонентов не устанавливает лицензию всей поставки.
+- [Bercut HIP / Bercut ESB](https://hip.bercut.com/esb) — **К**. Интеграционная шина в составе гибридной платформы: проектирование, исполнение и сопровождение обменов между приложениями. HIP и ESB учтены одной продуктовой семьёй.
 
 <a id="bulk-migration"></a>
 ## 19. Массовое копирование, файловые переносы и миграционные утилиты
@@ -654,7 +747,8 @@ Yandex/Transferia уже включены в [основную группу](#un
 отдельные части задачи и не являются автоматически полной заменой.
 
 При расширении каталога проверять матрицу **сценарий × рынок × модель поставки**:
-универсальная интеграция, customer events/CDP, reverse ETL и отраслевые
+универсальная интеграция, semantic data hub/MDM, одно-/двусторонняя и
+многосторонняя операционная синхронизация, customer events/CDP, reverse ETL и отраслевые
 платформы; международный, российский и китайский рынки; managed, self-hosted
 и OSS/source-available. Для каждого кандидата сохранять официальный источник,
 конкретный входной/выходной маршрут и границу пересечения. Переименования и
