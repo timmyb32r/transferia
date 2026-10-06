@@ -1,0 +1,155 @@
+[
+  {
+    "width": 50,
+    "format": "NativeTCP",
+    "codec": "lz4",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 105,
+    "format": "NativeTCP",
+    "codec": "lz4",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 105,
+    "format": "Parquet",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "raw",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 105,
+    "format": "NativeTCP",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 105,
+    "format": "ArrowStream",
+    "codec": "lz4",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 105,
+    "format": "Parquet",
+    "codec": "lz4",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 105,
+    "format": "Parquet",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 105,
+    "format": "ArrowStream",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 10,
+    "format": "NativeTCP",
+    "codec": "lz4",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 50,
+    "format": "ArrowStream",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 50,
+    "format": "Parquet",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 10,
+    "format": "Parquet",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 105,
+    "format": "ArrowStream",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "raw",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 105,
+    "format": "NativeTCP",
+    "codec": "none",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 105,
+    "format": "ArrowStream",
+    "codec": "none",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 10,
+    "format": "ArrowStream",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  },
+  {
+    "width": 105,
+    "format": "Parquet",
+    "codec": "none",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8
+  }
+]

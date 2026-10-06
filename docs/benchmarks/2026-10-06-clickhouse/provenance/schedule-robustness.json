@@ -1,0 +1,44 @@
+[
+  {
+    "width": 105,
+    "format": "Parquet",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8,
+    "binary_strings": true
+  },
+  {
+    "width": 105,
+    "format": "Parquet",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8,
+    "binary_strings": true
+  },
+  {
+    "width": 105,
+    "format": "Parquet",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8,
+    "binary_strings": true,
+    "sql_settings": " SETTINGS output_format_parquet_max_dictionary_size=0"
+  },
+  {
+    "width": 105,
+    "format": "Parquet",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8,
+    "binary_strings": true,
+    "sql_settings": " SETTINGS output_format_parquet_max_dictionary_size=0"
+  }
+]

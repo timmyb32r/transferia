@@ -1,0 +1,44 @@
+[
+  {
+    "format": "parquet",
+    "codec": "zstd",
+    "threads": 16,
+    "decode_threads": 8,
+    "row_group_rows": 250000
+  },
+  {
+    "format": "parquet",
+    "codec": "lz4",
+    "threads": 16,
+    "decode_threads": 8,
+    "row_group_rows": 250000
+  },
+  {
+    "format": "native",
+    "codec": "zstd",
+    "threads": 16,
+    "decode_threads": 8,
+    "row_group_rows": 250000
+  },
+  {
+    "format": "native",
+    "codec": "lz4",
+    "threads": 16,
+    "decode_threads": 8,
+    "row_group_rows": 250000
+  },
+  {
+    "format": "native",
+    "codec": "none",
+    "threads": 16,
+    "decode_threads": 8,
+    "row_group_rows": 250000
+  },
+  {
+    "format": "parquet",
+    "codec": "zstd",
+    "threads": 16,
+    "decode_threads": 8,
+    "row_group_rows": 62500
+  }
+]

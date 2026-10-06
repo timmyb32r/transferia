@@ -69,7 +69,10 @@ impl ClientMetadata {
     /// Helper function to provide settings for compression
     pub(crate) fn compression_settings(self) -> Settings {
         match self.compression {
-            CompressionMethod::None | CompressionMethod::LZ4 => Settings::default(),
+            CompressionMethod::None => Settings::default(),
+            // The server profile may default to ZSTD. Pin the requested codec so
+            // its response matches the decoder selected for this connection.
+            CompressionMethod::LZ4 => vec![("network_compression_method", "lz4")].into(),
             CompressionMethod::ZSTD => vec![
                 ("network_compression_method", "zstd"),
                 ("network_zstd_compression_level", "1"),
@@ -692,3 +695,7 @@ mod load {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/compression_settings.rs"]
+mod compression_settings_tests;

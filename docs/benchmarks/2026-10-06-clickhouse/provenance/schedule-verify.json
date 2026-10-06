@@ -1,0 +1,63 @@
+[
+  {
+    "width": 105,
+    "format": "Arrow",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8,
+    "verify_values": true,
+    "binary_strings": true,
+    "restore_temporal_types": true
+  },
+  {
+    "width": 105,
+    "format": "ArrowStream",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8,
+    "verify_values": true,
+    "binary_strings": true,
+    "parallel_arrow": true,
+    "restore_temporal_types": true
+  },
+  {
+    "width": 105,
+    "format": "NativeTCP",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8,
+    "verify_values": true,
+    "binary_strings": true,
+    "restore_temporal_types": true
+  },
+  {
+    "width": 105,
+    "format": "Parquet",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8,
+    "verify_values": true,
+    "binary_strings": true,
+    "restore_temporal_types": true
+  },
+  {
+    "width": 105,
+    "format": "ArrowStream",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8,
+    "verify_values": true,
+    "binary_strings": true,
+    "restore_temporal_types": true
+  }
+]

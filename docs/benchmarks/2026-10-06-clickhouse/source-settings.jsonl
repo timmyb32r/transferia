@@ -1,0 +1,17 @@
+{"name":"enable_http_compression","value":"1","changed":0}
+{"name":"http_zlib_compression_level","value":"3","changed":0}
+{"name":"max_block_size","value":"65409","changed":0}
+{"name":"max_threads","value":"auto(32)","changed":0}
+{"name":"network_compression_method","value":"ZSTD","changed":0}
+{"name":"network_zstd_compression_level","value":"3","changed":0}
+{"name":"output_format_arrow_compression_method","value":"lz4_frame","changed":0}
+{"name":"output_format_arrow_record_batch_size","value":"0","changed":0}
+{"name":"output_format_arrow_record_batch_size_bytes","value":"0","changed":0}
+{"name":"output_format_arrow_string_as_string","value":"1","changed":0}
+{"name":"output_format_compression_level","value":"3","changed":0}
+{"name":"output_format_parallel_formatting","value":"1","changed":0}
+{"name":"output_format_parquet_compression_method","value":"zstd","changed":0}
+{"name":"output_format_parquet_max_dictionary_size","value":"1048576","changed":0}
+{"name":"output_format_parquet_row_group_size","value":"1000000","changed":0}
+{"name":"preferred_block_size_bytes","value":"1000000","changed":0}
+{"name":"use_query_cache","value":"0","changed":0}

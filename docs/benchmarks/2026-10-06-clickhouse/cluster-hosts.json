@@ -1,0 +1,26 @@
+[
+  {
+    "name": "klg-k4qd4nhn2hrntdns.db.yandex.net",
+    "zone_id": "klg",
+    "type": "KEEPER",
+    "health": "ALIVE"
+  },
+  {
+    "name": "sas-nie1ajs3khr05afh.db.yandex.net",
+    "zone_id": "sas",
+    "type": "KEEPER",
+    "health": "ALIVE"
+  },
+  {
+    "name": "vla-mckcab227v231ofh.db.yandex.net",
+    "zone_id": "vla",
+    "type": "KEEPER",
+    "health": "ALIVE"
+  },
+  {
+    "name": "vla-njm09gqas15eplpr.db.yandex.net",
+    "zone_id": "vla",
+    "type": "CLICKHOUSE",
+    "health": "ALIVE"
+  }
+]

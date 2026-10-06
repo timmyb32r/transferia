@@ -1,0 +1,11 @@
+{
+  "id": "mdb5ps8sglj7tkdp3dpj",
+  "name": "timmyb32r-benchmark2",
+  "version": "26.9",
+  "clickhouse_resources": {
+    "resource_preset_id": "s4-c32-m128",
+    "disk_size": "2368674463744",
+    "disk_type_id": "local-ssd"
+  },
+  "status": "RUNNING"
+}

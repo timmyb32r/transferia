@@ -1,0 +1,9 @@
+{
+  "server_name": "ClickHouse",
+  "server_major": 26,
+  "server_minor": 9,
+  "server_advertised_tcp_revision": 54492,
+  "inspection_client_revision": 54451,
+  "tls_verification": "CA and hostname",
+  "scope": "untimed hello metadata only; no rows read"
+}

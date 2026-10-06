@@ -1,0 +1,18 @@
+{
+  "probe-v1": {
+    "size": 19923864,
+    "mtime": 1791251448.0313294
+  },
+  "probe-v2": {
+    "size": 20093624,
+    "mtime": 1791253943.7013414
+  },
+  "transferia-before-native-fix": {
+    "size": 97764896,
+    "mtime": 1791260905.8294277
+  },
+  "transferia-fixed": {
+    "size": 97765408,
+    "mtime": 1791261803.673226
+  }
+}

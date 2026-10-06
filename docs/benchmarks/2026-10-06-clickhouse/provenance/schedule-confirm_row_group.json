@@ -1,0 +1,35 @@
+[
+  {
+    "width": 105,
+    "format": "Parquet",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8,
+    "binary_strings": true,
+    "sql_settings": " SETTINGS output_format_parquet_write_page_index=0, output_format_parquet_write_bloom_filter=0"
+  },
+  {
+    "width": 105,
+    "format": "Parquet",
+    "codec": "lz4",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8,
+    "binary_strings": true,
+    "sql_settings": " SETTINGS output_format_parquet_write_page_index=0, output_format_parquet_write_bloom_filter=0"
+  },
+  {
+    "width": 105,
+    "format": "Parquet",
+    "codec": "zstd",
+    "http_codec": "none",
+    "mode": "decode",
+    "threads": 16,
+    "decode_threads": 8,
+    "binary_strings": true,
+    "row_group_rows": 62500
+  }
+]
