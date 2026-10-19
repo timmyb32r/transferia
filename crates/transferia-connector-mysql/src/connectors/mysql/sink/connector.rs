@@ -866,7 +866,7 @@ pub(super) async fn configure_strict_session(
 }
 
 pub(super) fn mysql_sql_type(column: &SchemaColumn) -> anyhow::Result<String> {
-    if column.arrow_extension_name == Some(ARROW_JSON_EXTENSION_NAME) {
+    if column.arrow_extension_name.as_deref() == Some(ARROW_JSON_EXTENSION_NAME) {
         anyhow::ensure!(
             column.data_type == DataType::Utf8,
             "MySQL JSON extension requires Arrow Utf8, got {:?}",

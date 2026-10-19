@@ -23,9 +23,8 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use transferia_connector_logbroker::logbroker::build_sink_connector;
-use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::SystemColumns;
-use transferia_core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use transferia_core::delivery::{DeliveryDiscovery, SchemaOrigin};
 use transferia_core::memory::PipelineMemory;
 use transferia_core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia_delivery_contracts::metrics::SinkCounters;
@@ -44,23 +43,32 @@ const SUCCESS: i32 = 400_000;
 type TestBody = http_body_util::combinators::UnsyncBoxBody<Bytes, Infallible>;
 
 #[tokio::test]
-async fn logbroker_ydb_sink_commits_only_after_real_grpc_ack() -> anyhow::Result<()> {
+async fn logbroker_ydb_sink_uses_per_table_identity_without_startup_schemas() -> anyhow::Result<()> {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
     let address = listener.local_addr()?;
     let observed = Arc::new(Mutex::new(Vec::new()));
     let server_observed = Arc::clone(&observed);
     let server = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        let io = hyper_util::rt::TokioIo::new(stream);
-        let service = service_fn(move |request| {
-            let observed = Arc::clone(&server_observed);
-            async move { Ok::<_, Infallible>(handle_write(request, observed)) }
-        });
-        drop(
-            http2::Builder::new(hyper_util::rt::TokioExecutor::new())
-                .serve_connection(io, service)
-                .await,
-        );
+        let mut tasks = Vec::new();
+        for expected_identity in ["events", "other"] {
+            let (stream, _) = listener.accept().await.unwrap();
+            let io = hyper_util::rt::TokioIo::new(stream);
+            let server_observed = Arc::clone(&server_observed);
+            let service = service_fn(move |request| {
+                let observed = Arc::clone(&server_observed);
+                async move { Ok::<_, Infallible>(handle_write(request, observed, expected_identity)) }
+            });
+            tasks.push(tokio::spawn(async move {
+                drop(
+                    http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+                        .serve_connection(io, service)
+                        .await,
+                );
+            }));
+        }
+        for task in tasks {
+            task.await.unwrap();
+        }
     });
 
     let connector = build_sink_connector(serde_yaml::from_str(&format!(
@@ -68,24 +76,12 @@ async fn logbroker_ydb_sink_commits_only_after_real_grpc_ack() -> anyhow::Result
         address.ip(),
         address.port()
     ))?)?;
-    let schema = DatasetSchema::new(vec![
-        SchemaColumn::new("id".into(), DataType::Int64, false),
-        SchemaColumn::new("name".into(), DataType::Utf8, true),
-    ]);
     let discovery = Arc::new(DeliveryDiscovery {
         source_name: Arc::from("typed-e2e"),
         source_topology: transferia_core::delivery::SourceTopology::StaticPartitions(vec![0]),
-        schema_origin: SchemaOrigin::SourceNative,
+        schema_origin: SchemaOrigin::ParserRuntime,
         keep_system_columns: false,
-        datasets: vec![DiscoveredDataset {
-            namespace: None,
-            update_policy: transferia_core::delivery::UpdatePolicy::Strict,
-            role: DatasetRole::Main,
-            name: Arc::from("events"),
-            incoming_schema: schema.clone(),
-            stored_schema: schema,
-            system_columns: Vec::new(),
-        }],
+        datasets: Vec::new(),
         performance_advice: Vec::new(),
     });
     connector.limits().validate_discovery(&discovery)?;
@@ -124,14 +120,16 @@ async fn logbroker_ydb_sink_commits_only_after_real_grpc_ack() -> anyhow::Result
     delivery_tx
         .send(Delivery {
             id: DeliveryId::new(1),
-            outputs: vec![SinkBatch {
-                table: Arc::from("events"),
+            outputs: ["events", "other"].into_iter().map(|table| SinkBatch {
+                table: Arc::from(table),
                 is_dlq: false,
-                batch,
+                schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+                namespace: None,
+                batch: batch.clone(),
                 byte_size: bytes,
                 memory: memory.reserve_transform(bytes),
                 system_columns: SystemColumns::default(),
-            }],
+            }).collect(),
             meta: DeliveryMeta { source_messages: 2 },
         })
         .await?;
@@ -142,19 +140,22 @@ async fn logbroker_ydb_sink_commits_only_after_real_grpc_ack() -> anyhow::Result
     );
     actor.await??;
     server.await?;
-    assert_eq!(
-        *observed.lock().unwrap(),
-        [
-            b"{\"id\":1,\"name\":\"one\"}\n".to_vec(),
-            b"{\"id\":2,\"name\":null}\n".to_vec()
-        ]
-    );
+    let mut actual = observed.lock().unwrap().clone();
+    actual.sort();
+    let mut expected = vec![
+        b"{\"id\":1,\"name\":\"one\"}\n".to_vec(),
+        b"{\"id\":2,\"name\":null}\n".to_vec(),
+    ];
+    expected.extend(expected.clone());
+    expected.sort();
+    assert_eq!(actual, expected);
     Ok(())
 }
 
 fn handle_write(
     request: Request<Incoming>,
     observed: Arc<Mutex<Vec<Vec<u8>>>>,
+    expected_identity: &'static str,
 ) -> Response<TestBody> {
     assert_eq!(
         request.uri().path(),
@@ -163,7 +164,7 @@ fn handle_write(
     assert_eq!(request.headers().get("x-ydb-auth-ticket").unwrap(), TOKEN);
     let (response_tx, response_rx) = mpsc::unbounded_channel::<Result<Frame<Bytes>, Infallible>>();
     tokio::spawn(async move {
-        process_requests(request.into_body(), response_tx, observed).await;
+        process_requests(request.into_body(), response_tx, observed, expected_identity).await;
     });
     Response::builder()
         .status(StatusCode::OK)
@@ -181,8 +182,10 @@ async fn process_requests(
     mut body: Incoming,
     response_tx: mpsc::UnboundedSender<Result<Frame<Bytes>, Infallible>>,
     observed: Arc<Mutex<Vec<Vec<u8>>>>,
+    expected_identity: &'static str,
 ) {
     let mut buffered = BytesMut::new();
+    let mut next_sequence = 1;
     while let Some(Ok(frame)) = body.frame().await {
         let Ok(data) = frame.into_data() else {
             continue;
@@ -192,7 +195,7 @@ async fn process_requests(
             match message.client_message {
                 Some(ClientMessage::InitRequest(init)) => {
                     assert_eq!(init.path, TOPIC);
-                    assert_eq!(init.producer_id, "events");
+                    assert_eq!(init.producer_id, expected_identity);
                     send(
                         &response_tx,
                         &FromServer {
@@ -214,6 +217,8 @@ async fn process_requests(
                         .messages
                         .into_iter()
                         .map(|message| {
+                            assert_eq!(message.seq_no, next_sequence);
+                            next_sequence += 1;
                             observed.lock().unwrap().push(message.data);
                             write_response::WriteAck {
                                 seq_no: message.seq_no,

@@ -1137,10 +1137,15 @@ fn encode_row_query(
 }
 
 impl Sink for YdbSink {
-    fn run(
-        mut self: Box<Self>,
+    fn update_discovery(&mut self, discovery: std::sync::Arc<transferia_core::DeliveryDiscovery>) -> transferia_core::failure::DataPlaneResult<()> {
+        self.discovery = discovery;
+        Ok(())
+    }
+
+    fn run_session(
+        &mut self,
         mut io: SinkIo,
-    ) -> BoxFuture<'static, transferia_core::failure::DataPlaneResult<()>> {
+    ) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
             let result: anyhow::Result<()> = async {
                 while let Some(delivery) = tokio::select! {
@@ -1271,7 +1276,7 @@ pub(super) fn yql_type(column: &SchemaColumn) -> anyhow::Result<String> {
 }
 
 fn column_kind(column: &SchemaColumn) -> anyhow::Result<ColumnKind> {
-    let extension = column.arrow_extension_name;
+    let extension = column.arrow_extension_name.as_deref();
     Ok(match (&column.data_type, extension) {
         (DataType::Boolean, None) => ColumnKind::Bool,
         (DataType::Int8, None) => ColumnKind::Int8,

@@ -41,16 +41,17 @@ impl ParserSession for BenchmarkDiscardSession {
     fn parse_into(
         &mut self,
         _messages: Vec<Message>,
-    ) -> anyhow::Result<(TableData, Option<TableData>)> {
+    ) -> anyhow::Result<(Vec<TableData>, Option<TableData>)> {
         let batch = RecordBatch::new_empty(Arc::new(Schema::empty()));
         Ok((
-            TableData {
+            vec![TableData {
                 namespace: None,
                 table: Arc::clone(&self.table),
                 is_dlq: false,
+                schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref())?),
                 batch,
                 system_columns: SystemColumns::default(),
-            },
+            }],
             None,
         ))
     }

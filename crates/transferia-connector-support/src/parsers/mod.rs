@@ -40,6 +40,7 @@ pub use transferia_delivery_contracts::parser::{ParserFactory, ParserSession};
 /// It is the single source of truth for the parser instance and its sink-facing schemas.
 pub struct ParserPlan {
     parser: Arc<dyn ParserFactory>,
+    schema_origin: SchemaOrigin,
     table: Arc<str>,
     dataset_schema: DatasetSchema,
     stored_dataset_schema: DatasetSchema,
@@ -56,6 +57,7 @@ impl ParserPlan {
     #[must_use]
     pub fn native_source() -> Self {
         Self {
+            schema_origin: SchemaOrigin::SourceNative,
             parser: Arc::new(native_source::NativeSourceParser),
             table: Arc::from(""),
             dataset_schema: DatasetSchema::default(),
@@ -82,7 +84,7 @@ impl ParserPlan {
         );
         source_topology.validate()?;
 
-        let datasets = if self.parses_rows() {
+        let mut datasets = if self.parses_rows() {
             let system_columns = self.system_columns();
             let table = self.table();
             let dlq_table: Arc<str> = dlq_name(&table).into();
@@ -114,10 +116,14 @@ impl ParserPlan {
             Vec::new()
         };
 
+        if self.schema_origin == SchemaOrigin::ParserRuntime {
+            datasets.retain(|dataset| dataset.role == DatasetRole::DeadLetterQueue);
+        }
+
         Ok(DeliveryDiscovery {
             source_name,
             source_topology,
-            schema_origin: SchemaOrigin::ParserProjection,
+            schema_origin: self.schema_origin,
             keep_system_columns: request.keep_system_columns,
             datasets,
             performance_advice: Vec::new(),
@@ -160,8 +166,7 @@ impl ParserPlan {
                     );
                     let parser_config: schema_registry::SchemaRegistryParserConfig =
                         serde_yaml::from_value(config.parser.raw()?.clone())?;
-                    let projection = schema_registry::decoded_record_projection();
-                    let schema = projection.to_dataset_schema()?;
+                    let schema = DatasetSchema::default();
                     let discovered_system_columns = config
                         .common
                         .system_columns
@@ -171,14 +176,7 @@ impl ParserPlan {
                             name: Arc::from(config.common.system_columns.name(kind)),
                         })
                         .collect::<Vec<_>>();
-                    validate_primary_key(
-                        &projection.keys,
-                        "schema_registry",
-                        &config.common.system_columns,
-                        &schema,
-                        &discovered_system_columns,
-                    )?;
-                    let primary_key = Arc::from(projection.keys);
+                    let primary_key: Arc<[String]> = Arc::from([]);
                     let parser = Arc::new(schema_registry::SchemaRegistryParser::new(
                         &parser_config,
                         &config.common.system_columns,
@@ -231,6 +229,7 @@ impl ParserPlan {
                 }
             };
         Ok(Self {
+            schema_origin: if kind == "schema_registry" { SchemaOrigin::ParserRuntime } else { SchemaOrigin::ParserProjection },
             parser,
             table: config.resolve_table_name(topic_path)?.into(),
             stored_dataset_schema: dataset_schema.clone(),
@@ -274,6 +273,7 @@ impl ParserPlan {
             matches!(&common.table_naming, TableNaming::FromMessage),
         )?) as Arc<dyn ParserFactory>;
         Ok(Self {
+            schema_origin: SchemaOrigin::ParserProjection,
             parser,
             table,
             dataset_schema,
@@ -316,6 +316,7 @@ impl ParserPlan {
             &discovered_system_columns,
         )?;
         Ok(Self {
+            schema_origin: SchemaOrigin::ParserProjection,
             parser,
             table,
             stored_dataset_schema: dataset_schema.clone(),
@@ -354,6 +355,7 @@ impl ParserPlan {
             .map(|column| column.name.clone())
             .collect::<Vec<_>>();
         Ok(Self {
+            schema_origin: SchemaOrigin::ParserProjection,
             parser,
             table,
             stored_dataset_schema: dataset_schema.clone(),
@@ -396,6 +398,7 @@ impl ParserPlan {
             Arc::clone(&table),
         )?) as Arc<dyn ParserFactory>;
         Ok(Self {
+            schema_origin: SchemaOrigin::ParserProjection,
             parser,
             table,
             stored_dataset_schema: schema.clone(),
@@ -425,6 +428,7 @@ impl ParserPlan {
             Arc::clone(&table),
         )?) as Arc<dyn ParserFactory>;
         Ok(Self {
+            schema_origin: SchemaOrigin::ParserProjection,
             parser,
             table,
             stored_dataset_schema: parser_config.dataset_schema(),
@@ -442,6 +446,7 @@ impl ParserPlan {
     pub fn from_benchmark_discard(source_name: &str) -> Self {
         let table: Arc<str> = source_name.into();
         Self {
+            schema_origin: SchemaOrigin::ParserProjection,
             parser: Arc::new(benchmark_discard::BenchmarkDiscardParser::new(Arc::clone(
                 &table,
             ))),
@@ -646,7 +651,7 @@ impl ParserSession for TopicTableParserSession {
     fn parse_into(
         &mut self,
         messages: Vec<Message>,
-    ) -> anyhow::Result<(TableData, Option<TableData>)> {
+    ) -> anyhow::Result<(Vec<TableData>, Option<TableData>)> {
         let table = messages
             .first()
             .and_then(|message| message.meta.topic.as_deref())
@@ -659,7 +664,9 @@ impl ParserSession for TopicTableParserSession {
         );
         let table: Arc<str> = Arc::from(table);
         let (mut main, mut dlq) = self.inner.parse_into(messages)?;
-        main.table = Arc::clone(&table);
+        for batch in &mut main {
+            batch.table = Arc::clone(&table);
+        }
         if let Some(dlq) = &mut dlq {
             dlq.table = dlq_name(&table).into();
         }

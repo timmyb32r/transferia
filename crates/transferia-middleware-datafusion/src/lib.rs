@@ -147,6 +147,7 @@ impl DataFusionMiddleware {
                 .collect::<Vec<_>>(),
         );
         Ok(TableData {
+            schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref())?),
             batch,
             system_columns,
             ..data
@@ -198,7 +199,7 @@ impl Middleware for DataFusionMiddleware {
                             input.low_cardinality,
                             input.max_length,
                         );
-                        if let Some(extension_name) = input.arrow_extension_name {
+                        if let Some(extension_name) = &input.arrow_extension_name {
                             column = column.with_arrow_extension(extension_name);
                         }
                         column

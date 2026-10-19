@@ -539,6 +539,8 @@ async fn serialize_tables(
         let batch = SinkBatch {
             table: Arc::clone(&table.table),
             is_dlq: table.is_dlq,
+            schema: std::sync::Arc::clone(&table.schema),
+            namespace: table.namespace.clone(),
             batch: table.batch.clone(),
             byte_size,
             memory: memory.reserve_transform(byte_size),

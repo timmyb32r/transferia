@@ -64,7 +64,7 @@ async fn resolves_the_column_for_each_table_schema() -> anyhow::Result<()> {
         )?;
         let output = filter
             .process(
-                TableData::new(Arc::from("events"), false, batch, SystemColumns::default())
+                TableData::new(Arc::from("events"), false, batch, SystemColumns::default()).expect("valid table batch")
                     .with_namespace(Arc::from("public")),
             )
             .await?;

@@ -76,10 +76,15 @@ struct QuiescingSink {
 }
 
 impl Sink for QuiescingSink {
-    fn run(
-        self: Box<Self>,
+    fn update_discovery(&mut self, discovery: std::sync::Arc<transferia_core::DeliveryDiscovery>) -> transferia_core::failure::DataPlaneResult<()> {
+        drop(discovery);
+        Ok(())
+    }
+
+    fn run_session(
+        &mut self,
         mut io: SinkIo,
-    ) -> futures_util::future::BoxFuture<'static, DataPlaneResult<()>> {
+    ) -> futures_util::future::BoxFuture<'_, DataPlaneResult<()>> {
         Box::pin(async move {
             let _events = io.events.clone();
             let delivery = io.deliveries.recv().await.ok_or_else(|| {
@@ -137,7 +142,7 @@ impl ParserSession for StatefulSession {
     fn parse_into(
         &mut self,
         _messages: Vec<Message>,
-    ) -> anyhow::Result<(TableData, Option<TableData>)> {
+    ) -> anyhow::Result<(Vec<TableData>, Option<TableData>)> {
         self.calls += 1;
         let batch = RecordBatch::try_new(
             Arc::new(Schema::new(vec![Field::new(
@@ -148,12 +153,12 @@ impl ParserSession for StatefulSession {
             vec![Arc::new(Int64Array::from(vec![self.calls]))],
         )?;
         Ok((
-            TableData::new(
+            vec![TableData::new(
                 "events".into(),
                 false,
                 batch,
                 transferia_core::data::system_columns::SystemColumns::default(),
-            ),
+            ).expect("valid table batch")],
             None,
         ))
     }
@@ -167,7 +172,7 @@ impl ParserSession for OverestimatedSession {
     fn parse_into(
         &mut self,
         _messages: Vec<Message>,
-    ) -> anyhow::Result<(TableData, Option<TableData>)> {
+    ) -> anyhow::Result<(Vec<TableData>, Option<TableData>)> {
         let batch = RecordBatch::try_new(
             Arc::new(Schema::new(vec![Field::new(
                 "value",
@@ -177,12 +182,12 @@ impl ParserSession for OverestimatedSession {
             vec![Arc::new(Int64Array::from(vec![1_i64]))],
         )?;
         Ok((
-            TableData::new(
+            vec![TableData::new(
                 "events".into(),
                 false,
                 batch,
                 transferia_core::data::system_columns::SystemColumns::default(),
-            ),
+            ).expect("valid table batch")],
             None,
         ))
     }
@@ -268,7 +273,7 @@ impl Source for CancellationSensitiveSource {
                             false,
                             batch,
                             transferia_core::data::system_columns::SystemColumns::default(),
-                        )],
+                        ).expect("valid table batch")],
                         source_rows: 1,
                         commit_marker: Some(CommitMarker::new(1_i64)),
                         memory: Vec::new(),
@@ -363,7 +368,7 @@ impl Source for NonCancellationSafeSource {
                             false,
                             batch,
                             transferia_core::data::system_columns::SystemColumns::default(),
-                        )],
+                        ).expect("valid table batch")],
                         source_rows: 1,
                         commit_marker: Some(CommitMarker::new(value)),
                         memory: Vec::new(),
@@ -507,7 +512,7 @@ impl Source for FiniteShutdownFailureSource {
                         false,
                         batch,
                         transferia_core::data::system_columns::SystemColumns::default(),
-                    )],
+                    ).expect("valid table batch")],
                     source_rows: 1,
                     commit_marker: Some(CommitMarker::new(1_i64)),
                     memory: Vec::new(),
@@ -1250,6 +1255,8 @@ fn row_count_batch(table: &str, is_dlq: bool, rows: usize) -> SinkBatch {
         byte_size: rows.saturating_mul(std::mem::size_of::<i64>()),
         memory: PipelineMemory::new(1 << 20).reserve_transform(0),
         system_columns: transferia_core::data::system_columns::SystemColumns::default(),
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
     }
 }
@@ -1453,4 +1460,16 @@ fn committed_prefixes_across_retries_are_counted_once() {
         rows_by_dataset(&completed)[&(false, "events".to_owned())],
         12
     );
+}
+
+#[test]
+fn runtime_snapshot_datasets_are_counted_only_after_source_commit() -> anyhow::Result<()> {
+    let counts = OutputRowCounts::new(std::iter::empty())?;
+    counts.admit_datasets([(Arc::from("runtime_table"), false)])?;
+    let batch = row_count_batch("runtime_table", false, 4);
+    counts.observe_delivery(DeliveryId::new(1), &[batch])?;
+    assert_eq!(counts.snapshot()?[0].rows, 0);
+    counts.commit_through(DeliveryId::new(1))?;
+    assert_eq!(counts.snapshot()?[0].rows, 4);
+    Ok(())
 }

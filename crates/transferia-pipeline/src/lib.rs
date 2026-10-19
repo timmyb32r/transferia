@@ -23,7 +23,7 @@ use transferia_delivery_contracts::parser::{ParserFactory, ParserSession};
 
 mod admission;
 mod row_count;
-pub use admission::DatasetAdmission;
+pub use admission::{DatasetAdmission, DatasetStage};
 use admission::DeliveryOutput;
 
 pub use row_count::{OutputDatasetRowCount, OutputRowCounts};
@@ -127,6 +127,8 @@ fn make_sink_batch(
     Some(SinkBatch {
         table: data.table,
         is_dlq: data.is_dlq,
+        schema: data.schema,
+        namespace: data.namespace,
         batch: data.batch,
         byte_size,
         memory: reservation,
@@ -213,6 +215,9 @@ async fn parser_loop(
                 })
                 .collect::<Vec<_>>();
             if let Some(row_counts) = &output_row_counts {
+                if matches!(&output, DeliveryOutput::Evolving(_)) {
+                    row_counts.admit_datasets(outputs.iter().map(|batch| (Arc::clone(&batch.table), batch.is_dlq)))?;
+                }
                 row_counts.observe_delivery(envelope.id, &outputs)?;
             }
             if output
@@ -295,14 +300,19 @@ async fn parser_loop(
         // Parsing materializes owned Arrow arrays, so the source buffers can be
         // released before middleware allocates any additional output.
         drop(source_memory);
-        let valid = apply_middlewares(valid, middlewares.as_slice())
-            .await
-            .map_err(|error| {
-                anyhow::anyhow!("middleware failed for delivery {}: {error}", id.get())
-            })?;
+        let mut transformed = Vec::with_capacity(valid.len());
+        let mut valid_bytes = 0_usize;
+        let mut valid_rows = 0_usize;
+        for table in valid {
+            let table = apply_middlewares(table, middlewares.as_slice()).await
+                .map_err(|error| anyhow::anyhow!("middleware failed for delivery {}: {error}", id.get()))?;
+            let bytes = arrow_batch_bytes(&table.batch);
+            valid_bytes = valid_bytes.saturating_add(bytes);
+            valid_rows = valid_rows.saturating_add(table.batch.num_rows());
+            transformed.push((table, bytes));
+        }
         counters.add_parse_busy(parse_busy);
-        counters.add_rows(valid.batch.num_rows() as u64);
-        let valid_bytes = arrow_batch_bytes(&valid.batch);
+        counters.add_rows(valid_rows as u64);
         let dlq_bytes = dlq
             .as_ref()
             .map_or(0, |batch| arrow_batch_bytes(&batch.batch));
@@ -313,7 +323,7 @@ async fn parser_loop(
         }
 
         let output_bytes = valid_bytes.saturating_add(dlq_bytes);
-        let has_output = valid.batch.num_rows() > 0
+        let has_output = valid_rows > 0
             || dlq.as_ref().is_some_and(|batch| batch.batch.num_rows() > 0);
         if has_output && output_bytes > output_bound {
             tracing::warn!(
@@ -332,12 +342,11 @@ async fn parser_loop(
             (false, None) => None,
             (true, None) => Some(memory.reserve_transform(output_bytes)),
         };
-        let mut outputs = Vec::with_capacity(2);
-        if let Some(batch) = output_memory
-            .as_ref()
-            .and_then(|memory| make_sink_batch(valid, valid_bytes, memory.clone()))
-        {
-            outputs.push(batch);
+        let mut outputs = Vec::with_capacity(transformed.len() + usize::from(dlq.is_some()));
+        for (table, bytes) in transformed {
+            if let Some(batch) = output_memory.as_ref().and_then(|memory| make_sink_batch(table, bytes, memory.clone())) {
+                outputs.push(batch);
+            }
         }
         if let Some(dlq) = dlq {
             if let Some(batch) = output_memory
@@ -349,6 +358,9 @@ async fn parser_loop(
         }
         drop(output_memory);
         if let Some(row_counts) = &output_row_counts {
+            if matches!(&output, DeliveryOutput::Evolving(_)) {
+                row_counts.admit_datasets(outputs.iter().map(|batch| (Arc::clone(&batch.table), batch.is_dlq)))?;
+            }
             row_counts.observe_delivery(id, &outputs)?;
         }
         if output.send(Delivery { id, outputs, meta }).await.is_err() {

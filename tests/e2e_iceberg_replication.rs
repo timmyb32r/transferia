@@ -339,6 +339,8 @@ async fn deliver_to_iceberg(
         .map(|table| SinkBatch {
             table: Arc::clone(&table.table),
             is_dlq: table.is_dlq,
+            schema: std::sync::Arc::clone(&table.schema),
+            namespace: table.namespace.clone(),
             batch: table.batch.clone(),
             byte_size: table.batch.get_array_memory_size(),
             memory: lease.clone(),

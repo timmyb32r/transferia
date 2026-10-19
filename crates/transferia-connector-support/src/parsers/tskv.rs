@@ -186,7 +186,7 @@ impl ParserSession for TskvParserSession {
     fn parse_into(
         &mut self,
         messages: Vec<Message>,
-    ) -> anyhow::Result<(TableData, Option<TableData>)> {
+    ) -> anyhow::Result<(Vec<TableData>, Option<TableData>)> {
         let messages = messages
             .into_iter()
             .map(|message| transform_message(message, &self.kinds))

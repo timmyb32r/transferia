@@ -706,7 +706,7 @@ impl YdbSource {
                 false,
                 batch,
                 routing_system_columns(base),
-            )],
+            )?],
             source_rows,
             commit_marker: Some(CommitMarker::new(self.offset)),
             memory: Vec::new(),

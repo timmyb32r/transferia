@@ -526,6 +526,19 @@ impl SinkConnector for YTsaurusSinkConnector {
         })
     }
 
+    fn prepare_runtime(
+        &self,
+        request: SinkPrepare,
+        previous: Option<transferia_core::DiscoveredDataset>,
+    ) -> BoxFuture<'_, anyhow::Result<()>> {
+        Box::pin(async move {
+            anyhow::ensure!(previous.is_none(), "YTsaurus does not support runtime changes to an admitted schema");
+            anyhow::ensure!(!self.config.replace_tables(),
+                "runtime YTsaurus dataset admission requires replace_tables=false; startup replacement must not delete an existing runtime target");
+            self.prepare(request).await
+        })
+    }
+
     fn build_sink(
         &self,
         context: SinkBuildContext,
@@ -1473,10 +1486,15 @@ pub(super) fn yt_guid(bytes: [u8; 16]) -> String {
 }
 
 impl Sink for YTsaurusSink {
-    fn run(
-        self: Box<Self>,
+    fn update_discovery(&mut self, discovery: std::sync::Arc<transferia_core::DeliveryDiscovery>) -> transferia_core::failure::DataPlaneResult<()> {
+        self.discovery = discovery;
+        Ok(())
+    }
+
+    fn run_session(
+        &mut self,
         mut io: SinkIo,
-    ) -> BoxFuture<'static, transferia_core::failure::DataPlaneResult<()>> {
+    ) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
             let staged = self.has_staged_tables();
             let result: anyhow::Result<()> = async {

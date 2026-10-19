@@ -46,7 +46,7 @@ keys: [level]
     ))])?;
     assert!(dlq.is_none());
     assert_eq!(
-        table
+        table[0]
             .batch
             .column(0)
             .as_any()
@@ -56,7 +56,7 @@ keys: [level]
         "INFO"
     );
     assert_eq!(
-        table
+        table[0]
             .batch
             .column(1)
             .as_any()
@@ -65,7 +65,7 @@ keys: [level]
             .value(0),
         42
     );
-    assert!(table
+    assert!(table[0]
         .batch
         .column(2)
         .as_any()

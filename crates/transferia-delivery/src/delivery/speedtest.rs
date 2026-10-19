@@ -1104,7 +1104,12 @@ struct MeasurementDiscardSink {
 }
 
 impl Sink for MeasurementDiscardSink {
-    fn run(self: Box<Self>, mut io: SinkIo) -> BoxFuture<'static, DataPlaneResult<()>> {
+    fn update_discovery(&mut self, discovery: std::sync::Arc<transferia_core::DeliveryDiscovery>) -> transferia_core::failure::DataPlaneResult<()> {
+        drop(discovery);
+        Ok(())
+    }
+
+    fn run_session(&mut self, mut io: SinkIo) -> BoxFuture<'_, DataPlaneResult<()>> {
         Box::pin(async move {
             while let Some(delivery) = tokio::select! {
                 () = io.cancellation.cancelled() => return Ok(()),
@@ -1160,7 +1165,12 @@ impl ProfileSink {
 }
 
 impl Sink for ProfileSink {
-    fn run(self: Box<Self>, mut io: SinkIo) -> BoxFuture<'static, DataPlaneResult<()>> {
+    fn update_discovery(&mut self, discovery: std::sync::Arc<transferia_core::DeliveryDiscovery>) -> transferia_core::failure::DataPlaneResult<()> {
+        drop(discovery);
+        Ok(())
+    }
+
+    fn run_session(&mut self, mut io: SinkIo) -> BoxFuture<'_, DataPlaneResult<()>> {
         Box::pin(async move {
             while let Some(delivery) = tokio::select! {
                 () = io.cancellation.cancelled() => return Ok(()),
@@ -1451,7 +1461,7 @@ impl Source for ProfileGeneratorSource {
                     output.is_dlq,
                     batch,
                     output.system_columns.clone(),
-                ));
+                )?);
             }
             if generated_bytes > 0 {
                 // Rewritten PK arrays coexist with the immutable sampled arrays

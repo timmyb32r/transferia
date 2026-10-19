@@ -81,3 +81,44 @@ fn name_only_extensions_do_not_invent_an_empty_metadata_payload() {
     );
     assert!(!metadata.contains_key(META_ARROW_EXTENSION_METADATA));
 }
+
+#[test]
+fn arrow_schema_round_trip_preserves_the_runtime_contract() -> anyhow::Result<()> {
+    use std::sync::Arc;
+    use arrow::datatypes::{Field, Schema};
+    use super::{DatasetSchema, ValuePresence};
+    let mut column = SchemaColumn::new("payload".into(), DataType::Binary, true)
+        .with_constraints(true, true, Some(1024))
+        .with_arrow_extension_metadata(String::from("runtime.extension"), "exact metadata")
+        .with_system_role("source.version");
+    column.always_present_on_update = true;
+    column.update_value_presence = ValuePresence::Guaranteed;
+    column.delete_value_presence = ValuePresence::Guaranteed;
+    column.old_value_of = Some("current_payload".into());
+    column.old_key_of = Some("current_key".into());
+    let arrow = Schema::new(vec![Arc::new(
+        Field::new(&column.name, column.data_type.clone(), column.nullable)
+            .with_metadata(column.arrow_metadata()),
+    )]);
+    assert_eq!(DatasetSchema::from_arrow(&arrow)?, DatasetSchema::new(vec![column]));
+    Ok(())
+}
+
+#[test]
+fn malformed_arrow_contract_is_rejected_at_table_construction() {
+    use std::sync::Arc;
+    use arrow::datatypes::{Field, Schema};
+    use arrow::record_batch::RecordBatch;
+    for (key, value) in [
+        (super::META_PRIMARY_KEY, "not-a-boolean"),
+        (super::META_UPDATE_VALUE_PRESENCE, "sometimes"),
+        (super::META_MAX_LENGTH, "negative"),
+        (super::META_ARROW_EXTENSION_METADATA, "missing extension name"),
+    ] {
+        let field = Field::new("value", DataType::Int64, false)
+            .with_metadata([(key.to_owned(), value.to_owned())].into());
+        let batch = RecordBatch::new_empty(Arc::new(Schema::new(vec![field])));
+        assert!(super::DatasetSchema::from_arrow(batch.schema().as_ref()).is_err());
+        assert!(crate::TableData::new(Arc::from("events"), false, batch, crate::SystemColumns::default()).is_err());
+    }
+}

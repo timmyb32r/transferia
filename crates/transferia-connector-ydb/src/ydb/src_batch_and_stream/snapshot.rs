@@ -345,7 +345,7 @@ fn materialize_snapshot(
         false,
         RecordBatch::try_new(schema, arrays)?,
         SystemColumns::new(systems),
-    ))
+    )?)
 }
 
 #[cfg(test)]

@@ -137,7 +137,8 @@ async fn s3_source_snapshots_sorted_objects_and_parses_json() -> anyhow::Result<
                 assert_eq!(messages[0].meta.topic.as_deref(), Some(expected_key));
                 let (main, dlq) = parser.parse_into(messages)?;
                 assert!(dlq.is_none());
-                let column = main
+                assert_eq!(main.len(), 1);
+                let column = main[0]
                     .batch
                     .column(0)
                     .as_any()

@@ -64,5 +64,5 @@ pub trait ParserSession: Send {
     fn parse_into(
         &mut self,
         messages: Vec<Message>,
-    ) -> anyhow::Result<(TableData, Option<TableData>)>;
+    ) -> anyhow::Result<(Vec<TableData>, Option<TableData>)>;
 }

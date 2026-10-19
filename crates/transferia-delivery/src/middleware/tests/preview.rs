@@ -22,7 +22,7 @@ fn sample(values: Vec<i64>) -> TableData {
         )
         .unwrap(),
         SystemColumns::default(),
-    )
+    ).expect("valid table batch")
     .with_namespace(Arc::from("public"))
 }
 
@@ -216,6 +216,7 @@ fn display_keeps_full_integer_and_decimal_precision_as_text() -> anyhow::Result<
         ) as ArrayRef],
     )?;
     let data = TableData {
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
         batch,
         ..sample(vec![])
     };
@@ -238,6 +239,7 @@ async fn physical_table_columns_are_not_hidden_based_on_metadata_like_names() ->
         vec![Arc::new(Int64Array::from(vec![123]))],
     )?;
     let input = TableData {
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
         batch,
         ..sample(vec![])
     };

@@ -2693,6 +2693,7 @@ fn column_view(column: &transferia_core::data::schema::SchemaColumn) -> ColumnVi
         source_type: column.source_type.clone(),
         arrow_type: column
             .arrow_extension_name
+            .as_deref()
             .map_or_else(|| format!("{:?}", column.data_type), str::to_owned),
         nullable: column.nullable,
         primary_key: column.primary_key,

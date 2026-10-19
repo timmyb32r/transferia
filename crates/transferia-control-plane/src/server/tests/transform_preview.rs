@@ -91,7 +91,7 @@ impl Composition for SampleComposition {
                             false,
                             batch,
                             SystemColumns::default(),
-                        )
+                        ).expect("valid table batch")
                         .with_namespace(Arc::from(table.namespace)))
                     }
                 }),

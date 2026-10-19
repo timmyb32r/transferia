@@ -35,7 +35,7 @@ impl SourceMetadataReader for Reader {
                 false,
                 batch,
                 transferia_core::SystemColumns::default(),
-            )
+            ).expect("valid table batch")
             .with_namespace(Arc::from(table.namespace)))
         })
     }

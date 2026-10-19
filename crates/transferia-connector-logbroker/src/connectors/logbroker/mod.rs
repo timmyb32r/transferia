@@ -13,3 +13,13 @@ pub use src_stream::preview_message;
 pub use src_stream::{
     build_source_connector, build_source_connector_with_parsers, YdbDriverSourceConnector,
 };
+
+/// Both write protocols use the table name verbatim as their producer identity.
+/// Validate before opening a session; never shorten or replace an identifier.
+fn validate_producer_id(table: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !table.is_empty() && table.len() <= 2048,
+        "Logbroker producer identity derived from table name must contain 1..=2048 UTF-8 bytes"
+    );
+    Ok(())
+}

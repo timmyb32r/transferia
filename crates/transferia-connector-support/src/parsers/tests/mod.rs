@@ -31,7 +31,7 @@ fn registry_parsers_apply_error_policy_and_preserve_original_envelopes() -> anyh
                 continue;
             }
             let (main, dlq) = result?;
-            assert_eq!(main.batch.num_rows(), 0);
+            assert_eq!(main.iter().map(|table| table.batch.num_rows()).sum::<usize>(), 0);
             if policy == "drop" {
                 assert!(dlq.is_none());
                 continue;

@@ -140,10 +140,15 @@ fn split_for_object_limits(
 }
 
 impl Sink for S3ParquetSink {
-    fn run(
-        self: Box<Self>,
+    fn update_discovery(&mut self, discovery: std::sync::Arc<transferia_core::DeliveryDiscovery>) -> transferia_core::failure::DataPlaneResult<()> {
+        self.discovery = discovery;
+        Ok(())
+    }
+
+    fn run_session(
+        &mut self,
         mut io: SinkIo,
-    ) -> BoxFuture<'static, transferia_core::failure::DataPlaneResult<()>> {
+    ) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
             loop {
                 let delivery = tokio::select! {

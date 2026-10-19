@@ -157,7 +157,7 @@ impl ClickHouseSource {
                 false,
                 batch,
                 system_columns,
-            )
+            )?
             .with_namespace(Arc::from(self.table.config.database.as_str()))],
             source_rows: rows as u64,
             commit_marker: Some(CommitMarker::new(self.offset)),

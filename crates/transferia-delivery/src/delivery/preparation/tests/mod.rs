@@ -253,7 +253,7 @@ fn merge_schema_comparison_preserves_every_column_attribute_and_order() {
             3 => column.primary_key = true,
             4 => column.low_cardinality = true,
             5 => column.max_length = Some(5),
-            6 => column.arrow_extension_name = Some("extension"),
+            6 => column.arrow_extension_name = Some("extension".to_owned()),
             7 => column.arrow_extension_metadata = Some("metadata".into()),
             8 => column.system_role = Some("role".into()),
             _ => changed.incoming_schema.columns[0].nullable = true,

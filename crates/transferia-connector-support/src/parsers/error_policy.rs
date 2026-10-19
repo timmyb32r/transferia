@@ -152,7 +152,7 @@ pub(crate) fn rejected_messages(
         true,
         RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?,
         SystemColumns::default(),
-    )))
+    )?))
 }
 
 impl OnParseError {

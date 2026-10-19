@@ -518,6 +518,8 @@ async fn write_record_batch_after_change(host: &str, port: u16, table: &str, for
             outputs: vec![SinkBatch {
                 table: Arc::from(table),
                 is_dlq: false,
+                schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+                namespace: None,
                 batch,
                 byte_size: bytes,
                 memory: memory.reserve_transform(bytes),

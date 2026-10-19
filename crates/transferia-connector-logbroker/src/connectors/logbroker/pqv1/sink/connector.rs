@@ -36,7 +36,7 @@ impl SinkLimits for PqV1SinkConfig {
             sink: "pqv1",
             dataset_name: Some(TextLimit {
                 syntax: NameSyntax::AnyNonEmptyUtf8,
-                max_utf8_bytes: None,
+                max_utf8_bytes: Some(2048),
             }),
             column_name: Some(TextLimit {
                 syntax: NameSyntax::AnyNonEmptyUtf8,
@@ -57,12 +57,24 @@ impl SinkLimits for PqV1SinkConfig {
         }
     }
 
+    fn validate_batch(
+        &self,
+        discovery: &DeliveryDiscovery,
+        batch: &transferia_core::SinkBatch,
+    ) -> anyhow::Result<()> {
+        crate::connectors::logbroker::validate_producer_id(&batch.table)?;
+        transferia_core::delivery::validate_batch_against_discovery(discovery, batch)?;
+        Ok(())
+    }
+
     fn validate_discovery(&self, discovery: &DeliveryDiscovery) -> anyhow::Result<()> {
         anyhow::ensure!(
-            !discovery.datasets.is_empty(),
+            !discovery.datasets.is_empty()
+                || discovery.schema_origin == transferia_core::SchemaOrigin::ParserRuntime,
             "PQv1 sink requires at least one dataset"
         );
         for dataset in &discovery.datasets {
+            crate::connectors::logbroker::validate_producer_id(&dataset.name)?;
             validate_stored_projection(discovery, dataset)?;
             anyhow::ensure!(
                 !dataset.stored_schema.columns.is_empty(),
@@ -97,13 +109,6 @@ impl SinkLimits for PqV1SinkConfig {
             })?;
         }
         self.serializer.validate_discovery(discovery)?;
-        let message_group_id = &discovery
-            .dataset(transferia_core::delivery::DatasetRole::Main)?
-            .name;
-        anyhow::ensure!(
-            message_group_id.len() <= 2048,
-            "PQv1 message group derived from table name must contain at most 2048 UTF-8 bytes"
-        );
         Ok(())
     }
 }
@@ -127,22 +132,23 @@ impl SinkConnector for PqV1SinkConnector {
     fn prepare(&self, _request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async { Ok(()) })
     }
+    fn prepare_runtime(
+        &self,
+        request: SinkPrepare,
+        _previous: Option<transferia_core::DiscoveredDataset>,
+    ) -> BoxFuture<'_, anyhow::Result<()>> {
+        // This destination has no fixed table schema to ALTER. Serialization
+        // and value-dependent constraints are checked again before writing.
+        self.prepare(request)
+    }
+
     fn build_sink(
         &self,
         context: SinkBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
         Box::pin(async move {
-            let message_group_id = match &self.config.message_group_id {
-                Some(configured) => configured.clone(),
-                None => context
-                    .discovery
-                    .dataset(transferia_core::delivery::DatasetRole::Main)?
-                    .name
-                    .to_string(),
-            };
             Ok(Box::new(PqV1Sink::new(
                 Arc::clone(&self.config),
-                Arc::from(message_group_id),
                 Arc::clone(&self.token),
                 context,
             )) as Box<dyn Sink>)

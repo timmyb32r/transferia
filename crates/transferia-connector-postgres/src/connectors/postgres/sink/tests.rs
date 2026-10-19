@@ -142,6 +142,8 @@ fn clickbench_types_pass_postgres_startup_and_runtime_validation() -> anyhow::Re
     let runtime = SinkBatch {
         table: Arc::from("hits"),
         is_dlq: false,
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
         byte_size,
         memory: PipelineMemory::new(1).reserve_transform(1),

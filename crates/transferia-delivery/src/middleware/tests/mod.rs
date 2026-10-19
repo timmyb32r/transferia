@@ -154,7 +154,7 @@ fn empty_batch(namespace: Option<&str>, name: &str) -> transferia_core::TableDat
             arrow::datatypes::Schema::empty(),
         )),
         transferia_core::SystemColumns::default(),
-    );
+    ).expect("valid table batch");
     data.namespace = namespace.map(std::sync::Arc::from);
     data
 }

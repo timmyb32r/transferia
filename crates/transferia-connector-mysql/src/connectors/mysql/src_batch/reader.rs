@@ -678,7 +678,7 @@ impl Source for MySqlSource {
                             ]
                         },
                     ),
-                )
+                )?
                 .with_namespace(Arc::from(self.table.database.as_str()))],
                 source_rows,
                 commit_marker: Some(CommitMarker::new(self.offset)),
@@ -871,7 +871,7 @@ pub(super) fn build_output_schema(
                 .enumerate()
                 .map(|(index, current)| {
                     let mut metadata = HashMap::new();
-                    if let Some(extension_name) = current.arrow_extension_name {
+                    if let Some(extension_name) = &current.arrow_extension_name {
                         metadata.insert(
                             META_ARROW_EXTENSION_NAME.to_owned(),
                             extension_name.to_owned(),
@@ -966,7 +966,7 @@ fn metadata_allocation_bound(column: &SchemaColumn) -> anyhow::Result<(usize, us
             string_capacity_bound(decimal_digits(max_length))?,
         )?;
     }
-    if let Some(extension_name) = column.arrow_extension_name {
+    if let Some(extension_name) = &column.arrow_extension_name {
         add(
             META_ARROW_EXTENSION_NAME,
             string_capacity_bound(extension_name.len())?,
@@ -1092,7 +1092,7 @@ pub(super) fn output_schema_allocation_bound(
                 existing_string_capacity_bound(&discovered.name)?,
                 "Arrow old-value metadata",
             )?;
-            if let Some(extension_name) = discovered.arrow_extension_name {
+            if let Some(extension_name) = &discovered.arrow_extension_name {
                 metadata_entries = metadata_entries
                     .checked_add(1)
                     .ok_or_else(|| anyhow::anyhow!("MySQL old-value metadata count overflow"))?;

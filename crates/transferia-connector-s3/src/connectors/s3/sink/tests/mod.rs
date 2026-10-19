@@ -516,6 +516,8 @@ async fn delivery(
         outputs: vec![SinkBatch {
             table: Arc::from(if is_dlq { "events_dlq" } else { "events" }),
             is_dlq,
+            schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+            namespace: None,
             batch,
             byte_size: bytes,
             memory: memory.reserve(bytes).await,
@@ -597,6 +599,8 @@ fn multi_message_delivery(memory: &PipelineMemory, id: u64, offsets: &[i64]) -> 
         outputs: vec![SinkBatch {
             table: Arc::from("events"),
             is_dlq: false,
+            schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+            namespace: None,
             batch,
             byte_size: bytes,
             memory: memory.reserve_transform(bytes),

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -30,7 +30,6 @@ pub const MAX_GRPC_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
 
 pub(super) struct PqV1Sink {
     config: Arc<PqV1SinkConfig>,
-    message_group_id: Arc<str>,
     token: Arc<str>,
     counters: Arc<SinkCounters>,
     delivery_name: Arc<str>,
@@ -51,14 +50,12 @@ impl Stream for RequestStream {
 impl PqV1Sink {
     pub(super) fn new(
         config: Arc<PqV1SinkConfig>,
-        message_group_id: Arc<str>,
         token: Arc<str>,
         context: SinkBuildContext,
     ) -> Self {
         let limits: Arc<dyn SinkLimits> = Arc::clone(&config) as Arc<dyn SinkLimits>;
         Self {
             config,
-            message_group_id,
             token,
             counters: context.counters,
             delivery_name: context.delivery_name,
@@ -67,11 +64,63 @@ impl PqV1Sink {
         }
     }
 
-    async fn run_session(&self, mut io: SinkIo) -> anyhow::Result<()> {
+    async fn run_actor(&self, mut io: SinkIo) -> anyhow::Result<()> {
+        let mut sessions = HashMap::<String, PqV1WriteSession>::new();
+        let mut serializer = DeliverySerializer::new(
+            &self.config.serializer,
+            QueueMessageMode::ValuesOnly,
+            &self.delivery_name,
+        )?;
+
+        while let Some(delivery) = io.deliveries.recv().await {
+            let started = std::time::Instant::now();
+            let serialized = serialize_delivery(
+                &mut serializer,
+                &delivery,
+                &self.discovery,
+                self.limits.as_ref(),
+            )
+            .await
+            .map_err(|error| anyhow::Error::from(DataPlaneFailure::fatal(error)))?;
+            let payload_bytes = serialized.payload_bytes()?;
+            let rows = serialized.source_rows;
+            for batch in serialized.batches {
+                let identity = batch.table.to_string();
+                if !sessions.contains_key(&identity) {
+                    let session = self.connect_session(&identity, &io.cancellation).await?;
+                    sessions.insert(identity.clone(), session);
+                }
+                let payloads = batch.messages.into_iter().map(|message| {
+                    anyhow::ensure!(message.key.is_none(), "PQv1 value-only serializer unexpectedly produced a key");
+                    message.value.ok_or_else(|| anyhow::anyhow!("PQv1 value-only serializer produced a tombstone"))
+                }).collect::<anyhow::Result<Vec<_>>>()?;
+                sessions.get_mut(&identity)
+                    .ok_or_else(|| anyhow::anyhow!("PQv1 writer session disappeared"))?
+                    .write_payloads(payloads).await?;
+            }
+            self.counters.add_rows(rows);
+            self.counters.add_bytes(payload_bytes);
+            self.counters.add_flush();
+            self.counters
+                .add_source_messages(delivery.meta.source_messages);
+            self.counters.add_busy(started.elapsed());
+            io.events
+                .send(SinkEvent::CommittedThrough(delivery.id))
+                .await
+                .map_err(|_| anyhow::anyhow!("sink event receiver closed"))?;
+        }
+        Ok(())
+    }
+
+    async fn connect_session(
+        &self,
+        message_group_id: &str,
+        cancellation: &tokio_util::sync::CancellationToken,
+    ) -> anyhow::Result<PqV1WriteSession> {
         let host = parse_endpoint(&self.config.endpoint())?;
         let uri = http_uri(&host)?;
         let transport =
-            connect_http2_prior_knowledge(&uri, self.config.network_timeout(), &io.cancellation)
+            connect_http2_prior_knowledge(&uri, self.config.network_timeout(), cancellation)
                 .await?;
         let mut grpc = tonic::client::Grpc::with_origin(transport, uri)
             .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE)
@@ -102,7 +151,7 @@ impl PqV1Sink {
         .await
         .map_err(|_| anyhow::anyhow!("PQv1 writer connect timed out"))??;
         request_tx
-            .send(init_message(&self.config, &self.message_group_id))
+            .send(init_message(&self.config, message_group_id))
             .await
             .map_err(|_| anyhow::anyhow!("PQv1 writer request stream closed before init"))?;
         let mut responses = response;
@@ -126,101 +175,77 @@ impl PqV1Sink {
             "PQv1 writer supports only block format 0, server selected {}",
             init.block_format_version
         );
-        let mut next_sequence = init
+        let next_sequence = init
             .last_sequence_number
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("PQv1 sequence overflow"))?;
-        let mut serializer = DeliverySerializer::new(
-            &self.config.serializer,
-            QueueMessageMode::ValuesOnly,
-            &self.delivery_name,
-        )?;
+        Ok(PqV1WriteSession {
+            request_tx,
+            responses,
+            next_sequence,
+            network_timeout: self.config.network_timeout(),
+        })
+    }
+}
 
-        while let Some(delivery) = io.deliveries.recv().await {
-            let started = std::time::Instant::now();
-            let serialized = serialize_delivery(
-                &mut serializer,
-                &delivery,
-                &self.discovery,
-                self.limits.as_ref(),
-            )
-            .await
-            .map_err(|error| anyhow::Error::from(DataPlaneFailure::fatal(error)))?;
-            let payload_bytes = serialized.payload_bytes()?;
-            let rows = serialized.source_rows;
-            let payloads = serialized
-                .batches
-                .into_iter()
-                .flat_map(|batch| batch.messages)
-                .map(|message| {
-                    anyhow::ensure!(
-                        message.key.is_none(),
-                        "PQv1 value-only serializer unexpectedly produced a key"
-                    );
-                    message.value.ok_or_else(|| {
-                        anyhow::anyhow!("PQv1 value-only serializer produced a tombstone")
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
-            if payloads.is_empty() {
-                io.events
-                    .send(SinkEvent::CommittedThrough(delivery.id))
-                    .await
-                    .map_err(|_| anyhow::anyhow!("sink event receiver closed"))?;
-                continue;
-            }
-            let mut sequence_numbers = Vec::with_capacity(payloads.len());
-            for _ in &payloads {
-                sequence_numbers.push(next_sequence);
-                next_sequence = next_sequence
-                    .checked_add(1)
-                    .ok_or_else(|| anyhow::anyhow!("PQv1 sequence overflow"))?;
-            }
-            for (sequence, payload) in sequence_numbers.iter().copied().zip(payloads) {
-                request_tx
-                    .send(write_message(&[sequence], vec![payload])?)
-                    .await
-                    .map_err(|_| anyhow::anyhow!("PQv1 writer request stream closed"))?;
-            }
-            let response = next_response(&mut responses, self.config.network_timeout()).await?;
+struct PqV1WriteSession {
+    request_tx: mpsc::Sender<StreamingWriteClientMessage>,
+    responses: tonic::Streaming<StreamingWriteServerMessage>,
+    next_sequence: i64,
+    network_timeout: Duration,
+}
+
+impl PqV1WriteSession {
+    async fn write_payloads(&mut self, payloads: Vec<Vec<u8>>) -> anyhow::Result<()> {
+        if payloads.is_empty() {
+            return Ok(());
+        }
+        let mut sequence_numbers = Vec::with_capacity(payloads.len());
+        for _ in &payloads {
+            sequence_numbers.push(self.next_sequence);
+            self.next_sequence = self.next_sequence
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("PQv1 sequence overflow"))?;
+        }
+        for (sequence, payload) in sequence_numbers.iter().copied().zip(payloads) {
+            self.request_tx
+                .send(write_message(&[sequence], vec![payload])?)
+                .await
+                .map_err(|_| anyhow::anyhow!("PQv1 writer request stream closed"))?;
+        }
+        let response = next_response(&mut self.responses, self.network_timeout).await?;
+        let Some(streaming_write_server_message::ServerMessage::BatchWriteResponse(ack)) =
+            response.server_message
+        else {
+            anyhow::bail!("PQv1 writer expected BatchWriteResponse");
+        };
+        let mut acknowledged = ack.sequence_numbers;
+        while acknowledged.len() < sequence_numbers.len() {
+            let response = next_response(&mut self.responses, self.network_timeout).await?;
             let Some(streaming_write_server_message::ServerMessage::BatchWriteResponse(ack)) =
                 response.server_message
             else {
                 anyhow::bail!("PQv1 writer expected BatchWriteResponse");
             };
-            let mut acknowledged = ack.sequence_numbers;
-            while acknowledged.len() < sequence_numbers.len() {
-                let response = next_response(&mut responses, self.config.network_timeout()).await?;
-                let Some(streaming_write_server_message::ServerMessage::BatchWriteResponse(ack)) =
-                    response.server_message
-                else {
-                    anyhow::bail!("PQv1 writer expected BatchWriteResponse");
-                };
-                acknowledged.extend(ack.sequence_numbers);
-            }
-            validate_ack(&acknowledged, &sequence_numbers)?;
-            self.counters.add_rows(rows);
-            self.counters.add_bytes(payload_bytes);
-            self.counters.add_flush();
-            self.counters
-                .add_source_messages(delivery.meta.source_messages);
-            self.counters.add_busy(started.elapsed());
-            io.events
-                .send(SinkEvent::CommittedThrough(delivery.id))
-                .await
-                .map_err(|_| anyhow::anyhow!("sink event receiver closed"))?;
+            acknowledged.extend(ack.sequence_numbers);
         }
+        validate_ack(&acknowledged, &sequence_numbers)?;
         Ok(())
     }
 }
 
 impl Sink for PqV1Sink {
-    fn run(
-        self: Box<Self>,
+    fn update_discovery(&mut self, discovery: std::sync::Arc<transferia_core::DeliveryDiscovery>) -> transferia_core::failure::DataPlaneResult<()> {
+        self.discovery = discovery;
+        Ok(())
+    }
+
+    fn run_session(
+        &mut self,
         io: SinkIo,
-    ) -> BoxFuture<'static, transferia_core::failure::DataPlaneResult<()>> {
+    ) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
-            self.run_session(io)
+            self.run_actor(io)
                 .await
                 .map_err(DataPlaneFailure::retryable_or_passthrough)
         })

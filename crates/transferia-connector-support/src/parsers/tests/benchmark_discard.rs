@@ -10,10 +10,10 @@ fn benchmark_discard_parser_drops_all_rows() -> anyhow::Result<()> {
     ];
     let mut session = Arc::new(parser).create_session(1024);
     let (valid, dlq) = session.parse_into(messages)?;
-    assert_eq!(valid.batch.num_rows(), 0);
-    assert!(!valid.is_dlq);
+    assert_eq!(valid[0].batch.num_rows(), 0);
+    assert!(!valid[0].is_dlq);
     assert!(dlq.is_none());
-    assert_eq!(valid.table.as_ref(), "logs");
-    assert!(valid.system_columns.is_empty());
+    assert_eq!(valid[0].table.as_ref(), "logs");
+    assert!(valid[0].system_columns.is_empty());
     Ok(())
 }

@@ -43,6 +43,16 @@ impl SinkConnector for DiscardSinkConnector {
         Box::pin(async { Ok(()) })
     }
 
+    fn prepare_runtime(
+        &self,
+        request: SinkPrepare,
+        _previous: Option<transferia_core::DiscoveredDataset>,
+    ) -> BoxFuture<'_, anyhow::Result<()>> {
+        // This destination has no fixed table schema to ALTER. Serialization
+        // and value-dependent constraints are checked again before writing.
+        self.prepare(request)
+    }
+
     fn build_sink(
         &self,
         context: SinkBuildContext,

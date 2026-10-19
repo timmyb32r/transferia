@@ -92,7 +92,7 @@ impl Source for DataGeneratorSource {
                     false,
                     batch,
                     SystemColumns::default(),
-                )],
+                )?],
                 source_rows: rows,
                 commit_marker: Some(CommitMarker::new(self.next_row)),
                 memory: vec![reservation],

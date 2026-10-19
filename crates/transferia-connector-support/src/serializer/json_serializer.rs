@@ -55,7 +55,7 @@ pub struct JsonBatchEncoder {
 
 #[derive(Clone, Copy)]
 enum NonFiniteFloatEncoding {
-    Null,
+    Reject,
     ProtobufJsonString,
 }
 
@@ -94,7 +94,7 @@ impl JsonBatchEncoder {
         batch: &RecordBatch,
         projection: impl IntoIterator<Item = JsonColumnProjection>,
     ) -> anyhow::Result<Self> {
-        Self::projected_with_float_encoding(batch, projection, NonFiniteFloatEncoding::Null, false)
+        Self::projected_with_float_encoding(batch, projection, NonFiniteFloatEncoding::Reject, false)
     }
 
     pub(crate) fn projected_debezium(
@@ -289,7 +289,7 @@ pub(super) fn validate_mysql_debezium_column(column: &SchemaColumn) -> anyhow::R
     mysql_debezium_encoding(
         &column.name,
         &column.data_type,
-        column.arrow_extension_name,
+        column.arrow_extension_name.as_deref(),
         column.arrow_extension_metadata.as_deref(),
     )?;
     Ok(())
@@ -299,7 +299,7 @@ pub(super) fn validate_ydb_debezium_column(column: &SchemaColumn) -> anyhow::Res
     ydb_debezium_encoding(
         &column.name,
         &column.data_type,
-        column.arrow_extension_name,
+        column.arrow_extension_name.as_deref(),
         column.arrow_extension_metadata.as_deref(),
     )?;
     Ok(())
@@ -1131,10 +1131,10 @@ impl ColumnWriter {
             Self::UInt32(a) => write_uint(buf, a.value(row)),
             Self::UInt64(a) => write_uint(buf, a.value(row)),
             Self::Float32(a) => {
-                write_float(buf, a.value(row), non_finite_floats);
+                write_float(buf, a.value(row), non_finite_floats)?;
             }
             Self::Float64(a) => {
-                write_float(buf, a.value(row), non_finite_floats);
+                write_float(buf, a.value(row), non_finite_floats)?;
             }
             Self::Boolean(a) => {
                 buf.extend_from_slice(if a.value(row) { b"true" } else { b"false" });
@@ -1721,24 +1721,25 @@ fn write_float<T: ryu::Float>(
     buf: &mut Vec<u8>,
     value: T,
     non_finite_floats: NonFiniteFloatEncoding,
-) {
+) -> anyhow::Result<()> {
     let mut formatter = ryu::Buffer::new();
     let formatted = formatter.format(value);
     match formatted {
         "NaN" => match non_finite_floats {
-            NonFiniteFloatEncoding::Null => buf.extend_from_slice(b"null"),
+            NonFiniteFloatEncoding::Reject => anyhow::bail!("non-finite float cannot be represented losslessly in ordinary JSON"),
             NonFiniteFloatEncoding::ProtobufJsonString => buf.extend_from_slice(b"\"NaN\""),
         },
         "inf" => match non_finite_floats {
-            NonFiniteFloatEncoding::Null => buf.extend_from_slice(b"null"),
+            NonFiniteFloatEncoding::Reject => anyhow::bail!("non-finite float cannot be represented losslessly in ordinary JSON"),
             NonFiniteFloatEncoding::ProtobufJsonString => buf.extend_from_slice(b"\"Infinity\""),
         },
         "-inf" => match non_finite_floats {
-            NonFiniteFloatEncoding::Null => buf.extend_from_slice(b"null"),
+            NonFiniteFloatEncoding::Reject => anyhow::bail!("non-finite float cannot be represented losslessly in ordinary JSON"),
             NonFiniteFloatEncoding::ProtobufJsonString => buf.extend_from_slice(b"\"-Infinity\""),
         },
         finite => buf.extend_from_slice(finite.as_bytes()),
     }
+    Ok(())
 }
 
 /// Write a JSON-escaped string (with surrounding quotes) into the buffer.

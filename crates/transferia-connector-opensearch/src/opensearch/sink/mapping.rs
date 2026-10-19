@@ -90,7 +90,7 @@ pub(super) fn validate_index_description(
 }
 
 fn mapping_for(column: &SchemaColumn) -> anyhow::Result<Value> {
-    if column.arrow_extension_name == Some(ARROW_JSON_EXTENSION_NAME) {
+    if column.arrow_extension_name.as_deref() == Some(ARROW_JSON_EXTENSION_NAME) {
         anyhow::bail!(
             "OpenSearch cannot derive a strict mapping for arbitrary arrow.json column '{}'",
             column.name
@@ -99,10 +99,10 @@ fn mapping_for(column: &SchemaColumn) -> anyhow::Result<Value> {
     anyhow::ensure!(
         column.arrow_extension_name.is_none(),
         "unsupported Arrow extension {:?} for OpenSearch field '{}'",
-        column.arrow_extension_name,
+        column.arrow_extension_name.as_deref(),
         column.name
     );
-    let arrow = stable_type_tag(&column.data_type, column.arrow_extension_name)?;
+    let arrow = stable_type_tag(&column.data_type, column.arrow_extension_name.as_deref())?;
     let mut value = match &column.data_type {
         DataType::Boolean => json!({ "type": "boolean" }),
         DataType::Int8 => json!({ "type": "byte" }),

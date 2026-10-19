@@ -775,7 +775,7 @@ pub(super) fn events_to_table_data(
         false,
         batch,
         SystemColumns::new(system_columns),
-    )
+    )?
     .with_namespace(Arc::from(table.config.schema.as_str())))
 }
 

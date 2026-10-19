@@ -349,7 +349,7 @@ fn discovery_preserves_optional_decimal_and_uuid_types() -> anyhow::Result<()> {
     assert!(columns[1].nullable);
     let schema = dataset_schema(&columns);
     assert_eq!(schema.columns[1].data_type, DataType::Decimal128(22, 7));
-    assert_eq!(schema.columns[2].arrow_extension_name, Some("arrow.uuid"));
+    assert_eq!(schema.columns[2].arrow_extension_name.as_deref(), Some("arrow.uuid"));
     Ok(())
 }
 

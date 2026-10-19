@@ -114,7 +114,7 @@ pub(super) async fn sample_with_metadata(
             let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?;
             observe_external_request("mysql", "finish_read_only_table_sample", connection.query_drop("ROLLBACK")).await?;
             observe_external_request("mysql", "disconnect_table_sample", connection.disconnect()).await?;
-            Ok(TableData::new(Arc::from(table.name.as_str()), false, batch, SystemColumns::default())
+            Ok(TableData::new(Arc::from(table.name.as_str()), false, batch, SystemColumns::default())?
                 .with_namespace(Arc::from(table.namespace.as_str())))
         } => result,
     }

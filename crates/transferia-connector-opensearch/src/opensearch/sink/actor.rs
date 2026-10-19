@@ -265,7 +265,7 @@ impl OpenSearchSink {
         Ok(())
     }
 
-    async fn run_actor(mut self, mut io: SinkIo) -> DataPlaneResult<()> {
+    async fn run_actor(&mut self, mut io: SinkIo) -> DataPlaneResult<()> {
         let mut input_closed = false;
         loop {
             self.emit_committed(&io.events).await?;
@@ -408,7 +408,12 @@ async fn write_parallel(
 }
 
 impl Sink for OpenSearchSink {
-    fn run(self: Box<Self>, io: SinkIo) -> BoxFuture<'static, DataPlaneResult<()>> {
+    fn update_discovery(&mut self, discovery: std::sync::Arc<transferia_core::DeliveryDiscovery>) -> transferia_core::failure::DataPlaneResult<()> {
+        self.discovery = discovery;
+        Ok(())
+    }
+
+    fn run_session(&mut self, io: SinkIo) -> BoxFuture<'_, DataPlaneResult<()>> {
         Box::pin(self.run_actor(io))
     }
 }

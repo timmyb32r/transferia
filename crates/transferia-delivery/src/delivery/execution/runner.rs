@@ -837,6 +837,9 @@ async fn start_execution_phase(
     if partitions.is_empty() {
         return Ok(None);
     }
+    crate::delivery::preparation::validate_runtime_schema_snapshot(
+        phase.finite, &base.discovery, base.sink_connector.as_ref(),
+    )?;
     let completed_snapshot_rows = phase
         .finite
         .then(|| output_row_counts(&base.discovery))
@@ -956,7 +959,8 @@ async fn run_partition_attempt(
     if let Some(startup) = startup.take() {
         let _ignored = startup.send(());
     }
-    let admission = (dependencies.phase == SourcePhase::Stream
+    let admission = (dependencies.discovery.schema_origin == transferia_core::SchemaOrigin::ParserRuntime
+        || dependencies.phase == SourcePhase::Stream
         && dependencies
             .source_connector
             .can_add_datasets(dependencies.delivery_type))
@@ -1064,6 +1068,11 @@ async fn run_partition_task(
             &dependencies.completed_snapshot_rows,
             attempt_row_counts.as_ref(),
         ) {
+            if dependencies.discovery.schema_origin == transferia_core::SchemaOrigin::ParserRuntime {
+                let datasets = attempt.snapshot().map_err(DataPlaneFailure::fatal)?;
+                completed.admit_datasets(datasets.into_iter().map(|dataset| (dataset.table, dataset.is_dlq)))
+                    .map_err(DataPlaneFailure::fatal)?;
+            }
             completed.merge(attempt).map_err(DataPlaneFailure::fatal)?;
         }
 

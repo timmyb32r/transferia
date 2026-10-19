@@ -51,7 +51,7 @@ async fn sample_matches_the_configured_production_parser_including_envelope() ->
     .await?;
     assert_eq!(actual.len(), 1);
     assert_eq!(&*actual[0].table, "authored_name");
-    assert_eq!(actual[0].batch, expected.batch);
+    assert_eq!(actual[0].batch, expected[0].batch);
     Ok(())
 }
 

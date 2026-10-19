@@ -54,7 +54,7 @@ pub(super) fn document_shape(schema: &DatasetSchema) -> DocumentShape {
         && !schema.columns[2].nullable
         && !schema.columns[2].primary_key
         && schema.columns[2].max_length.is_none()
-        && schema.columns[2].arrow_extension_name == Some(ARROW_JSON_EXTENSION_NAME)
+        && schema.columns[2].arrow_extension_name.as_deref() == Some(ARROW_JSON_EXTENSION_NAME)
         && schema.columns[3].name == "_routing_key"
         && schema.columns[3].data_type == DataType::Utf8
         && !schema.columns[3].nullable
@@ -208,7 +208,7 @@ fn encode_flat(
             let value = arrow_json_value(
                 batch.column(position).as_ref(),
                 row,
-                column.arrow_extension_name,
+                column.arrow_extension_name.as_deref(),
             )
             .map_err(|error| {
                 anyhow::anyhow!("cannot encode OpenSearch field '{}': {error}", column.name)
@@ -265,11 +265,11 @@ fn composite_document_id(
         );
         let type_tag = stable_type_tag(
             &schema.columns[*position].data_type,
-            schema.columns[*position].arrow_extension_name,
+            schema.columns[*position].arrow_extension_name.as_deref(),
         )?;
         append_bytes(&mut encoded, type_tag.as_bytes())?;
         let value =
-            stable_scalar_bytes(array, row, schema.columns[*position].arrow_extension_name)?;
+            stable_scalar_bytes(array, row, schema.columns[*position].arrow_extension_name.as_deref())?;
         append_bytes(&mut encoded, &value)?;
     }
     Ok(URL_SAFE_NO_PAD.encode(encoded))

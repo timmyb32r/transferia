@@ -181,7 +181,7 @@ async fn typed_table_sample_rejects_oversized_native_output() -> anyhow::Result<
                     false,
                     batch,
                     transferia_core::data::system_columns::SystemColumns::default(),
-                )
+                ).expect("valid table batch")
                 .with_namespace(Arc::from(table.namespace)))
             },
         ),
@@ -235,7 +235,7 @@ async fn typed_table_sample_preserves_arrow_values_and_namespace() -> anyhow::Re
                     false,
                     batch,
                     transferia_core::data::system_columns::SystemColumns::default(),
-                )
+                ).expect("valid table batch")
                 .with_namespace(Arc::from(table.namespace)))
             },
         ),
@@ -321,7 +321,7 @@ async fn typed_table_sample_rejects_a_connector_that_exceeds_the_explicit_limit(
                     false,
                     batch,
                     transferia_core::data::system_columns::SystemColumns::default(),
-                )
+                ).expect("valid table batch")
                 .with_namespace(Arc::from(table.namespace)))
             },
         ),
@@ -360,7 +360,7 @@ async fn typed_table_sample_rejects_a_connector_returning_another_namespace() ->
                     false,
                     RecordBatch::new_empty(Arc::new(Schema::empty())),
                     transferia_core::data::system_columns::SystemColumns::default(),
-                )
+                ).expect("valid table batch")
                 .with_namespace(Arc::from("wrong")))
             },
         ),

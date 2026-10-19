@@ -1110,6 +1110,7 @@ impl JsonParser {
 
         Ok(TableData {
             namespace: None,
+            schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref())?),
             batch,
             table: Arc::clone(&self.dlq_table),
             is_dlq: true,
@@ -1645,6 +1646,7 @@ impl JsonParser {
 
         let valid_batch = TableData {
             namespace: None,
+            schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref())?),
             batch,
             table: Arc::clone(&self.table),
             is_dlq: false,
@@ -1679,7 +1681,7 @@ impl ParserSession for JsonParserSession {
     fn parse_into(
         &mut self,
         messages: Vec<Message>,
-    ) -> anyhow::Result<(TableData, Option<TableData>)> {
+    ) -> anyhow::Result<(Vec<TableData>, Option<TableData>)> {
         let estimated_working_set_bytes = self.parser.output_memory_bound(&messages);
         if estimated_working_set_bytes > self.memory_limit_bytes {
             let input_bytes = messages.iter().fold(0_usize, |total, message| {
@@ -1693,7 +1695,7 @@ impl ParserSession for JsonParserSession {
                 "single JSON parser delivery exceeds the pipeline memory budget; admitting it alone under pipeline backpressure"
             );
         }
-        self.parser.parse_into(messages, &mut self.workspace)
+        self.parser.parse_into(messages, &mut self.workspace).map(|(main, dlq)| (vec![main], dlq))
     }
 }
 

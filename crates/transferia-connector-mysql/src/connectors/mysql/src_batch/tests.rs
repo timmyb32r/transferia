@@ -757,7 +757,7 @@ fn physical_extension_identity_survives_discovery_and_snapshot_old_values() -> a
         &[table],
     )?;
     let incoming = &discovery.datasets[0].incoming_schema.columns;
-    assert_eq!(incoming[1].arrow_extension_name, Some(extension_name));
+    assert_eq!(incoming[1].arrow_extension_name.as_deref(), Some(extension_name));
     assert_eq!(
         incoming[1].arrow_extension_metadata.as_deref(),
         Some(extension_metadata.as_str())

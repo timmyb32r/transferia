@@ -20,7 +20,7 @@ impl ParserSession for NativeSourceParser {
     fn parse_into(
         &mut self,
         _messages: Vec<Message>,
-    ) -> anyhow::Result<(TableData, Option<TableData>)> {
+    ) -> anyhow::Result<(Vec<TableData>, Option<TableData>)> {
         anyhow::bail!("native typed source produced a raw message batch")
     }
 }

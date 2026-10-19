@@ -293,7 +293,7 @@ async fn source_batch(
             false,
             batch,
             SystemColumns::default(),
-        )],
+        )?],
         source_rows: rows,
         commit_marker: None,
         memory: vec![lease],

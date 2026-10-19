@@ -40,7 +40,7 @@ use transferia::delivery::execution::run_partition_pipeline;
 use transferia::metrics::{MetricsRegistry, ParseCounters, SinkCounters};
 use transferia::registry::{
     SinkBuildContext, SinkConnector as _, SinkPrepare, SourceBuildContext, SourceConnector as _,
-    SourceDiscoveryContext, SourceExecutionContext,
+    SourceDiscoveryContext,
 };
 
 const POSTGRES_IMAGE: &str = "postgres";
@@ -164,6 +164,23 @@ async fn run_one_delivery(
     Ok(())
 }
 
+async fn run_live_sink_session(
+    sink: &mut dyn transferia::core::Sink,
+    memory: PipelineMemory,
+    delivery: Delivery,
+) -> anyhow::Result<()> {
+    let id = delivery.id;
+    let (sender, receiver) = mpsc::channel(1);
+    let (events, mut committed) = mpsc::channel(1);
+    sender.send(delivery).await?;
+    drop(sender);
+    tokio::time::timeout(Duration::from_secs(30), sink.run_session(SinkIo {
+        deliveries: receiver, events, memory, cancellation: CancellationToken::new(),
+    })).await??;
+    assert_eq!(committed.recv().await, Some(SinkEvent::CommittedThrough(id)));
+    Ok(())
+}
+
 fn changelog_discovery(table: &str) -> DeliveryDiscovery {
     let id =
         SchemaColumn::new("id".into(), DataType::Int64, false).with_constraints(true, false, None);
@@ -258,6 +275,8 @@ async fn changelog_delivery(
         outputs: vec![SinkBatch {
             table: Arc::from("cdc_target"),
             is_dlq: false,
+            schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+            namespace: None,
             batch,
             byte_size: bytes,
             memory: memory.reserve_transform(bytes),
@@ -394,6 +413,29 @@ async fn postgres_sink_applies_changelog_atomically_and_replay_is_idempotent() -
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, i64>(0), 3);
     assert_eq!(rows[0].get::<_, String>(1), "three");
+
+    // Keep one production PostgreSQL sink alive across admission of a second
+    // table. Both sessions write through the same client and commit barrier.
+    let mut catalog = changelog_discovery("cdc_target");
+    let mut live = connector.build_sink(SinkBuildContext {
+        delivery_name: "runtime admission".into(), durable: support::durable_context(),
+        partition_id: 0, replay_identity: None, finite_source: false,
+        counters: Arc::new(SinkCounters::new()), keep_system_columns: false,
+        discovery: Arc::new(catalog.clone()),
+    }).await?;
+    run_live_sink_session(live.as_mut(), memory.clone(),
+        changelog_delivery(&memory, 5, vec!["c"], vec![100], vec![Some("first session")], 50).await?,
+    ).await?;
+    let added = changelog_discovery("second_cdc_target");
+    connector.prepare_runtime(SinkPrepare::from_discovery(&added, false, "test-transfer", None)?.unwrap(), None).await?;
+    catalog.datasets.extend(added.datasets);
+    live.update_discovery(Arc::new(catalog))?;
+    let mut second = changelog_delivery(&memory, 6, vec!["c"], vec![200], vec![Some("second session")], 51).await?;
+    second.outputs[0].table = Arc::from("second_cdc_target");
+    run_live_sink_session(live.as_mut(), memory.clone(), second).await?;
+    assert_eq!(pg.query_one("SELECT payload FROM cdc_target WHERE id = 100", &[]).await?.get::<_, String>(0), "first session");
+    assert_eq!(pg.query_one("SELECT payload FROM second_cdc_target WHERE id = 200", &[]).await?.get::<_, String>(0), "second session");
+
     Ok(())
 }
 
@@ -432,11 +474,9 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     )
     .await?;
 
+    let source_yaml = format!("host: '{pg_host}'\nport: {pg_port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\ntables:\n  type: selected\n  rules:\n    - include: public.events\n");
     let source = PostgresSourceConnector::from_config(
-        serde_yaml::from_str(&format!(
-            "host: '{pg_host}'\nport: {pg_port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\ntables:\n  type: selected\n  rules:\n    - include: public.events\n"
-        ))?,
-        Arc::new(MetricsRegistry::new()),
+        serde_yaml::from_str(&source_yaml)?, Arc::new(MetricsRegistry::new()),
     )?;
     let discovery = Arc::new(
         source
@@ -540,6 +580,11 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
         "bucket: postgres-source-e2e\nobject_layout_version: 5\npath_prefix: pg\nregion: us-east-1\nendpoint: 'http://{s3_host}:{s3_port}'\ncredentials: {{ access_key: test, secret_key: test }}\nformat: {{ type: json }}\nrotation: {{ max_rows: 100 }}\n"
     );
     let s3_sink = S3SinkConnector::from_config(serde_yaml::from_str(&s3_yaml)?)?;
+    // A snapshot connector owns one execution's shared table queue. A second
+    // independent delivery needs a fresh connector, not its drained queue.
+    let source = PostgresSourceConnector::from_config(
+        serde_yaml::from_str(&source_yaml)?, Arc::new(MetricsRegistry::new()),
+    )?;
     run_pipeline(&source, &s3_sink, Arc::clone(&discovery)).await?;
     let store = serde_yaml::from_str::<S3SinkConfig>(&s3_yaml)?.build_store()?;
     let objects = store
@@ -649,6 +694,8 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
             outputs: vec![SinkBatch {
                 table: Arc::from("copy_target"),
                 is_dlq: false,
+                schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+                namespace: None,
                 batch,
                 byte_size: bytes,
                 memory: memory.reserve_transform(bytes),
@@ -672,7 +719,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
 }
 
 #[tokio::test]
-async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> anyhow::Result<()> {
+async fn postgres_snapshot_preserves_types_and_stream_rejects_unsupported_types() -> anyhow::Result<()> {
     let postgres = GenericImage::new(POSTGRES_IMAGE, POSTGRES_TAG)
         .with_exposed_port(5432.tcp())
         .with_wait_for(WaitFor::message_on_stderr(
@@ -754,26 +801,12 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
         "#,
     )
     .await?;
-    let replay_identity: Arc<str> = Arc::from("postgres-all-types-revision-1");
-    let mut durable = support::durable_context();
-    durable.delivery_id = Arc::from("transferia_all_types");
     let replication = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 128\ntables:\n  type: selected\n  rules:\n    - include: public.all_types\nreplication:\n  plugin: {{ type: pgoutput, publication: transferia_all_types }}\n  poll_interval_ms: 10\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nunsupported_types: fail\nbatch_rows: 128\ntables:\n  type: selected\n  rules:\n    - include: public.all_types\nreplication:\n  plugin: {{ type: pgoutput, publication: transferia_all_types }}\n  poll_interval_ms: 10\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
-    replication
-        .prepare_execution(SourceExecutionContext {
-            request: DeliveryDiscoveryRequest {
-                keep_system_columns: false,
-            },
-            cancellation: CancellationToken::new(),
-            delivery_type: transferia::delivery::config::yaml::DeliveryType::Stream,
-            replay_identity: Some(Arc::clone(&replay_identity)),
-            durable: durable.clone(),
-        })
-        .await?;
     pg.batch_execute(
         r#"
         INSERT INTO all_types VALUES (
@@ -798,7 +831,7 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
 
     let source = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 128\ntables:\n  type: selected\n  rules:\n    - include: public.all_types\n"
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nunsupported_types: to_string\nbatch_rows: 128\ntables:\n  type: selected\n  rules:\n    - include: public.all_types\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -932,59 +965,12 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
     assert_eq!(text("enum_value"), "busy");
     assert_eq!(text("composite_value"), "(0.99,value)");
 
-    replication
-        .delivery_discovery(SourceDiscoveryContext {
-            request: DeliveryDiscoveryRequest {
-                keep_system_columns: false,
-            },
-            cancellation: CancellationToken::new(),
-            delivery_type: transferia::delivery::config::yaml::DeliveryType::Stream,
-        })
-        .await?;
-    let mut replication = replication
-        .build_source(SourceBuildContext {
-            partition_id: 0,
-            delivery_type: transferia::delivery::config::yaml::DeliveryType::Stream,
-            phase: transferia::registry::SourcePhase::Stream,
-            replay_identity: Some(replay_identity),
-            cancellation: CancellationToken::new(),
-            memory: PipelineMemory::new(256 * 1024 * 1024),
-            durable,
-        })
-        .await?;
-    let SourceBatch::Typed {
-        tables: replication_tables,
-        ..
-    } = tokio::time::timeout(Duration::from_secs(10), replication.read_batch()).await??
-    else {
-        anyhow::bail!("PostgreSQL all-types replication returned no typed batch");
-    };
-    let replication_batch = &replication_tables[0].batch;
-    let replication_schema = replication_batch.schema();
-    let snapshot_schema = batch.schema();
-    for column in &dataset.stored_schema.columns {
-        let name = &column.name;
-        let snapshot_field = snapshot_schema
-            .field_with_name(name)
-            .expect("snapshot field");
-        let replication_field = replication_schema
-            .field_with_name(name)
-            .expect("replication field");
-        assert_eq!(
-            snapshot_field, replication_field,
-            "Arrow field mismatch for {name}"
-        );
-        assert_eq!(
-            batch
-                .column_by_name(name)
-                .expect("snapshot column")
-                .to_data(),
-            replication_batch
-                .column_by_name(name)
-                .expect("replication column")
-                .to_data(),
-            "Arrow value mismatch for {name}"
-        );
-    }
+    let error = replication.delivery_discovery(SourceDiscoveryContext {
+        request: DeliveryDiscoveryRequest { keep_system_columns: false },
+        cancellation: CancellationToken::new(),
+        delivery_type: transferia::delivery::config::yaml::DeliveryType::Stream,
+    }).await.expect_err("streaming must reject unbounded NUMERIC rather than implicitly converting it to text");
+    assert!(error.to_string().contains("unbounded PostgreSQL NUMERIC"));
+
     Ok(())
 }

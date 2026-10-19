@@ -1,4 +1,4 @@
-use arrow::datatypes::DataType;
+use arrow::datatypes::{DataType, Schema};
 
 pub const META_PRIMARY_KEY: &str = "transferia.primary_key";
 pub const META_LOW_CARDINALITY: &str = "transferia.low_cardinality";
@@ -47,6 +47,46 @@ impl DatasetSchema {
     pub const fn new(columns: Vec<SchemaColumn>) -> Self {
         Self { columns }
     }
+
+    /// Reconstruct the logical contract carried by an Arrow schema. Native
+    /// source declarations are not encoded in Arrow and remain unspecified.
+    /// Invalid semantic metadata is rejected rather than normalized or ignored.
+    pub fn from_arrow(schema: &Schema) -> anyhow::Result<Self> {
+        let columns = schema.fields().iter().map(|field| {
+            let metadata = field.metadata();
+            let flag = |key: &str| -> anyhow::Result<bool> {
+                match metadata.get(key).map(String::as_str) {
+                    None => Ok(false),
+                    Some("true") => Ok(true),
+                    Some(_) => anyhow::bail!("column '{}' has invalid {key} metadata", field.name()),
+                }
+            };
+            let presence = |key: &str| -> anyhow::Result<ValuePresence> {
+                match metadata.get(key).map(String::as_str) {
+                    None => Ok(ValuePresence::MayBeAbsent),
+                    Some("guaranteed") => Ok(ValuePresence::Guaranteed),
+                    Some(_) => anyhow::bail!("column '{}' has invalid {key} metadata", field.name()),
+                }
+            };
+            let mut column = SchemaColumn::new(field.name().clone(), field.data_type().clone(), field.is_nullable());
+            column.primary_key = flag(META_PRIMARY_KEY)?;
+            column.low_cardinality = flag(META_LOW_CARDINALITY)?;
+            column.always_present_on_update = flag(META_ALWAYS_PRESENT_ON_UPDATE)?;
+            column.update_value_presence = presence(META_UPDATE_VALUE_PRESENCE)?;
+            column.delete_value_presence = presence(META_DELETE_VALUE_PRESENCE)?;
+            column.max_length = metadata.get(META_MAX_LENGTH).map(|value| value.parse::<usize>()).transpose()?;
+            column.arrow_extension_name = metadata.get(META_ARROW_EXTENSION_NAME).cloned();
+            column.arrow_extension_metadata = metadata.get(META_ARROW_EXTENSION_METADATA).cloned();
+            anyhow::ensure!(column.arrow_extension_metadata.is_none() || column.arrow_extension_name.is_some(),
+                "column '{}' has extension metadata without an extension name", field.name());
+            column.system_role = metadata.get(META_SYSTEM_ROLE).cloned();
+            column.old_value_of = metadata.get(META_OLD_VALUE_OF).cloned();
+            column.old_key_of = metadata.get(META_OLD_KEY_OF).cloned();
+            Ok(column)
+        }).collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(Self::new(columns))
+    }
+
 }
 
 /// Availability of a normalized source value, independent of SQL nullability.
@@ -99,7 +139,7 @@ pub struct SchemaColumn {
     pub primary_key: bool,
     pub low_cardinality: bool,
     pub max_length: Option<usize>,
-    pub arrow_extension_name: Option<&'static str>,
+    pub arrow_extension_name: Option<String>,
     /// Canonical connector-authored payload for an Arrow extension type.
     ///
     /// Arrow readers that do not understand the extension may still consume
@@ -149,18 +189,18 @@ impl SchemaColumn {
     }
 
     #[must_use]
-    pub const fn with_arrow_extension(mut self, name: &'static str) -> Self {
-        self.arrow_extension_name = Some(name);
+    pub fn with_arrow_extension(mut self, name: impl Into<String>) -> Self {
+        self.arrow_extension_name = Some(name.into());
         self
     }
 
     #[must_use]
     pub fn with_arrow_extension_metadata(
         mut self,
-        name: &'static str,
+        name: impl Into<String>,
         metadata: impl Into<String>,
     ) -> Self {
-        self.arrow_extension_name = Some(name);
+        self.arrow_extension_name = Some(name.into());
         self.arrow_extension_metadata = Some(metadata.into());
         self
     }
@@ -219,8 +259,8 @@ impl SchemaColumn {
         if let Some(max_length) = self.max_length {
             metadata.insert(META_MAX_LENGTH.into(), max_length.to_string());
         }
-        if let Some(extension_name) = self.arrow_extension_name {
-            metadata.insert(META_ARROW_EXTENSION_NAME.into(), extension_name.into());
+        if let Some(extension_name) = &self.arrow_extension_name {
+            metadata.insert(META_ARROW_EXTENSION_NAME.into(), extension_name.clone());
         }
         if let Some(extension_metadata) = &self.arrow_extension_metadata {
             metadata.insert(

@@ -589,6 +589,8 @@ async fn collector_keeps_one_accounted_sample_for_every_dataset() -> anyhow::Res
                 outputs: vec![SinkBatch {
                     table: Arc::from(table),
                     is_dlq: false,
+                    schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+                    namespace: None,
                     batch,
                     byte_size: bytes,
                     memory: reservation,
@@ -640,6 +642,8 @@ async fn sampled_delivery_sequence_preserves_batch_sizes_dataset_mix_and_dlq_fre
             batches.push(SinkBatch {
                 table: Arc::from(table),
                 is_dlq,
+                schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+                namespace: None,
                 batch,
                 byte_size: bytes,
                 memory: memory.reserve(bytes).await,
@@ -734,6 +738,8 @@ async fn oversized_first_progress_sample_is_retained_and_reported_as_truncated(
             outputs: vec![SinkBatch {
                 table: Arc::from("a"),
                 is_dlq: false,
+                schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+                namespace: None,
                 batch,
                 byte_size: bytes,
                 memory: memory.reserve(bytes).await,

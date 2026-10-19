@@ -26,7 +26,7 @@ fn input() -> anyhow::Result<TableData> {
         false,
         batch,
         SystemColumns::default(),
-    ))
+    ).expect("valid table batch"))
 }
 
 #[tokio::test]
@@ -88,7 +88,7 @@ async fn preview_hash_aggregate_uses_the_configured_execution_memory_pool() -> a
         vec![Arc::new(Int64Array::from_iter_values(0..10_000))],
     )?;
     let memory_limit_bytes = batch.get_array_memory_size() + 1024;
-    let input = TableData::new(Arc::from("events"), false, batch, SystemColumns::default());
+    let input = TableData::new(Arc::from("events"), false, batch, SystemColumns::default()).expect("valid table batch");
     let middleware =
         DataFusionMiddleware::new("SELECT id, COUNT(*) AS n FROM input GROUP BY id".into())?;
     let error = middleware

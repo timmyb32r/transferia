@@ -333,7 +333,7 @@ impl ClickHouseSink {
         Ok(())
     }
 
-    async fn run_actor(mut self, mut io: SinkIo) -> anyhow::Result<()> {
+    async fn run_actor(&mut self, mut io: SinkIo) -> anyhow::Result<()> {
         let mut active =
             FuturesUnordered::<AbortOnDropHandle<Result<ActiveInsert, DataPlaneFailure>>>::new();
         let mut input_closed = false;
@@ -827,10 +827,15 @@ fn clickhouse_change_batch(
 }
 
 impl Sink for ClickHouseSink {
-    fn run(
-        self: Box<Self>,
+    fn update_discovery(&mut self, discovery: std::sync::Arc<transferia_core::DeliveryDiscovery>) -> transferia_core::failure::DataPlaneResult<()> {
+        self.discovery = discovery;
+        Ok(())
+    }
+
+    fn run_session(
+        &mut self,
         io: SinkIo,
-    ) -> BoxFuture<'static, transferia_core::failure::DataPlaneResult<()>> {
+    ) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
             self.run_actor(io)
                 .await

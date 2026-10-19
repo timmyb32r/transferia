@@ -347,7 +347,7 @@ impl PostgresSource {
         let system_kinds = snapshot_system_columns(self.changelog_snapshot);
         let system_start = batch.schema().fields().len() - system_kinds.len();
         Ok(SourceBatch::Typed {
-            tables: vec![TableData::new(Arc::from(self.table.name.as_str()), false, batch, routing_system_columns(system_start, system_kinds))
+            tables: vec![TableData::new(Arc::from(self.table.name.as_str()), false, batch, routing_system_columns(system_start, system_kinds))?
                 .with_namespace(Arc::from(self.table.schema.as_str()))],
             source_rows, commit_marker: Some(marker), memory: Vec::new(),
         })

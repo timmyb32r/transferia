@@ -247,6 +247,8 @@ fn delivery(memory: &PipelineMemory, id: u64, tables: &[&str]) -> Delivery {
         outputs.push(SinkBatch {
             table: Arc::from(*table),
             is_dlq: table.ends_with("_dlq"),
+            schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+            namespace: None,
             batch,
             byte_size: bytes,
             memory: memory.reserve_transform(bytes),
@@ -433,6 +435,8 @@ async fn changelog_sink_batch(
         table: Arc::from("events"),
         is_dlq: false,
         byte_size: batch.get_array_memory_size(),
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
         memory: PipelineMemory::new(1_000_000).reserve(1).await,
         system_columns: SystemColumns::new(vec![
@@ -483,6 +487,8 @@ async fn partial_update_sink_batch(
         table: Arc::from("events"),
         is_dlq: false,
         byte_size: batch.get_array_memory_size(),
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
         memory: PipelineMemory::new(1_000_000).reserve(1).await,
         system_columns: SystemColumns::new(vec![
@@ -541,6 +547,8 @@ async fn full_identity_update_sink_batch() -> anyhow::Result<(DeliveryDiscovery,
         table: Arc::from("events"),
         is_dlq: false,
         byte_size: batch.get_array_memory_size(),
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
         memory: PipelineMemory::new(1_000_000).reserve(1).await,
         system_columns: SystemColumns::new(vec![
@@ -597,6 +605,8 @@ async fn default_identity_key_change_sink_batch() -> anyhow::Result<(DeliveryDis
         table: Arc::from("events"),
         is_dlq: false,
         byte_size: batch.get_array_memory_size(),
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
         memory: PipelineMemory::new(1_000_000).reserve(1).await,
         system_columns: SystemColumns::new(vec![
@@ -1340,6 +1350,7 @@ async fn naive_timestamp_never_reaches_insert_or_commit() {
         Arc::new(Schema::new(vec![Field::new("value", DataType::Timestamp(TimeUnit::Second, None), false)])),
         vec![Arc::new(TimestampSecondArray::from(vec![31_536_000]))],
     ).unwrap();
+    incoming.outputs[0].schema = Arc::new(transferia_core::DatasetSchema::from_arrow(incoming.outputs[0].batch.schema().as_ref()).expect("valid incoming schema"));
     tx.send(incoming).await.unwrap();
     let error = task.await.unwrap().unwrap_err();
     assert!(!error.is_retryable());

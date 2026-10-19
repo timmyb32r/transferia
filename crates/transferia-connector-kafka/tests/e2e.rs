@@ -214,6 +214,8 @@ async fn send_delivery(sink: Box<dyn transferia_core::sink::Sink>) -> anyhow::Re
             outputs: vec![SinkBatch {
                 table: Arc::from("events"),
                 is_dlq: false,
+                schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+                namespace: None,
                 batch,
                 byte_size: bytes,
                 memory: memory.reserve_transform(bytes),

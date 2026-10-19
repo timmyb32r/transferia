@@ -65,7 +65,7 @@ fn decimal_and_json_types_have_explicit_arrow_contracts() -> anyhow::Result<()> 
     assert_eq!(schema.columns[0].data_type, DataType::Decimal128(12, 4));
     assert_eq!(schema.columns[1].data_type, DataType::Utf8);
     assert_eq!(
-        schema.columns[1].arrow_extension_name,
+        schema.columns[1].arrow_extension_name.as_deref(),
         Some(ARROW_JSON_EXTENSION_NAME)
     );
     Ok(())
@@ -121,7 +121,7 @@ fn defaults_unknown_fields_to_the_additional_properties_column() -> anyhow::Resu
     );
     let dataset = config.to_dataset_schema()?;
     assert_eq!(
-        dataset.columns[1].arrow_extension_name,
+        dataset.columns[1].arrow_extension_name.as_deref(),
         Some(ARROW_JSON_EXTENSION_NAME)
     );
     Ok(())

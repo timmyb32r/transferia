@@ -338,6 +338,8 @@ async fn apply_overlap_tables(
             table: table.table,
             is_dlq: false,
             byte_size: bytes,
+            schema: std::sync::Arc::clone(&table.schema),
+            namespace: table.namespace.clone(),
             batch: table.batch,
             system_columns: table.system_columns,
             memory: PipelineMemory::new(bytes.max(1)).reserve(bytes).await,
@@ -1340,6 +1342,8 @@ fn sink_batch(table: &TableData) -> SinkBatch {
     SinkBatch {
         table: Arc::clone(&table.table),
         is_dlq: table.is_dlq,
+        schema: std::sync::Arc::clone(&table.schema),
+        namespace: table.namespace.clone(),
         batch: table.batch.clone(),
         byte_size,
         memory: memory.reserve_transform(byte_size),

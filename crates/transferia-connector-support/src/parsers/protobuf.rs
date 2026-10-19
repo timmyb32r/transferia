@@ -441,14 +441,14 @@ impl ParserSession for ProtobufParserSession {
     fn parse_into(
         &mut self,
         messages: Vec<Message>,
-    ) -> anyhow::Result<(TableData, Option<TableData>)> {
+    ) -> anyhow::Result<(Vec<TableData>, Option<TableData>)> {
         let memory_bound = self.output_memory_bound(&messages);
         anyhow::ensure!(
             memory_bound <= self.memory_limit_bytes,
             "protobuf output memory bound {memory_bound} exceeds pipeline memory limit {}",
             self.memory_limit_bytes
         );
-        parse_messages(&self.parser, &messages)
+        parse_messages(&self.parser, &messages).map(|(main, dlq)| (vec![main], dlq))
     }
 }
 
@@ -531,7 +531,7 @@ fn parse_messages(
         false,
         RecordBatch::try_new(Arc::clone(&parser.arrow_schema), arrays)?,
         parser.system_columns.clone(),
-    );
+    )?;
     let dlq = (!rejected.is_empty())
         .then(|| build_dlq(parser, messages, &rejected))
         .transpose()?;
@@ -939,7 +939,7 @@ fn build_dlq(
         false,
         RecordBatch::try_new(Arc::clone(&parser.dlq_schema), arrays)?,
         parser.dlq_system_columns.clone(),
-    ))
+    )?)
 }
 
 fn main_arrow_schema(

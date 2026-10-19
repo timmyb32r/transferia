@@ -46,6 +46,7 @@ async fn logical_versions_are_independent_of_transport_offsets_and_validated() {
     let mut arrays = batch.batch.columns().to_vec();
     arrays.push(Arc::new(arrow::array::UInt64Array::from(vec![0, 1])));
     batch.batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays).unwrap();
+    batch.schema = Arc::new(crate::DatasetSchema::from_arrow(batch.batch.schema().as_ref()).unwrap());
     validate_stored_projection(&discovery, &discovery.datasets[0]).unwrap();
     let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(&discovery, &batch).unwrap()
     else {
@@ -155,6 +156,8 @@ async fn batch(operations: Vec<Option<&str>>, ids: Vec<Option<i64>>) -> SinkBatc
         table: Arc::from("events"),
         is_dlq: false,
         byte_size: batch.get_array_memory_size(),
+        schema: std::sync::Arc::new(crate::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
         memory: PipelineMemory::new(1024 * 1024).reserve(1).await,
         system_columns: SystemColumns::new(vec![
@@ -255,6 +258,8 @@ async fn append_only_projection_rejects_null_before_the_sink_side_effect() {
         table: Arc::from("events"),
         is_dlq: false,
         byte_size: batch.get_array_memory_size(),
+        schema: std::sync::Arc::new(crate::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
         memory: PipelineMemory::new(1024).reserve(1).await,
         system_columns: SystemColumns::new(Vec::new()),
@@ -297,6 +302,7 @@ async fn batch_with_changed_masks(
         false,
     )));
     batch.batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays).unwrap();
+    batch.schema = Arc::new(crate::DatasetSchema::from_arrow(batch.batch.schema().as_ref()).unwrap());
     let mut systems = batch.system_columns.iter().cloned().collect::<Vec<_>>();
     systems.push(SystemColumn {
         kind: SystemColumnKind::ChangedColumns,
@@ -351,6 +357,7 @@ async fn full_old_value_batch(
             .collect::<Vec<_>>(),
     )));
     batch.batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays).unwrap();
+    batch.schema = Arc::new(crate::DatasetSchema::from_arrow(batch.batch.schema().as_ref()).unwrap());
     (discovery, batch)
 }
 
@@ -389,6 +396,7 @@ async fn old_key_batch(
     arrays.push(Arc::new(Int64Array::from(old_ids)));
     arrays[3] = Arc::new(Int64Array::from_iter_values(vec![42; current_ids.len()]));
     batch.batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays).unwrap();
+    batch.schema = Arc::new(crate::DatasetSchema::from_arrow(batch.batch.schema().as_ref()).unwrap());
     (discovery, batch)
 }
 

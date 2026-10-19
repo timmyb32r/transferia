@@ -18,7 +18,7 @@ fn regex(pattern: &str, replacement: &str) -> anyhow::Result<RenameTableMiddlewa
 fn dataset(name: &str) -> DiscoveredDataset {
     let mut column = SchemaColumn::new("value".into(), DataType::Utf8, false);
     column.primary_key = true;
-    column.arrow_extension_name = Some("test.extension");
+    column.arrow_extension_name = Some("test.extension".to_owned());
     column.arrow_extension_metadata = Some("exact metadata".into());
     let schema = DatasetSchema::new(vec![column]);
     DiscoveredDataset {
@@ -40,7 +40,7 @@ fn data(name: &str) -> anyhow::Result<TableData> {
         vec![Arc::new(StringArray::from(vec!["original"]))],
     )?;
     Ok(
-        TableData::new(Arc::from(name), false, batch, SystemColumns::default())
+        TableData::new(Arc::from(name), false, batch, SystemColumns::default()).expect("valid table batch")
             .with_namespace(Arc::from("schema.with.dot")),
     )
 }
@@ -78,7 +78,7 @@ async fn exact_and_regex_project_the_same_identity_at_catalog_startup_and_runtim
             Some("exact metadata")
         );
         assert_eq!(
-            projected.incoming_schema.columns[0].arrow_extension_name,
+            projected.incoming_schema.columns[0].arrow_extension_name.as_deref(),
             Some("test.extension")
         );
     }

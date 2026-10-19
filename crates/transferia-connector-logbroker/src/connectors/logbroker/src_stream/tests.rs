@@ -367,7 +367,7 @@ fn from_topic_name_discovers_and_routes_every_configured_topic() -> anyhow::Resu
         },
     };
     let (main, dlq) = session.parse_into(vec![message])?;
-    assert_eq!(main.table.as_ref(), "account/second");
+    assert_eq!(main[0].table.as_ref(), "account/second");
     assert!(dlq.is_none());
     Ok(())
 }

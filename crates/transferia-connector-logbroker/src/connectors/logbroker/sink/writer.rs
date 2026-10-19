@@ -37,7 +37,6 @@ const WRITE_PAYLOAD_BUDGET: usize = MAX_GRPC_MESSAGE_SIZE / 2;
 
 pub(super) struct YdbTopicSink {
     config: Arc<LogbrokerSinkConfig>,
-    producer_id: Arc<str>,
     token: Arc<str>,
     counters: Arc<SinkCounters>,
     delivery_name: Arc<str>,
@@ -68,15 +67,8 @@ impl YdbTopicSink {
         context: SinkBuildContext,
     ) -> anyhow::Result<Self> {
         let limits: Arc<dyn SinkLimits> = Arc::clone(&config) as Arc<dyn SinkLimits>;
-        let producer_id = Arc::clone(
-            &context
-                .discovery
-                .dataset(transferia_core::delivery::DatasetRole::Main)?
-                .name,
-        );
         Ok(Self {
             config,
-            producer_id,
             token,
             counters: context.counters,
             delivery_name: context.delivery_name,
@@ -85,8 +77,8 @@ impl YdbTopicSink {
         })
     }
 
-    async fn run_session(&self, mut io: SinkIo) -> anyhow::Result<()> {
-        let mut sessions = HashMap::<String, YdbWriteSession>::new();
+    async fn run_actor(&self, mut io: SinkIo) -> anyhow::Result<()> {
+        let mut sessions = HashMap::<(String, String), YdbWriteSession>::new();
         let mut serializer = DeliverySerializer::new(
             &self.config.serializer,
             QueueMessageMode::ValuesOnly,
@@ -106,12 +98,13 @@ impl YdbTopicSink {
             let payload_bytes = serialized.payload_bytes()?;
             for batch in serialized.batches {
                 let topic = self.config.topic.topic_for_table(&batch.table);
-                if !sessions.contains_key(&topic) {
-                    let session = self.connect_session(&topic, &io.cancellation).await?;
-                    sessions.insert(topic.clone(), session);
+                let identity = (topic.clone(), batch.table.to_string());
+                if !sessions.contains_key(&identity) {
+                    let session = self.connect_session(&topic, &batch.table, &io.cancellation).await?;
+                    sessions.insert(identity.clone(), session);
                 }
                 let session = sessions
-                    .get_mut(&topic)
+                    .get_mut(&identity)
                     .ok_or_else(|| anyhow::anyhow!("YDB Topic writer session disappeared"))?;
                 let batch_payloads = batch
                     .messages
@@ -145,6 +138,7 @@ impl YdbTopicSink {
     async fn connect_session(
         &self,
         topic: &str,
+        producer_id: &str,
         cancellation: &tokio_util::sync::CancellationToken,
     ) -> anyhow::Result<YdbWriteSession> {
         let uri: http::Uri =
@@ -166,7 +160,7 @@ impl YdbTopicSink {
             .send(init_message(
                 topic,
                 self.config.partition_id,
-                &self.producer_id,
+                producer_id,
             ))
             .await
             .map_err(|_| anyhow::anyhow!("YDB Topic writer request stream closed before init"))?;
@@ -259,12 +253,17 @@ impl YdbWriteSession {
 }
 
 impl Sink for YdbTopicSink {
-    fn run(
-        self: Box<Self>,
+    fn update_discovery(&mut self, discovery: std::sync::Arc<transferia_core::DeliveryDiscovery>) -> transferia_core::failure::DataPlaneResult<()> {
+        self.discovery = discovery;
+        Ok(())
+    }
+
+    fn run_session(
+        &mut self,
         io: SinkIo,
-    ) -> BoxFuture<'static, transferia_core::failure::DataPlaneResult<()>> {
+    ) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
-            self.run_session(io)
+            self.run_actor(io)
                 .await
                 .map_err(DataPlaneFailure::retryable_or_passthrough)
         })

@@ -137,7 +137,7 @@ pub(super) async fn sample_with_metadata(
                     batch
                 }
             };
-            Ok(TableData::new(Arc::from(table.name.as_str()), false, batch, discovered.physical_system_columns)
+            Ok(TableData::new(Arc::from(table.name.as_str()), false, batch, discovered.physical_system_columns)?
                 .with_namespace(Arc::from(table.namespace.as_str())))
         } => result,
     }

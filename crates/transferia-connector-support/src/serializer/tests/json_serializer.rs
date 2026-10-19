@@ -83,28 +83,12 @@ fn serialize_with_nulls_default() -> anyhow::Result<()> {
 }
 
 #[test]
-fn non_finite_floats_are_valid_json_nulls() -> anyhow::Result<()> {
-    let schema = Arc::new(Schema::new(vec![Field::new(
-        "value",
-        DataType::Float64,
-        false,
-    )]));
-    let batch = RecordBatch::try_new(
-        schema,
-        vec![Arc::new(Float64Array::from(vec![
-            f64::NAN,
-            f64::INFINITY,
-            f64::NEG_INFINITY,
-            1.5,
-        ]))],
-    )?;
-    let output = String::from_utf8(encode_batch(&batch)?)?;
-    let rows = output
-        .lines()
-        .map(serde_json::from_str::<serde_json::Value>)
-        .collect::<Result<Vec<_>, _>>()?;
-    anyhow::ensure!(rows[..3].iter().all(|row| row["value"].is_null()));
-    anyhow::ensure!(rows[3]["value"] == serde_json::json!(1.5));
+fn ordinary_json_rejects_non_finite_floats_instead_of_replacing_them_with_null() -> anyhow::Result<()> {
+    for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let schema = Arc::new(Schema::new(vec![Field::new("value", DataType::Float64, false)]));
+        let batch = RecordBatch::try_new(schema, vec![Arc::new(Float64Array::from(vec![value]))])?;
+        assert!(encode_batch(&batch).unwrap_err().to_string().contains("non-finite"));
+    }
     Ok(())
 }
 

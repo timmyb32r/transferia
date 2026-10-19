@@ -91,7 +91,7 @@ fn source_schema_preserves_document_identity_routing_and_exact_json() {
     assert_eq!(schema.columns[1].name, "_routing");
     assert!(schema.columns[1].nullable);
     assert_eq!(
-        schema.columns[2].arrow_extension_name,
+        schema.columns[2].arrow_extension_name.as_deref(),
         Some(ARROW_JSON_EXTENSION_NAME)
     );
     assert_eq!(schema.columns[3].name, "_routing_key");

@@ -89,7 +89,7 @@ fn snapshot_uses_cdc_schema_zero_version_and_no_fabricated_timestamp() {
                 })
                 .collect::<Vec<_>>(),
         ),
-    );
+    ).expect("valid table batch");
     let result = materialize_snapshot(&table, "/db", input).unwrap();
     assert_eq!(result.batch.schema(), build_table_schema(&table).unwrap());
     let version = result

@@ -56,7 +56,7 @@ pub(super) fn source_column(
 }
 
 fn metadata(column: &SchemaColumn) -> Option<SourceTypeMetadata> {
-    (column.arrow_extension_name == Some(SOURCE_TYPE_EXTENSION)).then_some(())?;
+    (column.arrow_extension_name.as_deref() == Some(SOURCE_TYPE_EXTENSION)).then_some(())?;
     serde_json::from_str(column.arrow_extension_metadata.as_deref()?).ok()
 }
 

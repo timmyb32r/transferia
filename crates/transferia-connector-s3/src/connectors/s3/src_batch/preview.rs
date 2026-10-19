@@ -88,7 +88,7 @@ pub(super) async fn sample_data(
                 false,
                 batch,
                 transferia_core::SystemColumns::default(),
-            )])
+            )?])
         })
         .await?;
     }

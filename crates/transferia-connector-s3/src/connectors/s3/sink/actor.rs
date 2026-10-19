@@ -681,7 +681,7 @@ impl S3Sink {
         self.ready.len().saturating_add(self.in_flight_objects)
     }
 
-    async fn run_actor(mut self, mut io: SinkIo) -> anyhow::Result<()> {
+    async fn run_actor(&mut self, mut io: SinkIo) -> anyhow::Result<()> {
         let max_in_flight_objects = self.config.max_in_flight_objects;
         let mut uploads = JoinSet::new();
         let upload_cancellation = CancellationToken::new();
@@ -829,10 +829,15 @@ async fn cancel_and_drain_uploads(
 }
 
 impl Sink for S3Sink {
-    fn run(
-        self: Box<Self>,
+    fn update_discovery(&mut self, discovery: std::sync::Arc<transferia_core::DeliveryDiscovery>) -> transferia_core::failure::DataPlaneResult<()> {
+        self.discovery = discovery;
+        Ok(())
+    }
+
+    fn run_session(
+        &mut self,
         io: SinkIo,
-    ) -> BoxFuture<'static, transferia_core::failure::DataPlaneResult<()>> {
+    ) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
             self.run_actor(io)
                 .await

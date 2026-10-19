@@ -690,7 +690,7 @@ pub fn project_sink_batch(
         .iter()
         .map(|&index| dataset.stored_schema.columns[index].clone())
         .collect::<Vec<_>>();
-    let old_primary_keys = old_primary_key_batch(dataset, batch, &primary_key_columns)?;
+    let old_primary_keys = old_primary_key_batch(&dataset, batch, &primary_key_columns)?;
     if dataset.update_policy == crate::delivery::UpdatePolicy::FullImageUpsert {
         for (row, operation) in parsed_operations.iter_mut().enumerate() {
             if *operation != ChangeOperation::Update {

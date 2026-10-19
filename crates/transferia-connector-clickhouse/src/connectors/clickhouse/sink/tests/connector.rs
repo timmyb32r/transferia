@@ -466,6 +466,8 @@ fn date32_runtime_validation_enforces_clickhouse_lossless_range() -> anyhow::Res
         Ok(transferia_core::sink::SinkBatch {
             table: Arc::from("events"),
             is_dlq: false,
+            schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+            namespace: None,
             batch,
             byte_size,
             memory: transferia_core::memory::PipelineMemory::new(byte_size.max(1))
@@ -513,6 +515,8 @@ fn naive_timestamps_fail_before_destination_preparation_and_runtime_buffering() 
     let batch = transferia_core::sink::SinkBatch {
         table: Arc::from("events"),
         is_dlq: false,
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
         byte_size: bytes,
         memory: transferia_core::memory::PipelineMemory::new(bytes).reserve_transform(bytes),
@@ -541,6 +545,8 @@ fn decimals_validate_schema_at_startup_and_coefficients_before_buffering() -> an
         )?;
         let bytes = batch.get_array_memory_size();
         let batch = transferia_core::sink::SinkBatch {
+            schema: Arc::new(transferia_core::DatasetSchema::from_arrow(batch.schema().as_ref())?),
+            namespace: None,
             table: Arc::from("events"), is_dlq: false, batch, byte_size: bytes,
             memory: transferia_core::memory::PipelineMemory::new(bytes).reserve_transform(bytes),
             system_columns: transferia_core::SystemColumns::default(),

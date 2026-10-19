@@ -1874,7 +1874,7 @@ pub fn old_value_schema_column(index: usize, current: &SchemaColumn) -> SchemaCo
         true,
     )
     .with_old_value_of(current.name.clone());
-    old_value.arrow_extension_name = current.arrow_extension_name;
+    old_value.arrow_extension_name = current.arrow_extension_name.clone();
     old_value
         .arrow_extension_metadata
         .clone_from(&current.arrow_extension_metadata);

@@ -38,10 +38,10 @@ fn defaults_preserve_binary_key_headers_timestamp_and_i64_offset() -> anyhow::Re
     let (main, dlq) = session.parse_into(vec![message(b"\0\xffvalue")])?;
 
     assert!(dlq.is_none());
-    assert_eq!(main.batch.num_rows(), 1);
-    assert_eq!(main.batch.num_columns(), 8);
+    assert_eq!(main[0].batch.num_rows(), 1);
+    assert_eq!(main[0].batch.num_columns(), 8);
     assert_eq!(
-        main.batch
+        main[0].batch
             .column(0)
             .as_any()
             .downcast_ref::<StringArray>()
@@ -50,7 +50,7 @@ fn defaults_preserve_binary_key_headers_timestamp_and_i64_offset() -> anyhow::Re
         "account/topic"
     );
     assert_eq!(
-        main.batch
+        main[0].batch
             .column(2)
             .as_any()
             .downcast_ref::<Int64Array>()
@@ -59,7 +59,7 @@ fn defaults_preserve_binary_key_headers_timestamp_and_i64_offset() -> anyhow::Re
         i64::MAX
     );
     assert_eq!(
-        main.batch
+        main[0].batch
             .column(4)
             .as_any()
             .downcast_ref::<StringArray>()
@@ -68,7 +68,7 @@ fn defaults_preserve_binary_key_headers_timestamp_and_i64_offset() -> anyhow::Re
         r#"[{"key":"duplicate","value_base64":"AP8="},{"key":"duplicate","value_base64":null}]"#
     );
     assert_eq!(
-        main.batch
+        main[0].batch
             .column(5)
             .as_any()
             .downcast_ref::<BinaryArray>()
@@ -77,7 +77,7 @@ fn defaults_preserve_binary_key_headers_timestamp_and_i64_offset() -> anyhow::Re
         b"\xffkey"
     );
     assert_eq!(
-        main.batch
+        main[0].batch
             .column(7)
             .as_any()
             .downcast_ref::<BinaryArray>()
@@ -100,7 +100,7 @@ fn tombstone_is_distinct_from_an_empty_value() -> anyhow::Result<()> {
     let (main, dlq) = session.parse_into(vec![message(b""), tombstone])?;
 
     assert!(dlq.is_none());
-    let markers = main
+    let markers = main[0]
         .batch
         .column(6)
         .as_any()
@@ -108,7 +108,7 @@ fn tombstone_is_distinct_from_an_empty_value() -> anyhow::Result<()> {
         .unwrap();
     assert!(!markers.value(0));
     assert!(markers.value(1));
-    assert!(main.batch.column(7).is_null(1));
+    assert!(main[0].batch.column(7).is_null(1));
     Ok(())
 }
 
@@ -122,7 +122,7 @@ fn invalid_typed_value_reaches_lossless_dlq() -> anyhow::Result<()> {
     let mut session = parser.create_session(1024 * 1024);
     let (main, dlq) = session.parse_into(vec![message(b"not-json")])?;
 
-    assert_eq!(main.batch.num_rows(), 0);
+    assert_eq!(main[0].batch.num_rows(), 0);
     let dlq = dlq.expect("invalid JSON must reach DLQ");
     assert_eq!(dlq.batch.num_rows(), 1);
     assert_eq!(dlq.batch.num_columns(), 9);

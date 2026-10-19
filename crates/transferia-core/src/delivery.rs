@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use schemars::JsonSchema;
@@ -44,6 +45,8 @@ pub enum SchemaOrigin {
     SourceNative,
     /// The source is raw bytes and the parser defines the logical schema.
     ParserProjection,
+    /// Writer schemas are supplied with runtime parser batches.
+    ParserRuntime,
 }
 
 /// One dataset as seen at the sink boundary.
@@ -57,7 +60,7 @@ pub enum UpdatePolicy {
 }
 
 /// One dataset as seen at the sink boundary.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredDataset {
     /// Exact source database or schema, when the source has one. Never inferred
     /// by splitting the dataset name: dots can be literal identifier characters.
@@ -331,9 +334,17 @@ impl SinkLimits for NoLimits {
 pub fn validate_batch_against_discovery<'a>(
     discovery: &'a DeliveryDiscovery,
     batch: &SinkBatch,
-) -> anyhow::Result<&'a DiscoveredDataset> {
+) -> anyhow::Result<Cow<'a, DiscoveredDataset>> {
     let role = DatasetRole::from_is_dlq(batch.is_dlq);
-    let expected = discovery.dataset_named(role, &batch.table)?;
+    let known = discovery.dataset_named(role, &batch.table);
+    let expected = if discovery.schema_origin == SchemaOrigin::ParserRuntime {
+        match known {
+            Ok(dataset) if dataset.incoming_schema == *batch.schema => Cow::Borrowed(dataset),
+            _ => Cow::Owned(batch.dataset(discovery.keep_system_columns)?),
+        }
+    } else { Cow::Borrowed(known?) };
+    anyhow::ensure!(expected.incoming_schema == *batch.schema,
+        "runtime dataset '{}' differs from its carried logical schema", batch.table);
     anyhow::ensure!(
         batch.table.as_ref() == expected.name.as_ref(),
         "runtime {role:?} dataset name '{}' differs from discovered name '{}'",
@@ -396,7 +407,7 @@ pub fn validate_batch_against_discovery<'a>(
                 && metadata.get(META_OLD_KEY_OF) == expected_column.old_key_of.as_ref()
                 && metadata.get(META_SYSTEM_ROLE) == expected_column.system_role.as_ref()
                 && metadata.get(META_ARROW_EXTENSION_NAME).map(String::as_str)
-                    == expected_column.arrow_extension_name
+                    == expected_column.arrow_extension_name.as_deref()
                 && metadata.get(META_ARROW_EXTENSION_METADATA)
                     == expected_column.arrow_extension_metadata.as_ref(),
             "runtime dataset '{}' column '{}' metadata does not match discovery",

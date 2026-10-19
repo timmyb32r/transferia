@@ -60,8 +60,6 @@ pub struct PqV1SinkConfig {
 
     pub topic_path: String,
 
-    pub message_group_id: Option<String>,
-
     pub partition_group_id: i64,
 
     pub auth: PqV1AuthConfig,
@@ -83,12 +81,6 @@ impl PqV1SinkConfig {
             !self.topic_path.is_empty(),
             "pqv1.topic_path must not be empty"
         );
-        if let Some(message_group_id) = &self.message_group_id {
-            anyhow::ensure!(
-                !message_group_id.is_empty() && message_group_id.len() <= 2048,
-                "pqv1.message_group_id must contain 1..=2048 UTF-8 bytes"
-            );
-        }
         anyhow::ensure!(
             self.partition_group_id >= 0,
             "pqv1.partition_group_id must be nonnegative"

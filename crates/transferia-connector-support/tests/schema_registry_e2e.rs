@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use apache_avro::types::Value as AvroValue;
-use arrow::array::StringArray;
+use arrow::array::{BooleanArray, Int32Array, Int64Array, StringArray};
 use arrow::record_batch::RecordBatch;
 use prost::Message as _;
 use serde::Deserialize;
@@ -123,7 +123,8 @@ async fn schema_registry_decodes_all_confluent_formats_losslessly() -> anyhow::R
         let plan = ParserPlan::from_config(&parser, "events")?;
         let (table, dlq) = parse_one(&plan, raw).await?;
         assert!(dlq.is_none());
-        assert_row(&table.batch)?;
+        assert_eq!(table.len(), 1);
+        assert_row(&table[0].batch, format)?;
     }
     Ok(())
 }
@@ -132,7 +133,7 @@ async fn parse_one(
     plan: &ParserPlan,
     payload: Vec<u8>,
 ) -> anyhow::Result<(
-    transferia_core::data::table_data::TableData,
+    Vec<transferia_core::data::table_data::TableData>,
     Option<transferia_core::data::table_data::TableData>,
 )> {
     let mut session = plan.parser().create_session(16 * 1024 * 1024);
@@ -217,16 +218,16 @@ fn encode_source(format: SchemaFormat, id: i32, definition: &str) -> anyhow::Res
     ConfluentEnvelope::encode(id, &payload)
 }
 
-fn assert_row(batch: &RecordBatch) -> anyhow::Result<()> {
+fn assert_row(batch: &RecordBatch, format: SchemaFormat) -> anyhow::Result<()> {
     assert_eq!(batch.num_rows(), 1);
-    let data = batch
-        .column(0)
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .ok_or_else(|| anyhow::anyhow!("decoded data is not an Arrow JSON string"))?;
-    let value: serde_json::Value = serde_json::from_str(data.value(0))?;
-    assert_eq!(value["id"], 42);
-    assert_eq!(value["name"], "answer");
-    assert_eq!(value["enabled"], true);
+    let id = batch.column_by_name("id").ok_or_else(|| anyhow::anyhow!("id column is missing"))?;
+    if format == SchemaFormat::JsonSchema {
+        assert_eq!(id.as_any().downcast_ref::<Int64Array>().unwrap().value(0), 42);
+    } else {
+        assert_eq!(id.as_any().downcast_ref::<Int32Array>().unwrap().value(0), 42);
+    }
+    assert_eq!(batch.column_by_name("name").unwrap().as_any().downcast_ref::<StringArray>().unwrap().value(0), "answer");
+    assert!(batch.column_by_name("enabled").unwrap().as_any().downcast_ref::<BooleanArray>().unwrap().value(0));
+    assert!(batch.column_by_name("data").is_none());
     Ok(())
 }

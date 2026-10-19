@@ -225,7 +225,7 @@ impl SinkConnector for OpenSearchSinkConnector {
 
     fn destination_type(&self, column: &SchemaColumn) -> anyhow::Result<String> {
         if column.name == "_source"
-            && column.arrow_extension_name == Some(ARROW_JSON_EXTENSION_NAME)
+            && column.arrow_extension_name.as_deref() == Some(ARROW_JSON_EXTENSION_NAME)
         {
             return Ok("object".to_owned());
         }

@@ -494,7 +494,7 @@ impl Source for OpenSearchSource {
                         false,
                         batch,
                         routing_system_columns(),
-                    )],
+                    )?],
                     source_rows: rows,
                     commit_marker: None,
                     memory: vec![lease],

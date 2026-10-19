@@ -1317,7 +1317,7 @@ pub(super) fn schema_materialization_admission_bytes(
             .len()
             .checked_add(column.name.len())
             .ok_or_else(|| anyhow::anyhow!("MySQL CDC old-value metadata overflow"))?;
-        if let Some(extension_name) = column.arrow_extension_name {
+        if let Some(extension_name) = &column.arrow_extension_name {
             add_metadata_shape(
                 &mut old_entries,
                 &mut old_payload,
@@ -1407,7 +1407,7 @@ fn schema_column_metadata_shape(column: &SchemaColumn) -> anyhow::Result<(usize,
             decimal_digit_count(max_length),
         )?;
     }
-    if let Some(extension_name) = column.arrow_extension_name {
+    if let Some(extension_name) = &column.arrow_extension_name {
         add_metadata_shape(
             &mut entries,
             &mut payload,
@@ -1897,7 +1897,7 @@ fn changes_to_table_data(
         false,
         batch,
         SystemColumns::new(system_columns),
-    )
+    )?
     .with_namespace(Arc::from(table.config.database.as_str())))
 }
 
@@ -2003,7 +2003,7 @@ fn validate_replication_tables(
                     && exact.primary_key_direction == column.primary_key_direction
                     && discovered.name == column.name
                     && discovered.data_type == column.kind.arrow_type()
-                    && discovered.arrow_extension_name
+                    && discovered.arrow_extension_name.as_deref()
                         == Some(column.kind.arrow_extension_name())
                     && discovered.arrow_extension_metadata.as_deref()
                         == Some(extension_metadata.as_str())

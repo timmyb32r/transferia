@@ -3,8 +3,13 @@ use alloc::sync::Arc;
 use arrow::record_batch::RecordBatch;
 
 use crate::data::system_columns::SystemColumns;
+use crate::DatasetSchema;
 
-/// Pipeline unit: one Arrow batch destined for one pre-resolved table.
+/// Transport DTO: one Arrow batch destined for one pre-resolved table.
+///
+/// This is not destination acceptance. Producers carry the exact logical schema;
+/// mutable middleware output is revalidated at the sink boundary before buffering
+/// or writes, including DTOs constructed without `new`.
 ///
 /// Flows: **parser → middlewares → sink delivery**.
 /// `table` is already resolved to the concrete target name
@@ -17,6 +22,8 @@ pub struct TableData {
     pub table: Arc<str>,
     /// Informational flag for tracing / short-circuit decisions.
     pub is_dlq: bool,
+    /// Logical input schema carried with this batch, independently of startup discovery.
+    pub schema: Arc<DatasetSchema>,
     /// Arrow columnar data.
     pub batch: RecordBatch,
     /// Semantic roles of parser-generated Arrow columns.
@@ -24,20 +31,21 @@ pub struct TableData {
 }
 
 impl TableData {
-    #[must_use]
-    pub const fn new(
+    pub fn new(
         table: Arc<str>,
         is_dlq: bool,
         batch: RecordBatch,
         system_columns: SystemColumns,
-    ) -> Self {
-        Self {
+    ) -> crate::DataPlaneResult<Self> {
+        let schema = Arc::new(DatasetSchema::from_arrow(batch.schema().as_ref()).map_err(crate::DataPlaneFailure::fatal)?);
+        Ok(Self {
+            schema,
             namespace: None,
             table,
             is_dlq,
             batch,
             system_columns,
-        }
+        })
     }
 
     #[must_use]

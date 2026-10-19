@@ -92,3 +92,46 @@ fn pqv1_rejects_topic_prefix_explicitly() -> anyhow::Result<()> {
     assert!(error.to_string().contains("does not support topic_prefix"));
     Ok(())
 }
+
+#[test]
+fn table_identity_is_validated_before_discovery_and_runtime_writes() -> anyhow::Result<()> {
+    use std::sync::Arc;
+    use arrow::array::Int64Array;
+    use arrow::datatypes::{DataType, Field, Schema};
+    use arrow::record_batch::RecordBatch;
+    use transferia_core::{DeliveryDiscovery, SchemaOrigin, SinkLimits, SourceTopology};
+
+    let limits = config("")?;
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)])),
+        vec![Arc::new(Int64Array::from(vec![1]))],
+    )?;
+    let memory = transferia_core::memory::PipelineMemory::new(1024);
+    let mut output = transferia_core::SinkBatch {
+        table: Arc::from("events"),
+        namespace: None,
+        schema: Arc::new(transferia_core::DatasetSchema::from_arrow(batch.schema().as_ref())?),
+        byte_size: batch.get_array_memory_size(),
+        memory: memory.reserve_transform(batch.get_array_memory_size()),
+        batch,
+        is_dlq: false,
+        system_columns: Default::default(),
+    };
+    let mut discovery = DeliveryDiscovery {
+        source_name: Arc::from("test"),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::ParserRuntime,
+        keep_system_columns: false,
+        datasets: vec![output.dataset(false)?],
+        performance_advice: Vec::new(),
+    };
+    limits.validate_discovery(&discovery)?;
+    limits.validate_batch(&discovery, &output)?;
+    for invalid in [String::new(), "x".repeat(2049)] {
+        output.table = Arc::from(invalid);
+        discovery.datasets[0].name = Arc::clone(&output.table);
+        assert!(limits.validate_discovery(&discovery).is_err());
+        assert!(limits.validate_batch(&discovery, &output).is_err());
+    }
+    Ok(())
+}

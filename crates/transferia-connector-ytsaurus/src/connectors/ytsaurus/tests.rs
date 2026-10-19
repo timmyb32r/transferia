@@ -783,6 +783,8 @@ async fn dynamic_partial_update_preserves_toast_by_using_modify_with_only_change
     let input = SinkBatch {
         table: Arc::from("events"),
         is_dlq: false,
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
         byte_size: bytes,
         memory: PipelineMemory::new(1024 * 1024).reserve(1).await,
@@ -2661,5 +2663,14 @@ fn native_arrow_accepts_only_the_empty_wire_stream_terminator() -> anyhow::Resul
         Err(error) => error,
     };
     assert!(error.to_string().contains("refusing the fallback"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn runtime_admission_rejects_startup_replacement_before_any_external_request() -> anyhow::Result<()> {
+    let connector = YTsaurusSinkConnector::from_config(speedtest_static_config(true)?)?;
+    let request = transferia_registry::SinkPrepare::from_discovery(&speedtest_sink_discovery(), false, "runtime", None)?.unwrap();
+    let error = connector.prepare_runtime(request, None).await.unwrap_err();
+    assert!(error.to_string().contains("replace_tables=false"));
     Ok(())
 }

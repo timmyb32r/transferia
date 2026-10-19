@@ -43,6 +43,15 @@ impl OutputRowCounts {
         })
     }
 
+    /// Register explicit runtime output identities before observing their
+    /// deliveries. Registration publishes zero rows; only source commits can
+    /// advance totals. Static pipelines keep rejecting undiscovered outputs.
+    pub fn admit_datasets(&self, datasets: impl IntoIterator<Item = (Arc<str>, bool)>) -> anyhow::Result<()> {
+        let mut state = self.state.lock().map_err(|_| anyhow::anyhow!("snapshot row counter lock is poisoned"))?;
+        for (table, is_dlq) in datasets { state.committed.entry((is_dlq, table)).or_insert(0); }
+        Ok(())
+    }
+
     pub(crate) fn observe_delivery(
         &self,
         id: DeliveryId,

@@ -338,7 +338,7 @@ impl ParserSession for DebeziumParserSession {
     fn parse_into(
         &mut self,
         messages: Vec<Message>,
-    ) -> anyhow::Result<(TableData, Option<TableData>)> {
+    ) -> anyhow::Result<(Vec<TableData>, Option<TableData>)> {
         let mut rejected = Vec::new();
         let mut valid = Vec::with_capacity(messages.len());
         for message in messages {
@@ -413,7 +413,9 @@ impl ParserSession for DebeziumParserSession {
             changed.push(mask);
         }
 
-        let (mut main, dlq) = self.json.parse_into(normalized)?;
+        let (mut tables, dlq) = self.json.parse_into(normalized)?;
+        anyhow::ensure!(tables.len() == 1, "Debezium JSON projection must produce one table batch");
+        let mut main = tables.pop().ok_or_else(|| anyhow::anyhow!("Debezium projection is absent"))?;
         anyhow::ensure!(
             dlq.is_none(),
             "Debezium parser unexpectedly produced DLQ rows"
@@ -485,7 +487,8 @@ impl ParserSession for DebeziumParserSession {
             &rejected,
             self.memory_limit_bytes,
         )?;
-        Ok((main, dlq))
+        main.schema = Arc::new(DatasetSchema::from_arrow(main.batch.schema().as_ref())?);
+        Ok((vec![main], dlq))
     }
 }
 

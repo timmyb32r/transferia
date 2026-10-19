@@ -193,11 +193,11 @@ fn metadata_nullable(role: &str) -> bool {
 fn old_schema_column(index: usize, column: &SchemaColumn) -> SchemaColumn {
     let mut old = SchemaColumn::new(old_value_column_name(index), column.data_type.clone(), true)
         .with_old_value_of(column.name.clone());
-    if let Some(extension) = column.arrow_extension_name {
+    if let Some(extension) = &column.arrow_extension_name {
         old = old.with_arrow_extension(extension);
     }
     if let (Some(extension), Some(metadata)) = (
-        column.arrow_extension_name,
+        column.arrow_extension_name.as_deref(),
         column.arrow_extension_metadata.clone(),
     ) {
         old = old.with_arrow_extension_metadata(extension, metadata);
@@ -865,7 +865,7 @@ fn schema_column_metadata_shape(column: &SchemaColumn) -> anyhow::Result<(usize,
             decimal_digit_count(max_length),
         )?;
     }
-    if let Some(extension) = column.arrow_extension_name {
+    if let Some(extension) = &column.arrow_extension_name {
         add_metadata_shape(
             &mut entries,
             &mut payload,
@@ -1047,7 +1047,7 @@ fn materialize_table(
         false,
         batch,
         SystemColumns::new(system_columns),
-    ))
+    )?)
 }
 
 #[derive(Clone, Copy)]

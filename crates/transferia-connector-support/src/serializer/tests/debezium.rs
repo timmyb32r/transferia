@@ -528,7 +528,7 @@ async fn ydb_cdc_batch() -> SinkBatch {
             true,
         )
         .with_old_value_of(column.name.clone());
-        let old = if let Some(extension) = column.arrow_extension_name {
+        let old = if let Some(extension) = &column.arrow_extension_name {
             old.with_arrow_extension(extension)
         } else {
             old
@@ -683,6 +683,8 @@ async fn ydb_cdc_batch() -> SinkBatch {
         table: Arc::from("/local/accounts"),
         is_dlq: false,
         byte_size: batch.get_array_memory_size(),
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
         memory: PipelineMemory::new(1024 * 1024).reserve(1).await,
         system_columns: SystemColumns::new(
@@ -950,6 +952,8 @@ async fn mysql_cdc_batch() -> SinkBatch {
         table: Arc::from("accounts"),
         is_dlq: false,
         byte_size: batch.get_array_memory_size(),
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
         memory: PipelineMemory::new(1024 * 1024).reserve(1).await,
         system_columns: SystemColumns::new(vec![
@@ -1095,6 +1099,8 @@ async fn cdc_batch() -> SinkBatch {
         table: Arc::from("accounts"),
         is_dlq: false,
         byte_size: batch.get_array_memory_size(),
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
         memory: PipelineMemory::new(1024 * 1024).reserve(1).await,
         system_columns: SystemColumns::new(vec![
@@ -1212,6 +1218,8 @@ async fn snapshot_batch() -> SinkBatch {
         table: Arc::from("accounts"),
         is_dlq: false,
         byte_size: batch.get_array_memory_size(),
+        schema: std::sync::Arc::new(transferia_core::DatasetSchema::from_arrow((batch).schema().as_ref()).expect("valid batch schema")),
+        namespace: None,
         batch,
         memory: PipelineMemory::new(1024 * 1024).reserve(1).await,
         system_columns: SystemColumns::new(vec![SystemColumn {

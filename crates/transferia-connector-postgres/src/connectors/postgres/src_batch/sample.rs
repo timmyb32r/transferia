@@ -119,7 +119,7 @@ pub(in crate::connectors::postgres) async fn sample_with_metadata(
             }
             let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?;
             observe_external_request("postgres", "finish_read_only_table_sample", client.batch_execute("ROLLBACK")).await?;
-            Ok(TableData::new(Arc::from(table.name.as_str()), false, batch, SystemColumns::default())
+            Ok(TableData::new(Arc::from(table.name.as_str()), false, batch, SystemColumns::default())?
                 .with_namespace(Arc::from(table.namespace.as_str())))
         } => result,
     }

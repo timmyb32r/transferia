@@ -147,7 +147,7 @@ impl S3Source {
                 false,
                 batch,
                 SystemColumns::default(),
-            )],
+            )?],
             source_rows: rows,
             commit_marker: Some(CommitMarker::new(commit_marker)),
             memory: vec![memory],

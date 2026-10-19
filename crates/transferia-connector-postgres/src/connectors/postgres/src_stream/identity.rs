@@ -121,7 +121,7 @@ impl AuthoritativeTableIdentity {
                     primary_key: column.primary_key,
                     low_cardinality: column.low_cardinality,
                     max_length: column.max_length.map(u64::try_from).transpose()?,
-                    arrow_extension_name: column.arrow_extension_name.map(str::to_owned),
+                    arrow_extension_name: column.arrow_extension_name.clone(),
                     system_role: column.system_role.clone(),
                     old_value_of: column.old_value_of.clone(),
                     old_key_of: column.old_key_of.clone(),

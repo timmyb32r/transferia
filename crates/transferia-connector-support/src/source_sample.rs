@@ -37,7 +37,7 @@ pub async fn parse_sample(
         limits.check_bytes(allocation)?;
         let (main, dlq) = parser.parse_into(messages)?;
         anyhow::ensure!(!cancellation.is_cancelled(), "Source sample cancelled");
-        let tables = std::iter::once(main).chain(dlq).collect::<Vec<_>>();
+        let tables = main.into_iter().chain(dlq).collect::<Vec<_>>();
         let bytes = tables
             .iter()
             .try_fold(0_usize, |bytes, table| {

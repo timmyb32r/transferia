@@ -332,6 +332,7 @@ async fn build_pipeline_plan(
     );
 
     let mut discovery = validate_middlewares(&middlewares, discovery).await?;
+    validate_runtime_schema_snapshot(finite_source, &discovery, sink_connector.as_ref())?;
     discovery
         .performance_advice
         .extend(sink_connector.performance_advice());
@@ -357,6 +358,19 @@ async fn build_pipeline_plan(
         semantics,
         finite_source,
     })
+}
+
+pub(crate) fn validate_runtime_schema_snapshot(
+    finite: bool,
+    discovery: &DeliveryDiscovery,
+    sink: &dyn SinkConnector,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !finite || discovery.schema_origin != transferia_core::SchemaOrigin::ParserRuntime
+            || sink.snapshot_row_count_strategy().is_none(),
+        "destination requires startup dataset schemas for exact finite-snapshot reconciliation; runtime-schema finite sources are unsupported"
+    );
+    Ok(())
 }
 
 pub fn validate_discovered_pipeline(
@@ -428,7 +442,7 @@ pub async fn validate_middlewares(
         merge_compatible_datasets(&mut discovery.datasets)
             .with_context(|| format!("transform step {}", index + 1))?;
     }
-    anyhow::ensure!(found_main, "middlewares require a discovered main dataset");
+    anyhow::ensure!(found_main || discovery.schema_origin == transferia_core::SchemaOrigin::ParserRuntime, "middlewares require a discovered main dataset");
     validate_dataset_names(&discovery.datasets)?;
     Ok(discovery)
 }

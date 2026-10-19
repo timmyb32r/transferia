@@ -366,19 +366,16 @@ async fn dataset_admission_prepares_only_new_tables_and_rejects_collisions_befor
             durable: transferia_test_support::durable_context(),
         },
     };
-    let _actor = coordinator.prepare(added.clone()).await.unwrap();
+    let _actor = coordinator.prepare(added.clone(), transferia_pipeline::DatasetStage::Source).await.unwrap();
     assert_eq!(
         *sink.prepared.lock().unwrap(),
         vec![vec![Arc::<str>::from("new_events")]]
     );
-    assert_eq!(
-        *sink.built.lock().unwrap(),
-        vec![vec![Arc::<str>::from("events"), Arc::from("new_events")]]
-    );
+    assert!(sink.built.lock().unwrap().is_empty());
     added.namespace = Some(Arc::from("different_database"));
-    assert!(coordinator.prepare(added).await.is_err());
+    assert!(coordinator.prepare(added, transferia_pipeline::DatasetStage::Source).await.is_err());
     assert_eq!(sink.prepared.lock().unwrap().len(), 1);
-    assert_eq!(sink.built.lock().unwrap().len(), 1);
+    assert!(sink.built.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -413,12 +410,9 @@ async fn dynamic_rename_merge_does_not_reprepare_and_schema_conflicts_fail_befor
             durable: transferia_test_support::durable_context(),
         },
     };
-    let _actor = coordinator.prepare(added.clone()).await.unwrap();
+    let _actor = coordinator.prepare(added.clone(), transferia_pipeline::DatasetStage::Source).await.unwrap();
     assert!(sink.prepared.lock().unwrap().is_empty());
-    assert_eq!(
-        *sink.built.lock().unwrap(),
-        vec![vec![Arc::<str>::from("events")]]
-    );
+    assert!(sink.built.lock().unwrap().is_empty());
     added
         .stored_schema
         .columns
@@ -427,13 +421,18 @@ async fn dynamic_rename_merge_does_not_reprepare_and_schema_conflicts_fail_befor
             arrow::datatypes::DataType::Int64,
             false,
         ));
-    assert!(coordinator.prepare(added).await.is_err());
+    assert!(coordinator.prepare(added, transferia_pipeline::DatasetStage::Source).await.is_err());
     assert!(sink.prepared.lock().unwrap().is_empty());
-    assert_eq!(sink.built.lock().unwrap().len(), 1);
+    assert!(sink.built.lock().unwrap().is_empty());
 }
 
 impl Sink for PhaseSink {
-    fn run(self: Box<Self>, mut io: SinkIo) -> BoxFuture<'static, DataPlaneResult<()>> {
+    fn update_discovery(&mut self, discovery: std::sync::Arc<transferia_core::DeliveryDiscovery>) -> transferia_core::failure::DataPlaneResult<()> {
+        drop(discovery);
+        Ok(())
+    }
+
+    fn run_session(&mut self, mut io: SinkIo) -> BoxFuture<'_, DataPlaneResult<()>> {
         Box::pin(async move {
             loop {
                 let delivery = tokio::select! {
@@ -1309,4 +1308,16 @@ fn source_build_failure_preserves_an_explicit_fatal_disposition() {
 
     let unclassified = source_build_failure(anyhow::anyhow!("connection reset"));
     assert!(unclassified.is_retryable());
+}
+
+#[test]
+fn runtime_schema_snapshot_reconciliation_is_validated_before_probing_or_preparation() {
+    let sink = RowCountSink::new(SnapshotRowCountStrategy::AdditiveBaseline, []);
+    let mut discovery = phase_discovery(SourceTopology::StaticPartitions(vec![0]));
+    discovery.schema_origin = transferia_core::SchemaOrigin::ParserRuntime;
+    assert!(crate::delivery::preparation::validate_runtime_schema_snapshot(true, &discovery, &sink).is_err());
+    assert!(crate::delivery::preparation::validate_runtime_schema_snapshot(false, &discovery, &sink).is_ok());
+    discovery.schema_origin = transferia_core::SchemaOrigin::SourceNative;
+    assert!(crate::delivery::preparation::validate_runtime_schema_snapshot(true, &discovery, &sink).is_ok());
+    assert_eq!(sink.probes.load(Ordering::Relaxed), 0);
 }

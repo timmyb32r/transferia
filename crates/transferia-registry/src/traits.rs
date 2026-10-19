@@ -457,6 +457,24 @@ pub trait SinkConnector: Send + Sync {
 
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>>;
 
+    /// Runtime schema policy. A new destination uses ordinary preparation;
+    /// changing an admitted schema fails closed unless this sink explicitly
+    /// implements a non-destructive evolution policy. Startup replacement
+    /// policies must never run implicitly during evolution.
+    fn prepare_runtime(
+        &self,
+        request: SinkPrepare,
+        previous: Option<transferia_core::DiscoveredDataset>,
+    ) -> BoxFuture<'_, anyhow::Result<()>> {
+        Box::pin(async move {
+            if let Some(previous) = previous {
+                anyhow::bail!("destination does not support runtime schema changes for dataset '{}'", previous.name);
+            }
+            self.prepare(request).await
+        })
+    }
+
+
     fn validate_pipeline_memory_limit(&self, _limit_bytes: usize) -> anyhow::Result<()> {
         Ok(())
     }
