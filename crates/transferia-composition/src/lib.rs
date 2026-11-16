@@ -2,6 +2,8 @@ use anyhow::Context as _;
 use clap::Parser;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
+use tracing_subscriber::layer::SubscriberExt as _;
+use tracing_subscriber::util::SubscriberInitExt as _;
 
 use transferia_connectors::extension::Transferia;
 use transferia_delivery::delivery::config::yaml::Config;
@@ -9,6 +11,7 @@ use transferia_delivery::delivery::execution::runner::start_delivery;
 use transferia_delivery::delivery::preparation::{
     build_delivery_plan_with, build_resolved_delivery_document_with, ResolvedConfigDocument,
 };
+use transferia_log_export::{LogExport, LogExportSetup};
 use transferia_runtime_local::LocalWorkerSupervisor;
 
 use worker_control::WorkerControl;
@@ -91,13 +94,36 @@ fn spawn_shutdown_listener(cancellation: CancellationToken) -> anyhow::Result<()
     Ok(())
 }
 
-pub async fn run(transferia: Transferia) -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
+/// Runs the process selected by the command line.
+///
+/// With `log_export`, every log event that passes the level filter is also
+/// exported; the export is flushed before this function returns.
+pub async fn run(transferia: Transferia, log_export: Option<LogExportSetup>) -> anyhow::Result<()> {
+    let (export_layer, export_handle) = log_export
+        .map(transferia_log_export::start)
+        .transpose()?
+        .map(LogExport::into_parts)
+        .unzip();
+    tracing_subscriber::registry()
+        .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
+        .with(tracing_subscriber::fmt::layer())
+        .with(export_layer)
         .init();
+    let result = execute(transferia).await;
+    if let Some(export_handle) = export_handle {
+        if let Err(error) = &result {
+            // The caller reports the error after the export is closed.
+            tracing::error!(error = %format_args!("{error:#}"), "transferia failed");
+        }
+        export_handle.shutdown().await;
+    }
+    result
+}
+
+async fn execute(transferia: Transferia) -> anyhow::Result<()> {
     let cli = Cli::parse();
     if cli.server {
         let allow_non_loopback = cli.listen_all.is_some();

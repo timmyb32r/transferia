@@ -6004,6 +6004,7 @@ dependencies = [
  "transferia-control-plane",
  "transferia-core",
  "transferia-delivery",
+ "transferia-log-export",
  "transferia-middleware-datafusion",
  "transferia-middleware-filter",
  "transferia-middleware-rename-table",
@@ -6023,10 +6024,12 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
+ "tracing",
  "tracing-subscriber",
  "transferia-connectors",
  "transferia-control-plane",
  "transferia-delivery",
+ "transferia-log-export",
  "transferia-runtime-local",
 ]
 
@@ -6156,6 +6159,7 @@ dependencies = [
  "transferia-connector-support",
  "transferia-core",
  "transferia-delivery-contracts",
+ "transferia-log-export",
  "transferia-registry",
  "transferia-test-support",
  "ydb-grpc",
@@ -6519,6 +6523,21 @@ dependencies = [
  "tokio",
  "tracing",
  "transferia-core",
+]
+
+[[package]]
+name = "transferia-log-export"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-util",
+ "serde",
+ "serde_yaml",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
 ]
 
 [[package]]

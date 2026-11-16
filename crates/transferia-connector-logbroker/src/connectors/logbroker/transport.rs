@@ -26,20 +26,35 @@ impl tower::Service<http::Request<tonic::body::Body>> for H2Service {
     }
 }
 
+/// Spawns the tasks of a connection. A connection opened by a log sink keeps
+/// its events out of the log export, where they would cause the next write.
+#[derive(Clone, Copy)]
+struct ConnectionExecutor;
+
+impl<F> hyper::rt::Executor<F> for ConnectionExecutor
+where
+    F: core::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    fn execute(&self, future: F) {
+        transferia_log_export::spawn_inheriting_scope(future);
+    }
+}
+
 /// Open plaintext HTTP/2 with prior knowledge, as required by YDB's native gRPC port.
 pub async fn connect_http2_prior_knowledge(
     uri: &Uri,
     timeout: core::time::Duration,
     cancellation: &CancellationToken,
 ) -> anyhow::Result<H2Service> {
-    let address = socket_address(uri);
+    let address = socket_address(uri)?;
     let operation = async {
         let stream = tokio::net::TcpStream::connect(&address)
             .await
             .map_err(|error| anyhow!("TCP connect to {address}: {error}"))?;
         stream.set_nodelay(true)?;
         let io = hyper_util::rt::TokioIo::new(stream);
-        let mut builder = http2::Builder::new(hyper_util::rt::TokioExecutor::new());
+        let mut builder = http2::Builder::new(ConnectionExecutor);
         builder
             .timer(hyper_util::rt::TokioTimer::new())
             .keep_alive_interval(timeout)
@@ -57,7 +72,7 @@ pub async fn connect_http2_prior_knowledge(
             result.map_err(|_| anyhow!("HTTP/2 connection timed out after {} ms", timeout.as_millis()))??
         }
     };
-    tokio::spawn(async move {
+    transferia_log_export::spawn_inheriting_scope(async move {
         if let Err(error) = connection.await {
             tracing::error!("HTTP/2 connection error: {error}");
         }
@@ -68,9 +83,43 @@ pub async fn connect_http2_prior_knowledge(
     })
 }
 
-fn socket_address(uri: &Uri) -> String {
-    crate::connectors::address::host_port(
-        uri.host().unwrap_or("localhost"),
-        uri.port_u16().unwrap_or(2135),
-    )
+/// Attach the YDB auth and routing headers of one database to a request.
+pub fn set_ydb_request_metadata(
+    metadata: &mut tonic::metadata::MetadataMap,
+    token: &str,
+    database: &str,
+) -> anyhow::Result<()> {
+    use tonic::metadata::AsciiMetadataValue;
+
+    anyhow::ensure!(!token.is_empty(), "YDB access token must not be empty");
+    let mut ticket = AsciiMetadataValue::try_from(token)
+        .map_err(|_| anyhow!("YDB access token is not valid ASCII metadata"))?;
+    // Keeps the token out of header dumps and of the HPACK table.
+    ticket.set_sensitive(true);
+    metadata.insert("x-ydb-auth-ticket", ticket);
+    metadata.insert(
+        "x-ydb-database",
+        AsciiMetadataValue::try_from(database)
+            .map_err(|_| anyhow!("YDB database path is not valid ASCII metadata"))?,
+    );
+    Ok(())
 }
+
+/// Address of a plaintext endpoint; a missing port is 2135, the native gRPC port of YDB.
+fn socket_address(uri: &Uri) -> anyhow::Result<String> {
+    anyhow::ensure!(
+        uri.scheme_str() == Some("http"),
+        "HTTP/2 prior-knowledge endpoint must use the http scheme"
+    );
+    let host = uri
+        .host()
+        .ok_or_else(|| anyhow!("HTTP/2 prior-knowledge endpoint has no host"))?;
+    Ok(crate::connectors::address::host_port(
+        host,
+        uri.port_u16().unwrap_or(2135),
+    ))
+}
+
+#[cfg(test)]
+#[path = "tests/transport.rs"]
+mod tests;

@@ -9,6 +9,7 @@ pub use transferia_connectors::{
 };
 pub use transferia_core as core;
 pub use transferia_delivery as delivery;
+pub use transferia_log_export as log_export;
 pub use transferia_registry as registry;
 pub use transferia_runtime as runtime_api;
 

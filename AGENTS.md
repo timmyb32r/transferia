@@ -342,7 +342,12 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 - `crates/transferia-connector-logbroker/` owns Logbroker discovery, generated
   YDB protocol types, YDB Topic and PQv1 transports, protocol decoding, and
   source/sink behavior. Do not expose Logbroker/YDB transport details through
-  connector-neutral modules.
+  connector-neutral modules. Its YDB Topic write session and gRPC transport
+  are public so that an embedder can write to a topic through them.
+- `crates/transferia-log-export/` owns process-log export: the `tracing` layer,
+  the bounded queue and worker, and the `LogRecordEncoder`/`LogSink` ports. It
+  depends on no workspace crate and carries no wire format or destination;
+  embedders supply both through `transferia_composition::run`.
 - Shared source configuration, discovery, and mode dispatch live in `source/`.
   Source implementations live in mode-specific `src_batch/`, `src_stream/`, or
   `src_batch_and_stream/` modules. `src_stream/` owns live queue streams and

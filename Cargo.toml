@@ -25,6 +25,7 @@ members = [
     "crates/transferia-core",
     "crates/transferia-delivery",
     "crates/transferia-delivery-contracts",
+    "crates/transferia-log-export",
     "crates/transferia-middleware-datafusion",
     "crates/transferia-middleware-filter",
     "crates/transferia-middleware-rename-table",
@@ -113,6 +114,7 @@ tonic-prost = "0.14"
 tonic-prost-build = "0.14"
 tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
+tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 typetag = "0.2"
 url = "2"
@@ -204,6 +206,7 @@ transferia-connectors = { path = "crates/transferia-connectors" }
 transferia-control-plane = { path = "crates/transferia-control-plane" }
 transferia-core = { path = "crates/transferia-core" }
 transferia-delivery = { path = "crates/transferia-delivery" }
+transferia-log-export = { path = "crates/transferia-log-export" }
 transferia-middleware-datafusion = { path = "crates/transferia-middleware-datafusion" }
 transferia-middleware-filter = { path = "crates/transferia-middleware-filter" }
 transferia-middleware-rename-table = { path = "crates/transferia-middleware-rename-table" }

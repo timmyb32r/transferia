@@ -60,6 +60,7 @@ PRODUCTION_ALLOWED = {
         "transferia-core",
         "transferia-delivery-contracts",
         "transferia-connector-support",
+        "transferia-log-export",
         "transferia-registry",
     },
     "transferia-connector-mysql": {
@@ -123,6 +124,7 @@ PRODUCTION_ALLOWED = {
         "transferia-pipeline",
         "transferia-registry",
     },
+    "transferia-log-export": set(),
     "transferia-runtime": set(),
     "transferia-runtime-local": {"transferia-runtime"},
     "transferia-server-contracts": {
@@ -147,6 +149,7 @@ PRODUCTION_ALLOWED = {
         "transferia-control-plane",
         "transferia-delivery",
         "transferia-connectors",
+        "transferia-log-export",
         "transferia-runtime",
         "transferia-runtime-local",
     },

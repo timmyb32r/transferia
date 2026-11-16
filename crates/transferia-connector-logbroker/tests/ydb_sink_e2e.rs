@@ -56,7 +56,9 @@ async fn logbroker_ydb_sink_uses_per_table_identity_without_startup_schemas() ->
             let server_observed = Arc::clone(&server_observed);
             let service = service_fn(move |request| {
                 let observed = Arc::clone(&server_observed);
-                async move { Ok::<_, Infallible>(handle_write(request, observed, expected_identity)) }
+                async move {
+                    Ok::<_, Infallible>(handle_write(request, observed, expected_identity).await)
+                }
             });
             tasks.push(tokio::spawn(async move {
                 drop(
@@ -152,7 +154,7 @@ async fn logbroker_ydb_sink_uses_per_table_identity_without_startup_schemas() ->
     Ok(())
 }
 
-fn handle_write(
+async fn handle_write(
     request: Request<Incoming>,
     observed: Arc<Mutex<Vec<Vec<u8>>>>,
     expected_identity: &'static str,
@@ -162,9 +164,15 @@ fn handle_write(
         "/Ydb.Topic.V1.TopicService/StreamWrite"
     );
     assert_eq!(request.headers().get("x-ydb-auth-ticket").unwrap(), TOKEN);
+    assert_eq!(request.headers().get("x-ydb-database").unwrap(), "/Root");
+    let mut body = request.into_body();
+    // Like a server that sends its response headers with the first message:
+    // nothing is answered before the init message arrives.
+    let first = body.frame().await.unwrap().unwrap().into_data().unwrap();
     let (response_tx, response_rx) = mpsc::unbounded_channel::<Result<Frame<Bytes>, Infallible>>();
     tokio::spawn(async move {
-        process_requests(request.into_body(), response_tx, observed, expected_identity).await;
+        let buffered = BytesMut::from(&first[..]);
+        process_requests(buffered, body, response_tx, observed, expected_identity).await;
     });
     Response::builder()
         .status(StatusCode::OK)
@@ -179,18 +187,14 @@ fn handle_write(
 }
 
 async fn process_requests(
+    mut buffered: BytesMut,
     mut body: Incoming,
     response_tx: mpsc::UnboundedSender<Result<Frame<Bytes>, Infallible>>,
     observed: Arc<Mutex<Vec<Vec<u8>>>>,
     expected_identity: &'static str,
 ) {
-    let mut buffered = BytesMut::new();
     let mut next_sequence = 1;
-    while let Some(Ok(frame)) = body.frame().await {
-        let Ok(data) = frame.into_data() else {
-            continue;
-        };
-        buffered.extend_from_slice(&data);
+    loop {
         while let Some(message) = decode_grpc::<FromClient>(&mut buffered) {
             match message.client_message {
                 Some(ClientMessage::InitRequest(init)) => {
@@ -213,6 +217,7 @@ async fn process_requests(
                     );
                 }
                 Some(ClientMessage::WriteRequest(write)) => {
+                    assert_eq!(write.codec, Codec::Raw as i32);
                     let acks = write
                         .messages
                         .into_iter()
@@ -245,6 +250,12 @@ async fn process_requests(
                 }
                 _ => panic!("unexpected YDB Topic write message"),
             }
+        }
+        let Some(Ok(frame)) = body.frame().await else {
+            return;
+        };
+        if let Ok(data) = frame.into_data() {
+            buffered.extend_from_slice(&data);
         }
     }
 }

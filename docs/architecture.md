@@ -38,11 +38,38 @@ transferia-runtime-local  transferia-control-plane
 - `transferia-control-plane` owns HTTP, application services, persistence, logs,
   and the embedded web UI.
 - `transferia-composition` is the executable composition root. It is the only
-  crate that wires the control plane, local runtime, delivery, and connectors.
+  crate that wires the control plane, local runtime, delivery, and connectors,
+  and it owns the process `tracing` subscriber.
+- `transferia-log-export` owns process-log export. It depends on no workspace
+  crate; `transferia-composition` and `transferia-connector-logbroker` depend
+  on it.
 
 Dependencies must point downward through this graph. A lower-level crate must
 not use a dev-dependency back to a higher-level crate; cross-layer tests belong
 at the highest participating layer or require extraction of a narrower contract.
+
+## Process log export
+
+`transferia_composition::run` accepts an optional `LogExportSetup`: explicit
+limits, a `LogRecordEncoder`, and a `LogSink`. With it, every event that passes
+the `RUST_LOG` filter is exported in addition to the console output. The
+workspace carries no wire format: the embedder's encoder turns one event into
+self-delimited bytes and the sink writes batches of them.
+
+The export never blocks or fails a delivery. An event is encoded on the emitting
+thread and queued within the configured record and byte budgets. A full queue,
+an oversized record, an encoding failure, or a batch that used all
+`max_write_attempts` drops records; every drop is counted and reported by a
+later exported record. Shutdown writes what is queued and ends within
+`shutdown_timeout_ms`, a write in flight included. Events of the export worker
+and of the tasks a sink spawns with `spawn_inheriting_scope` reach only the
+console, span fields are not exported, and records still queued when the
+process aborts are lost.
+
+The workspace ships no `LogSink`. A sink that writes to a YDB topic can reuse
+the write session of `transferia-connector-logbroker`
+(`logbroker::topic_writer::TopicWriter`): a connection it opens from the export
+worker spawns its tasks with `spawn_inheriting_scope`.
 
 ## PostgreSQL snapshot execution
 
